@@ -3,7 +3,7 @@
 **Test from the design:** eight game quarters run, every balance sheet balances,
 and no naira appears without a recorded payer. **Status: passes.**
 
-234 automated server tests and 12 website tests pass. The loophole check was run
+258 automated server tests and 12 website tests pass. The loophole check was run
 on Stage 1 and Stage 2, including a review by a second AI that did not write the code.
 
 Words used below:
@@ -124,7 +124,7 @@ The ten questions from section 19 of the design, applied to Stage 1 and Stage 2.
 | 6 | Hidden information: can a player see what they should not? | No. No password, email, other player's id, account balance or true company result is ever sent. Rejected requests no longer repeat back what was typed. | Section 6; `test_companies_api.py` |
 | 7 | Bad numbers: negative, enormous, fractional, nonsense? | Refused, with an ordinary "not found" or "not valid" answer rather than a crash. Oversized requests are refused before being read. | Section 7; `test_a_nonsense_ticker_is_simply_not_found` |
 | 8 | Collusion: can players together drain the game? | Not applicable yet. Players have no way to pay each other; the reviewer confirmed this. It becomes a live question at Stage 4. | `test_the_website_has_no_way_to_move_money_or_change_records` |
-| 9 | Many accounts and automation? | Partly closed. One address can try 8 passwords per email and open 10 accounts per hour, then is cut off. **Still open:** email is not verified, so a patient person can open several accounts and collect several grants. Harmless today because money cannot be moved between players. **This must be closed before Stage 4.** | `test_password_guessing_is_cut_off`, `test_one_visitor_cannot_open_accounts_without_limit` |
+| 9 | Many accounts and automation? | Closed as far as email allows. An account and its ₦500,000 only exist after the person types in a code sent to their email. Every spelling of one mailbox (capitals, `+tags`, Gmail dots) counts as the same address. Throwaway mailbox services are refused. One address can try 8 passwords per email and ask for 10 sign-ups per hour, then is cut off. **What remains:** a person who really owns several separate mailboxes can still open one account per mailbox. See "One email, one account" below. | "One real, confirmed email address per account" section (23 tests) |
 | 10 | The clock: can time be faked, rewound or skipped? | No. Time comes from the server; quarters are closed by the database's own clock; the calendar can only move forward one quarter at a time; filings cannot be backdated or filed for a future quarter. | Section 10; `test_the_calendar_cannot_be_rewound_skipped_or_restarted` |
 
 ### What the independent reviewer found
@@ -134,6 +134,10 @@ built its own copy of the world and attacked it. **It could not create, move or
 destroy money or shares as a player, and could not see another player's data.** It
 did find fourteen weaknesses. Each fixed one now has a test.
 
+The four items left open are: the database login (Stage 16), the long-run limit
+(Stage 3), attempt limits shared across servers (Stage 16), and people who own
+several mailboxes (below).
+
 | Finding | Severity | What was done |
 | --- | --- | --- |
 | 60 automated logins at once made the whole server stop answering | High | **Fixed.** Attempt limits, a cap on simultaneous password checks, more database connections, and a polite "busy, try again" instead of a crash. |
@@ -142,14 +146,44 @@ did find fourteen weaknesses. Each fixed one now has a test.
 | Program code (not a player) could issue new money for any reason, backdate a filing, or rewind the calendar | Medium | **Fixed.** All refused by the database. |
 | The starting grant could be paid twice if code spelled the player's id in capitals | Medium, not reachable by a player | **Fixed** in the code and in the database. |
 | Left running for years, the economy runs down | Medium | **Not fixed. See below.** |
-| Unlimited free accounts | Medium | **Partly fixed**: limited per address. Email verification still to come, before Stage 4. |
-| Sign-up says whether an email is already registered | Low | **Open.** Fixing it properly needs confirmation emails. With email verification, before Stage 4. |
+| Unlimited free accounts | Medium | **Fixed** as far as email allows: confirmed email, one account per mailbox. See below. |
+| Sign-up says whether an email is already registered | Low | **Fixed.** The answer is the same either way; the owner of the address is told by email. |
 | Look-alike and official-sounding display names | Low | **Fixed.** |
 | A nonsense company code crashed the request | Low | **Fixed.** |
 | No size limit on requests; error messages repeated what was typed | Low | **Fixed.** |
 | An account could "pay itself" in code | Low | **Fixed.** |
 | Quarter closing trusted each server's own clock | Low | **Fixed.** The database's clock decides. |
 | Smaller items: the world was not created automatically in Docker; impossible dates of birth accepted | Info | **Fixed.** |
+
+### One email, one account
+
+Added after the first Stage 2 report, at the owner's instruction.
+
+- **Sign-up has two steps.** Filling in the form opens nothing and pays nothing. A
+  6-digit code is emailed. Only typing in the right code opens the account and pays
+  the ₦500,000, once.
+- **One account per mailbox.** `ada@gmail.com`, `Ada@Gmail.com`, `a.d.a@gmail.com`
+  and `ada+second@gmail.com` all deliver to the same inbox, so they count as one
+  address. The database itself refuses a second player on the same mailbox.
+- **Codes cannot be guessed.** A code lasts 15 minutes, is thrown away after five
+  wrong guesses, is cancelled when a new one is asked for, and is stored only in
+  scrambled form.
+- **Throwaway mailbox services are refused.** The list covers the well-known ones
+  and cannot ever be complete.
+- **The form does not reveal who plays.** The answer is identical whether or not
+  the address already has an account.
+- **On your own computer** no email service is connected, so the code is shown on
+  the sign-up screen, clearly marked as test mode. A real website must be given an
+  email service (the `SMTP_` lines in `.env`) or the server refuses to start.
+
+**Not yet proved:** sending through a real email provider. The sending code is
+written and the flow is tested with a stand-in for the provider, but no real
+email has been sent, because no provider account exists yet.
+
+**What email cannot stop:** a person who owns several real, separate mailboxes
+can open one account on each. Stronger checks exist (a phone number confirmed by
+text message; releasing the ₦500,000 in parts as the player actually plays) and
+are a decision for the owner before Stage 4, when players can first trade.
 
 ### The long-run limit, stated plainly
 
@@ -171,7 +205,8 @@ cp .env.example .env        # then put your own random text in SECRET_KEY
 docker compose up --build
 ```
 
-Open http://localhost:5173, create an account, then:
+Open http://localhost:5173 and create an account. You will be asked for a 6-digit
+code; on your own computer it is shown on the same screen. Then:
 
 - **My desk**: what needs you now, the biggest moves in sales, and your account
   history showing the ₦500,000 paid by the Federal Government Treasury.

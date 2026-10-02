@@ -129,8 +129,8 @@ def test_creating_the_world_twice_changes_nothing(db):
 
 def test_a_player_from_before_the_ledger_existed_is_given_an_account_and_starting_cash(db):
     player_id = db.execute(
-        "INSERT INTO players (email, display_name, display_name_key, password_hash, adult_confirmed_at)"
-        " VALUES ('early@example.com', 'Early', 'early', 'x', now()) RETURNING id"
+        "INSERT INTO players (email, email_key, display_name, display_name_key, password_hash, adult_confirmed_at)"
+        " VALUES ('early@example.com', 'early@example.com', 'Early', 'early', 'x', now()) RETURNING id"
     ).fetchone()[0]
     money_before = ledger.amount_in_existence(db)
 

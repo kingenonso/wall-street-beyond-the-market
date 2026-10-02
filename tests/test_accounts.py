@@ -8,7 +8,7 @@ import pytest
 
 from simulation import ledger, players
 from simulation.money import naira
-from tests.conftest import ADULT, TEST_DATABASE_URL
+from tests.conftest import join, ADULT, TEST_DATABASE_URL
 
 
 def years_ago(years: int, extra_days: int = 0) -> str:
@@ -21,7 +21,7 @@ def years_ago(years: int, extra_days: int = 0) -> str:
 
 
 def test_sign_up_creates_a_player_with_the_starting_position(client):
-    response = client.post("/api/auth/signup", json=ADULT)
+    response = join(client, ADULT)
     assert response.status_code == 201
     body = response.json()
     assert body["display_name"] == "Ada"
@@ -32,12 +32,12 @@ def test_sign_up_creates_a_player_with_the_starting_position(client):
 
 
 def test_sign_up_logs_the_player_in(client):
-    client.post("/api/auth/signup", json=ADULT)
+    join(client, ADULT)
     assert client.get("/api/me").json()["display_name"] == "Ada"
 
 
 def test_password_is_never_stored_as_written(client):
-    client.post("/api/auth/signup", json=ADULT)
+    join(client, ADULT)
     with psycopg.connect(TEST_DATABASE_URL) as conn:
         stored = conn.execute("SELECT password_hash FROM players").fetchone()[0]
     assert ADULT["password"] not in stored
@@ -45,7 +45,7 @@ def test_password_is_never_stored_as_written(client):
 
 
 def test_date_of_birth_is_checked_but_not_kept(client):
-    client.post("/api/auth/signup", json=ADULT)
+    join(client, ADULT)
     with psycopg.connect(TEST_DATABASE_URL) as conn:
         columns = [d.name for d in conn.execute("SELECT * FROM players").description]
         confirmed = conn.execute("SELECT adult_confirmed_at FROM players").fetchone()[0]
@@ -54,51 +54,52 @@ def test_date_of_birth_is_checked_but_not_kept(client):
 
 
 def test_under_18_cannot_sign_up(client):
-    response = client.post("/api/auth/signup", json={**ADULT, "date_of_birth": years_ago(17)})
+    response = join(client, {**ADULT, "date_of_birth": years_ago(17)})
     assert response.status_code == 403
     assert "18" in response.json()["detail"]
     # One day short of the 18th birthday is still refused.
-    almost = client.post("/api/auth/signup", json={**ADULT, "date_of_birth": years_ago(18, 1)})
+    almost = join(client, {**ADULT, "date_of_birth": years_ago(18, 1)})
     assert almost.status_code == 403
 
 
 def test_exactly_18_today_can_sign_up(client):
-    response = client.post("/api/auth/signup", json={**ADULT, "date_of_birth": years_ago(18)})
+    response = join(client, {**ADULT, "date_of_birth": years_ago(18)})
     assert response.status_code == 201
 
 
 def test_a_birth_date_in_the_future_is_refused(client):
-    response = client.post("/api/auth/signup", json={**ADULT, "date_of_birth": "2999-01-01"})
+    response = join(client, {**ADULT, "date_of_birth": "2999-01-01"})
     assert response.status_code == 403
 
 
-def test_email_cannot_be_used_twice_even_with_different_capitals(client):
-    client.post("/api/auth/signup", json=ADULT)
-    again = client.post(
-        "/api/auth/signup", json={**ADULT, "email": "ada@example.com", "display_name": "Other"}
-    )
-    assert again.status_code == 409
-    assert "email" in again.json()["detail"]
+def test_email_cannot_be_used_twice_even_with_different_capitals(client, db):
+    join(client, ADULT)
+    again = join(client, {**ADULT, "email": "ada@example.com", "display_name": "Other"})
+    # The answer does not say the address is taken (that would reveal who plays),
+    # but no code is issued, so no second account can ever be opened.
+    assert again.status_code == 202
+    assert again.json()["code_shown_on_screen"] is None
+    assert db.execute("SELECT count(*) FROM players").fetchone()[0] == 1
 
 
 def test_display_name_cannot_be_used_twice(client):
-    client.post("/api/auth/signup", json=ADULT)
-    again = client.post(
-        "/api/auth/signup", json={**ADULT, "email": "b@example.com", "display_name": "ADA"}
+    join(client, ADULT)
+    again = join(
+        client, {**ADULT, "email": "b@example.com", "display_name": "ADA"}
     )
     assert again.status_code == 409
     assert "display name" in again.json()["detail"]
 
 
 def test_weak_or_malformed_details_are_refused(client):
-    assert client.post("/api/auth/signup", json={**ADULT, "password": "short"}).status_code == 422
-    assert client.post("/api/auth/signup", json={**ADULT, "email": "nope"}).status_code == 422
-    assert client.post("/api/auth/signup", json={**ADULT, "display_name": "a"}).status_code == 422
-    assert client.post("/api/auth/signup", json={**ADULT, "display_name": "<b>x</b>"}).status_code == 422
+    assert join(client, {**ADULT, "password": "short"}).status_code == 422
+    assert join(client, {**ADULT, "email": "nope"}).status_code == 422
+    assert join(client, {**ADULT, "display_name": "a"}).status_code == 422
+    assert join(client, {**ADULT, "display_name": "<b>x</b>"}).status_code == 422
 
 
 def test_login_with_the_right_password(client):
-    client.post("/api/auth/signup", json=ADULT)
+    join(client, ADULT)
     client.post("/api/auth/logout")
     assert client.get("/api/me").status_code == 401
 
@@ -110,7 +111,7 @@ def test_login_with_the_right_password(client):
 
 
 def test_wrong_password_and_unknown_email_give_the_same_answer(client):
-    client.post("/api/auth/signup", json=ADULT)
+    join(client, ADULT)
     client.post("/api/auth/logout")
     wrong = client.post("/api/auth/login", json={"email": ADULT["email"], "password": "wrong-password"})
     unknown = client.post("/api/auth/login", json={"email": "ghost@example.com", "password": "wrong-password"})
@@ -128,7 +129,7 @@ def test_a_forged_session_is_rejected(client):
 
 
 def test_session_cookie_cannot_be_read_by_page_scripts(client):
-    response = client.post("/api/auth/signup", json=ADULT)
+    response = join(client, ADULT)
     cookie = response.headers["set-cookie"].lower()
     assert "httponly" in cookie
     assert "samesite=lax" in cookie
@@ -158,7 +159,7 @@ def test_starting_cash_is_paid_by_the_treasury_not_created(client, db):
     treasury_before = ledger.balance(db, treasury)
     money_before = ledger.amount_in_existence(db)
 
-    body = client.post("/api/auth/signup", json=ADULT).json()
+    body = join(client, ADULT).json()
 
     assert body["cash"]["amount_kobo"] == str(naira(500_000))
     assert ledger.balance(db, treasury) == treasury_before - naira(500_000)      # the Treasury paid
@@ -195,7 +196,7 @@ def test_if_the_treasury_cannot_pay_no_half_made_account_is_left(client, db):
     ledger.transfer(db, payer=treasury, receiver=ledger.account_id(db, ledger.PUBLIC),
                     amount=ledger.balance(db, treasury) - naira(100), kind="test", memo="Test: Treasury emptied")
 
-    response = client.post("/api/auth/signup", json=ADULT)
+    response = join(client, ADULT)
 
     assert response.status_code == 503
     assert db.execute("SELECT count(*) FROM players").fetchone()[0] == 0
@@ -206,7 +207,7 @@ def test_if_the_treasury_cannot_pay_no_half_made_account_is_left(client, db):
 
 @pytest.mark.world("empty")
 def test_sign_up_is_refused_cleanly_before_the_world_exists(client, db):
-    response = client.post("/api/auth/signup", json=ADULT)
+    response = join(client, ADULT)
     assert response.status_code == 503
     assert db.execute("SELECT count(*) FROM players").fetchone()[0] == 0
 
@@ -216,13 +217,13 @@ def test_sign_up_is_refused_cleanly_before_the_world_exists(client, db):
 # ---------------------------------------------------------------------------
 
 def test_a_new_player_chooses_a_male_or_female_icon(client):
-    assert client.post("/api/auth/signup", json={**ADULT, "profile_icon": "male"}).json()["profile_icon"] == "male"
+    assert join(client, {**ADULT, "profile_icon": "male"}).json()["profile_icon"] == "male"
 
 
 def test_an_icon_must_be_chosen_and_must_be_one_of_the_two(client):
     without = {k: v for k, v in ADULT.items() if k != "profile_icon"}
-    assert client.post("/api/auth/signup", json=without).status_code == 422
-    assert client.post("/api/auth/signup", json={**ADULT, "profile_icon": "dragon"}).status_code == 422
+    assert join(client, without).status_code == 422
+    assert join(client, {**ADULT, "profile_icon": "dragon"}).status_code == 422
 
 
 def test_a_player_can_change_their_icon(client, player):

@@ -125,9 +125,22 @@ ADULT = {
 }
 
 
+def join(client, details):
+    """Sign up and type in the emailed code, as a new player would.
+
+    Returns the server's last answer: the finished sign-up if it got that far,
+    otherwise the answer that stopped it.
+    """
+    asked = client.post("/api/auth/signup", json=details)
+    code = asked.json().get("code_shown_on_screen") if asked.status_code == 202 else None
+    if code is None:
+        return asked
+    return client.post("/api/auth/confirm-email", json={"email": details["email"], "code": code})
+
+
 @pytest.fixture
 def player(client):
     """A signed-up, logged-in player. Returns what the server said about them."""
-    response = client.post("/api/auth/signup", json=ADULT)
+    response = join(client, ADULT)
     assert response.status_code == 201, response.text
     return response.json()

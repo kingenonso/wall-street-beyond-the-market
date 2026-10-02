@@ -146,6 +146,10 @@ input {
   background: rgba(255, 177, 153, 0.1); border: 1px solid rgba(255, 177, 153, 0.45); color: var(--down);
 }
 .saved { color: var(--up); }
+.step-title { color: var(--text); font-size: 16px; text-transform: none; letter-spacing: 0; margin-bottom: 8px; }
+.step-actions { display: flex; gap: 8px; justify-content: space-between; margin-top: 12px; flex-wrap: wrap; }
+.code-input { font-size: 22px; letter-spacing: 0.4em; text-align: center; }
+.test-mode { padding: 9px 11px; border-radius: 8px; border: 1px dashed var(--gold); background: var(--gold-soft); color: var(--text); font-size: 13px; }
 .amended { color: var(--down); }
 
 .icon-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-width: 360px; }

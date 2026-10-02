@@ -20,7 +20,7 @@ from psycopg import Connection
 from psycopg.errors import UniqueViolation
 from psycopg_pool import PoolTimeout
 
-from server import limits, security
+from server import emails, limits, security
 from server.config import get_settings
 from server.db import close_pool, connection, get_connection
 from server.schemas import (
@@ -28,6 +28,7 @@ from server.schemas import (
     CompaniesResponse,
     CompanyResponse,
     CompanySummary,
+    ConfirmEmailRequest,
     FiledReport,
     GameDateResponse,
     LoginRequest,
@@ -37,6 +38,7 @@ from server.schemas import (
     PlayerResponse,
     ProfileIconRequest,
     SectorCompanies,
+    SignUpPendingResponse,
     SignUpRequest,
     display_name_key,
     WorldStatusResponse,
@@ -175,8 +177,14 @@ def health(conn: Connection = Depends(get_connection)) -> dict:
 # Accounts
 # ---------------------------------------------------------------------------
 
-@app.post("/api/auth/signup", response_model=PlayerResponse, status_code=status.HTTP_201_CREATED)
-def sign_up(body: SignUpRequest, request: Request, response: Response):
+_CODE_SENT = "We have sent a 6-digit code to that email address. Type it in to open your account."
+_CODE_WRONG = "That code is not right, or it has expired. Check it, or ask for a new code."
+
+
+@app.post("/api/auth/signup", response_model=SignUpPendingResponse, status_code=status.HTTP_202_ACCEPTED)
+def sign_up(body: SignUpRequest, request: Request):
+    """Step 1 of 2. Nothing is opened yet: a code is emailed, and the account and its
+    starting cash only come into existence when that code is typed in (step 2)."""
     limits.allow("signup", limits.visitor(request), attempts=10, per_seconds=3600)
     settings = get_settings()
     today = datetime.now(clock.LAGOS).date()
@@ -188,36 +196,113 @@ def sign_up(body: SignUpRequest, request: Request, response: Response):
             status.HTTP_403_FORBIDDEN,
             f"This game is for players aged {settings.minimum_age} and above.",
         )
+    try:
+        key = emails.email_key(body.email)
+    except emails.UnusableEmail as error:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(error)) from error
+    limits.allow("signup-email", key, attempts=5, per_seconds=3600)
 
     # The slow password work is done before a database connection is taken,
     # so slow work never ties up the connections other players need.
     with limits.password_work:
         password_hash = security.hash_password(body.password)
+    name_key = display_name_key(body.display_name)
+    code = emails.new_code()
+
     with connection() as conn:
+        name_taken = conn.execute(
+            "SELECT 1 FROM players WHERE display_name_key = %s", (name_key,)
+        ).fetchone()
+        if name_taken:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "That display name, or one that looks just like it, is already in use."
+            )
+        already_a_player = conn.execute("SELECT 1 FROM players WHERE email_key = %s", (key,)).fetchone()
+        if not already_a_player:
+            with conn.transaction():
+                conn.execute("DELETE FROM pending_signups WHERE expires_at < now()")
+                # Asking again replaces the earlier request and its code.
+                conn.execute(
+                    "INSERT INTO pending_signups (email_key, email, display_name, display_name_key,"
+                    "   password_hash, profile_icon, code_hash, expires_at)"
+                    " VALUES (%s, %s, %s, %s, %s, %s, %s, now() + make_interval(mins => %s))"
+                    " ON CONFLICT (email_key) DO UPDATE SET email = EXCLUDED.email,"
+                    "   display_name = EXCLUDED.display_name, display_name_key = EXCLUDED.display_name_key,"
+                    "   password_hash = EXCLUDED.password_hash, profile_icon = EXCLUDED.profile_icon,"
+                    "   code_hash = EXCLUDED.code_hash, wrong_guesses = 0, expires_at = EXCLUDED.expires_at,"
+                    "   created_at = now()",
+                    (key, body.email.lower(), body.display_name, name_key, password_hash, body.profile_icon,
+                     emails.hash_code(key, code), emails.CODE_MINUTES),
+                )
+
+    # The answer is the same whether or not the address already has an account, so
+    # this form cannot be used to find out who plays. The owner of the address is
+    # told by email instead.
+    try:
+        if already_a_player:
+            emails.send_already_registered(body.email)
+        else:
+            emails.send_code(body.email, code)
+    except Exception as error:
+        log.exception("A confirmation email could not be sent.")
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "We could not send the email. Please try again in a moment."
+        ) from error
+
+    on_screen = emails.shown_on_screen() and not already_a_player
+    return SignUpPendingResponse(
+        detail=_CODE_SENT, email=body.email, code_shown_on_screen=code if on_screen else None
+    )
+
+
+@app.post("/api/auth/confirm-email", response_model=PlayerResponse, status_code=status.HTTP_201_CREATED)
+def confirm_email(body: ConfirmEmailRequest, request: Request, response: Response):
+    """Step 2 of 2. The right code opens the account and pays the starting cash, once."""
+    limits.allow("confirm", limits.visitor(request), attempts=30, per_seconds=900)
+    try:
+        key = emails.email_key(body.email)
+    except emails.UnusableEmail as error:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, _CODE_WRONG) from error
+
+    with connection() as conn:
+        row = None
         try:
             # All or nothing: the player, their ledger account and their starting cash
             # are created together, and are saved by the time this block ends.
             with conn.transaction():
-                row = conn.execute(
-                    "INSERT INTO players (email, display_name, display_name_key, password_hash,"
-                    "                     adult_confirmed_at, profile_icon)"
-                    " VALUES (%s, %s, %s, %s, now(), %s) RETURNING *",
-                    (body.email.lower(), body.display_name, display_name_key(body.display_name),
-                     password_hash, body.profile_icon),
+                # Locking the request makes two identical confirmations take turns.
+                pending = conn.execute(
+                    "SELECT * FROM pending_signups WHERE email_key = %s AND expires_at > now() FOR UPDATE", (key,)
                 ).fetchone()
-                players.open_player_account(conn, row["id"])
+                if pending and emails.code_matches(key, body.code, pending["code_hash"]):
+                    row = conn.execute(
+                        "INSERT INTO players (email, email_key, display_name, display_name_key, password_hash,"
+                        "                     adult_confirmed_at, profile_icon)"
+                        " VALUES (%s, %s, %s, %s, %s, now(), %s) RETURNING *",
+                        (pending["email"], key, pending["display_name"], pending["display_name_key"],
+                         pending["password_hash"], pending["profile_icon"]),
+                    ).fetchone()
+                    players.open_player_account(conn, row["id"])
+                    conn.execute("DELETE FROM pending_signups WHERE email_key = %s", (key,))
+                elif pending:
+                    # A wrong guess is counted. After a few, the code is thrown away.
+                    conn.execute(
+                        "UPDATE pending_signups SET wrong_guesses = wrong_guesses + 1 WHERE email_key = %s", (key,)
+                    )
+                    conn.execute(
+                        "DELETE FROM pending_signups WHERE email_key = %s AND wrong_guesses >= %s",
+                        (key, emails.MAX_WRONG_GUESSES),
+                    )
         except UniqueViolation as error:
             constraint = error.diag.constraint_name or ""
-            if constraint not in (
-                "players_email_unique", "players_display_name_unique", "players_display_name_key_unique"
-            ):
-                raise
-            taken = "display name" if "display_name" in constraint else "email"
-            message = (
-                "That display name, or one that looks just like it, is already in use."
-                if taken == "display name" else "That email is already in use."
-            )
-            raise HTTPException(status.HTTP_409_CONFLICT, message) from error
+            if "display_name" in constraint:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "Somebody took that display name while you were confirming. Please sign up again with another.",
+                ) from error
+            if "email" in constraint:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, _CODE_WRONG) from error
+            raise
         except ledger.LedgerError as error:
             # The world does not exist yet, or the Treasury cannot pay the starting cash.
             log.error("Sign-up refused: %s", error)
@@ -226,6 +311,8 @@ def sign_up(body: SignUpRequest, request: Request, response: Response):
                 "New accounts cannot be opened right now. Please try again later.",
             ) from error
 
+        if row is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, _CODE_WRONG)
         _start_session(response, row)
         return _player_response(conn, row)
 

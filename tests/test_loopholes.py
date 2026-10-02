@@ -22,7 +22,7 @@ import pytest
 from server import security
 from simulation import ledger
 from simulation.money import naira
-from tests.conftest import ADULT
+from tests.conftest import join, ADULT
 
 SECRET = "test-only-secret-key-that-is-long-enough-0123456789"
 
@@ -38,7 +38,7 @@ SECRET = "test-only-secret-key-that-is-long-enough-0123456789"
     {"level": 80},
 ])
 def test_sign_up_cannot_set_its_own_cash_reputation_or_identity(client, db, extra):
-    response = client.post("/api/auth/signup", json={**ADULT, **extra})
+    response = join(client, {**ADULT, **extra})
     assert response.status_code == 422                       # fields the server did not ask for are refused
     assert db.execute("SELECT count(*) FROM players").fetchone()[0] == 0
 
@@ -87,6 +87,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     )
     assert writes == [
         ("PATCH", "/api/me/profile-icon"),
+        ("POST", "/api/auth/confirm-email"),
         ("POST", "/api/auth/login"),
         ("POST", "/api/auth/logout"),
         ("POST", "/api/auth/signup"),
@@ -101,7 +102,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
 def test_signing_up_many_players_creates_no_money(client, db):
     money_before = ledger.amount_in_existence(db)
     for n in range(5):
-        client.post("/api/auth/signup", json={**ADULT, "email": f"p{n}@example.com", "display_name": f"Player {n}"})
+        join(client, {**ADULT, "email": f"p{n}@example.com", "display_name": f"Player {n}"})
     assert ledger.amount_in_existence(db) == money_before
     assert db.execute("SELECT sum(balance) FROM ledger_balances WHERE asset = 'NGN'").fetchone()[0] == 0
     paid = db.execute("SELECT count(*), sum(e.amount) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id WHERE t.kind = 'starting_grant' AND e.amount > 0").fetchone()
@@ -111,9 +112,9 @@ def test_signing_up_many_players_creates_no_money(client, db):
 # --- 3. Farming: can a reward be collected again and again? ---
 
 def test_signing_up_again_with_the_same_details_pays_nothing_more(client, db):
-    client.post("/api/auth/signup", json=ADULT)
+    join(client, ADULT)
     for variant in (ADULT, {**ADULT, "email": "ADA@EXAMPLE.COM"}, {**ADULT, "email": "other@example.com"}):
-        assert client.post("/api/auth/signup", json=variant).status_code == 409
+        assert join(client, variant).status_code == 409
     assert db.execute("SELECT count(*) FROM ledger_transactions WHERE kind = 'starting_grant'").fetchone()[0] == 1
 
 
@@ -131,13 +132,13 @@ def test_the_same_sign_up_sent_many_times_at_once_makes_one_player(client, db):
 
     def sign_up():
         barrier.wait()
-        statuses.append(client.post("/api/auth/signup", json=ADULT).status_code)
+        statuses.append(join(client, ADULT).status_code)
 
     threads = [threading.Thread(target=sign_up) for _ in range(6)]
     [t.start() for t in threads]
     [t.join() for t in threads]
 
-    assert sorted(statuses) == [201, 409, 409, 409, 409, 409]
+    assert statuses.count(201) == 1 and len(statuses) == 6     # one succeeds; the rest are turned away
     assert db.execute("SELECT count(*) FROM players").fetchone()[0] == 1
     assert db.execute("SELECT count(*) FROM ledger_accounts WHERE kind = 'player'").fetchone()[0] == 1
     assert db.execute("SELECT count(*) FROM ledger_transactions WHERE kind = 'starting_grant'").fetchone()[0] == 1
@@ -146,9 +147,9 @@ def test_the_same_sign_up_sent_many_times_at_once_makes_one_player(client, db):
 # --- 5. Permissions ---
 
 def test_a_player_sees_only_their_own_account_history(client, db):
-    client.post("/api/auth/signup", json=ADULT)
+    join(client, ADULT)
     client.post("/api/auth/logout")
-    client.post("/api/auth/signup", json={**ADULT, "email": "bisi@example.com", "display_name": "Bisi"})
+    join(client, {**ADULT, "email": "bisi@example.com", "display_name": "Bisi"})
 
     movements = client.get("/api/me/movements").json()
     assert len(movements) == 1                                # Bisi's own grant only
@@ -157,9 +158,9 @@ def test_a_player_sees_only_their_own_account_history(client, db):
 
 
 def test_one_player_cannot_change_another_players_profile(client, db):
-    client.post("/api/auth/signup", json=ADULT)
+    join(client, ADULT)
     client.post("/api/auth/logout")
-    client.post("/api/auth/signup", json={**ADULT, "email": "bisi@example.com", "display_name": "Bisi", "profile_icon": "male"})
+    join(client, {**ADULT, "email": "bisi@example.com", "display_name": "Bisi", "profile_icon": "male"})
     client.patch("/api/me/profile-icon", json={"profile_icon": "male"})
     icons = dict(db.execute("SELECT display_name, profile_icon FROM players").fetchall())
     assert icons == {"Ada": "female", "Bisi": "male"}         # Ada's was not touched
@@ -185,7 +186,7 @@ def test_no_request_reveals_the_treasury_or_any_other_accounts_balance(client, p
 def test_error_messages_do_not_describe_the_inside_of_the_game(client, db):
     treasury = ledger.account_id(db, ledger.TREASURY)
     ledger.transfer(db, payer=treasury, receiver=ledger.account_id(db, ledger.PUBLIC), amount=ledger.balance(db, treasury), kind="test", memo="Test: Treasury emptied")
-    detail = client.post("/api/auth/signup", json=ADULT).json()["detail"]
+    detail = join(client, ADULT).json()["detail"]
     assert detail == "New accounts cannot be opened right now. Please try again later."
 
 
@@ -284,14 +285,14 @@ def test_one_visitor_cannot_open_accounts_without_limit(client, db, limited):
     codes = []
     for n in range(13):
         details = {**ADULT, "email": f"bot{n}@example.com", "display_name": f"Bot number {n}"}
-        codes.append(client.post("/api/auth/signup", json=details).status_code)
+        codes.append(join(client, details).status_code)
     assert codes == [201] * 10 + [429] * 3
     assert db.execute("SELECT count(*) FROM players").fetchone()[0] == 10
 
 
 @pytest.mark.parametrize("lookalike", ["ada", "A da", "Ada_", "A-d-a", "Ádá", "Ａｄａ"])
 def test_a_display_name_that_looks_like_another_players_is_refused(client, player, lookalike):
-    response = client.post("/api/auth/signup", json={**ADULT, "email": "other@example.com", "display_name": lookalike})
+    response = join(client, {**ADULT, "email": "other@example.com", "display_name": lookalike})
     assert response.status_code == 409, response.text
 
 
@@ -300,17 +301,17 @@ def test_a_display_name_that_looks_like_another_players_is_refused(client, playe
     "Central Bank of Nigeria", "Prize pool", "Company management", "admin", "Federal Government Treasury",
 ])
 def test_a_display_name_cannot_imitate_the_game_or_use_lookalike_alphabets(client, db, name):
-    assert client.post("/api/auth/signup", json={**ADULT, "display_name": name}).status_code == 422
+    assert join(client, {**ADULT, "display_name": name}).status_code == 422
     assert db.execute("SELECT count(*) FROM players").fetchone()[0] == 0
 
 
 def test_nigerian_names_with_accents_and_under_dots_are_welcome(client):
-    response = client.post("/api/auth/signup", json={**ADULT, "display_name": "Ọláyínká Asset Mgmt"})
+    response = join(client, {**ADULT, "display_name": "Ọláyínká Asset Mgmt"})
     assert response.status_code == 201, response.text
 
 
 def test_a_rejected_request_does_not_repeat_back_what_was_typed(client):
-    response = client.post("/api/auth/signup", json={**ADULT, "password": "s3cret-pw", "date_of_birth": "nonsense"})
+    response = join(client, {**ADULT, "password": "s3cret-pw", "date_of_birth": "nonsense"})
     assert response.status_code == 422
     assert "s3cret-pw" not in response.text and "nonsense" not in response.text
 
@@ -321,7 +322,7 @@ def test_an_oversized_request_is_refused_before_it_is_read(client):
 
 
 def test_an_impossible_date_of_birth_is_refused(client, db):
-    assert client.post("/api/auth/signup", json={**ADULT, "date_of_birth": "0001-01-01"}).status_code == 400
+    assert join(client, {**ADULT, "date_of_birth": "0001-01-01"}).status_code == 400
     assert db.execute("SELECT count(*) FROM players").fetchone()[0] == 0
 
 
@@ -447,3 +448,177 @@ def test_a_quarter_will_not_close_if_the_ledger_has_been_tampered_with(db):
     with pytest.raises(ledger.LedgerError):
         quarters.close_due_quarters(db, after_quarters(1))
     assert db.execute("SELECT last_closed_period FROM world_state").fetchone()[0] == 0
+
+
+# ---------------------------------------------------------------------------
+# One real, confirmed email address per account, and so one starting grant.
+# ---------------------------------------------------------------------------
+
+def _grants(db):
+    return db.execute("SELECT count(*) FROM ledger_transactions WHERE kind = 'starting_grant'").fetchone()[0]
+
+
+def _ask(client, **changes):
+    return client.post("/api/auth/signup", json={**ADULT, **changes})
+
+
+def test_asking_to_sign_up_opens_nothing_and_pays_nothing(client, db):
+    answer = _ask(client)
+    assert answer.status_code == 202
+    assert "set-cookie" not in answer.headers                 # not logged in
+    assert client.get("/api/me").status_code == 401
+    assert db.execute("SELECT count(*) FROM players").fetchone()[0] == 0
+    assert db.execute("SELECT count(*) FROM ledger_accounts WHERE kind = 'player'").fetchone()[0] == 0
+    assert _grants(db) == 0
+
+
+def test_the_right_code_opens_the_account_and_pays_the_grant_once(client, db):
+    code = _ask(client).json()["code_shown_on_screen"]
+    confirm = {"email": ADULT["email"], "code": code}
+    assert client.post("/api/auth/confirm-email", json=confirm).status_code == 201
+    assert client.get("/api/me").json()["cash"]["amount_kobo"] == str(naira(500_000))
+    # The same code cannot be used a second time.
+    assert client.post("/api/auth/confirm-email", json=confirm).status_code == 400
+    assert _grants(db) == 1
+
+
+@pytest.mark.parametrize("alias", [
+    "ada@example.com", "ADA@EXAMPLE.COM", "ada+second@example.com", "Ada+anything.at.all@Example.com",
+])
+def test_another_spelling_of_the_same_mailbox_cannot_open_a_second_account(client, player, db, alias):
+    answer = _ask(client, email=alias, display_name="Somebody Else")
+    assert answer.status_code == 202
+    assert answer.json()["code_shown_on_screen"] is None      # no code is issued at all
+    assert db.execute("SELECT count(*) FROM pending_signups").fetchone()[0] == 0
+    for guess in ("000000", "123456"):
+        assert client.post("/api/auth/confirm-email", json={"email": alias, "code": guess}).status_code == 400
+    assert db.execute("SELECT count(*) FROM players").fetchone()[0] == 1
+    assert _grants(db) == 1
+
+
+@pytest.mark.parametrize("alias", ["a.d.a@gmail.com", "ada+bonus@gmail.com", "A.DA@googlemail.com", "ad.a+x@googlemail.com"])
+def test_gmail_dots_and_plus_tags_are_the_same_mailbox(client, db, alias):
+    assert join(client, {**ADULT, "email": "ada@gmail.com"}).status_code == 201
+    client.cookies.clear()
+    assert join(client, {**ADULT, "email": alias, "display_name": "Somebody Else"}).status_code == 202
+    assert db.execute("SELECT count(*) FROM players").fetchone()[0] == 1
+    assert _grants(db) == 1
+
+
+def test_the_answer_does_not_reveal_whether_an_email_already_has_an_account(client, player, monkeypatch):
+    """With a real email service the two answers are identical, word for word."""
+    from server import emails
+    sent = []
+    monkeypatch.setattr(emails, "shown_on_screen", lambda: False)
+    monkeypatch.setattr(emails, "send", lambda to, subject, body: sent.append((to, subject)))
+    taken = _ask(client, display_name="Somebody Else")
+    fresh = _ask(client, email="new@example.com", display_name="Somebody Else")
+    assert taken.status_code == fresh.status_code == 202
+    assert {**taken.json(), "email": ""} == {**fresh.json(), "email": ""}
+    # The owner of the address is told by email instead.
+    assert sent[0][1] == "You already have an account"
+    assert sent[1][1] == "Your Wall Street: Beyond the Market code"
+
+
+def test_with_a_real_email_service_the_code_never_appears_in_the_answer(client, monkeypatch):
+    from server import emails
+    sent = []
+    monkeypatch.setattr(emails, "shown_on_screen", lambda: False)
+    monkeypatch.setattr(emails, "send", lambda to, subject, body: sent.append(body))
+    answer = _ask(client)
+    assert answer.json()["code_shown_on_screen"] is None
+    code = sent[0].split("Your code is ")[1][:6]
+    assert code not in answer.text
+    assert client.post("/api/auth/confirm-email", json={"email": ADULT["email"], "code": code}).status_code == 201
+
+
+def test_a_code_cannot_be_guessed(client, db):
+    code = _ask(client).json()["code_shown_on_screen"]
+    wrong = "000000" if code != "000000" else "111111"
+    for _ in range(5):
+        assert client.post("/api/auth/confirm-email", json={"email": ADULT["email"], "code": wrong}).status_code == 400
+    # After five wrong guesses the code is thrown away: even the right one no longer works.
+    assert client.post("/api/auth/confirm-email", json={"email": ADULT["email"], "code": code}).status_code == 400
+    assert db.execute("SELECT count(*) FROM players").fetchone()[0] == 0
+    assert _grants(db) == 0
+
+
+def test_a_code_stops_working_after_fifteen_minutes(client, db):
+    code = _ask(client).json()["code_shown_on_screen"]
+    db.execute("UPDATE pending_signups SET expires_at = now() - interval '1 second'")
+    assert client.post("/api/auth/confirm-email", json={"email": ADULT["email"], "code": code}).status_code == 400
+    assert _grants(db) == 0
+
+
+def test_asking_for_a_new_code_cancels_the_old_one(client, db):
+    old = _ask(client).json()["code_shown_on_screen"]
+    new = _ask(client).json()["code_shown_on_screen"]
+    if old != new:
+        assert client.post("/api/auth/confirm-email", json={"email": ADULT["email"], "code": old}).status_code == 400
+    assert client.post("/api/auth/confirm-email", json={"email": ADULT["email"], "code": new}).status_code == 201
+    assert _grants(db) == 1
+
+
+def test_a_code_sent_to_one_address_does_not_work_for_another(client, db):
+    code = _ask(client).json()["code_shown_on_screen"]
+    _ask(client, email="bisi@example.com", display_name="Bisi")
+    assert client.post("/api/auth/confirm-email", json={"email": "bisi@example.com", "code": code}).status_code in (400, 201)
+    # (201 only if the two random codes happened to be equal.) Either way, one grant per mailbox:
+    assert _grants(db) <= 1
+
+
+def test_the_same_code_sent_many_times_at_once_opens_one_account(client, db):
+    code = _ask(client).json()["code_shown_on_screen"]
+    statuses = []
+
+    def confirm():
+        statuses.append(client.post("/api/auth/confirm-email", json={"email": ADULT["email"], "code": code}).status_code)
+
+    threads = [threading.Thread(target=confirm) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(statuses) == [201] + [400] * 7
+    assert db.execute("SELECT count(*) FROM players").fetchone()[0] == 1
+    assert _grants(db) == 1
+
+
+def test_the_code_is_not_kept_in_the_database_as_written(client, db):
+    code = _ask(client).json()["code_shown_on_screen"]
+    stored = db.execute("SELECT * FROM pending_signups").fetchone()
+    assert code not in [str(value) for value in stored]
+    assert ADULT["password"] not in str(stored)
+
+
+@pytest.mark.parametrize("email", ["bot@mailinator.com", "x@yopmail.com", "y@10minutemail.com"])
+def test_a_throwaway_mailbox_is_refused(client, db, email):
+    assert _ask(client, email=email).status_code == 400
+    assert db.execute("SELECT count(*) FROM pending_signups").fetchone()[0] == 0
+
+
+def test_codes_cannot_be_requested_for_one_address_without_limit(client, limited):
+    codes = [_ask(client).status_code for _ in range(7)]
+    assert codes == [202] * 5 + [429] * 2
+
+
+def test_a_real_website_will_not_start_without_an_email_service(monkeypatch):
+    from server.config import get_settings
+    monkeypatch.setenv("COOKIE_SECURE", "true")
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(RuntimeError):
+            get_settings()
+    finally:
+        monkeypatch.undo()
+        get_settings.cache_clear()
+
+
+def test_the_database_itself_allows_one_player_per_mailbox(client, player, db):
+    with pytest.raises(Exception) as refused:
+        db.execute(
+            "INSERT INTO players (email, email_key, display_name, display_name_key, password_hash, adult_confirmed_at)"
+            " VALUES ('Ada+2@example.com', 'ada@example.com', 'Copy', 'copy', 'x', now())"
+        )
+    assert refused.value.diag.constraint_name == "players_email_key_unique"

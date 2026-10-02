@@ -65,6 +65,19 @@ class SignUpRequest(Request):
         return value
 
 
+class ConfirmEmailRequest(Request):
+    email: EmailStr
+    code: str = Field(pattern=r"^[0-9]{6}$")
+
+
+class SignUpPendingResponse(BaseModel):
+    """Sign-up is not finished until the emailed code is typed in."""
+    detail: str
+    email: str
+    # Only ever filled in while no email service is connected (your own computer).
+    code_shown_on_screen: str | None = None
+
+
 class LoginRequest(Request):
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)

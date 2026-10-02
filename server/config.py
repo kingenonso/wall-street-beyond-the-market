@@ -15,6 +15,11 @@ class Settings:
     world_start: datetime
     cookie_secure: bool
     run_quarter_closer: bool = True
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    email_from: str = "no-reply@localhost"
     rate_limits: bool = True
     database_pool_size: int = 20
     session_days: int = 7
@@ -38,12 +43,27 @@ def get_settings() -> Settings:
     if world_start.tzinfo is None:
         raise RuntimeError("WORLD_START must include a time zone, for example +01:00.")
 
+    # The service that sends confirmation emails. Left empty on your own computer,
+    # where the code is shown on screen instead. A real website must have one:
+    # without it anybody could open accounts with addresses they do not own.
+    smtp_host = os.environ.get("SMTP_HOST") or None
+    cookie_secure = os.environ.get("COOKIE_SECURE", "true").lower() != "false"
+    if cookie_secure and smtp_host is None:
+        raise RuntimeError(
+            "SMTP_HOST is not set. A real website must be able to send confirmation emails. See README.md."
+        )
+
     return Settings(
         database_url=database_url,
+        smtp_host=smtp_host,
+        smtp_port=int(os.environ.get("SMTP_PORT", "587")),
+        smtp_user=os.environ.get("SMTP_USER") or None,
+        smtp_password=os.environ.get("SMTP_PASSWORD") or None,
+        email_from=os.environ.get("EMAIL_FROM", "no-reply@localhost"),
         secret_key=secret_key,
         world_start=world_start,
         # Cookies are sent over secure connections only, unless switched off for local work.
-        cookie_secure=os.environ.get("COOKIE_SECURE", "true").lower() != "false",
+        cookie_secure=cookie_secure,
         # The server closes each game quarter when it ends. Switched off in automated tests.
         run_quarter_closer=os.environ.get("RUN_QUARTER_CLOSER", "true").lower() != "false",
         # Limits on how fast one address may try to log in or sign up. Switched off in most tests.

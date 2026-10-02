@@ -52,6 +52,10 @@ everything; the first run takes a few minutes. Press Ctrl+C to stop.
 Before the second command, open `.env` and replace the `SECRET_KEY` line with
 your own long random text. The server refuses to start with the example value.
 
+Creating an account takes two steps: fill in the form, then type in a 6-digit
+code. On a real website the code is emailed to you. On your own computer no
+email service is connected, so the code is shown on the screen instead.
+
 On the first run the game world is created: the Central Bank, the Government,
 the 40 companies and their opening accounts. It is created **once**. The
 `WORLD_START` date in `.env` is read only at that moment; the example value is

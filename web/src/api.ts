@@ -97,6 +97,14 @@ export type Company = {
   reports: FiledReport[];
 };
 
+/** Sign-up is not finished until the emailed code is typed in. */
+export type SignUpPending = {
+  detail: string;
+  email: string;
+  /** Only filled in while no email service is connected (running on your own computer). */
+  code_shown_on_screen: string | null;
+};
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -148,5 +156,7 @@ export const api = {
     password: string;
     date_of_birth: string;
     profile_icon: ProfileIcon;
-  }) => request<Player>("/auth/signup", { method: "POST", body: JSON.stringify(details) }),
+  }) => request<SignUpPending>("/auth/signup", { method: "POST", body: JSON.stringify(details) }),
+  confirmEmail: (email: string, code: string) =>
+    request<Player>("/auth/confirm-email", { method: "POST", body: JSON.stringify({ email, code }) }),
 };
