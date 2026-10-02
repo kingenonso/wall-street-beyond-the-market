@@ -230,14 +230,14 @@ def _explain(conn: Connection, share: dict, day, now: datetime, label: str, book
     if book is None:
         return
     change = (centre - book["centre"]) * BPS // book["centre"]
-    if abs(change) < 100:
+    if abs(change) < 50:
         return
     way = "raised" if change > 0 else "lowered"
     size = f"{abs(change) / 100:.1f}%"
     if book["period"] != value["period"]:
         reason = (f"{label} {way} what they will pay and accept by {size} after the company's "
                   f"{clock.period_label(value['period'])} results were filed.")
-    elif abs(todays) >= 100 and (todays > 0) == (change > 0):
+    elif abs(todays) >= 50 and (todays > 0) == (change > 0):
         reason = (f"{label} sold {net_sold:,} more shares than they bought today, and {way} their prices by {size}."
                   if net_sold > 0 else
                   f"{label} bought {-net_sold:,} more shares than they sold today, and {way} their prices by {size}.")
@@ -252,5 +252,7 @@ def _explain(conn: Connection, share: dict, day, now: datetime, label: str, book
 def withdraw_all(conn: Connection, now: datetime) -> int:
     """Take every investor's orders off the exchange. Done at the instant new company reports
     are filed, so nobody can trade against prices the investors set before they had read them."""
+    # They are due back at the server's very next look at the market, not five minutes on.
+    conn.execute("UPDATE market_status SET investors_acted = NULL, acted_session = NULL")
     return exchange.withdraw(conn, list(accounts(conn).values()), now,
                              "Withdrawn while the investor reads the new company reports.")

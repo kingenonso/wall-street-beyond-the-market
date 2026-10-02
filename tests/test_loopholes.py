@@ -22,7 +22,7 @@ import pytest
 from server import security
 from simulation import ledger
 from simulation.money import naira
-from tests.conftest import join, ADULT
+from tests.conftest import ADULT, after_quarters, join
 
 SECRET = "test-only-secret-key-that-is-long-enough-0123456789"
 

@@ -266,7 +266,7 @@ def test_the_government_spends_exactly_the_tax_it_collected_and_keeps_its_reserv
     treasury = ledger.account_id(db, ledger.TREASURY)
     for period in range(1, 9):
         # Tax, and the interest banks pay on what the Central Bank has lent them.
-        collected = ledger.received_in_period(db, treasury, period, kinds=("company_tax", "debt_interest"))
+        collected = ledger.received_in_period(db, treasury, period, kinds=economy.GOVERNMENT_INCOME)
         spent = db.execute(
             "SELECT coalesce(-sum(e.amount), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
             " WHERE e.account_id = %s AND e.amount < 0 AND t.period = %s"
