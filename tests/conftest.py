@@ -31,6 +31,14 @@ os.environ["WORLD_START"] = WORLD_START.isoformat()
 os.environ["RATE_LIMITS"] = "false"            # switched on only by the tests that are about them
 os.environ["RUN_QUARTER_CLOSER"] = "false"     # tests close quarters themselves, at chosen times
 
+# The order-matching engine is a separate small program (Rust). Build it once if it is not there.
+import subprocess  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+_ENGINE = Path(__file__).resolve().parent.parent / "engine"
+if not (_ENGINE / "target" / "release" / "bsx-engine").is_file() and not os.environ.get("BSX_ENGINE"):
+    subprocess.run(["cargo", "build", "--release"], cwd=_ENGINE, check=True)
+
 from database.migrate import apply_migrations  # noqa: E402
 from simulation import genesis, quarters  # noqa: E402
 

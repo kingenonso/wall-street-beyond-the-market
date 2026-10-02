@@ -174,10 +174,18 @@ def _settle_old_bills(conn, company, period) -> None:
 
 def _pay_dividend(conn, company, amount, period) -> int:
     """Share a dividend among the owners in proportion to their shares. Returns what was paid."""
+    # Shares the exchange is holding for a sell order still belong to whoever is selling
+    # them until they are sold, so their dividend goes to that seller, not to the exchange.
     holders = _rows(
         conn,
-        "SELECT account_id, balance FROM ledger_balances WHERE asset = %s AND balance > 0 ORDER BY account_id",
-        (company["share_asset"],),
+        "SELECT account_id, sum(shares)::bigint AS balance FROM ("
+        "   SELECT b.account_id, b.balance AS shares FROM ledger_balances b JOIN ledger_accounts a ON a.id = b.account_id"
+        "    WHERE b.asset = %s AND b.balance > 0 AND a.kind <> 'exchange'"
+        "   UNION ALL"
+        "   SELECT o.account_id, o.remaining FROM market_orders o JOIN market_instruments m ON m.company_id = o.company_id"
+        "    WHERE m.asset = %s AND o.side = 'sell' AND o.status = 'open' AND o.remaining > 0"
+        " ) owned GROUP BY account_id ORDER BY account_id",
+        (company["share_asset"], company["share_asset"]),
     )
     shares = sum(h["balance"] for h in holders)
     if shares == 0 or amount <= 0:
