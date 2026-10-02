@@ -1,9 +1,9 @@
-# Stage 2: The ledger and the 40 companies
+# Stage 2: The ledger and the companies
 
 **Test from the design:** eight game quarters run, every balance sheet balances,
 and no naira appears without a recorded payer. **Status: passes.**
 
-258 automated server tests and 12 website tests pass. The loophole check was run
+282 automated server tests and 12 website tests pass. The loophole check was run
 on Stage 1 and Stage 2, including a review by a second AI that did not write the code.
 
 Words used below:
@@ -24,7 +24,7 @@ Words used below:
 | 3 | Whole kobo, with the currency beside every amount | Yes | `test_ledger.py`, `test_formulas.py` (no fractions accepted; rounding rule tested) |
 | 4 | Accounts for players, companies, the six banks, the Government and the prize pool | Yes | `test_world.py::test_accounts_exist_for_companies_banks_government_and_the_prize_pool` |
 | 5 | A new player's ₦500,000 is paid from a named source | Yes | `test_accounts.py` (paid by the Federal Government Treasury; shown in the player's account history) |
-| 6 | All 40 companies exist with names and sectors | Yes | `test_world.py::test_all_40_companies_exist_with_the_blueprint_names_and_sectors` |
+| 6 | All 40 companies exist with names and sectors (now 50, see "Additions") | Yes | `test_world.py::test_all_50_companies_exist_with_the_blueprint_names_and_sectors` |
 | 7 | Income statement, balance sheet and cash-flow statement for each | Yes | `test_quarters.py`, `test_world.py::test_every_company_has_statements_shares_owners_debts_and_a_rating` |
 | 8 | Shares in issue, owners, debts with rates and repayment dates, credit rating | Yes | `test_world.py::test_debts_have_a_lender_a_rate_and_a_repayment_date`, `test_formulas.py` (rating) |
 | 9 | Accounts update each game quarter | Yes | `test_quarters.py` (closes on time, once only, in order, even with several servers) |
@@ -83,7 +83,7 @@ false numbers and auditors, journalists and regulators to catch it.
 **Credit ratings** (AAA down to D) are worked out from the filed figures: how much
 the company has borrowed, how easily profit covers interest, how much cash it
 holds. Each rating comes with its reasons in plain words. After eight quarters the
-spread is: A 12, AAA 9, BBB 8, AA 6, BB 3, B 2.
+spread across the 50 companies is about: AAA 6, AA 3, A 14, BBB 12, BB 6, B 4, CCC 3, D 2.
 
 ## Decisions I made that you did not specify
 
@@ -198,6 +198,82 @@ with households that earn wages, save and borrow, which is what makes money
 circulate in a real economy. A long-run test (at least 80 quarters without the
 economy seizing up) should be part of the Stage 3 checklist.
 
+## Additions after the owner played Stage 2 (2 October 2026)
+
+**Ten weaker companies.** The first 40 were all too healthy; the weakest was rated B.
+Ten more were added, built weak or troubled, so ratings run from AAA to D.
+
+| Company | Sector | Head office | Begins |
+| --- | --- | --- | --- |
+| Bonny Tide Shipping | Transport and logistics | Port Harcourt | In default: a loan is past its repayment date |
+| Kainji Textiles | Manufacturing | Kano | In default: a loan is past its repayment date |
+| Zuma Rock Hotels | Real estate and construction | Abuja | Behind on its bills |
+| Oguta Airways | Transport and logistics | Lagos | Behind on its bills |
+| Calabar Paper Mills | Manufacturing | Aba | Behind on its bills |
+| Lekki Fibre Networks | Telecoms | Lagos | Heavily borrowed |
+| Benue Harvest Foods | Agriculture | Kano | Thin profit, large swings |
+| Niger Bridge Steel | Manufacturing | Aba | Heavily borrowed |
+| Sahel Crest Microfinance Bank | Banking | Kano | Thin cushion, little ready cash |
+| Ibom Solar Power | Power | Port Harcourt | Young, still paying for its plant |
+
+**Head offices** are now spread over five locations: Lagos, Abuja, Port Harcourt, Aba
+and Kano. The location is recorded and shown. Its effect on costs and risks is Stage 3.
+
+**EBITDA** (profit before interest paid, tax, and the wear on buildings and machines)
+is on every income statement, the company page and the companies list. The credit
+rating now uses it: borrowings of more than four years of EBITDA cap a rating at BB,
+more than six years at B, and a business that produces no EBITDA cannot rate above B.
+
+**Good times and bad times.** Before, every company in a sector grew by the same
+percentage every quarter and none lost money. Now:
+
+- Each company has its own trend, above or below its sector's.
+- Each company has good and bad quarters of its own, and each sector has good and bad
+  quarters that all its companies share.
+- Costs swing as well as sales.
+- Over the first eight quarters about a tenth of company-quarters are loss-making.
+- Each filing says why sales moved: the trend, the season, the sector's quarter and
+  the company's own quarter.
+
+**How fortune is decided.** Each world is given a long random secret when it is
+created. Every quarter's fortune is worked out from that secret, so the same quarter
+always gives the same answer if it is re-checked, and nobody outside the server can
+work out next quarter in advance. The secret is never sent to a player and can never
+be changed.
+
+**Rules I chose that you did not specify**
+
+| Rule | Why |
+| --- | --- |
+| D means a debt is past its final repayment date, or the company owes more than it owns | A clear line for "has failed" |
+| A missed scheduled repayment caps the rating at CCC, one step above D | It is a serious warning, but the loan's final date has not passed |
+| Unpaid bills also cap the rating at CCC | As before |
+
+**Target against result.** The blueprint's target spread was AAA 3, AA 5, A 8, BBB 10,
+BB 9, B 7, CCC 5, D 3. The result after eight quarters is about AAA 6, AA 3, A 14,
+BBB 12, BB 6, B 4, CCC 3, D 2. Every grade is present, but the world is still
+stronger than the target: the banks and insurers are very safe and the middle is
+heavy at A. The real causes of weakness (costs, rivals, events) arrive in Stage 3
+and will move this further.
+
+**Second loophole review.** A second independent review attacked these additions. It
+could not find the secret or any hidden figure in anything sent to a player, and the
+books balanced over 60 quarters with all 50 companies. It found seven weaknesses;
+all are fixed and tested except the last, which is cosmetic wording:
+
+| Finding | Severity | Done |
+| --- | --- | --- |
+| A world created before this change would have had an empty secret, making its fortunes predictable from the code | High | Fixed. An older world is given a random secret on upgrade; the database refuses a short one; quarters will not close without one. |
+| A short chosen secret could be found from one quarter of published results | Medium | Fixed. A chosen secret must be at least 32 characters. |
+| An absurd setting could make sales negative and stop the calendar | Medium | Fixed. |
+| Missed loan instalments did not affect the rating | Medium | Fixed: capped at CCC. |
+| A loss-making company with no debts could still rate AA | Medium | Fixed. |
+| The company page would crash on a filing made before EBITDA existed | Low | Fixed. |
+| Small wording faults | Low | Mostly fixed. |
+
+**To see these additions you must start a new world**, because a world is only
+created once: `docker compose down -v`, then `docker compose up --build`.
+
 ## Run it and look around
 
 ```
@@ -210,7 +286,7 @@ code; on your own computer it is shown on the same screen. Then:
 
 - **My desk**: what needs you now, the biggest moves in sales, and your account
   history showing the ₦500,000 paid by the Federal Government Treasury.
-- **Companies**: all 40, by sector, with sales, profit and credit rating.
+- **Companies**: all 50, by sector, with sales, EBITDA, net profit and credit rating.
 - Click any company: its chart, why sales moved, the three statements quarter by
   quarter, why it has its rating, who owns it and what it owes.
 - **Profile**: change your profile picture.

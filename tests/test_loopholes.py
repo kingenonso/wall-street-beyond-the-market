@@ -622,3 +622,81 @@ def test_the_database_itself_allows_one_player_per_mailbox(client, player, db):
             " VALUES ('Ada+2@example.com', 'ada@example.com', 'Copy', 'copy', 'x', now())"
         )
     assert refused.value.diag.constraint_name == "players_email_key_unique"
+
+
+# ---------------------------------------------------------------------------
+# Good and bad quarters: can a player know next quarter in advance?
+# (Second independent review, 2 October 2026.)
+# ---------------------------------------------------------------------------
+
+def test_a_world_cannot_be_created_with_a_short_guessable_secret(db):
+    from simulation import genesis
+    from tests.conftest import WORLD_START
+    with psycopg_connect_empty() as empty:
+        for weak in ("", "7", "password", "a" * 31):
+            if weak == "":
+                continue                                       # empty means "choose a random one"
+            with pytest.raises(ValueError):
+                genesis.create_world(empty, WORLD_START, weak)
+        assert empty.execute("SELECT count(*) FROM world_state").fetchone()[0] == 0
+
+
+def psycopg_connect_empty():
+    """A connection to a database that has the tables but no world yet."""
+    import psycopg
+    from tests.conftest import _TEMPLATES, _admin, _recreate, _url
+    name = "wsbm_test_no_world"
+    with _admin() as admin:
+        _recreate(admin, name, _TEMPLATES["empty"])
+    return psycopg.connect(_url(name), autocommit=True)
+
+
+def test_a_world_made_without_a_chosen_secret_gets_a_long_random_one():
+    from simulation import genesis
+    from tests.conftest import WORLD_START
+    seeds = []
+    for _ in range(2):
+        with psycopg_connect_empty() as empty:
+            genesis.create_world(empty, WORLD_START)
+            seeds.append(empty.execute("SELECT fortune_seed FROM world_state").fetchone()[0])
+    assert all(len(seed) >= 32 for seed in seeds) and seeds[0] != seeds[1]
+
+
+def test_the_database_refuses_a_world_with_a_short_secret(db):
+    with psycopg_connect_empty() as empty:
+        with pytest.raises(Exception) as refused:
+            empty.execute("INSERT INTO world_state (world_start, company_tax_bps, fortune_seed) VALUES (now(), 3000, 'short')")
+        assert refused.value.diag.constraint_name == "world_secret_is_long"
+
+
+def test_a_world_from_before_fortunes_existed_is_given_a_secret_when_it_is_upgraded():
+    """Without this, an older world's fortunes could be worked out from the game's code alone."""
+    import psycopg
+    from pathlib import Path
+    from tests.conftest import _admin, _recreate, _url
+    name = "wsbm_test_no_world"
+    with _admin() as admin:
+        _recreate(admin, name)
+    migrations = sorted(Path("database/migrations").glob("*.sql"))
+    with psycopg.connect(_url(name), autocommit=True) as old:
+        for path in migrations[:4]:
+            old.execute(path.read_text())
+        old.execute("INSERT INTO world_state (world_start, company_tax_bps) VALUES (now(), 3000)")
+        old.execute(migrations[4].read_text())
+        assert len(old.execute("SELECT fortune_seed FROM world_state").fetchone()[0]) >= 32
+
+
+def test_quarters_cannot_be_closed_for_a_world_with_no_secret(db):
+    from simulation import quarters
+    with pytest.raises(ledger.LedgerError):
+        quarters._close_period(db, 1, 3000, "")
+
+
+def test_fortune_can_never_make_sales_negative(db, monkeypatch):
+    from simulation import quarters
+    from simulation import world_data
+    from tests.conftest import after_quarters
+    monkeypatch.setattr(world_data, "SECTOR_VOLATILITY_BPS", 30_000)        # absurd on purpose
+    assert quarters.close_due_quarters(db, after_quarters(6)) == [1, 2, 3, 4, 5, 6]
+    assert db.execute("SELECT count(*) FROM company_results WHERE revenue < 0").fetchone()[0] == 0
+    assert ledger.audit(db) == []

@@ -79,6 +79,10 @@ def create_world(conn: Connection, world_start: datetime, fortune_seed: str | No
     """
     if world_start.tzinfo is None:
         raise ValueError("The world's start time must carry its time zone.")
+    if fortune_seed is not None and len(fortune_seed) < 32:
+        # A short secret could be found by trying every possibility against one
+        # quarter of published results. After that, every future quarter is known.
+        raise ValueError("The world's secret must be at least 32 characters. Leave it empty for a random one.")
     with conn.transaction():
         conn.execute("SELECT pg_advisory_xact_lock(%s)", (_GENESIS_LOCK,))
         created = conn.execute("SELECT 1 FROM world_state").fetchone() is None

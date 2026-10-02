@@ -402,7 +402,8 @@ def my_movements(
 # ---------------------------------------------------------------------------
 
 def _world(conn: Connection) -> dict | None:
-    return conn.execute("SELECT * FROM world_state").fetchone()
+    # Named columns only: the world's secret is never read into a request.
+    return conn.execute("SELECT world_start, last_closed_period FROM world_state").fetchone()
 
 
 @app.get("/api/world/clock", response_model=ClockResponse)
@@ -447,6 +448,14 @@ def _amounts_as_text(value, key: str | None = None):
     if isinstance(value, int) and not isinstance(value, bool) and key not in _NOT_AMOUNTS:
         return str(value)
     return value
+
+
+def _with_ebitda(figures: dict) -> dict:
+    """Filings made before EBITDA was filed still show it: it is worked out from what they did file."""
+    income = figures["income_statement"]
+    if "ebitda" not in income:
+        income["ebitda"] = income["operating_profit"] + income["depreciation"]
+    return figures
 
 
 @app.get("/api/companies", response_model=CompaniesResponse)
@@ -531,7 +540,7 @@ def get_company(
                 period=r["period"], period_label=clock.period_label(r["period"]), version=r["version"],
                 amended=r["version"] > 1, filed_by=r["filed_by"], filed_at=r["filed_at"],
                 credit_rating=r["credit_rating"], rating_reasons=r["rating_reasons"],
-                figures=_amounts_as_text(r["figures"]),
+                figures=_amounts_as_text(_with_ebitda(r["figures"])),
             )
             for r in reversed(filed)
         ],

@@ -251,8 +251,11 @@ export function CompanyRail({ ticker, onLoggedOut }: { ticker: string; onLoggedO
             </div>
             <div className="muted small">
               Owed to {debt.lender}. Interest {formatPercent(debt.annual_rate_bps)} a year.{" "}
-              {debt.repayment === "bullet" ? "Repaid in one go in " : "Repaid a little each quarter until "}
-              {periodLabel(debt.maturity_period)}.
+              {debt.maturity_period <= latest.period
+                ? debt.maturity_period <= 0
+                  ? "It should have been repaid before the game began, and has not been."
+                  : `It should have been repaid by ${periodLabel(debt.maturity_period)}, and has not been.`
+                : `${debt.repayment === "bullet" ? "Repaid in one go in" : "Repaid a little each quarter until"} ${periodLabel(debt.maturity_period)}.`}
             </div>
           </div>
         ))}

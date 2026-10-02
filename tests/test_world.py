@@ -186,7 +186,7 @@ def test_a_troubled_start_still_balances_and_explains_itself(db):
 
 
 def test_the_worlds_secret_is_set_and_can_never_be_changed(db):
-    assert db.execute("SELECT fortune_seed FROM world_state").fetchone()[0] == "a-fixed-seed-so-tests-repeat"
+    assert db.execute("SELECT fortune_seed FROM world_state").fetchone()[0] == "a-fixed-secret-so-that-every-test-run-repeats"
     with pytest.raises(Exception) as refused:
         db.execute("UPDATE world_state SET fortune_seed = 'one-i-chose'")
     assert refused.value.diag.constraint_name == "world_is_permanent"

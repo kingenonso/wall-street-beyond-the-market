@@ -45,7 +45,7 @@ def rate(figures: dict, trailing: list[dict]) -> tuple[str, list[str]]:
     # Failures first. These override everything else.
     if figures["notes"]["principal_overdue"] > 0:
         return "D", ["Debt that has passed its repayment date is still unpaid."]
-    if equity <= 0:
+    if equity <= 0 or assets <= 0:
         return "D", ["It owes more than everything it owns."]
 
     reasons: list[str] = []
@@ -113,20 +113,30 @@ def rate(figures: dict, trailing: list[dict]) -> tuple[str, list[str]]:
 
     rating = next((name for floor, name in _BANDS if points >= floor), "CCC")
 
-    # Debt against EBITDA: how many years of what the business produces it would
-    # take to repay everything it has borrowed. Heavy debt caps the rating.
-    if trailing and not financial and borrowings > 0:
+    # EBITDA: what the business itself produces before interest, tax and wear.
+    if trailing:
         yearly_ebitda = sum(i.get("ebitda", i["operating_profit"] + i["depreciation"]) for i in income) * 4 // len(income)
         if yearly_ebitda <= 0:
-            rating = _cap(rating, "CCC")
-            reasons.append("Its business produces no cash before interest and tax (EBITDA), yet it has debts to service.")
-        else:
+            # A business that produces nothing cannot be highly rated, debts or no debts.
+            if borrowings > 0 and not financial:
+                rating = _cap(rating, "CCC")
+                reasons.append("Its business produces no cash before interest and tax (EBITDA), yet it has debts to service.")
+            else:
+                rating = _cap(rating, "B")
+                reasons.append("Its business produces no cash before interest and tax (EBITDA).")
+        elif borrowings > 0 and not financial:
+            # How many years of EBITDA it would take to repay everything it has borrowed.
             years = borrowings / yearly_ebitda
             reasons.append(f"Its borrowings equal {years:.1f} years of EBITDA.")
             if years > 6:
                 rating = _cap(rating, "B")
             elif years > 4:
                 rating = _cap(rating, "BB")
+
+    # A missed loan repayment is one step from default.
+    if figures["notes"].get("repayments_missed", 0) > 0:
+        rating = _cap(rating, "CCC")
+        reasons.insert(0, "It missed a loan repayment that fell due this quarter.")
 
     # Unpaid bills cap the rating, however strong the rest looks.
     if sheet["payables"] > 0 and SCALE.index(rating) < SCALE.index("CCC"):

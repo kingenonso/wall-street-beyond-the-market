@@ -59,7 +59,9 @@ def _received(conn: Connection, account, period: int) -> int:
     return ledger._first(row)
 
 
-def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str = "") -> None:
+def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str) -> None:
+    if len(fortune_seed) < 32:
+        raise ledger.LedgerError("The world has no secret. Quarters cannot be closed without one.")
     label = clock.period_label(period)
     public = ledger.account_id(conn, ledger.PUBLIC)
     treasury = ledger.account_id(conn, ledger.TREASURY)

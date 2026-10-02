@@ -9,7 +9,12 @@ ALTER TABLE companies ADD COLUMN volatility_bps integer NOT NULL DEFAULT 0
 -- quarter's good and bad fortune is worked out from it, so nobody outside the
 -- server can work out next quarter's results in advance, yet the same quarter
 -- always gives the same answer if it is ever re-checked.
-ALTER TABLE world_state ADD COLUMN fortune_seed text NOT NULL DEFAULT '';
+ALTER TABLE world_state ADD COLUMN fortune_seed text;
+-- A world that already exists is given a random secret now. (A world with no
+-- secret would have fortunes anybody could work out from the game's code.)
+UPDATE world_state SET fortune_seed = replace(gen_random_uuid()::text, '-', '');
+ALTER TABLE world_state ALTER COLUMN fortune_seed SET NOT NULL;
+ALTER TABLE world_state ADD CONSTRAINT world_secret_is_long CHECK (length(fortune_seed) >= 32);
 
 -- The secret, like the start date, can never be changed once the world exists.
 CREATE OR REPLACE FUNCTION world_state_guard() RETURNS trigger LANGUAGE plpgsql AS $$

@@ -152,20 +152,20 @@ COMPANIES: tuple[Company, ...] = (
     # purpose, so that credit ratings run all the way from AAA to D from day one. ---
     # Already in default: a loan has passed its repayment date unpaid.
     Company("BTS", "Bonny Tide Shipping", "transport", PORT_HARCOURT, 40_000, lender="OBB",
-            trend_bps=-150, volatility_bps=900, cost_extra_bps=500, opex_times_bps=12_000,
+            trend_bps=-500, volatility_bps=900, cost_extra_bps=500, opex_times_bps=12_000,
             debt_times_bps=20_000, cash_times_bps=2_500, overdue_bps=3_000),
     Company("KTX", "Kainji Textiles", "manufacturing", KANO, 35_000, lender="ZCB",
-            trend_bps=-250, volatility_bps=800, cost_extra_bps=600, opex_times_bps=12_500,
+            trend_bps=-600, volatility_bps=800, cost_extra_bps=600, opex_times_bps=12_500,
             debt_times_bps=22_000, cash_times_bps=2_000, overdue_bps=2_500),
     # Behind on their bills.
     Company("ZRH", "Zuma Rock Hotels", "real_estate", ABUJA, 28_000, lender="HMB",
-            trend_bps=-50, volatility_bps=1_000, cost_extra_bps=400, opex_times_bps=14_000,
+            trend_bps=-450, volatility_bps=1_000, cost_extra_bps=400, opex_times_bps=14_000,
             debt_times_bps=16_000, cash_times_bps=1_500, unpaid_bills_bps=2_500),
     Company("OGA", "Oguta Airways", "transport", LAGOS, 120_000, lender="KCB",
             trend_bps=0, volatility_bps=1_200, cost_extra_bps=900, opex_times_bps=11_000,
             debt_times_bps=17_000, cash_times_bps=1_500, unpaid_bills_bps=2_000),
     Company("CPM", "Calabar Paper Mills", "manufacturing", ABA, 22_000, lender="OTB",
-            trend_bps=-200, volatility_bps=700, cost_extra_bps=900, opex_times_bps=12_000,
+            trend_bps=-550, volatility_bps=700, cost_extra_bps=900, opex_times_bps=12_000,
             debt_times_bps=15_000, cash_times_bps=2_000, unpaid_bills_bps=1_500),
     # Weak, but paying their way.
     Company("LFN", "Lekki Fibre Networks", "telecoms", LAGOS, 60_000, lender="IKB",
@@ -186,6 +186,7 @@ COMPANIES: tuple[Company, ...] = (
 
 # Whole sectors have good and bad quarters too: up to this far above or below trend.
 SECTOR_VOLATILITY_BPS = 300
+assert 0 <= SECTOR_VOLATILITY_BPS < 5_000
 
 # --- Opening money (design document, section 10) ---
 # The Central Bank issues the opening money. From then on, no new naira appears.

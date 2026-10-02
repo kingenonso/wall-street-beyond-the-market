@@ -126,6 +126,22 @@ class TestCreditRating:
         del filing["income_statement"]["ebitda"]
         assert credit.rate(filing, [filing])[0] == "AAA"
 
+    def test_a_loss_making_business_cannot_rate_highly_even_with_no_debts(self):
+        filing = _filing(balance_sheet__borrowings=0, income_statement__interest_expense=0,
+                         income_statement__ebitda=-400, income_statement__operating_profit=-450,
+                         income_statement__net_profit=-450)
+        assert credit.SCALE.index(credit.rate(filing, [filing])[0]) >= credit.SCALE.index("B")
+
+    def test_a_missed_loan_repayment_caps_the_rating_at_ccc(self):
+        filing = _filing(notes__repayments_missed=1)
+        rating, reasons = credit.rate(filing, [filing])
+        assert rating == "CCC"
+        assert reasons[0] == "It missed a loan repayment that fell due this quarter."
+
+    def test_a_filing_showing_nothing_owned_is_a_default_not_a_crash(self):
+        filing = _filing(balance_sheet__total_assets=0, balance_sheet__customer_funds=10)
+        assert credit.rate(filing, [filing])[0] == "D"
+
     def test_debt_past_its_date_is_a_default(self):
         filing = _filing(notes__principal_overdue=1)
         assert credit.rate(filing, [filing])[0] == "D"

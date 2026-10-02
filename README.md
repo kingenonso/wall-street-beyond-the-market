@@ -57,7 +57,7 @@ code. On a real website the code is emailed to you. On your own computer no
 email service is connected, so the code is shown on the screen instead.
 
 On the first run the game world is created: the Central Bank, the Government,
-the 40 companies and their opening accounts. It is created **once**. The
+the 50 companies and their opening accounts. It is created **once**. The
 `WORLD_START` date in `.env` is read only at that moment; the example value is
 eight weeks in the past, so every company already has eight quarters of
 accounts to browse. After that, a new quarter closes by itself every real week.

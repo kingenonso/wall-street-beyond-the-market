@@ -469,4 +469,4 @@ def test_fortune_is_fixed_by_the_worlds_secret_and_stays_within_its_limits():
 def test_the_worlds_secret_and_each_companys_steadiness_are_never_sent_to_players(client, player):
     for path in ("/api/companies", "/api/companies/OGA", "/api/world/status", "/api/world/clock"):
         text = client.get(path).text
-        assert "a-fixed-seed" not in text and "fortune_seed" not in text and "volatility" not in text
+        assert "a-fixed-secret" not in text and "fortune_seed" not in text and "volatility" not in text

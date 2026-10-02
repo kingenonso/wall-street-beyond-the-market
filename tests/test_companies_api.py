@@ -117,3 +117,18 @@ def test_nothing_private_leaks_through_the_company_pages(client, player):
     text = client.get("/api/companies").text + client.get("/api/companies/IKB").text
     for secret in ("ledger_totals", "base_revenue", "base_opex", "account_id", "password", "@example.com", "drivers"):
         assert secret not in text
+
+
+def test_a_filing_from_before_ebitda_was_filed_still_shows_it(client, player, db):
+    from psycopg.types.json import Jsonb
+    company_id = db.execute("SELECT id FROM companies WHERE ticker = 'IDC'").fetchone()[0]
+    figures = db.execute("SELECT figures FROM company_reports WHERE company_id = %s AND period = 8", (company_id,)).fetchone()[0]
+    expected = figures["income_statement"].pop("ebitda")
+    db.execute(
+        "INSERT INTO company_reports (company_id, period, version, figures, credit_rating, rating_reasons, filed_by)"
+        " VALUES (%s, 8, 2, %s, 'A', %s, 'Company management')", (company_id, Jsonb(figures), Jsonb(["Old style"])),
+    )
+    latest = client.get("/api/companies/IDC").json()["reports"][-1]
+    assert latest["version"] == 2 and latest["figures"]["income_statement"]["ebitda"] == str(expected)
+    listed = [c for s in client.get("/api/companies").json()["sectors"] for c in s["companies"] if c["ticker"] == "IDC"][0]
+    assert listed["ebitda_kobo"] == str(expected)

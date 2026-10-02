@@ -65,7 +65,7 @@ class Context:
     public: UUID
     treasury: UUID
     tax_bps: int
-    fortune_seed: str = ""
+    fortune_seed: str
 
 
 def fortune_bps(seed: str, subject: str, period: int, what: str, size_bps: int) -> int:
@@ -228,7 +228,9 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     sector_fortune = fortune_bps(ctx.fortune_seed, company["sector"], period, "demand", data.SECTOR_VOLATILITY_BPS)
     own_fortune = fortune_bps(ctx.fortune_seed, company["ticker"], period, "sales", company["volatility_bps"])
     cost_fortune = fortune_bps(ctx.fortune_seed, company["ticker"], period, "costs", company["volatility_bps"] // 3)
-    planned_revenue = apply_bps(apply_bps(apply_bps(base_revenue, season), BPS + sector_fortune), BPS + own_fortune)
+    planned_revenue = max(
+        apply_bps(apply_bps(apply_bps(base_revenue, season), BPS + sector_fortune), BPS + own_fortune), 0
+    )
     ledger.pay_up_to(
         conn, payer=ctx.public, receiver=account, wanted=planned_revenue,
         kind="customer_revenue", memo=f"{name}: sales to customers, {label}", period=period,
@@ -281,6 +283,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
 
     # 5. Repay the debt that is due.
     principal_overdue = 0
+    repayments_missed = 0
     for debt in debts:
         due = principal_due(debt["principal_outstanding"], debt["repayment"], debt["maturity_period"], period)
         paid = ledger.pay_up_to(
@@ -296,7 +299,8 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         if period >= debt["maturity_period"]:
             principal_overdue += debt["principal_outstanding"] - paid
         if paid < due:
-            notes.append(f"It could not repay all of the debt due this quarter on {debt['name']}.")
+            repayments_missed += due - paid
+            notes.append(f"It could not repay all of the debt due this quarter on its {debt['name']}.")
 
     payables = _row(
         conn, "SELECT coalesce(sum(amount_outstanding), 0)::bigint AS owed FROM company_payables WHERE company_id = %s",
@@ -370,6 +374,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     drivers = {
         "revenue": _revenue_causes(company, season, sector_fortune, own_fortune, revenue, planned_revenue),
         "notes": notes,
+        "repayments_missed": repayments_missed,
     }
 
     result = {
@@ -461,6 +466,8 @@ def build_figures(conn: Connection, company: dict, result: dict) -> dict:
         "notes": {
             "shares_in_issue": result["shares_in_issue"],
             "principal_overdue": result["principal_overdue"],
+            # Scheduled loan repayments it failed to make this quarter.
+            "repayments_missed": result["drivers"].get("repayments_missed", 0),
             "borrowings": debts,
             "why_revenue": result["drivers"]["revenue"],
             "management_notes": result["drivers"]["notes"],
