@@ -26,6 +26,7 @@ LAGOS = ZoneInfo("Africa/Lagos")
 AUCTION_START = time(11, 30)
 MARKET_OPEN = time(12, 0)
 MARKET_CLOSE = time(22, 0)
+CLOSING_RUSH_START = time(21, 50)        # the last ten minutes of the trading day
 
 # The business calendar is compressed:
 # one real week is one game quarter, four real weeks are one game year.
@@ -77,6 +78,17 @@ def market_state(moment: datetime) -> MarketState:
     if MARKET_OPEN <= now < MARKET_CLOSE:
         return MarketState.OPEN
     return MarketState.CLOSED
+
+
+def in_closing_rush(moment: datetime) -> bool:
+    """Whether it is the Closing Rush: the last ten minutes of the trading day. The market is
+    open as usual; fees are lower and large orders are shown to everybody."""
+    return CLOSING_RUSH_START <= to_lagos(moment).time() < MARKET_CLOSE
+
+
+def next_quarter_end(moment: datetime, world_start: datetime) -> datetime:
+    """The moment the game quarter now running ends: when every company files its results."""
+    return world_start + timedelta(days=REAL_DAYS_PER_QUARTER) * (max(periods_completed(moment, world_start), 0) + 1)
 
 
 def next_change(moment: datetime) -> tuple[MarketState, datetime]:

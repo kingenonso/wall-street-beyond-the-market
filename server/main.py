@@ -54,9 +54,11 @@ from server.schemas import (
     Holding, OrderRequest, OrderResponse, PlacedOrderResponse, PriceLevel, PublicTrade, QuoteResponse, WhyResponse,
     AnalysisResponse, IndexPoint, MarketResponse, MarketShare, NpvYear, PortfolioHolding, PortfolioResponse,
     Shareholder, TradingDay, WatchedShare, WatchRequest,
+    BellMover, ClosingBell, ClosingBellResponse, CompanyFactsResponse, Industry, IndustryCompany, IndustryPlace, LargeOrder,
+    NetWorthDay, NextResults, ProfitPerShare, ReportQuarter, ResultsReportResponse, TickerResponse, TickerShare,
 )
 from simulation import clock, exchange, investors, ledger, moneywatch, news, news_kinds, players, quarters
-from simulation import marketview
+from simulation import closingbell, insight, marketview
 from simulation import world_data as data
 from simulation.ledger import NGN
 
@@ -79,6 +81,8 @@ def _close_due_quarters_once() -> None:
             exchange.open_market(conn, now)
             # The computer-run investors look at the market and renew their orders.
             investors.act(conn, now)
+            # After 22:00 the Closing Bell goes out, once for each trading day.
+            closingbell.ring(conn, now)
 
 
 async def _quarter_closer() -> None:
@@ -440,6 +444,7 @@ def world_clock(conn: Connection = Depends(get_connection)):
         next_state=snap.next_state.value,
         next_change_at=snap.next_change_at,
         world_started=snap.world_started,
+        closing_rush=clock.in_closing_rush(snap.lagos_time),
         test_weeks_ahead=ahead,
         game_date=GameDateResponse(**vars(snap.game_date)) if snap.game_date else None,
     )
@@ -700,7 +705,11 @@ def market(_: dict = Depends(current_player), conn: Connection = Depends(get_con
 @app.get("/api/market/portfolio", response_model=PortfolioResponse)
 def my_portfolio(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     mine = marketview.portfolio(conn, _trading_account(conn, player), _exchange_time(conn))
+    days = [NetWorthDay(session_date=d["session_date"], total_kobo=d["total"]) for d in mine["net_worth_days"]
+            if d["session_date"] < mine["today"]]
+    days.append(NetWorthDay(session_date=mine["today"], total_kobo=mine["total"]))
     return PortfolioResponse(
+        advice=insight.personal_advice(conn, mine), net_worth=days,
         cash_kobo=mine["cash"], held_for_orders_kobo=mine["held_for_orders"], shares_value_kobo=mine["shares_value"],
         total_kobo=mine["total"], dividends_kobo=mine["dividends"], realised_kobo=mine["realised"],
         holdings=[PortfolioHolding(
@@ -809,6 +818,90 @@ def cancel_order(
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
                             "The exchange cannot do that at this moment. Nothing was changed. Please try again.") from None
     return _order_response(next(row for row in exchange.orders_of(conn, account, limit=200) if row["id"] == order_id))
+
+
+@app.get("/api/market/ticker", response_model=TickerResponse)
+def price_ticker(_: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """Every share's price and today's move, for the strip across the top of every screen."""
+    now = _exchange_time(conn)
+    seen = marketview.overview(conn, now, with_history=False)
+    return TickerResponse(
+        market_state=seen["state"], closing_rush=clock.in_closing_rush(now), index=seen["index"] / 100,
+        index_change_bps=seen["index_change_bps"],
+        shares=[TickerShare(ticker=s["ticker"], price_kobo=s["price"], change_bps=s["change_bps"]) for s in seen["shares"]],
+    )
+
+
+@app.get("/api/market/closing-bell", response_model=ClosingBellResponse)
+def closing_bell(_: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """The Closing Rush as it stands, and the latest Closing Bell broadcast."""
+    rush = closingbell.rush(conn, _exchange_time(conn))
+    rung = closingbell.latest(conn)
+    bell = None
+    if rung:
+        c = rung["content"]
+        mover = lambda m: BellMover(ticker=m["ticker"], name=m["name"], close_kobo=m["close"], change_bps=m["change_bps"]) if m else None  # noqa: E731
+        bell = ClosingBell(
+            session_date=rung["session_date"], rung_at=rung["rung_at"], index=c["index"] / 100,
+            index_change_bps=c["index_change_bps"], lines=c["lines"], stories=c["stories"], advisory=c["advisory"],
+            next=c["next"], winner=mover(c["winner"]), loser=mover(c["loser"]), risers=c["risers"], fallers=c["fallers"])
+    return ClosingBellResponse(
+        in_rush=rush["in_rush"], fee_bps=rush["fee_bps"], usual_fee_bps=rush["usual_fee_bps"], bell=bell,
+        large_orders=[LargeOrder(ticker=o["ticker"], name=o["name"], side=o["side"], quantity=o["quantity"],
+                                 value_kobo=o["value"], shown_at=o["shown_at"]) for o in rush["large_orders"]])
+
+
+@app.get("/api/market/industries", response_model=list[Industry])
+def industries(_: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """Every industry: today's move, how fast its sales are growing, and its companies ranked by their share of it."""
+    return [Industry(
+        code=s["code"], name=s["name"], market_value_kobo=s["market_value"], change_bps=s["change_bps"], sales_kobo=s["sales"],
+        sales_growth_bps=s["sales_growth_bps"],
+        companies=[IndustryCompany(
+            ticker=c["ticker"], name=c["name"], rank=c["rank"], share_bps=c["share_bps"], sales_kobo=c["sales"],
+            sales_growth_bps=c["sales_growth_bps"], price_kobo=c["price"], change_bps=c["change_bps"],
+            market_value_kobo=c["market_value"]) for c in s["companies"]],
+    ) for s in insight.industries(conn, _exchange_time(conn))]
+
+
+@app.get("/api/market/{ticker}/facts", response_model=CompanyFactsResponse)
+def company_facts(
+    ticker: str = FastPath(pattern="^[A-Z]{3}$"),
+    _: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    found = insight.facts(conn, ticker, _exchange_time(conn))
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no company with that code.")
+    return CompanyFactsResponse(
+        ticker=found["ticker"], name=found["name"], filing_label=clock.period_label(found["period"]),
+        profit_per_share=[ProfitPerShare(period=p["period"], label=p["label"], kobo_per_share=p["eps"] / 100,
+                                         net_profit_kobo=p["net_profit"]) for p in found["profit_per_share"]],
+        yearly_profit_per_share_kobo=found["yearly_profit_per_share"] / 100, compared_with=found["compared_with"],
+        sales_change_bps=found["sales_change_bps"], profit_change_bps=found["profit_change_bps"],
+        sales_before_kobo=found["sales_before"], profit_before_kobo=found["profit_before"], cash_kobo=found["cash"],
+        cash_change_quarter_kobo=found["cash_change_quarter"], cash_change_year_kobo=found["cash_change_year"],
+        cash_in_three_months_kobo=found["cash_in_three_months"], cash_outlook=found["cash_outlook"],
+        year_high_kobo=found["year_high"], year_low_kobo=found["year_low"],
+        next_results=NextResults(**found["next_results"]) if found["next_results"] else None,
+        industry=IndustryPlace(**found["industry"]),
+    )
+
+
+@app.get("/api/market/{ticker}/results", response_model=ResultsReportResponse)
+def results_report(
+    ticker: str = FastPath(pattern="^[A-Z]{3}$"),
+    period: int | None = Query(default=None, ge=0, le=100_000),
+    _: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    """One quarter's results in words, built only from what the company filed."""
+    found = insight.results_report(conn, ticker, period)
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "That company has filed no report for that quarter.")
+    return ResultsReportResponse(
+        ticker=found["ticker"], name=found["name"], period=found["period"], label=found["label"], title=found["title"],
+        paragraphs=found["paragraphs"], available=[ReportQuarter(**q) for q in found["available"]])
 
 
 @app.get("/api/market/{ticker}/why", response_model=WhyResponse)

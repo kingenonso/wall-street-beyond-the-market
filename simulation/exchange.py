@@ -283,10 +283,15 @@ def _settle(conn: Connection, share: dict, buy: dict, sell: dict, price: int, qu
     All of it is one ledger transaction, so it happens completely or not at all."""
     value = price * quantity
     fees = {}
+    rush = not in_auction and clock.in_closing_rush(now)
     for order in (buy, sell):
         order["value_filled"] += value
-        fee = fee_due(order["value_filled"]) - order["fees_paid"]
+        # The full fee so far, less what the order has already paid or been let off.
+        full = fee_due(order["value_filled"]) - order["fees_paid"] - order["fee_rebate"]
+        rebate = full * data.RUSH_FEE_DISCOUNT_BPS // BPS if rush else 0     # fees are reduced in the Closing Rush
+        fee = full - rebate
         order["fees_paid"] += fee
+        order["fee_rebate"] += rebate
         order["remaining"] -= quantity
         fees[order["side"]] = fee
     buy["reserved"] -= value + fees["buy"]
@@ -309,8 +314,9 @@ def _settle(conn: Connection, share: dict, buy: dict, sell: dict, price: int, qu
         period=accounts["period"],
     )
     for order in (buy, sell):
-        conn.execute("UPDATE market_orders SET remaining = %s, value_filled = %s, fees_paid = %s, reserved = %s WHERE id = %s",
-                     (order["remaining"], order["value_filled"], order["fees_paid"], order["reserved"], order["id"]))
+        conn.execute("UPDATE market_orders SET remaining = %s, value_filled = %s, fees_paid = %s, fee_rebate = %s, reserved = %s"
+                     " WHERE id = %s", (order["remaining"], order["value_filled"], order["fees_paid"], order["fee_rebate"],
+                                        order["reserved"], order["id"]))
     trade = {
         "company_id": share["company_id"], "price": price, "quantity": quantity, "buy_order_id": buy["id"],
         "sell_order_id": sell["id"], "buyer_account_id": buy["account_id"], "seller_account_id": sell["account_id"],
@@ -418,6 +424,12 @@ def place_order(conn: Connection, *, account: UUID | str, ticker: str, side: str
             (account, share["company_id"], side, kind, limit_price, quantity, quantity, reserved, now),
         )
 
+        # In the Closing Rush every large order is shown to everybody as it arrives: its size, never its owner.
+        worth = (limit_price or share["reference_price"]) * quantity
+        if owner["kind"] == "player" and clock.in_closing_rush(now) and worth >= data.LARGE_ORDER_NAIRA * 100:
+            conn.execute("INSERT INTO market_large_orders (company_id, session_date, side, quantity, value, shown_at)"
+                         " VALUES (%s, %s, %s, %s, %s, %s)", (share["company_id"], share["session_date"], side, quantity, worth, now))
+
         # 2. Match, while the market is open. At other times the order waits for the opening auction.
         trades: list[dict] = []
         if state is clock.MarketState.OPEN:
@@ -452,7 +464,7 @@ def place_order(conn: Connection, *, account: UUID | str, ticker: str, side: str
             # A buyer who paid less than their limit gets the difference back at once; the
             # exchange keeps only what the shares still wanted could cost.
             needed = order["limit_price"] * order["remaining"]
-            needed += fee_due(order["value_filled"] + needed) - order["fees_paid"]
+            needed += fee_due(order["value_filled"] + needed) - order["fees_paid"] - order["fee_rebate"]
             if order["reserved"] > needed:
                 ledger.transfer(conn, payer=accounts["held"], receiver=account, amount=order["reserved"] - needed,
                                 kind="order_release", memo=f"Cash handed back: {share['name']} shares bought for less than your limit",

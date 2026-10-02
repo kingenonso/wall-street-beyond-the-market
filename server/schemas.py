@@ -123,6 +123,7 @@ class ClockResponse(BaseModel):
     next_change_at: datetime
     world_started: bool
     game_date: GameDateResponse | None
+    closing_rush: bool = False         # the last ten minutes of the trading day: lower fees, large orders shown
     test_weeks_ahead: int = 0          # a test world that has been fast-forwarded; always 0 on a live world
 
 
@@ -459,6 +460,8 @@ class PortfolioResponse(BaseModel):
     dividends_kobo: Kobo               # all dividends received so far
     realised_kobo: Kobo                # gains less losses on shares already sold, after fees
     holdings: list[PortfolioHolding]
+    advice: list[str] = []             # the personal advisory summary: observations, never tips
+    net_worth: list["NetWorthDay"] = []  # the end of each trading day, oldest first, then today so far
 
 
 class NpvYear(BaseModel):
@@ -519,3 +522,143 @@ class WatchedShare(BaseModel):
     alert_above_kobo: Kobo | None
     alert_below_kobo: Kobo | None
     reached: str | None                # 'above' or 'below' once an alert price has been reached
+
+
+# ---------------------------------------------------------------------------
+# Stage 4, slice 4: the ticker, the Closing Rush and Bell, company facts, industries.
+# ---------------------------------------------------------------------------
+
+class TickerShare(BaseModel):
+    ticker: str
+    price_kobo: Kobo
+    change_bps: int
+
+
+class TickerResponse(BaseModel):
+    market_state: str
+    closing_rush: bool
+    index: float
+    index_change_bps: int
+    shares: list[TickerShare]
+
+
+class LargeOrder(BaseModel):
+    ticker: str
+    name: str
+    side: str
+    quantity: int
+    value_kobo: Kobo
+    shown_at: datetime
+
+
+class BellMover(BaseModel):
+    ticker: str
+    name: str
+    close_kobo: Kobo
+    change_bps: int
+
+
+class ClosingBell(BaseModel):
+    session_date: date
+    rung_at: datetime
+    index: float
+    index_change_bps: int
+    lines: list[str]                   # the day in a few sentences: the index, the winner, the loser, the boldest move
+    stories: list[str]                 # the day's main headlines
+    advisory: list[str]                # the market advisory: a short reading of the economy
+    next: str                          # what is coming
+    winner: BellMover | None
+    loser: BellMover | None
+    risers: int
+    fallers: int
+
+
+class ClosingBellResponse(BaseModel):
+    in_rush: bool
+    fee_bps: int                       # what a trade costs each side right now
+    usual_fee_bps: int
+    large_orders: list[LargeOrder]     # large orders placed in today's Closing Rush, newest first, without names
+    bell: ClosingBell | None           # the latest broadcast
+
+
+class ProfitPerShare(BaseModel):
+    period: int
+    label: str
+    kobo_per_share: float              # in today's shares, allowing for any splits since
+    net_profit_kobo: Kobo
+
+
+class IndustryPlace(BaseModel):
+    sector: str
+    rank: int                          # by sales over the past year; 1 is the largest
+    of: int
+    share_bps: int                     # its share of the industry's sales
+
+
+class NextResults(BaseModel):
+    at: datetime
+    label: str
+
+
+class CompanyFactsResponse(BaseModel):
+    ticker: str
+    name: str
+    filing_label: str
+    profit_per_share: list[ProfitPerShare]       # oldest first
+    yearly_profit_per_share_kobo: float
+    compared_with: str                 # "the same quarter a year ago", "the quarter before", or empty
+    sales_change_bps: int | None
+    profit_change_bps: int | None
+    sales_before_kobo: Kobo | None
+    profit_before_kobo: Kobo | None
+    cash_kobo: Kobo
+    cash_change_quarter_kobo: Kobo
+    cash_change_year_kobo: Kobo
+    cash_in_three_months_kobo: Kobo    # an estimate: today's cash plus the average quarterly change over the past year
+    cash_outlook: str
+    year_high_kobo: Kobo | None        # over the past game year (four real weeks)
+    year_low_kobo: Kobo | None
+    next_results: NextResults | None
+    industry: IndustryPlace
+
+
+class ReportQuarter(BaseModel):
+    period: int
+    label: str
+
+
+class ResultsReportResponse(BaseModel):
+    ticker: str
+    name: str
+    period: int
+    label: str
+    title: str
+    paragraphs: list[str]
+    available: list[ReportQuarter]
+
+
+class IndustryCompany(BaseModel):
+    ticker: str
+    name: str
+    rank: int
+    share_bps: int
+    sales_kobo: Kobo                   # over the past four filed quarters
+    sales_growth_bps: int | None       # against the four quarters before; empty until two years are filed
+    price_kobo: Kobo | None
+    change_bps: int
+    market_value_kobo: Kobo
+
+
+class Industry(BaseModel):
+    code: str
+    name: str
+    market_value_kobo: Kobo
+    change_bps: int                    # today, all its companies together
+    sales_kobo: Kobo
+    sales_growth_bps: int | None
+    companies: list[IndustryCompany]
+
+
+class NetWorthDay(BaseModel):
+    session_date: date
+    total_kobo: Kobo

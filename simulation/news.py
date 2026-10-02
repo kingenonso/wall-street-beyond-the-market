@@ -146,6 +146,15 @@ def severity(event: dict) -> tuple[str, int]:
 _held_back: list[dict] | None = None
 
 
+# A results story compares with the same quarter a year ago once there is one. The wordings
+# were written for "the quarter before"; these put the right comparison in.
+_YEARLY_WORDS = (
+    (" the quarter before", " in the same quarter a year ago"), ("three months earlier", "a year earlier"),
+    ("Three months ago", "A year ago"), ("The previous quarter", "The same quarter a year ago"),
+    ("the previous quarter", "the same quarter a year ago"),
+)
+
+
 def publish(conn: Connection, *, period: int, day: int, kind: str, story: str, facts: dict,
             tickers=(), sectors=(), locations=(), boost: int = 0) -> list[dict]:
     """Print one piece of news. The more it matters, the more papers carry it, each in its own words."""
@@ -175,6 +184,9 @@ def publish(conn: Connection, *, period: int, day: int, kind: str, story: str, f
         if last and last[0]["wording"] is not None and int(last[0]["wording"]) == choice:
             choice = (choice + 1) % len(options)          # never the same words twice running
         headline, body = (text.format(**facts) for text in options[choice])
+        if facts.get("yearly"):
+            for old, new in _YEARLY_WORDS:
+                headline, body = headline.replace(old, new), body.replace(old, new)
         item = {
             "period": period, "day": min(max(day, 1), clock.GAME_DAYS_PER_QUARTER), "outlet": outlet, "kind": kind,
             "story": story, "importance": importance, "headline": headline, "body": body,
@@ -474,6 +486,12 @@ def _company_news(conn: Connection, period: int, results: list[tuple[dict, dict]
             conn, "SELECT company_id, net_profit, staff, payables, loan_losses, drivers FROM company_results WHERE period = %s",
             (period - 1,))
     }
+    # Profit is set against the same quarter a year ago once there is one: many businesses
+    # swing with the seasons, so the quarter before is a poor yardstick.
+    year_ago = {
+        r["company_id"]: r["net_profit"] for r in _rows(
+            conn, "SELECT company_id, net_profit FROM company_results WHERE period = %s AND period >= 1", (period - 4,))
+    }
     ratings: dict = {}
     for row in _rows(conn, "SELECT DISTINCT ON (company_id, period) company_id, period, credit_rating FROM company_reports"
                            " WHERE period IN (%s, %s) ORDER BY company_id, period, version DESC", (period - 1, period)):
@@ -502,8 +520,9 @@ def _company_news(conn: Connection, period: int, results: list[tuple[dict, dict]
         earlier_notes = prev["drivers"].get("notes", []) if prev["drivers"] else []
 
         # Profit.
-        profit, before = result["net_profit"], prev["net_profit"]
-        figures = {**who, "quarter": label, "profit": money_words(profit), "previous_profit": money_words(before),
+        yearly = company["id"] in year_ago
+        profit, before = result["net_profit"], year_ago[company["id"]] if yearly else prev["net_profit"]
+        figures = {**who, "yearly": yearly, "quarter": label, "profit": money_words(profit), "previous_profit": money_words(before),
                    "sales": money_words(result["revenue"]), "cause": _cause(result, good=profit > before),
                    "change": percent((profit - before) * BPS // abs(before)) if before else "0%"}
         if period >= 2:

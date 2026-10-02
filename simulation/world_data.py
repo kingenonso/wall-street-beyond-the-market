@@ -420,3 +420,10 @@ INVESTORS = {
 }
 MARKET_PAUSE_FALL_BPS = 500        # trading pauses when the whole market falls 5% in a day...
 MARKET_PAUSE_MINUTES = 30          # ...for half an hour, once a day
+
+# ---------------------------------------------------------------------------
+# Stage 4, slice 4: the Closing Rush and the Closing Bell.
+# ---------------------------------------------------------------------------
+RUSH_FEE_DISCOUNT_BPS = 5000       # during the Closing Rush (21:50 to 22:00) trading fees are halved
+LARGE_ORDER_NAIRA = 250_000        # a player's order this large placed in the rush is shown to everybody, without a name
+GAME_YEAR_REAL_DAYS = 28           # four real weeks are one game year

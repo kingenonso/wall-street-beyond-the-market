@@ -68,14 +68,22 @@ def _shares(conn: Connection, day) -> list[dict]:
     return rows
 
 
-def index_level(shares: list[dict]) -> int:
+def index_base(conn: Connection) -> int | None:
+    """The figure the index is measured against, once new shares have ever been issued.
+    Until then it is simply every company at its listing price."""
+    row = _rows(conn, "SELECT index_base FROM market_status")
+    return int(row[0]["index_base"]) if row and row[0]["index_base"] else None
+
+
+def index_level(shares: list[dict], base: int | None = None) -> int:
     """The BSX 50, in hundredths of a point: every company at its present price against the
-    price it was first listed at, each counted by its number of shares."""
-    base = sum(s["listing_price"] * s["shares"] for s in shares)
+    price it was first listed at, each counted by its number of shares. New shares issued
+    later raise the base in step, so that only prices move the index."""
+    base = base or sum(s["listing_price"] * s["shares"] for s in shares)
     return sum(s["price"] * s["shares"] for s in shares) * INDEX_BASE * 100 // base if base else INDEX_BASE * 100
 
 
-def overview(conn: Connection, now: datetime) -> dict:
+def overview(conn: Connection, now: datetime, *, with_history: bool = True) -> dict:
     """The whole market at a glance."""
     day, state = exchange.session_of(now)
     shares = _shares(conn, day)
@@ -83,15 +91,16 @@ def overview(conn: Connection, now: datetime) -> dict:
     value = sum(s["market_value"] for s in shares)
     return {
         "state": state.value, "paused_until": exchange.paused_until(conn, now),
-        "index": index_level(shares), "index_change_bps": (value - before) * BPS // before if before else 0,
+        "index": index_level(shares, index_base(conn)), "index_change_bps": (value - before) * BPS // before if before else 0,
         "market_value": value, "volume": sum(s["volume"] for s in shares), "trades": sum(s["trades"] for s in shares),
-        "shares": shares, "index_history": index_history(conn, shares),
+        "shares": shares, "index_history": index_history(conn, shares) if with_history else [],
     }
 
 
 def index_history(conn: Connection, shares: list[dict]) -> list[dict]:
     """The index at the end of each trading day on which anything traded, oldest first."""
-    closes = _rows(conn, "SELECT DISTINCT ON (company_id, session_date) company_id, session_date, price FROM market_trades"
+    closes = _rows(conn, "SELECT DISTINCT ON (company_id, session_date) company_id, session_date,"
+                         " price / split_factor(company_id, id) AS price FROM market_trades"
                          " ORDER BY company_id, session_date, id DESC")
     if not closes:
         return []
@@ -100,11 +109,15 @@ def index_history(conn: Connection, shares: list[dict]) -> list[dict]:
         by_day.setdefault(row["session_date"], {})[row["company_id"]] = row["price"]
     price = {s["id"]: s["listing_price"] for s in shares}
     count = {s["id"]: s["shares"] for s in shares}
-    base = sum(s["listing_price"] * s["shares"] for s in shares)
+    base = index_base(conn) or sum(s["listing_price"] * s["shares"] for s in shares)
+    # The level written down when each day's Closing Bell rang is the record; a day whose
+    # bell has not rung yet is worked out from its trades.
+    rung = {r["session_date"]: r["level"] for r in _rows(conn, "SELECT session_date, level FROM index_days")}
     history = []
     for day in sorted(by_day):
-        price.update(by_day[day])
-        history.append({"session_date": day, "level": sum(price[i] * count[i] for i in price) * INDEX_BASE * 100 // base})
+        price.update({company: at for company, at in by_day[day].items() if company in price})
+        level = sum(price[i] * count[i] for i in price) * INDEX_BASE * 100 // base
+        history.append({"session_date": day, "level": rung.get(day, level)})
     return history[-HISTORY_SESSIONS:]
 
 
@@ -117,7 +130,9 @@ def history(conn: Connection, ticker: str) -> list[dict] | None:
         conn,
         "SELECT session_date, min(price) AS low, max(price) AS high, sum(quantity)::bigint AS volume,"
         "   (array_agg(price ORDER BY id))[1] AS open, (array_agg(price ORDER BY id DESC))[1] AS close"
-        " FROM market_trades WHERE company_id = %s GROUP BY session_date ORDER BY session_date DESC LIMIT %s",
+        " FROM (SELECT id, session_date, price / split_factor(company_id, id) AS price,"
+        "         quantity * split_factor(company_id, id) AS quantity FROM market_trades WHERE company_id = %s) t"
+        " GROUP BY session_date ORDER BY session_date DESC LIMIT %s",
         (found[0]["id"], HISTORY_SESSIONS))
     return days[::-1]
 
@@ -133,25 +148,42 @@ def portfolio(conn: Connection, account: UUID | str, now: datetime) -> dict:
     # What the shares still held cost, by the average-cost method: each purchase adds its cost
     # (with its fee); each sale takes away the average cost of the shares sold.
     held: dict = {}
-    for trade in _rows(
+    steps = [((t["id"], t["traded_at"], 0, 0), "trade", t) for t in _rows(
         conn,
-        "SELECT c.ticker, t.price, t.quantity, t.buyer_fee, t.seller_fee,"
+        "SELECT t.id, t.traded_at, c.ticker, t.price, t.quantity, t.buyer_fee, t.seller_fee,"
         "   t.buyer_account_id = %s AS bought, t.seller_account_id = %s AS sold"
         " FROM market_trades t JOIN companies c ON c.id = t.company_id"
-        " WHERE t.buyer_account_id = %s OR t.seller_account_id = %s ORDER BY t.id", (account, account, account, account)):
-        position = held.setdefault(trade["ticker"], {"shares": 0, "cost": 0, "realised": 0})
-        value = trade["price"] * trade["quantity"]
-        if trade["bought"] and trade["sold"]:
-            position["realised"] -= trade["buyer_fee"] + trade["seller_fee"]         # traded with itself: only the fees moved
-        elif trade["bought"]:
-            position["shares"] += trade["quantity"]
-            position["cost"] += value + trade["buyer_fee"]
-        else:
-            sold = min(trade["quantity"], position["shares"])
+        " WHERE t.buyer_account_id = %s OR t.seller_account_id = %s", (account, account, account, account))]
+    # Shares that came or went other than by a trade (a share offer, a bond swapped for shares,
+    # a takeover), and share splits, each in its place among the trades.
+    steps += [((e["after_trade_id"], e["created_at"], 2, e["id"]), "event", e) for e in _rows(
+        conn, "SELECT e.*, c.ticker FROM holding_events e JOIN companies c ON c.id = e.company_id WHERE e.account_id = %s", (account,))]
+    steps += [((x["after_trade_id"], x["created_at"], 1, 0), "split", x) for x in _rows(
+        conn, "SELECT x.*, c.ticker FROM share_splits x JOIN companies c ON c.id = x.company_id")]
+    for _, what, step in sorted(steps, key=lambda item: item[0]):
+        position = held.setdefault(step["ticker"], {"shares": 0, "cost": 0, "realised": 0})
+        if what == "split":
+            position["shares"] *= step["ratio"]
+        elif what == "event" and step["shares"] > 0:
+            position["shares"] += step["shares"]
+            position["cost"] += step["amount"]
+        elif what == "event":
+            sold = min(-step["shares"], position["shares"])
             cost_of_sold = position["cost"] * sold // position["shares"] if position["shares"] else 0
             position["shares"] -= sold
             position["cost"] -= cost_of_sold
-            position["realised"] += value - trade["seller_fee"] - cost_of_sold
+            position["realised"] += step["amount"] - cost_of_sold
+        elif step["bought"] and step["sold"]:
+            position["realised"] -= step["buyer_fee"] + step["seller_fee"]         # traded with itself: only the fees moved
+        elif step["bought"]:
+            position["shares"] += step["quantity"]
+            position["cost"] += step["price"] * step["quantity"] + step["buyer_fee"]
+        else:
+            sold = min(step["quantity"], position["shares"])
+            cost_of_sold = position["cost"] * sold // position["shares"] if position["shares"] else 0
+            position["shares"] -= sold
+            position["cost"] -= cost_of_sold
+            position["realised"] += step["price"] * step["quantity"] - step["seller_fee"] - cost_of_sold
     dividends = {
         r["ticker"]: r["total"] for r in _rows(
             conn,
@@ -169,19 +201,51 @@ def portfolio(conn: Connection, account: UUID | str, now: datetime) -> dict:
         cost = position["cost"] * min(owned, position["shares"]) // position["shares"] if position["shares"] else 0
         share = prices[row["ticker"]]
         holdings.append({
-            "ticker": row["ticker"], "name": row["name"], "shares": owned, "held_for_orders": row["held_for_orders"],
-            "price": share["price"], "change_bps": share["change_bps"], "value": share["price"] * owned,
+            "ticker": row["ticker"], "name": row["name"], "sector": share["sector"], "shares": owned,
+            "held_for_orders": row["held_for_orders"], "price": share["price"], "change_bps": share["change_bps"], "value": share["price"] * owned,
             "cost": cost, "gain": share["price"] * owned - cost, "dividends": dividends.get(row["ticker"], 0),
         })
     cash = ledger.balance(conn, account)
     held_cash = _rows(conn, "SELECT coalesce(sum(reserved), 0)::bigint AS total FROM market_orders"
                             " WHERE account_id = %s AND status = 'open'", (account,))[0]["total"]
     invested = sum(h["value"] for h in holdings)
+    days = [{"session_date": r["session_date"], "total": r["cash"] + r["investments"]} for r in _rows(
+        conn, "SELECT * FROM (SELECT session_date, cash, investments FROM net_worth_days WHERE account_id = %s"
+              " ORDER BY session_date DESC LIMIT %s) d ORDER BY session_date", (account, HISTORY_SESSIONS))]
     return {
         "cash": cash, "held_for_orders": held_cash, "shares_value": invested, "total": cash + held_cash + invested,
         "holdings": holdings, "dividends": sum(dividends.values()),
         "realised": sum(p["realised"] for p in held.values()),
+        "net_worth_days": days, "today": day,
     }
+
+
+def net_worth_of_players(conn: Connection) -> dict:
+    """What every player is worth at present prices: account -> (cash, investments).
+    Cash includes what the exchange holds for their buy orders; investments include shares
+    held for their sell orders."""
+    rows = _rows(
+        conn,
+        "SELECT a.id,"
+        "  coalesce((SELECT balance FROM ledger_balances b WHERE b.account_id = a.id AND b.asset = 'NGN'), 0)"
+        "  + coalesce((SELECT sum(reserved) FROM market_orders o WHERE o.account_id = a.id AND o.status = 'open'), 0) AS cash,"
+        "  coalesce((SELECT sum(b.balance * coalesce(m.last_price, m.reference_price)) FROM ledger_balances b"
+        "            JOIN market_instruments m ON m.asset = b.asset WHERE b.account_id = a.id), 0)"
+        "  + coalesce((SELECT sum(o.remaining * coalesce(m.last_price, m.reference_price)) FROM market_orders o"
+        "            JOIN market_instruments m ON m.company_id = o.company_id"
+        "            WHERE o.account_id = a.id AND o.status = 'open' AND o.side = 'sell'), 0) AS investments"
+        " FROM ledger_accounts a WHERE a.kind = 'player'")
+    worth = {r["id"]: [int(r["cash"]), int(r["investments"])] for r in rows}
+    for extra in _OTHER_HOLDINGS:
+        for account, (cash, investments) in extra(conn).items():
+            if account in worth:
+                worth[account][0] += cash
+                worth[account][1] += investments
+    return {account: tuple(parts) for account, parts in worth.items()}
+
+
+# Other things a player can own (bonds, cash held for share offers) add themselves here.
+_OTHER_HOLDINGS: list = []
 
 
 # ---------------------------------------------------------------------------
