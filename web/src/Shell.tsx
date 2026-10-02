@@ -64,6 +64,8 @@ function TopBar({ player, live }: { player: Player; live: LiveClock | null }) {
 
 const SECTIONS = [
   { path: "", label: "My desk" },
+  { path: "market", label: "Market" },
+  { path: "portfolio", label: "Portfolio" },
   { path: "news", label: "News" },
   { path: "companies", label: "Companies" },
   { path: "economy", label: "Economy" },

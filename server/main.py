@@ -52,8 +52,11 @@ from server.schemas import (
     WorldStatusResponse,
     CommodityPrice, MacroQuarter, MoneyWatch, NewsItem, NewsResponse, PricesAndRates,
     Holding, OrderRequest, OrderResponse, PlacedOrderResponse, PriceLevel, PublicTrade, QuoteResponse, WhyResponse,
+    AnalysisResponse, IndexPoint, MarketResponse, MarketShare, NpvYear, PortfolioHolding, PortfolioResponse,
+    Shareholder, TradingDay, WatchedShare, WatchRequest,
 )
 from simulation import clock, exchange, investors, ledger, moneywatch, news, news_kinds, players, quarters
+from simulation import marketview
 from simulation import world_data as data
 from simulation.ledger import NGN
 
@@ -678,6 +681,74 @@ def _exchange_time(conn: Connection) -> datetime:
     return conn.execute("SELECT now() AS now").fetchone()["now"]
 
 
+@app.get("/api/market", response_model=MarketResponse)
+def market(_: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """The whole market: every share's price and today's move, and the BSX 50 index."""
+    seen = marketview.overview(conn, _exchange_time(conn))
+    return MarketResponse(
+        market_state=seen["state"], paused_until=seen["paused_until"], index=seen["index"] / 100,
+        index_change_bps=seen["index_change_bps"], market_value_kobo=seen["market_value"], volume=seen["volume"],
+        trades=seen["trades"],
+        shares=[MarketShare(
+            ticker=s["ticker"], name=s["name"], sector=s["sector"], price_kobo=s["price"], traded=s["last_price"] is not None,
+            change_bps=s["change_bps"], volume=s["volume"], market_value_kobo=s["market_value"], credit_rating=s["rating"],
+        ) for s in seen["shares"]],
+        index_history=[IndexPoint(session_date=p["session_date"], level=p["level"] / 100) for p in seen["index_history"]],
+    )
+
+
+@app.get("/api/market/portfolio", response_model=PortfolioResponse)
+def my_portfolio(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    mine = marketview.portfolio(conn, _trading_account(conn, player), _exchange_time(conn))
+    return PortfolioResponse(
+        cash_kobo=mine["cash"], held_for_orders_kobo=mine["held_for_orders"], shares_value_kobo=mine["shares_value"],
+        total_kobo=mine["total"], dividends_kobo=mine["dividends"], realised_kobo=mine["realised"],
+        holdings=[PortfolioHolding(
+            ticker=h["ticker"], name=h["name"], shares=h["shares"], held_for_orders=h["held_for_orders"],
+            price_kobo=h["price"], change_bps=h["change_bps"], value_kobo=h["value"], cost_kobo=h["cost"],
+            gain_kobo=h["gain"], dividends_kobo=h["dividends"],
+        ) for h in mine["holdings"]],
+    )
+
+
+def _watched(conn: Connection, player: dict) -> list[WatchedShare]:
+    return [WatchedShare(
+        ticker=w["ticker"], name=w["name"], price_kobo=w["price"], change_bps=w["change_bps"],
+        alert_above_kobo=w["alert_above"], alert_below_kobo=w["alert_below"], reached=w["reached"],
+    ) for w in marketview.watchlist(conn, player["id"], _exchange_time(conn))]
+
+
+@app.get("/api/market/watchlist", response_model=list[WatchedShare])
+def my_watchlist(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _watched(conn, player)
+
+
+@app.put("/api/market/watchlist/{ticker}", response_model=list[WatchedShare])
+def watch_a_share(
+    body: WatchRequest,
+    ticker: str = FastPath(pattern="^[A-Z]{3}$"),
+    player: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    limits.allow("watchlist", str(player["id"]), attempts=60, per_seconds=60)
+    try:
+        marketview.watch(conn, player["id"], ticker, body.alert_above_kobo, body.alert_below_kobo)
+    except marketview.WatchlistError as refused:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
+    return _watched(conn, player)
+
+
+@app.delete("/api/market/watchlist/{ticker}", response_model=list[WatchedShare])
+def stop_watching_a_share(
+    ticker: str = FastPath(pattern="^[A-Z]{3}$"),
+    player: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    limits.allow("watchlist", str(player["id"]), attempts=60, per_seconds=60)
+    marketview.unwatch(conn, player["id"], ticker)
+    return _watched(conn, player)
+
+
 @app.get("/api/market/orders", response_model=list[OrderResponse])
 def my_orders(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     return [_order_response(row) for row in exchange.orders_of(conn, _trading_account(conn, player))]
@@ -755,6 +826,46 @@ def why_the_price_moved(
         bought_in_a_hurry=found["bought_in_a_hurry"], sold_in_a_hurry=found["sold_in_a_hurry"], reasons=found["reasons"],
         valuation_label=clock.period_label(found["valuation_period"]) if found["valuation_period"] else None,
         valuation_reasons=found["valuation_reasons"],
+    )
+
+
+@app.get("/api/market/{ticker}/history", response_model=list[TradingDay])
+def price_history(
+    ticker: str = FastPath(pattern="^[A-Z]{3}$"),
+    _: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    days = marketview.history(conn, ticker)
+    if days is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no share with that code on the exchange.")
+    return [TradingDay(session_date=d["session_date"], open_kobo=d["open"], close_kobo=d["close"], high_kobo=d["high"],
+                       low_kobo=d["low"], volume=d["volume"]) for d in days]
+
+
+@app.get("/api/market/{ticker}/analysis", response_model=AnalysisResponse)
+def investor_analysis(
+    ticker: str = FastPath(pattern="^[A-Z]{3}$"),
+    _: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    found = marketview.analysis(conn, ticker, _exchange_time(conn))
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no share with that code on the exchange.")
+    ratio = lambda hundredths: None if hundredths is None else hundredths / 100          # noqa: E731
+    return AnalysisResponse(
+        ticker=found["ticker"], name=found["name"], filing_label=clock.period_label(found["period"]) if found["period"] else "Opening balance sheet",
+        price_kobo=found["price"], shares_in_issue=found["shares_in_issue"], market_value_kobo=found["market_value"],
+        yearly_profit_kobo=found["yearly_profit"], yearly_sales_kobo=found["yearly_sales"],
+        yearly_dividends_kobo=found["yearly_dividends"], owners_funds_kobo=found["owners_funds"],
+        book_per_share_kobo=found["book_per_share"], price_to_profit=ratio(found["price_to_profit"]),
+        price_to_sales=ratio(found["price_to_sales"]), price_to_owners_funds=ratio(found["price_to_owners_funds"]),
+        market_price_to_profit=ratio(found["market_price_to_profit"]), dividend_yield_bps=found["dividend_yield_bps"],
+        npv_per_share_kobo=found["npv_per_share"], npv_total_kobo=found["npv_total"], npv_method=found["npv_method"],
+        npv_gap_bps=found["npv_gap_bps"], growth_bps=found["growth_bps"], discount_bps=found["discount_bps"],
+        long_run_bps=found["long_run_bps"],
+        schedule=[NpvYear(label=y["label"], profit_kobo=y["profit"], value_today_kobo=y["value_today"]) for y in found["schedule"]],
+        verdict=found["verdict"], reasons=found["reasons"], risks=found["risks"],
+        shareholders=[Shareholder(**h) for h in found["shareholders"]],
     )
 
 

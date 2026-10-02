@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { api, type CompanySummary, type NewsItem, type Player } from "./api";
+import { api, type CompanySummary, type NewsItem, type Player, type Watched } from "./api";
+import { WatchlistPanel } from "./Market";
 import { newsDate } from "./News";
 import { formatCompact, formatCountdown, formatLagosDay, formatLagosTime, formatNaira, MARKET_LABEL } from "./format";
 import { useLoad } from "./hooks";
@@ -10,9 +11,23 @@ type Card = { tag: string; when: string; title: string; text: string; action: st
 
 /** "Needs you now": built only from things that are really true for this player right now. */
 function cardsFor(player: Player, latestQuarter: string | null, live: LiveClock | null, count: number | null,
-                  topStory: NewsItem | null): Card[] {
+                  topStory: NewsItem | null, alerts: Watched[]): Card[] {
   const all = count ? `All ${count}` : "All the";
   const cards: Card[] = [];
+  // A price you asked to be told about comes first: it is the one thing here you set yourself.
+  for (const alert of alerts) {
+    const target = alert.reached === "above" ? alert.alert_above_kobo : alert.alert_below_kobo;
+    cards.push({
+      tag: "PRICE ALERT",
+      when: formatNaira(alert.price_kobo),
+      title: alert.reached === "above"
+        ? `${alert.name} has reached ${formatNaira(target ?? "0")}`
+        : `${alert.name} has fallen to ${formatNaira(target ?? "0")}`,
+      text: `You asked to be told. The share is now at ${formatNaira(alert.price_kobo)}. Change or remove the alert on the company's page when you have seen it.`,
+      action: "Open the company",
+      href: `#/companies/${alert.ticker}`,
+    });
+  }
   if (topStory) {
     cards.push({
       tag: topStory.outlet.toUpperCase(),
@@ -121,6 +136,8 @@ export function DeskWork({ player, live, onLoggedOut }: { player: Player; live: 
   const companies = useLoad(api.companies, "companies", onLoggedOut);
   const movements = useLoad(api.movements, `movements:${player.cash.amount_kobo}`, onLoggedOut);
   const news = useLoad(() => api.news({ limit: 40 }), "desk-news", onLoggedOut);
+  const watched = useLoad(api.watchlist, "watchlist", onLoggedOut);
+  const alerts = (watched.data ?? []).filter((w) => w.reached !== null);
   const quarter = status.data?.last_closed_label ?? null;
   // The top story: the most important item of the last three game days, if it matters enough to interrupt.
   const items = news.data?.items ?? [];
@@ -134,7 +151,7 @@ export function DeskWork({ player, live, onLoggedOut }: { player: Player; live: 
 
   return (
     <>
-      <NeedsYouNow cards={cardsFor(player, quarter, live, status.data?.companies ?? null, top && top.importance >= 60 ? top : null)} />
+      <NeedsYouNow cards={cardsFor(player, quarter, live, status.data?.companies ?? null, top && top.importance >= 60 ? top : null, alerts)} />
 
       {headlines.length > 0 && (
         <Panel title="Latest news" aside={<a href="#/news">All news</a>}>
@@ -207,7 +224,7 @@ const SESSIONS = [
   { state: "closed", name: "Closed", hours: "22:00 to 11:30" },
 ] as const;
 
-export function DeskRail({ player, live }: { player: Player; live: LiveClock | null }) {
+export function DeskRail({ player, live, onLoggedOut }: { player: Player; live: LiveClock | null; onLoggedOut: () => void }) {
   const date = live?.clock.game_date;
   return (
     <>
@@ -227,8 +244,12 @@ export function DeskRail({ player, live }: { player: Player; live: LiveClock | n
             <span className="mono">{session.hours}</span>
           </div>
         ))}
-        <p className="muted small">Trading opens in a later stage. The hours are already running.</p>
+        <p className="muted small">
+          <a href="#/market">Open the market</a> to see every share. Orders placed while it is closed wait for the opening auction.
+        </p>
       </Panel>
+
+      <WatchlistPanel onLoggedOut={onLoggedOut} />
 
       <Panel title="Game calendar">
         {date ? (

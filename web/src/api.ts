@@ -242,6 +242,103 @@ export type Holding = {
   value_kobo: Kobo;
 };
 
+export type MarketShare = {
+  ticker: string;
+  name: string;
+  sector: string;
+  price_kobo: Kobo;
+  traded: boolean;
+  change_bps: number;
+  volume: number;
+  market_value_kobo: Kobo;
+  credit_rating: string | null;
+};
+
+export type Market = {
+  market_state: "opening_auction" | "open" | "closed";
+  paused_until: string | null;
+  index: number;
+  index_change_bps: number;
+  market_value_kobo: Kobo;
+  volume: number;
+  trades: number;
+  shares: MarketShare[];
+  index_history: { session_date: string; level: number }[];
+};
+
+export type TradingDay = {
+  session_date: string;
+  open_kobo: Kobo;
+  close_kobo: Kobo;
+  high_kobo: Kobo;
+  low_kobo: Kobo;
+  volume: number;
+};
+
+export type PortfolioHolding = {
+  ticker: string;
+  name: string;
+  shares: number;
+  held_for_orders: number;
+  price_kobo: Kobo;
+  change_bps: number;
+  value_kobo: Kobo;
+  cost_kobo: Kobo;
+  gain_kobo: Kobo;
+  dividends_kobo: Kobo;
+};
+
+export type Portfolio = {
+  cash_kobo: Kobo;
+  held_for_orders_kobo: Kobo;
+  shares_value_kobo: Kobo;
+  total_kobo: Kobo;
+  dividends_kobo: Kobo;
+  realised_kobo: Kobo;
+  holdings: PortfolioHolding[];
+};
+
+export type Analysis = {
+  ticker: string;
+  name: string;
+  filing_label: string;
+  price_kobo: Kobo;
+  shares_in_issue: number;
+  market_value_kobo: Kobo;
+  yearly_profit_kobo: Kobo;
+  yearly_sales_kobo: Kobo;
+  yearly_dividends_kobo: Kobo;
+  owners_funds_kobo: Kobo;
+  book_per_share_kobo: Kobo;
+  price_to_profit: number | null;
+  price_to_sales: number | null;
+  price_to_owners_funds: number | null;
+  market_price_to_profit: number | null;
+  dividend_yield_bps: number;
+  npv_per_share_kobo: Kobo;
+  npv_total_kobo: Kobo;
+  npv_method: "profits" | "assets";
+  npv_gap_bps: number;
+  growth_bps: number;
+  discount_bps: number;
+  long_run_bps: number;
+  schedule: { label: string; profit_kobo: Kobo; value_today_kobo: Kobo }[];
+  verdict: string;
+  reasons: string[];
+  risks: string[];
+  shareholders: { holder: string; shares: number; share_bps: number }[];
+};
+
+export type Watched = {
+  ticker: string;
+  name: string;
+  price_kobo: Kobo;
+  change_bps: number;
+  alert_above_kobo: Kobo | null;
+  alert_below_kobo: Kobo | null;
+  reached: "above" | "below" | null;
+};
+
 export type NewOrder = {
   ticker: string;
   side: "buy" | "sell";
@@ -307,6 +404,14 @@ export const api = {
     query.set("limit", String(filter.limit ?? 60));
     return request<News>(`/news?${query}`);
   },
+  market: () => request<Market>("/market"),
+  portfolio: () => request<Portfolio>("/market/portfolio"),
+  watchlist: () => request<Watched[]>("/market/watchlist"),
+  watch: (ticker: string, alerts: { alert_above_kobo?: number; alert_below_kobo?: number } = {}) =>
+    request<Watched[]>(`/market/watchlist/${encodeURIComponent(ticker)}`, { method: "PUT", body: JSON.stringify(alerts) }),
+  unwatch: (ticker: string) => request<Watched[]>(`/market/watchlist/${encodeURIComponent(ticker)}`, { method: "DELETE" }),
+  priceHistory: (ticker: string) => request<TradingDay[]>(`/market/${encodeURIComponent(ticker)}/history`),
+  analysis: (ticker: string) => request<Analysis>(`/market/${encodeURIComponent(ticker)}/analysis`),
   quote: (ticker: string) => request<Quote>(`/market/${encodeURIComponent(ticker)}`),
   why: (ticker: string) => request<Why>(`/market/${encodeURIComponent(ticker)}/why`),
   myOrders: () => request<Order[]>("/market/orders"),

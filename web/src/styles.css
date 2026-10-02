@@ -352,3 +352,21 @@ h1 .ticker { font-size: 13px; }
 .order-line:first-of-type { border-top: 0; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 .why-box { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+
+/* --- Market, portfolio and the investor's panel --- */
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.sort { display: inline-flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.link-button { background: none; border: 0; padding: 0; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; text-decoration: underline; }
+.link-button:hover { color: var(--text); }
+.link-button.current { color: var(--gold); font-weight: 600; text-decoration: none; }
+.link-button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.button-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.watch-form .row-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.advice-head { margin: 0 0 8px; }
+.verdict { font-family: var(--serif); font-size: 18px; font-weight: 600; }
+.verdict-up { color: var(--up); }
+.verdict-down { color: var(--down); }
+.verdict-flat { color: var(--gold); }
+.trade-grid + .trade-grid { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.advice .why-title { margin-top: 12px; }
+.advice .why-title:first-child { margin-top: 0; }

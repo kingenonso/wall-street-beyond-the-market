@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, type Company, type FiledReport, type Kobo } from "./api";
 import { changeBps, formatCompact, formatCount, formatLagosDate, formatMillions, formatPercent, periodLabel } from "./format";
 import { useLoad } from "./hooks";
+import { InvestorPanel } from "./Investor";
 import { TradePanel } from "./Trade";
 import { newsDate } from "./News";
 import { Change, Failed, Loading, Panel, Rating } from "./Shell";
@@ -170,6 +171,8 @@ function CompanyBody({ company, onLoggedOut, onTraded }: { company: Company; onL
       </div>
 
       <TradePanel ticker={company.ticker} onLoggedOut={onLoggedOut} onTraded={onTraded} />
+
+      <InvestorPanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
 
       {trading.length === 0 ? (
         <Panel>

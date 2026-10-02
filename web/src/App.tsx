@@ -5,7 +5,9 @@ import { CompaniesRail, CompaniesWork } from "./Companies";
 import { CompanyRail, CompanyWork } from "./Company";
 import { DeskRail, DeskWork } from "./Desk";
 import { EconomyRail, EconomyWork } from "./Economy";
+import { MarketRail, MarketWork } from "./Market";
 import { NewsRail, NewsWork } from "./News";
+import { PortfolioRail, PortfolioWork } from "./Portfolio";
 import { useRoute } from "./hooks";
 import { ProfileRail, ProfileWork } from "./Profile";
 import { Panel, Shell } from "./Shell";
@@ -36,7 +38,7 @@ export function App() {
 
   const [section = "", item] = route;
   let work = <DeskWork player={player} live={live} onLoggedOut={loggedOut} />;
-  let rail = <DeskRail player={player} live={live} />;
+  let rail = <DeskRail player={player} live={live} onLoggedOut={loggedOut} />;
   let current = "";
 
   if (section === "companies" && item) {
@@ -47,6 +49,14 @@ export function App() {
     current = "companies";
     work = <CompaniesWork onLoggedOut={loggedOut} />;
     rail = <CompaniesRail />;
+  } else if (section === "market") {
+    current = "market";
+    work = <MarketWork onLoggedOut={loggedOut} />;
+    rail = <MarketRail onLoggedOut={loggedOut} />;
+  } else if (section === "portfolio") {
+    current = "portfolio";
+    work = <PortfolioWork onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <PortfolioRail />;
   } else if (section === "news") {
     current = "news";
     work = <NewsWork onLoggedOut={loggedOut} />;

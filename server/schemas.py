@@ -394,3 +394,128 @@ class Holding(BaseModel):
     held_for_orders: int               # owned, and held by the exchange for sell orders still waiting
     price_kobo: Kobo                   # the last price, or the listing price if it has never traded
     value_kobo: Kobo
+
+
+# ---------------------------------------------------------------------------
+# The market screens (Stage 4, Part A, slice 3)
+# ---------------------------------------------------------------------------
+
+class MarketShare(BaseModel):
+    ticker: str
+    name: str
+    sector: str
+    price_kobo: Kobo                   # the last price, or the listing price if it has never traded
+    traded: bool                       # whether it has ever traded
+    change_bps: int                    # today, against the last price of the day before
+    volume: int                        # shares traded today
+    market_value_kobo: Kobo            # the whole company at this price
+    credit_rating: str | None
+
+
+class IndexPoint(BaseModel):
+    session_date: date
+    level: float                       # the BSX 50 at the end of that trading day
+
+
+class MarketResponse(BaseModel):
+    market_state: str
+    paused_until: datetime | None      # set while trading is paused after a sharp fall
+    index: float                       # the BSX 50: 1,000 when each share was first listed
+    index_change_bps: int              # today
+    market_value_kobo: Kobo
+    volume: int
+    trades: int
+    shares: list[MarketShare]
+    index_history: list[IndexPoint]    # oldest first
+
+
+class TradingDay(BaseModel):
+    session_date: date
+    open_kobo: Kobo
+    close_kobo: Kobo
+    high_kobo: Kobo
+    low_kobo: Kobo
+    volume: int
+
+
+class PortfolioHolding(BaseModel):
+    ticker: str
+    name: str
+    shares: int
+    held_for_orders: int
+    price_kobo: Kobo
+    change_bps: int
+    value_kobo: Kobo
+    cost_kobo: Kobo                    # what the shares still held cost, fees included (average cost)
+    gain_kobo: Kobo                    # value less cost; negative for a loss
+    dividends_kobo: Kobo               # dividends received from this company so far
+
+
+class PortfolioResponse(BaseModel):
+    cash_kobo: Kobo
+    held_for_orders_kobo: Kobo         # cash the exchange is holding for buy orders still waiting
+    shares_value_kobo: Kobo
+    total_kobo: Kobo
+    dividends_kobo: Kobo               # all dividends received so far
+    realised_kobo: Kobo                # gains less losses on shares already sold, after fees
+    holdings: list[PortfolioHolding]
+
+
+class NpvYear(BaseModel):
+    label: str
+    profit_kobo: Kobo                  # the profit expected
+    value_today_kobo: Kobo             # what that profit is worth in today's money
+
+
+class Shareholder(BaseModel):
+    holder: str
+    shares: int
+    share_bps: int
+
+
+class AnalysisResponse(BaseModel):
+    """The investor's page on one company. Every figure comes from what the company filed,
+    its credit rating, the Central Bank's rate and prices on the exchange."""
+    ticker: str
+    name: str
+    filing_label: str                  # the filing the figures are taken from
+    price_kobo: Kobo
+    shares_in_issue: int
+    market_value_kobo: Kobo
+    yearly_profit_kobo: Kobo
+    yearly_sales_kobo: Kobo
+    yearly_dividends_kobo: Kobo
+    owners_funds_kobo: Kobo
+    book_per_share_kobo: Kobo
+    price_to_profit: float | None      # the whole company's price as a multiple of its yearly profit
+    price_to_sales: float | None
+    price_to_owners_funds: float | None
+    market_price_to_profit: float | None
+    dividend_yield_bps: int
+    npv_per_share_kobo: Kobo
+    npv_total_kobo: Kobo
+    npv_method: str                    # 'profits' or 'assets'
+    npv_gap_bps: int                   # the share price against the NPV: above zero means the price is higher
+    growth_bps: int
+    discount_bps: int
+    long_run_bps: int
+    schedule: list[NpvYear]
+    verdict: str
+    reasons: list[str]
+    risks: list[str]
+    shareholders: list[Shareholder]
+
+
+class WatchRequest(Request):
+    alert_above_kobo: int | None = Field(default=None, gt=0, le=1_000_000_000_000, strict=True)
+    alert_below_kobo: int | None = Field(default=None, gt=0, le=1_000_000_000_000, strict=True)
+
+
+class WatchedShare(BaseModel):
+    ticker: str
+    name: str
+    price_kobo: Kobo
+    change_bps: int
+    alert_above_kobo: Kobo | None
+    alert_below_kobo: Kobo | None
+    reached: str | None                # 'above' or 'below' once an alert price has been reached
