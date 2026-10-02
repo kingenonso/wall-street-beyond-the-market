@@ -697,7 +697,7 @@ def my_holdings(player: dict = Depends(current_player), conn: Connection = Depen
 def place_order(body: OrderRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     limits.allow("order", str(player["id"]), attempts=60, per_seconds=60)
     if (body.kind == "limit") != (body.limit_price_kobo is not None):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+        raise HTTPException(422,
                             "Give a price for an order at your own price, and none for an order at the best price available.")
     account = _trading_account(conn, player)
     try:
