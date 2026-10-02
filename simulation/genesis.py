@@ -83,11 +83,15 @@ def _company_shape(index: int, company: data.Company, sector: data.Sector) -> di
     }
 
 
-def create_world(conn: Connection, world_start: datetime, fortune_seed: str | None = None) -> bool:
+def create_world(conn: Connection, world_start: datetime, fortune_seed: str | None = None,
+                 test_world: bool = False) -> bool:
     """Create the world if it does not exist yet. Returns True if it was created now.
 
     `fortune_seed` is the world's secret, from which each quarter's good and bad
     fortune is worked out. Left empty, a random one is chosen. Tests pass a fixed one.
+
+    `test_world` marks a world whose calendar may be fast-forwarded for testing.
+    It is fixed for good here: a live world can never be made a test world.
     """
     if world_start.tzinfo is None:
         raise ValueError("The world's start time must carry its time zone.")
@@ -99,15 +103,15 @@ def create_world(conn: Connection, world_start: datetime, fortune_seed: str | No
         conn.execute("SELECT pg_advisory_xact_lock(%s)", (_GENESIS_LOCK,))
         created = conn.execute("SELECT 1 FROM world_state").fetchone() is None
         if created:
-            _create(conn, world_start, fortune_seed or secrets.token_hex(16))
+            _create(conn, world_start, fortune_seed or secrets.token_hex(16), test_world)
         _give_accounts_to_early_players(conn)
     return created
 
 
-def _create(conn: Connection, world_start: datetime, fortune_seed: str) -> None:
+def _create(conn: Connection, world_start: datetime, fortune_seed: str, test_world: bool) -> None:
     conn.execute(
-        "INSERT INTO world_state (world_start, company_tax_bps, fortune_seed) VALUES (%s, %s, %s)",
-        (world_start, data.COMPANY_TAX_BPS, fortune_seed),
+        "INSERT INTO world_state (world_start, company_tax_bps, fortune_seed, test_world) VALUES (%s, %s, %s, %s)",
+        (world_start, data.COMPANY_TAX_BPS, fortune_seed, test_world),
     )
 
     # --- The institutions and stand-in accounts ---
@@ -357,5 +361,8 @@ if __name__ == "__main__":
         raise SystemExit("Set DATABASE_URL first. See README.md.")
     start = datetime.fromisoformat(os.environ.get("WORLD_START", "2026-10-05T00:00:00+01:00"))
     with psycopg.connect(url, autocommit=True) as connection:
-        made = create_world(connection, start, os.environ.get("WORLD_SEED") or None)
+        # A world made on a computer set up for testing may be fast-forwarded. A world made
+        # for a real website (COOKIE_SECURE=true, the default) never can be.
+        testing = os.environ.get("COOKIE_SECURE", "true").lower() == "false"
+        made = create_world(connection, start, os.environ.get("WORLD_SEED") or None, test_world=testing)
     print("The world was created." if made else "The world already exists. Nothing was changed.")

@@ -33,6 +33,7 @@ export type Clock = {
   next_change_at: string;
   world_started: boolean;
   game_date: { year: number; quarter: number; day_of_quarter: number } | null;
+  test_weeks_ahead: number;
 };
 
 export type WorldStatus = { companies: number; last_closed_period: number; last_closed_label: string | null };

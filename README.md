@@ -72,6 +72,23 @@ docker compose down -v
 docker compose up --build
 ```
 
+## Fast-forward, for testing
+
+On your own computer you do not have to wait a real week for each game quarter.
+With the game running, open a second terminal in the project folder and run:
+
+```
+docker compose exec server python -m simulation.fast_forward 4
+```
+
+That moves the world ahead four quarters (one game year) and closes them, exactly
+as if four weeks had passed. Refresh the page to see the results. Any number from
+1 to 40 works.
+
+This only works on a test world: one created on a computer where `COOKIE_SECURE`
+is `false`. A world created for a real website can never be fast-forwarded, by
+anyone. The database itself refuses.
+
 ## Run the tests
 
 With a PostgreSQL database available:

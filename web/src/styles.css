@@ -204,6 +204,7 @@ input {
 .pill-open { color: var(--up); border-color: rgba(91, 227, 164, 0.4); }
 .pill-opening_auction { color: var(--gold); border-color: rgba(217, 174, 85, 0.4); }
 .pill-closed { color: var(--muted); }
+.pill-test { color: var(--down); border-style: dashed; border-color: rgba(255, 177, 153, 0.5); }
 
 /* ---------- Tables ---------- */
 

@@ -118,6 +118,12 @@ def game_date(moment: datetime, world_start: datetime) -> GameDate | None:
     )
 
 
+def effective_start(world_start: datetime, weeks_ahead: int) -> datetime:
+    """Where the calendar counts from. On a test world that has been fast-forwarded,
+    this is earlier than the true start by the number of weeks it was moved ahead."""
+    return world_start - timedelta(weeks=weeks_ahead)
+
+
 def periods_completed(moment: datetime, world_start: datetime) -> int:
     """How many whole game quarters have finished. 0 before the world starts.
 

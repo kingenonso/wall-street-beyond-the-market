@@ -700,3 +700,69 @@ def test_fortune_can_never_make_sales_negative(db, monkeypatch):
     assert quarters.close_due_quarters(db, after_quarters(6)) == [1, 2, 3, 4, 5, 6]
     assert db.execute("SELECT count(*) FROM company_results WHERE revenue < 0").fetchone()[0] == 0
     assert ledger.audit(db) == []
+
+
+# ---------------------------------------------------------------------------
+# The fast-forward: for testing only. Can it be used on a live world?
+# ---------------------------------------------------------------------------
+
+def test_a_test_world_can_be_moved_ahead_and_its_quarters_close_as_normal(db, client):
+    from simulation import fast_forward
+    from tests.conftest import WORLD_START
+    now = WORLD_START + timedelta(hours=1)                       # the world has only just opened
+    assert fast_forward.fast_forward(db, 3, now) == [1, 2, 3]
+    assert db.execute("SELECT last_closed_period, weeks_ahead FROM world_state").fetchone() == (3, 3)
+    assert db.execute("SELECT count(*) FROM company_results WHERE period = 3").fetchone()[0] == 50
+    assert ledger.audit(db) == []
+    assert client.get("/api/world/clock").json()["test_weeks_ahead"] == 3
+    # Moving ahead again carries on from there.
+    assert fast_forward.fast_forward(db, 1, now) == [4]
+
+
+def _live_world():
+    """A world created the way a real website creates one."""
+    from simulation import genesis
+    from tests.conftest import WORLD_START
+    live = psycopg_connect_empty()
+    genesis.create_world(live, WORLD_START, test_world=False)
+    return live
+
+
+def test_a_live_world_cannot_be_fast_forwarded_by_anyone():
+    from simulation import fast_forward
+    from tests.conftest import WORLD_START
+    with _live_world() as live:
+        with pytest.raises(fast_forward.NotATestWorld):
+            fast_forward.fast_forward(live, 1, WORLD_START + timedelta(hours=1))
+        # Not even by writing to the database directly.
+        with pytest.raises(Exception) as refused:
+            live.execute("UPDATE world_state SET weeks_ahead = 5")
+        assert refused.value.diag.constraint_name == "live_calendar_is_fixed"
+        with pytest.raises(Exception) as refused:
+            live.execute("UPDATE world_state SET test_world = true")
+        assert refused.value.diag.constraint_name == "world_is_permanent"
+        assert live.execute("SELECT last_closed_period, weeks_ahead, test_world FROM world_state").fetchone() == (0, 0, False)
+
+
+def test_time_can_never_be_moved_back_even_on_a_test_world(db):
+    from simulation import fast_forward
+    from tests.conftest import WORLD_START
+    fast_forward.fast_forward(db, 2, WORLD_START + timedelta(hours=1))
+    with pytest.raises(Exception) as refused:
+        db.execute("UPDATE world_state SET weeks_ahead = 0")
+    assert refused.value.diag.constraint_name == "live_calendar_is_fixed"
+
+
+@pytest.mark.parametrize("amount", [0, -1, 41, 10**9, 1.5, "3", True, None])
+def test_the_fast_forward_refuses_a_silly_amount(db, amount):
+    from simulation import fast_forward
+    from tests.conftest import WORLD_START
+    with pytest.raises(ValueError):
+        fast_forward.fast_forward(db, amount, WORLD_START + timedelta(hours=1))
+    assert db.execute("SELECT weeks_ahead FROM world_state").fetchone()[0] == 0
+
+
+def test_there_is_no_request_a_player_can_send_to_move_time(client, player):
+    from server.main import app
+    assert not [r.path for r in app.routes if "fast" in r.path or "forward" in r.path]
+    assert client.post("/api/world/clock", json={"weeks_ahead": 5}).status_code == 405

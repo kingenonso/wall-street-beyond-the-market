@@ -410,7 +410,9 @@ def my_movements(
 
 def _world(conn: Connection) -> dict | None:
     # Named columns only: the world's secret is never read into a request.
-    return conn.execute("SELECT world_start, last_closed_period FROM world_state").fetchone()
+    return conn.execute(
+        "SELECT world_start, last_closed_period, weeks_ahead, test_world FROM world_state"
+    ).fetchone()
 
 
 @app.get("/api/world/clock", response_model=ClockResponse)
@@ -418,13 +420,15 @@ def world_clock(conn: Connection = Depends(get_connection)):
     world = _world(conn)
     # The world remembers its own start. Before it is created, the setting is used.
     world_start = world["world_start"] if world else get_settings().world_start
-    snap = clock.snapshot(datetime.now(timezone.utc), world_start)
+    ahead = world["weeks_ahead"] if world else 0
+    snap = clock.snapshot(datetime.now(timezone.utc), clock.effective_start(world_start, ahead))
     return ClockResponse(
         lagos_time=snap.lagos_time,
         market_state=snap.market_state.value,
         next_state=snap.next_state.value,
         next_change_at=snap.next_change_at,
         world_started=snap.world_started,
+        test_weeks_ahead=ahead,
         game_date=GameDateResponse(**vars(snap.game_date)) if snap.game_date else None,
     )
 

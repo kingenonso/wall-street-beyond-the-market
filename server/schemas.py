@@ -123,6 +123,7 @@ class ClockResponse(BaseModel):
     next_change_at: datetime
     world_started: bool
     game_date: GameDateResponse | None
+    test_weeks_ahead: int = 0          # a test world that has been fast-forwarded; always 0 on a live world
 
 
 class WorldStatusResponse(BaseModel):

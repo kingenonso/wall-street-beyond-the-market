@@ -43,6 +43,11 @@ function TopBar({ player, live }: { player: Player; live: LiveClock | null }) {
           </>
         )}
         <MarketPill live={live} />
+        {live && live.clock.test_weeks_ahead > 0 && (
+          <span className="pill pill-test" title="This world has been fast-forwarded for testing">
+            Test world · {live.clock.test_weeks_ahead} {live.clock.test_weeks_ahead === 1 ? "week" : "weeks"} ahead
+          </span>
+        )}
       </div>
       <div className="topbar-player">
         <div className="align-right">

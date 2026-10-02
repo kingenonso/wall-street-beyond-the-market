@@ -34,7 +34,7 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
                 world = cur.execute("SELECT * FROM world_state FOR UPDATE").fetchone()
             if world is None:
                 return closed                  # the world has not been created yet
-            due = clock.periods_completed(now, world["world_start"])
+            due = clock.periods_completed(now, clock.effective_start(world["world_start"], world["weeks_ahead"]))
             period = world["last_closed_period"] + 1
             if period > due:
                 return closed

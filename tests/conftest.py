@@ -64,7 +64,7 @@ def _templates():
 
         _recreate(admin, _TEMPLATES["fresh"], _TEMPLATES["empty"])
         with psycopg.connect(_url(_TEMPLATES["fresh"]), autocommit=True) as conn:
-            genesis.create_world(conn, WORLD_START, fortune_seed="a-fixed-secret-so-that-every-test-run-repeats")
+            genesis.create_world(conn, WORLD_START, fortune_seed="a-fixed-secret-so-that-every-test-run-repeats", test_world=True)
 
         _recreate(admin, _TEMPLATES["eight"], _TEMPLATES["fresh"])
         with psycopg.connect(_url(_TEMPLATES["eight"]), autocommit=True) as conn:
