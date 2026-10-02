@@ -17,7 +17,8 @@ from datetime import datetime
 from psycopg import Connection
 from psycopg.rows import dict_row
 
-from simulation import banking, clock, companies, economy, events, exchange, ledger, macro, mindsets, moneywatch, news
+from simulation import (banking, clock, companies, economy, events, exchange, investors, ledger, macro, mindsets,
+                        moneywatch, news, valuation)
 from simulation.money import BPS
 from simulation.ledger import NGN
 
@@ -39,7 +40,7 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
             period = world["last_closed_period"] + 1
             if period > due:
                 return closed
-            _close_period(conn, period, world["company_tax_bps"], world["fortune_seed"])
+            _close_period(conn, period, world["company_tax_bps"], world["fortune_seed"], now)
             # Re-add the whole ledger before the quarter is allowed to close. If anything
             # is out, the quarter is not closed and the fault is reported loudly.
             problems = ledger.audit(conn) + exchange.check_books(conn)
@@ -50,7 +51,7 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
         log.info("Closed %s", clock.period_label(period))
 
 
-def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str) -> None:
+def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str, now: datetime) -> None:
     """One quarter of the whole economy, in order.
 
       1. Loans are brought to this quarter's interest rate.
@@ -111,6 +112,13 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     )
     results = [(company, companies.close_company_quarter(conn, company, period, ctx)) for company in all_companies]
 
+    # TEMPORARY STAND-IN (until the exchange is an institution with owners of its own):
+    # the Broad Street Exchange hands the fees it earned this quarter to the Government.
+    earned = ledger.balance(conn, ledger.account_id(conn, exchange.FEES))
+    if earned > 0:
+        ledger.transfer(conn, payer=ledger.account_id(conn, exchange.FEES), receiver=world.treasury, amount=earned,
+                        kind="exchange_surplus", memo=f"Broad Street Exchange: fees earned, {clock.period_label(period)}",
+                        period=period)
     economy.government_spends(conn, world, period)
     economy.pensions_paid(conn, world, period)
     economy.record_households(conn, world, period, spent, results)
@@ -138,6 +146,12 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
 
     for company, result in results:
         companies.file_report(conn, company, result)
+
+    # What each company is now worth, from what it has just filed. The computer-run investors
+    # take their orders off the exchange at the same instant the reports appear, so nobody can
+    # trade against prices set before the investors had read them. They return with new prices.
+    valuation.value_all(conn, period)
+    investors.withdraw_all(conn, now)
 
     # The news of the quarter just closed, then next quarter's events and the news of them
     # (each dated the day it happens, and out of sight until then).

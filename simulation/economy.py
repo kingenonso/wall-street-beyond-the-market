@@ -328,6 +328,9 @@ def companies_buy_inputs(conn: Connection, world: World, companies: list[dict], 
         )
 
 
+GOVERNMENT_INCOME = ("company_tax", "debt_interest", "share_trade", "exchange_surplus")
+
+
 def government_spends(conn: Connection, world: World, period: int) -> None:
     """TEMPORARY STAND-IN (Stage 12 gives the Government a real budget).
 
@@ -336,7 +339,8 @@ def government_spends(conn: Connection, world: World, period: int) -> None:
     """
     label = clock.period_label(period)
     # Tax, and the interest banks pay on what they have borrowed from the Central Bank.
-    collected = ledger.received_in_period(conn, world.treasury, period, kinds=("company_tax", "debt_interest"))
+    # ...and the stamp duty on share trades, and what the exchange earned in fees.
+    collected = ledger.received_in_period(conn, world.treasury, period, kinds=GOVERNMENT_INCOME)
     purchases = apply_bps(collected, data.GOVERNMENT_PURCHASE_BPS)
     weights = {sector: row["government_bps"] for sector, row in world.demand.items()}
     ledger.pay_split_up_to(

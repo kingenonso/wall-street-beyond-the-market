@@ -351,3 +351,4 @@ h1 .ticker { font-size: 13px; }
 .order-line { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; }
 .order-line:first-of-type { border-top: 0; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
+.why-box { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }

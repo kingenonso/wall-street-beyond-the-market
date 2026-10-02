@@ -27,7 +27,7 @@ from psycopg import Connection
 from psycopg.rows import tuple_row
 from psycopg.types.json import Jsonb
 
-from simulation import companies, events, exchange, ledger, macro, news, players
+from simulation import companies, events, exchange, ledger, macro, news, players, valuation
 from simulation import world_data as data
 from simulation.ledger import NGN, Leg
 from simulation.money import apply_bps, million_naira, naira
@@ -312,7 +312,8 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str, test_wor
     # The events of the first quarter are decided now, and stay out of sight until their day.
     news.for_events(conn, events.generate(conn, 1, fortune_seed))
 
-    # Every company's shares are listed on the Broad Street Exchange.
+    # What each company is worth on day one, and its shares listed on the Broad Street Exchange.
+    valuation.value_all(conn, 0)
     exchange.setup(conn, datetime.now(timezone.utc))
 
 

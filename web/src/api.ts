@@ -201,6 +201,20 @@ export type Quote = {
   trades: PublicTrade[];
 };
 
+export type Why = {
+  ticker: string;
+  name: string;
+  summary: string;
+  move_bps: number;
+  reference_price_kobo: Kobo;
+  last_price_kobo: Kobo | null;
+  bought_in_a_hurry: number;
+  sold_in_a_hurry: number;
+  reasons: string[];
+  valuation_label: string | null;
+  valuation_reasons: string[];
+};
+
 export type Order = {
   id: number;
   ticker: string;
@@ -294,6 +308,7 @@ export const api = {
     return request<News>(`/news?${query}`);
   },
   quote: (ticker: string) => request<Quote>(`/market/${encodeURIComponent(ticker)}`),
+  why: (ticker: string) => request<Why>(`/market/${encodeURIComponent(ticker)}/why`),
   myOrders: () => request<Order[]>("/market/orders"),
   myHoldings: () => request<Holding[]>("/market/holdings"),
   placeOrder: (order: NewOrder) =>

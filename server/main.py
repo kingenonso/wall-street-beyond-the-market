@@ -51,9 +51,9 @@ from server.schemas import (
     display_name_key,
     WorldStatusResponse,
     CommodityPrice, MacroQuarter, MoneyWatch, NewsItem, NewsResponse, PricesAndRates,
-    Holding, OrderRequest, OrderResponse, PlacedOrderResponse, PriceLevel, PublicTrade, QuoteResponse,
+    Holding, OrderRequest, OrderResponse, PlacedOrderResponse, PriceLevel, PublicTrade, QuoteResponse, WhyResponse,
 )
-from simulation import clock, exchange, ledger, moneywatch, news, news_kinds, players, quarters
+from simulation import clock, exchange, investors, ledger, moneywatch, news, news_kinds, players, quarters
 from simulation import world_data as data
 from simulation.ledger import NGN
 
@@ -74,6 +74,8 @@ def _close_due_quarters_once() -> None:
         # Start the trading day and run each share's opening auction when the market opens.
         if conn.execute("SELECT to_regclass('market_instruments') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
             exchange.open_market(conn, now)
+            # The computer-run investors look at the market and renew their orders.
+            investors.act(conn, now)
 
 
 async def _quarter_closer() -> None:
@@ -736,6 +738,24 @@ def cancel_order(
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
                             "The exchange cannot do that at this moment. Nothing was changed. Please try again.") from None
     return _order_response(next(row for row in exchange.orders_of(conn, account, limit=200) if row["id"] == order_id))
+
+
+@app.get("/api/market/{ticker}/why", response_model=WhyResponse)
+def why_the_price_moved(
+    ticker: str = FastPath(pattern="^[A-Z]{3}$"),
+    _: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    found = exchange.why(conn, ticker, _exchange_time(conn))
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no share with that code on the exchange.")
+    return WhyResponse(
+        ticker=found["ticker"], name=found["name"], summary=found["summary"], move_bps=found["move_bps"],
+        reference_price_kobo=found["reference_price"], last_price_kobo=found["last_price"],
+        bought_in_a_hurry=found["bought_in_a_hurry"], sold_in_a_hurry=found["sold_in_a_hurry"], reasons=found["reasons"],
+        valuation_label=clock.period_label(found["valuation_period"]) if found["valuation_period"] else None,
+        valuation_reasons=found["valuation_reasons"],
+    )
 
 
 @app.get("/api/market/{ticker}", response_model=QuoteResponse)

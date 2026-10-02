@@ -194,6 +194,9 @@ def _accounts(conn: Connection) -> dict:
     return {
         "held": ledger.account_id(conn, ESCROW), "fees": ledger.account_id(conn, FEES),
         "treasury": ledger.account_id(conn, ledger.TREASURY),
+        # The game quarter now running: trades are recorded against it, so the stamp duty
+        # on them counts as the Government's income of that quarter.
+        "period": _one(conn, "SELECT last_closed_period + 1 AS period FROM world_state")["period"],
     }
 
 
@@ -275,7 +278,7 @@ def open_market(conn: Connection, now: datetime) -> None:
 # ---------------------------------------------------------------------------
 
 def _settle(conn: Connection, share: dict, buy: dict, sell: dict, price: int, quantity: int, now: datetime,
-            accounts: dict, *, in_auction: bool) -> dict:
+            accounts: dict, *, in_auction: bool, taker_side: str | None = None) -> dict:
     """One trade: shares to the buyer, cash to the seller, fees to the exchange and the Government.
     All of it is one ledger transaction, so it happens completely or not at all."""
     value = price * quantity
@@ -303,6 +306,7 @@ def _settle(conn: Connection, share: dict, buy: dict, sell: dict, price: int, qu
     transaction = ledger.post(
         conn, kind="share_trade", legs=[leg for leg in legs if leg.amount != 0],
         memo=f"{quantity:,} {share['name']} shares at ₦{price / 100:,.2f}", reference=f"order:{buy['id']}:{sell['id']}",
+        period=accounts["period"],
     )
     for order in (buy, sell):
         conn.execute("UPDATE market_orders SET remaining = %s, value_filled = %s, fees_paid = %s, reserved = %s WHERE id = %s",
@@ -312,6 +316,7 @@ def _settle(conn: Connection, share: dict, buy: dict, sell: dict, price: int, qu
         "sell_order_id": sell["id"], "buyer_account_id": buy["account_id"], "seller_account_id": sell["account_id"],
         "buyer_fee": fees["buy"], "seller_fee": fees["sell"], "in_auction": in_auction,
         "same_owner": buy["account_id"] == sell["account_id"], "session_date": share["session_date"],
+        "taker_side": taker_side,
         "ledger_transaction": transaction, "traded_at": now,
     }
     columns = list(trade)
@@ -367,6 +372,11 @@ def place_order(conn: Connection, *, account: UUID | str, ticker: str, side: str
         _bring_up_to_date(conn, share, now, accounts)
         _, state = session_of(now)
         low, high = price_limits(share["reference_price"])
+        until = paused_until(conn, now)
+        if until is not None:
+            raise ExchangeError(
+                f"Trading is paused until {clock.to_lagos(until):%H:%M} Lagos time after a sharp fall across the whole "
+                "market. You can still cancel orders that are waiting.")
 
         if quantity > share["shares_in_issue"]:
             raise ExchangeError("That is more shares than the company has in issue.")
@@ -423,9 +433,13 @@ def place_order(conn: Connection, *, account: UUID | str, ticker: str, side: str
             for fill in fills:
                 other = by_id[fill["order_id"]]
                 buy, sell = (order, other) if side == "buy" else (other, order)
-                trades.append(_settle(conn, share, buy, sell, fill["price"], fill["quantity"], now, accounts, in_auction=False))
+                trades.append(_settle(conn, share, buy, sell, fill["price"], fill["quantity"], now, accounts,
+                                      in_auction=False, taker_side=side))
                 if other["remaining"] == 0:
                     _close(conn, other, share, accounts, now, "filled", None)
+
+        if trades:
+            _pause_if_the_market_is_falling(conn, now)
 
         # 3. Whatever is left waits in the book, or is handed back.
         if order["remaining"] == 0:
@@ -446,6 +460,118 @@ def place_order(conn: Connection, *, account: UUID | str, ticker: str, side: str
                 order["reserved"] = needed
                 conn.execute("UPDATE market_orders SET reserved = %s WHERE id = %s", (needed, order["id"]))
         return {"order": order, "trades": trades}
+
+
+# ---------------------------------------------------------------------------
+# The pause after a sharp fall across the whole market
+# ---------------------------------------------------------------------------
+
+def market_move_bps(conn: Connection) -> int:
+    """How far the whole market has moved today: every company at its latest price against
+    the price the day's limits are measured from, each counted by its size."""
+    row = _one(
+        conn,
+        "SELECT coalesce(sum(coalesce(m.last_price, m.reference_price)::numeric * v.shares), 0) AS now,"
+        "       coalesce(sum(m.reference_price::numeric * v.shares), 0) AS before"
+        " FROM market_instruments m JOIN LATERAL (SELECT r.shares_in_issue AS shares FROM company_results r"
+        "   WHERE r.company_id = m.company_id ORDER BY r.period DESC LIMIT 1) v ON true")
+    return int((row["now"] - row["before"]) * BPS / row["before"]) if row["before"] else 0
+
+
+def paused_until(conn: Connection, now: datetime) -> datetime | None:
+    row = _one(conn, "SELECT paused_until FROM market_status")
+    return row["paused_until"] if row and row["paused_until"] and row["paused_until"] > now else None
+
+
+def _pause_if_the_market_is_falling(conn: Connection, now: datetime) -> None:
+    day, _ = session_of(now)
+    if market_move_bps(conn) > -data.MARKET_PAUSE_FALL_BPS:
+        return
+    until = now + timedelta(minutes=data.MARKET_PAUSE_MINUTES)
+    paused = conn.execute(
+        "UPDATE market_status SET paused_until = %s, paused_session = %s"
+        " WHERE paused_session IS DISTINCT FROM %s", (until, day, day)).rowcount          # once a day
+    if paused:
+        conn.execute(
+            "INSERT INTO market_reasons (company_id, session_date, happened_at, reason) VALUES (NULL, %s, %s, %s)",
+            (day, now, f"The whole market fell more than {data.MARKET_PAUSE_FALL_BPS // 100}% in a day. Trading was paused "
+                       f"for {data.MARKET_PAUSE_MINUTES} minutes so that everybody could take stock."))
+
+
+def relist(conn: Connection, company_id, price: int, now: datetime) -> None:
+    """Move the starting price of a share that has NEVER traded to what it is now thought to be
+    worth. Once a share has traded, only trading moves its price."""
+    conn.execute("UPDATE market_instruments SET listing_price = %s, reference_price = %s, updated_at = %s"
+                 " WHERE company_id = %s AND last_price IS NULL", (price, price, now, company_id))
+
+
+def withdraw(conn: Connection, account_ids: list, now: datetime, reason: str) -> int:
+    """Cancel every waiting order of the given accounts, share by share. Returns how many."""
+    accounts = _accounts(conn)
+    count = 0
+    tickers = _rows(conn, "SELECT DISTINCT c.ticker FROM market_orders o JOIN companies c ON c.id = o.company_id"
+                          " WHERE o.status = 'open' AND o.account_id = ANY(%s) ORDER BY c.ticker", (account_ids,))
+    for row in tickers:
+        share = _instrument(conn, row["ticker"])
+        for order in _rows(conn, "SELECT * FROM market_orders WHERE company_id = %s AND status = 'open' AND account_id = ANY(%s)"
+                                 " ORDER BY id FOR UPDATE", (share["company_id"], account_ids)):
+            _close(conn, order, share, accounts, now, "cancelled", reason)
+            count += 1
+    return count
+
+
+def why(conn: Connection, ticker: str, now: datetime) -> dict | None:
+    """Why a share's price is where it is today, from what is on record: who was in a hurry
+    to trade, what the investors did, and what they think it is worth."""
+    share = _one(conn, "SELECT m.*, c.ticker, c.name FROM market_instruments m JOIN companies c ON c.id = m.company_id"
+                       " WHERE c.ticker = %s", (ticker,))
+    if share is None:
+        return None
+    day, _ = session_of(now)
+    today = share["session_date"] == day
+    flow = _one(
+        conn,
+        "SELECT coalesce(sum(quantity) FILTER (WHERE taker_side = 'buy'), 0)::bigint AS bought,"
+        "       coalesce(sum(quantity) FILTER (WHERE taker_side = 'sell'), 0)::bigint AS sold,"
+        "       coalesce(sum(quantity) FILTER (WHERE in_auction), 0)::bigint AS auction,"
+        "       count(*) AS trades, min(price) AS lowest, max(price) AS highest"
+        " FROM market_trades WHERE company_id = %s AND session_date = %s", (share["company_id"], day))
+    reference = share["reference_price"] if today else (share["last_price"] or share["reference_price"])
+    last = share["last_price"] if today and flow["trades"] else None
+    move = (last - reference) * BPS // reference if last else 0
+
+    if not flow["trades"]:
+        summary = "It has not traded today, so its price has not moved."
+    else:
+        naira = lambda kobo: f"₦{kobo / 100:,.2f}"            # noqa: E731
+        if abs(move) < 10:
+            direction = f"The price is where it finished the day before, at {naira(last)}."
+        else:
+            direction = (f"The price is {'up' if move > 0 else 'down'} {abs(move) / 100:.1f}% today, "
+                         f"from {naira(reference)} to {naira(last)}.")
+        bought, sold = flow["bought"], flow["sold"]
+        if bought > sold * 6 // 5:
+            pressure = (f" There was more buying than selling: buyers in a hurry took {bought:,} shares from the sellers "
+                        f"waiting, paying up to {naira(flow['highest'])}, while sellers in a hurry sold {sold:,}.")
+        elif sold > bought * 6 // 5:
+            pressure = (f" There was more selling than buying: sellers in a hurry sold {sold:,} shares to the buyers "
+                        f"waiting, accepting as little as {naira(flow['lowest'])}, while buyers in a hurry took {bought:,}.")
+        elif bought or sold:
+            pressure = f" Buying and selling were evenly matched: {bought:,} shares bought in a hurry, {sold:,} sold."
+        else:
+            pressure = f" All {flow['auction']:,} shares traded in the opening auction, at one price."
+        summary = direction + pressure
+    worth = _one(conn, "SELECT * FROM company_valuations WHERE company_id = %s ORDER BY period DESC LIMIT 1", (share["company_id"],))
+    return {
+        "ticker": share["ticker"], "name": share["name"], "summary": summary, "move_bps": move,
+        "reference_price": reference, "last_price": last,
+        "bought_in_a_hurry": flow["bought"], "sold_in_a_hurry": flow["sold"],
+        "reasons": [r["reason"] for r in _rows(
+            conn, "SELECT reason FROM market_reasons WHERE (company_id = %s OR company_id IS NULL) AND session_date = %s"
+                  " ORDER BY id DESC LIMIT 8", (share["company_id"], day))],
+        "valuation_period": worth["period"] if worth else None,
+        "valuation_reasons": worth["reasons"] if worth else [],
+    }
 
 
 def _check(fills: list[dict], left: int, order: dict, by_id: dict, low: int, high: int) -> None:

@@ -693,7 +693,7 @@ def test_a_world_from_before_fortunes_existed_is_given_a_secret_when_it_is_upgra
 def test_quarters_cannot_be_closed_for_a_world_with_no_secret(db):
     from simulation import quarters
     with pytest.raises(ledger.LedgerError):
-        quarters._close_period(db, 1, 3000, "")
+        quarters._close_period(db, 1, 3000, "", after_quarters(1))
 
 
 def test_fortune_can_never_make_sales_negative(db, monkeypatch):

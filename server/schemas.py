@@ -349,6 +349,21 @@ class QuoteResponse(BaseModel):
     trades: list[PublicTrade]          # newest first
 
 
+class WhyResponse(BaseModel):
+    """Why a share's price is where it is today, from what is on record."""
+    ticker: str
+    name: str
+    summary: str
+    move_bps: int                      # today's move against the last price of the day before
+    reference_price_kobo: Kobo
+    last_price_kobo: Kobo | None       # none if it has not traded today
+    bought_in_a_hurry: int             # shares buyers took from waiting sellers today
+    sold_in_a_hurry: int               # shares sellers sold to waiting buyers today
+    reasons: list[str]                 # what the investors did today, newest first
+    valuation_label: str | None        # the filing the investors' view of its worth is built on
+    valuation_reasons: list[str]       # why that view changed with that filing
+
+
 class OrderResponse(BaseModel):
     id: int
     ticker: str

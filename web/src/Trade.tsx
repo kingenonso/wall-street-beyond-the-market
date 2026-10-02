@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { api, ApiError, type Holding, type Order, type Quote } from "./api";
 import { formatNaira, MARKET_LABEL } from "./format";
 import { useLoad } from "./hooks";
-import { Panel } from "./Shell";
+import { Change, Panel } from "./Shell";
 
 const shares = (count: number) => count.toLocaleString("en-NG");
 
@@ -59,6 +59,7 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
   onTraded: () => void;
 }) {
   const quote = useLoad(() => api.quote(ticker), `quote:${ticker}`, onLoggedOut);
+  const why = useLoad(() => api.why(ticker), `why:${ticker}`, onLoggedOut);
   const orders = useLoad(api.myOrders, "orders", onLoggedOut);
   const holdings = useLoad(api.myHoldings, "holdings", onLoggedOut);
   const [side, setSide] = useState<"buy" | "sell">("buy");
@@ -81,6 +82,7 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
 
   function refresh() {
     quote.reload();
+    why.reload();
     orders.reload();
     holdings.reload();
     onTraded();
@@ -221,6 +223,25 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
           )}
         </div>
       </div>
+
+      {why.data && (
+        <div className="why-box">
+          <div className="why-title">WHY IS THE PRICE WHERE IT IS?</div>
+          <p className="small">
+            {why.data.move_bps !== 0 && <><Change bps={why.data.move_bps} />{" "}</>}
+            {why.data.summary}
+          </p>
+          {why.data.reasons.length > 0 && (
+            <ul className="reasons">{why.data.reasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul>
+          )}
+          {why.data.valuation_reasons.length > 0 && (
+            <>
+              <p className="small muted">What changed investors' view of its worth at its {why.data.valuation_label} results:</p>
+              <ul className="reasons">{why.data.valuation_reasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul>
+            </>
+          )}
+        </div>
+      )}
     </Panel>
   );
 }

@@ -395,3 +395,28 @@ STAMP_DUTY_BPS = 20                # ...and 0.2% to the Government as stamp duty
 ORDER_LIFE_DAYS = 7                # an order still unmatched after seven real days (one game quarter) is handed back
 MOST_OPEN_ORDERS = 50              # the most orders one player may have waiting at once
 LOWEST_LISTING_PRICE_KOBO = 100    # no share is listed below ₦1
+
+# What a company is worth, and the computer-run investors.
+SHARE_RISK_PREMIUM_BPS = 300       # owning a share is riskier than lending: investors want 3 points more a year
+REAL_GROWTH_BPS = 200              # profits are expected to grow 2 points a year faster than prices
+LEAST_DISCOUNT_ABOVE_GROWTH_BPS = 500   # the return wanted is never taken as less than 5 points above long-run growth
+
+INVESTOR_REFRESH_SECONDS = 300     # the computer-run investors look at the market again every five minutes
+ORDER_STEP_BPS = 50                # each of an investor's waiting orders is half a percent from the next
+IMPACT_PER_LEVEL_BPS = 50          # selling one order's worth raises the prices an investor asks by half a percent
+MOST_IMPACT_BPS = 800              # ...but never by more than 8% in all
+ORDER_VALUE_SHARE_PPM = 4          # one waiting order is worth four millionths of the whole company...
+ORDER_VALUE_LIMITS_NAIRA = (500_000, 20_000_000)      # ...but at least ₦500,000 and at most ₦20 million
+MOST_CASH_PER_ORDER_BPS = 100      # an investor puts at most 1% of its cash behind one buy order
+EVENT_MOOD_BPS = 3000              # small investors mark a share by three tenths of an event's effect on its sales...
+MOST_EVENT_MOOD_BPS = 300          # ...and never by more than 3%
+# Each kind of investor: how much its own view differs day to day, how far from that view it
+# is willing to buy and sell, how many orders it keeps waiting each way, and how large they are.
+INVESTORS = {
+    #                          label              own view   margin   orders  size
+    "investors:institutions": ("Pension funds",      100,       50,      3,    150),
+    "investors:public":       ("Small investors",    250,       40,      3,    100),
+    "investors:founders":     ("Founders",            50,      300,      2,    200),
+}
+MARKET_PAUSE_FALL_BPS = 500        # trading pauses when the whole market falls 5% in a day...
+MARKET_PAUSE_MINUTES = 30          # ...for half an hour, once a day
