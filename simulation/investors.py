@@ -133,10 +133,18 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
     day_number = day.toordinal()
     placed = 0
 
+    from simulation import corporate                  # (it needs this module's neighbours too)
+    bids = {b["target_company_id"]: b for b in _rows(conn, "SELECT * FROM takeovers WHERE status = 'open'")}
+
     for company in shares:
         value = worth.get(company["id"])
         if value is None:
             continue
+        if company["id"] in bids:
+            # A takeover offer is open: investors price in what it is expected to pay them.
+            expected = corporate.expected_value(conn, bids[company["id"]], value["value_per_share"])
+            if expected:
+                value = {**value, "value_per_share": expected}
         # One share at a time, each all-or-nothing, so players' orders in other shares never wait on this.
         with conn.transaction():
             share = exchange._instrument(conn, company["ticker"])

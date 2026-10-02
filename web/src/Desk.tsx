@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { api, type CompanySummary, type NewsItem, type Player, type Watched } from "./api";
+import { ClosingBellPanel } from "./Bell";
 import { WatchlistPanel } from "./Market";
+import { GrantPanel } from "./Portfolio";
 import { newsDate } from "./News";
 import { formatCompact, formatCountdown, formatLagosDay, formatLagosTime, formatNaira, MARKET_LABEL } from "./format";
 import { useLoad } from "./hooks";
@@ -11,9 +13,10 @@ type Card = { tag: string; when: string; title: string; text: string; action: st
 
 /** "Needs you now": built only from things that are really true for this player right now. */
 function cardsFor(player: Player, latestQuarter: string | null, live: LiveClock | null, count: number | null,
-                  topStory: NewsItem | null, alerts: Watched[]): Card[] {
+                  topStory: NewsItem | null, alerts: Watched[], decisions: Card[]): Card[] {
   const all = count ? `All ${count}` : "All the";
-  const cards: Card[] = [];
+  // A decision only this player can make comes before anything else.
+  const cards: Card[] = [...decisions];
   // A price you asked to be told about comes first: it is the one thing here you set yourself.
   for (const alert of alerts) {
     const target = alert.reached === "above" ? alert.alert_above_kobo : alert.alert_below_kobo;
@@ -138,6 +141,27 @@ export function DeskWork({ player, live, onLoggedOut }: { player: Player; live: 
   const news = useLoad(() => api.news({ limit: 40 }), "desk-news", onLoggedOut);
   const watched = useLoad(api.watchlist, "watchlist", onLoggedOut);
   const alerts = (watched.data ?? []).filter((w) => w.reached !== null);
+  const corporate = useLoad(api.corporate, "desk-corporate", onLoggedOut);
+  const decisions: Card[] = [];
+  for (const bid of corporate.data?.takeovers ?? []) {
+    if (bid.status === "open" && bid.free + bid.offered > 0) {
+      decisions.push({
+        tag: bid.hostile ? "HOSTILE BID" : "TAKEOVER OFFER", when: formatNaira(bid.price_kobo),
+        title: `${bid.bidder} has offered ${formatNaira(bid.price_kobo)} a share for ${bid.target}`,
+        text: `You hold shares in ${bid.target}. ${bid.offered > 0 ? `You have offered ${bid.offered.toLocaleString("en-NG")} of them.` : "You have not answered yet."} The offer closes ${bid.closes_label}.`,
+        action: "Answer the offer", href: "#/market/offers",
+      });
+    }
+  }
+  for (const vote of corporate.data?.votes ?? []) {
+    if (vote.status === "open" && vote.my_shares > 0 && !vote.my_choice) {
+      decisions.push({
+        tag: "YOUR VOTE", when: vote.name, title: vote.question,
+        text: `You hold ${vote.my_shares.toLocaleString("en-NG")} shares, so you have a vote. It is counted ${vote.closes_label}.`,
+        action: "Vote", href: "#/market/offers",
+      });
+    }
+  }
   const quarter = status.data?.last_closed_label ?? null;
   // The top story: the most important item of the last three game days, if it matters enough to interrupt.
   const items = news.data?.items ?? [];
@@ -151,7 +175,11 @@ export function DeskWork({ player, live, onLoggedOut }: { player: Player; live: 
 
   return (
     <>
-      <NeedsYouNow cards={cardsFor(player, quarter, live, status.data?.companies ?? null, top && top.importance >= 60 ? top : null, alerts)} />
+      <NeedsYouNow cards={cardsFor(player, quarter, live, status.data?.companies ?? null, top && top.importance >= 60 ? top : null, alerts, decisions)} />
+
+      <GrantPanel onLoggedOut={onLoggedOut} onChanged={() => undefined} />
+
+      <ClosingBellPanel onLoggedOut={onLoggedOut} brief />
 
       {headlines.length > 0 && (
         <Panel title="Latest news" aside={<a href="#/news">All news</a>}>

@@ -12,7 +12,7 @@ from psycopg.rows import dict_row
 from simulation import economy, genesis, ledger, quarters
 from simulation import world_data as data
 from simulation.money import BPS, apply_bps, million_naira, naira
-from tests.conftest import after_quarters, money_accounted_for
+from tests.conftest import government_budget, after_quarters, money_accounted_for
 
 
 def _dicts(db, sql, params=()):
@@ -266,7 +266,8 @@ def test_the_government_spends_exactly_the_tax_it_collected_and_keeps_its_reserv
     treasury = ledger.account_id(db, ledger.TREASURY)
     for period in range(1, 9):
         # Tax, and the interest banks pay on what the Central Bank has lent them.
-        collected = ledger.received_in_period(db, treasury, period, kinds=economy.GOVERNMENT_INCOME)
+        # ...plus what it borrowed to spend, less what its borrowing cost it (Stage 4: Government bonds).
+        collected = government_budget(db, period)
         spent = db.execute(
             "SELECT coalesce(-sum(e.amount), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
             " WHERE e.account_id = %s AND e.amount < 0 AND t.period = %s"

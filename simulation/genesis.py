@@ -27,7 +27,7 @@ from psycopg import Connection
 from psycopg.rows import tuple_row
 from psycopg.types.json import Jsonb
 
-from simulation import companies, events, exchange, ledger, macro, news, players, valuation
+from simulation import bonds, companies, events, exchange, ledger, macro, news, players, valuation
 from simulation import world_data as data
 from simulation.ledger import NGN, Leg
 from simulation.money import apply_bps, million_naira, naira
@@ -315,6 +315,7 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str, test_wor
     # What each company is worth on day one, and its shares listed on the Broad Street Exchange.
     valuation.value_all(conn, 0)
     exchange.setup(conn, datetime.now(timezone.utc))
+    bonds.setup(conn, 0)
 
 
 def _describe_the_economy(conn: Connection, shapes: dict[str, dict]) -> tuple[int, int]:
@@ -412,4 +413,5 @@ if __name__ == "__main__":
             # A world from before the exchange existed gets its shares listed now.
             with connection.transaction():
                 exchange.setup(connection, datetime.now(timezone.utc))
+                bonds.setup(connection, connection.execute("SELECT last_closed_period FROM world_state").fetchone()[0])
     print("The world was created." if made else "The world already exists. Nothing was changed.")

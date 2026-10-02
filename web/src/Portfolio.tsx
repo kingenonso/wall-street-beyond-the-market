@@ -3,6 +3,30 @@ import { api, ApiError, type Order } from "./api";
 import { formatCompact, formatNaira } from "./format";
 import { useLoad } from "./hooks";
 import { Change, Failed, Loading, Panel } from "./Shell";
+import { shortDate } from "./Market";
+import { SingleLine } from "./TrendChart";
+
+/** The starting grant, paid in parts as the player does real things. Asking also collects any part that is due. */
+export function GrantPanel({ onLoggedOut, onChanged }: { onLoggedOut: () => void; onChanged: () => void }) {
+  const { data: g } = useLoad(() => api.grant().then((grant) => { onChanged(); return grant; }), "grant", onLoggedOut);
+  if (!g || g.steps.every((s) => s.paid)) return null;
+  const next = g.next_payment_at ? new Date(g.next_payment_at) : null;
+  return (
+    <Panel title="Your starting grant" aside={`${formatNaira(g.received_kobo)} of ${formatNaira(g.total_kobo)} received`}>
+      <p className="small">
+        You received ₦100,000 on joining. The rest comes in four parts of ₦100,000, one for each of these, and at most one
+        part in twenty hours.
+      </p>
+      {g.steps.map((s) => (
+        <div key={s.step} className="row">
+          <span>{s.paid ? "✓" : s.earned ? "●" : "○"} {s.what}</span>
+          <span className={s.paid ? "change-up" : "muted"}>{s.paid ? "Paid" : s.earned ? "Done, payment waiting" : "Not yet"}</span>
+        </div>
+      ))}
+      {next && <p className="small muted">The next part can be paid after {next.toLocaleString("en-NG", { timeZone: "Africa/Lagos", weekday: "short", hour: "2-digit", minute: "2-digit" })} Lagos time.</p>}
+    </Panel>
+  );
+}
 
 const shares = (count: number) => count.toLocaleString("en-NG");
 
@@ -50,12 +74,24 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
         <span className="muted small">What you own, what it cost and what it is worth now</span>
       </div>
 
+      <GrantPanel onLoggedOut={onLoggedOut} onChanged={onChanged} />
+
+      <Panel title="Your advisory summary" aside="A reading of how your money is placed. Observations, never tips">
+        <ul className="reasons advice">{p.advice.map((line) => <li key={line}>{line}</li>)}</ul>
+      </Panel>
+
       <Panel title="What you are worth">
+        {p.net_worth.length >= 2 ? (
+          <SingleLine name="What you are worth" format={(v) => formatCompact((BigInt(Math.round(v)) * 100n).toString())}
+                      data={p.net_worth.map((d) => ({ label: shortDate(d.session_date), value: Number(BigInt(d.total_kobo) / 100n) }))} />
+        ) : (
+          <p className="muted small">A chart of what you are worth appears here after your first Closing Bell (22:00 Lagos time).</p>
+        )}
         <div className="tiles">
           <div className="tile">
             <div className="muted small">In all</div>
             <div className="mono figure-small">{formatNaira(p.total_kobo)}</div>
-            <div className="small muted">cash and shares together</div>
+            <div className="small muted">cash, shares and bonds together</div>
           </div>
           <div className="tile">
             <div className="muted small">Cash you can use</div>
@@ -70,11 +106,23 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
             <div className="small muted">at today's prices</div>
           </div>
           <div className="tile">
+            <div className="muted small">Your bonds and bills</div>
+            <div className="mono figure-small">{formatNaira(p.bonds_value_kobo)}</div>
+            <div className="small muted"><a href="#/market/bonds">at their fair value</a></div>
+          </div>
+          <div className="tile">
             <div className="muted small">Dividends received</div>
             <div className="mono figure-small">{formatNaira(p.dividends_kobo)}</div>
             <div className="small muted">since you began</div>
           </div>
         </div>
+        {BigInt(p.held_for_offers_kobo) + BigInt(p.offered_to_bidders_kobo) > 0n && (
+          <p className="small">
+            Held by the exchange for <a href="#/market/offers">offers you have answered</a>:{" "}
+            {BigInt(p.held_for_offers_kobo) > 0n && <>{formatNaira(p.held_for_offers_kobo)} in cash for new shares. </>}
+            {BigInt(p.offered_to_bidders_kobo) > 0n && <>{formatNaira(p.offered_to_bidders_kobo)} of shares offered to a bidder.</>}
+          </p>
+        )}
         {BigInt(p.realised_kobo) !== 0n && (
           <p className="small">On shares you have already sold, after fees: <Gain kobo={p.realised_kobo} /></p>
         )}
@@ -164,6 +212,8 @@ export function PortfolioRail() {
         <li>A gain or loss on shares you still hold is only on paper until you sell.</li>
         <li>Companies that make a profit usually pay part of it to their owners each quarter. That is a dividend, and it arrives as cash.</li>
         <li>Cash held for a buy order comes back in full if you cancel the order.</li>
+        <li>The advisory summary points at what a careful investor would look at. It never tells you what to buy or sell.</li>
+        <li>What you are worth is written down each day when the Closing Bell rings, and charted from those figures.</li>
       </ul>
     </Panel>
   );

@@ -28,13 +28,14 @@ from simulation import clock, events
 from simulation import world_data as data
 from simulation.money import BPS
 from simulation.news_kinds import BY_NAME, OUTLETS
+from simulation.news_wordings import capital as _capital
 from simulation.news_wordings import economy as _economy
 from simulation.news_wordings import happenings as _happenings
 from simulation.news_wordings import places as _places
 from simulation.news_wordings import results as _results
 
 WORDINGS: dict[str, dict[str, list[tuple[str, str]]]] = {
-    **_places.WORDINGS, **_happenings.WORDINGS, **_economy.WORDINGS, **_results.WORDINGS,
+    **_places.WORDINGS, **_happenings.WORDINGS, **_economy.WORDINGS, **_results.WORDINGS, **_capital.WORDINGS,
 }
 
 # How a kind of business reads in the middle of a sentence.

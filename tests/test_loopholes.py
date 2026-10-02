@@ -80,7 +80,9 @@ def test_a_login_pass_for_a_player_who_does_not_exist_is_refused(client):
 def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     """Every request that changes anything is on this list. There is none that pays money
     directly, edits a company or closes a quarter. Since Stage 4 a player can place and cancel
-    orders on the exchange; those are attacked in test_market.py."""
+    orders on the exchange; those are attacked in test_market.py. Stage 4 Part B added the bond
+    desk, share offers, votes and takeover offers (attacked in test_bonds.py and test_corporate.py)
+    and collecting the starting grant's later parts (test_grants.py)."""
     from server.main import app
 
     writes = sorted(
@@ -88,6 +90,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         for method in route.methods if method not in ("GET", "HEAD", "OPTIONS")
     )
     assert writes == [
+        ("DELETE", "/api/bonds/swaps/{swap_id}"),
         ("DELETE", "/api/market/orders/{order_id}"),
         ("DELETE", "/api/market/watchlist/{ticker}"),
         ("PATCH", "/api/me/profile-icon"),
@@ -95,7 +98,13 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/auth/login"),
         ("POST", "/api/auth/logout"),
         ("POST", "/api/auth/signup"),
+        ("POST", "/api/bonds/swaps"),
+        ("POST", "/api/bonds/trade"),
         ("POST", "/api/market/orders"),
+        ("POST", "/api/me/grant"),
+        ("PUT", "/api/corporate/offers/{offer_id}"),
+        ("PUT", "/api/corporate/takeovers/{takeover_id}"),
+        ("PUT", "/api/corporate/votes/{vote_id}"),
         ("PUT", "/api/market/watchlist/{ticker}"),
     ]
     for method, path in [("post", "/api/companies"), ("put", "/api/companies/IKB"), ("delete", "/api/companies/IKB"),
@@ -112,7 +121,7 @@ def test_signing_up_many_players_creates_no_money(client, db):
     assert ledger.amount_in_existence(db) == money_before
     assert db.execute("SELECT sum(balance) FROM ledger_balances WHERE asset = 'NGN'").fetchone()[0] == 0
     paid = db.execute("SELECT count(*), sum(e.amount) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id WHERE t.kind = 'starting_grant' AND e.amount > 0").fetchone()
-    assert paid == (5, 5 * naira(500_000))
+    assert paid == (5, 5 * naira(100_000))
 
 
 # --- 3. Farming: can a reward be collected again and again? ---
@@ -127,7 +136,7 @@ def test_signing_up_again_with_the_same_details_pays_nothing_more(client, db):
 def test_logging_in_repeatedly_pays_nothing(client, player, db):
     for _ in range(3):
         client.post("/api/auth/login", json={"email": ADULT["email"], "password": ADULT["password"]})
-    assert client.get("/api/me").json()["cash"]["amount_kobo"] == str(naira(500_000))
+    assert client.get("/api/me").json()["cash"]["amount_kobo"] == str(naira(100_000))
 
 
 # --- 4. Timing: two requests at the same instant ---
@@ -348,10 +357,10 @@ def test_the_database_itself_refuses_a_second_starting_grant(client, player, db)
     treasury = ledger.account_id(db, ledger.TREASURY)
     account = ledger.player_account_id(db, player["id"])
     with pytest.raises(Exception) as refused:
-        ledger.transfer(db, payer=treasury, receiver=account, amount=naira(500_000), kind="starting_grant",
+        ledger.transfer(db, payer=treasury, receiver=account, amount=naira(100_000), kind="starting_grant",
                         memo="A second grant", reference=str(account), idempotency_key="some-other-key")
     assert refused.value.diag.constraint_name == "ledger_one_starting_grant"
-    assert ledger.balance(db, account) == naira(500_000)
+    assert ledger.balance(db, account) == naira(100_000)
 
 
 def test_new_money_cannot_be_issued_for_a_made_up_reason(db):
@@ -482,7 +491,7 @@ def test_the_right_code_opens_the_account_and_pays_the_grant_once(client, db):
     code = _ask(client).json()["code_shown_on_screen"]
     confirm = {"email": ADULT["email"], "code": code}
     assert client.post("/api/auth/confirm-email", json=confirm).status_code == 201
-    assert client.get("/api/me").json()["cash"]["amount_kobo"] == str(naira(500_000))
+    assert client.get("/api/me").json()["cash"]["amount_kobo"] == str(naira(100_000))
     # The same code cannot be used a second time.
     assert client.post("/api/auth/confirm-email", json=confirm).status_code == 400
     assert _grants(db) == 1

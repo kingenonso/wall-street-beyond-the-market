@@ -22,9 +22,13 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from simulation import clock, exchange, marketview, news
+from simulation import bonds, clock, corporate, exchange, marketview, news
 from simulation import world_data as data
 from simulation.money import BPS
+
+
+# A player's bonds, and what the exchange holds for their applications and acceptances, count towards what they are worth.
+marketview._OTHER_HOLDINGS[:] = [bonds.values_by_account, corporate.held_by_account]
 
 
 def _rows(conn: Connection, sql: str, params=()) -> list[dict]:

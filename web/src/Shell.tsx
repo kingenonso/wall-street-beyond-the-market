@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { Player } from "./api";
 import { formatCompact, formatLagosDate, formatLagosTime, MARKET_LABEL } from "./format";
 import { ProfilePicture } from "./icons";
+import { PriceTicker } from "./Ticker";
 import type { LiveClock } from "./useClock";
 
 export function Wordmark() {
@@ -17,9 +18,9 @@ export function MarketPill({ live }: { live: LiveClock | null }) {
   if (!live) return <span className="pill pill-closed">Connecting…</span>;
   const state = live.clock.market_state;
   return (
-    <span className={`pill pill-${state}`}>
+    <span className={`pill pill-${live.clock.closing_rush ? "opening_auction" : state}`}>
       <span className="pill-dot" aria-hidden="true" />
-      {MARKET_LABEL[state]}
+      {live.clock.closing_rush ? "Closing Rush" : MARKET_LABEL[state]}
     </span>
   );
 }
@@ -106,6 +107,7 @@ export function Shell({ player, live, current, onLogout, work, rail }: {
   return (
     <div className="app">
       <TopBar player={player} live={live} />
+      <PriceTicker />
       <div className="shell">
         <SectionsMenu current={current} onLogout={onLogout} />
         <main className="work">{work}</main>

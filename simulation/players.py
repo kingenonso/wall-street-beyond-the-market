@@ -14,7 +14,8 @@ from simulation.money import naira
 def open_player_account(conn: Connection, player_id: UUID | str) -> None:
     """Give a player their ledger account and their starting cash.
 
-    The starting cash is paid by the Federal Government Treasury, so it is not
+    The starting grant is paid in parts: the first on joining, the rest as the player does
+    real things in the game (see simulation/grants.py). The cash is paid by the Federal Government Treasury, so it is not
     new money, and the payment has a named payer (design document, section 10).
     It can only ever be paid once per player.
 
@@ -30,9 +31,9 @@ def open_player_account(conn: Connection, player_id: UUID | str) -> None:
         conn,
         payer=treasury,
         receiver=account,
-        amount=naira(data.STARTING_GRANT_NAIRA),
+        amount=naira(data.GRANT_ON_JOINING_NAIRA),
         kind="starting_grant",
-        memo="Starting grant to a new professional",
+        memo="Starting grant to a new professional: the first part",
         reference=str(account),             # the database allows one grant per account
         idempotency_key=f"starting_grant:{player_id}",
     )

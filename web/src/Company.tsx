@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, type Company, type FiledReport, type Kobo } from "./api";
 import { changeBps, formatCompact, formatLagosDate, formatMillions, formatPercent, periodLabel } from "./format";
 import { useLoad } from "./hooks";
+import { FactsPanel, ResultsReportPanel } from "./Facts";
 import { InvestorPanel } from "./Investor";
 import { TradePanel } from "./Trade";
 import { newsDate } from "./News";
@@ -58,6 +59,7 @@ const STATEMENTS: Record<string, { title: string; section: "income_statement" | 
       { key: "customer_loans", label: "Loans to the public", optional: true },
       { key: "loans_to_companies", label: "Loans to companies", optional: true },
       { key: "fixed_assets", label: "Buildings and machines" },
+      { key: "investments", label: "Shares in other companies", optional: true },
       { key: "total_assets", label: "Total assets", total: true },
       { key: "borrowings", label: "Borrowings", hint: "loans and bonds", heading: "What it owes" },
       { key: "payables", label: "Unpaid bills", optional: true },
@@ -115,12 +117,12 @@ function StatementTable({ name, reports }: { name: keyof typeof STATEMENTS; repo
   );
 }
 
-function Tile({ label, now, before }: { label: string; now: Kobo; before?: Kobo }) {
+function Tile({ label, now, before, against = "on last quarter" }: { label: string; now: Kobo; before?: Kobo; against?: string }) {
   return (
     <div className="tile">
       <div className="muted small">{label}</div>
       <div className="mono figure-small">{formatCompact(now)}</div>
-      <div className="small"><Change bps={changeBps(now, before)} /> <span className="muted">on last quarter</span></div>
+      <div className="small"><Change bps={changeBps(now, before)} /> <span className="muted">{against}</span></div>
     </div>
   );
 }
@@ -155,6 +157,10 @@ function CompanyBody({ company, onLoggedOut, onTraded }: { company: Company; onL
   const latest = company.reports[company.reports.length - 1];
   const previous = company.reports[company.reports.length - 2];
   const shown = tab === "balance" ? company.reports : trading;
+  // Results are set against the same quarter a year ago once there is one: many businesses swing with the seasons.
+  const yearAgo = trading.find((r) => r.period === latest.period - 4);
+  const compare = yearAgo ?? previous;
+  const against = yearAgo ? "on a year ago" : "on last quarter";
 
   return (
     <>
@@ -172,7 +178,11 @@ function CompanyBody({ company, onLoggedOut, onTraded }: { company: Company; onL
 
       <TradePanel ticker={company.ticker} onLoggedOut={onLoggedOut} onTraded={onTraded} />
 
+      <FactsPanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
+
       <InvestorPanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
+
+      <ResultsReportPanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
 
       {trading.length === 0 ? (
         <Panel>
@@ -184,10 +194,10 @@ function CompanyBody({ company, onLoggedOut, onTraded }: { company: Company; onL
       ) : (
         <Panel title="Sales and profit" aside="As filed, by quarter">
           <div className="tiles">
-            <Tile label="Sales" now={latest.figures.income_statement.revenue} before={previous?.figures.income_statement.revenue} />
-            <Tile label="EBITDA" now={latest.figures.income_statement.ebitda} before={previous?.figures.income_statement.ebitda} />
-            <Tile label="Net profit" now={latest.figures.income_statement.net_profit} before={previous?.figures.income_statement.net_profit} />
-            <Tile label="Cash" now={latest.figures.balance_sheet.cash} before={previous?.figures.balance_sheet.cash} />
+            <Tile label="Sales" now={latest.figures.income_statement.revenue} before={compare?.figures.income_statement.revenue} against={against} />
+            <Tile label="EBITDA" now={latest.figures.income_statement.ebitda} before={compare?.figures.income_statement.ebitda} against={against} />
+            <Tile label="Net profit" now={latest.figures.income_statement.net_profit} before={compare?.figures.income_statement.net_profit} against={against} />
+            <Tile label="Cash" now={latest.figures.balance_sheet.cash} before={compare?.figures.balance_sheet.cash} against={against} />
           </div>
           <TrendChart reports={trading} />
           <WhySales latest={latest} previous={previous?.period >= 1 ? previous : undefined} />

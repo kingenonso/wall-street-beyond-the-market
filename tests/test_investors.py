@@ -16,7 +16,7 @@ from psycopg.rows import dict_row
 from simulation import economy, exchange, investors, ledger, quarters, valuation
 from simulation import world_data as data
 from simulation.money import BPS, naira
-from tests.conftest import after_quarters, money_accounted_for
+from tests.conftest import government_budget, after_quarters, money_accounted_for
 from tests.test_market import place as _place
 from tests.test_market import sound, trader
 
@@ -397,7 +397,7 @@ def test_stamp_duty_and_the_exchanges_fees_are_spent_by_the_government(db):
         "SELECT t.kind, sum(e.amount) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
         " WHERE e.account_id = %s AND e.amount > 0 AND t.period = 9 GROUP BY 1", (treasury,)).fetchall())
     assert received["exchange_surplus"] == earned and received["share_trade"] > 0
-    collected = ledger.received_in_period(db, treasury, 9, kinds=economy.GOVERNMENT_INCOME)
+    collected = government_budget(db, 9)
     spent = db.execute(
         "SELECT -sum(e.amount) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
         " WHERE e.account_id = %s AND e.amount < 0 AND t.period = 9 AND t.kind IN ('government_purchase', 'government_wages')",

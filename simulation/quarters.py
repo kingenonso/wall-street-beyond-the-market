@@ -17,8 +17,8 @@ from datetime import datetime
 from psycopg import Connection
 from psycopg.rows import dict_row
 
-from simulation import (banking, clock, companies, economy, events, exchange, investors, ledger, macro, mindsets,
-                        moneywatch, news, valuation)
+from simulation import (banking, bonds, clock, companies, corporate, economy, events, exchange, grants, investors, ledger,
+                        macro, mindsets, moneywatch, news, valuation)
 from simulation.money import BPS
 from simulation.ledger import NGN
 
@@ -43,7 +43,7 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
             _close_period(conn, period, world["company_tax_bps"], world["fortune_seed"], now)
             # Re-add the whole ledger before the quarter is allowed to close. If anything
             # is out, the quarter is not closed and the fault is reported loudly.
-            problems = ledger.audit(conn) + exchange.check_books(conn)
+            problems = ledger.audit(conn) + exchange.check_books(conn) + corporate.check_books(conn)
             if problems:
                 raise ledger.LedgerError("The ledger failed its end-of-quarter check: " + " ".join(problems))
             conn.execute("UPDATE world_state SET last_closed_period = %s", (period,))
@@ -76,6 +76,14 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     if before is None:
         raise economy.WorldTooOld("This world was created before prices and lending existed. Start a new world.")
     policy_rate = before["next_policy_rate_bps"]            # the rate the Central Bank set for this quarter
+
+    # First, settle what was announced when the quarter before closed: votes are counted,
+    # shares are split, new shares are issued, bonds are swapped for shares and takeover
+    # offers succeed or fail. The computer-run investors take their orders off the exchange
+    # first, so that nobody can trade against prices set before all this was known.
+    bonds.setup(conn, period - 1)
+    investors.withdraw_all(conn, now)
+    corporate.settle(conn, period, now)
     happening = events.load(conn, period)
     moods, severe = events.location_moods(happening)
     lending_factor = moneywatch.lending_factor_bps(conn, period)
@@ -109,6 +117,7 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
         lasting_pull=lasting_pull, sector_fortune=sector_fortune,
         policy_rate_bps=policy_rate, wage_index_bps=before["wage_index_bps"], lending_factor_bps=lending_factor,
         damages=damages, ratings=ratings, banks=lenders,
+        integration=corporate.integration_effects(conn, period, fortune_seed, ratings),
     )
     results = [(company, companies.close_company_quarter(conn, company, period, ctx)) for company in all_companies]
 
@@ -119,7 +128,12 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
         ledger.transfer(conn, payer=ledger.account_id(conn, exchange.FEES), receiver=world.treasury, amount=earned,
                         kind="exchange_surplus", memo=f"Broad Street Exchange: fees earned, {clock.period_label(period)}",
                         period=period)
-    economy.government_spends(conn, world, period)
+    # The Government pays what it owes on its bonds, borrows a little more than it repays,
+    # and spends what it collected plus what it borrowed, less what its borrowing cost.
+    debt_cost = bonds.government_service(conn, world.treasury, period, policy_rate, before["price_index_bps"])
+    collected = ledger.received_in_period(conn, world.treasury, period, kinds=economy.GOVERNMENT_INCOME)
+    borrowed = bonds.government_borrows(conn, world.treasury, period, collected)
+    economy.government_spends(conn, world, period, borrowed=borrowed, debt_cost=debt_cost)
     economy.pensions_paid(conn, world, period)
     economy.record_households(conn, world, period, spent, results)
 
@@ -160,6 +174,17 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
         results=results, damages=damages, claims_paid=claims_paid, policy_rate_bps=policy_rate,
     )
     news.for_events(conn, events.generate(conn, period + 1, fortune_seed))
+
+    # With the results in, companies announce what they will ask of the market next quarter,
+    # and players who held through the close earn the parts of their starting grant that depend on it.
+    corporate.propose(conn, period, fortune_seed, now, results, lenders, measured["next_policy_rate_bps"])
+    if period % clock.QUARTERS_PER_YEAR == 1:
+        owed = bonds.government_debt(conn)
+        if owed:
+            news.publish(conn, period=period + 1, day=6, kind="government_bonds", story=f"government_bonds:{period}",
+                         facts={"amount": news.money_words(borrowed), "rate": bonds._percent(bonds.government_yield_bps(measured["next_policy_rate_bps"], 20)),
+                                "total": news.money_words(owed)})
+    grants.mark_holders(conn, now)
 
 
 def _dicts(conn: Connection, sql: str, params=()) -> list[dict]:

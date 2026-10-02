@@ -427,3 +427,61 @@ MARKET_PAUSE_MINUTES = 30          # ...for half an hour, once a day
 RUSH_FEE_DISCOUNT_BPS = 5000       # during the Closing Rush (21:50 to 22:00) trading fees are halved
 LARGE_ORDER_NAIRA = 250_000        # a player's order this large placed in the rush is shown to everybody, without a name
 GAME_YEAR_REAL_DAYS = 28           # four real weeks are one game year
+
+# ---------------------------------------------------------------------------
+# Stage 4, Part B: bonds, share offers, votes and takeovers.
+# ---------------------------------------------------------------------------
+BOND_FACE_NAIRA = 1_000            # every bond and bill is repaid at ₦1,000
+# The yield curve: what lending to the Government for so many quarters pays, against the Central Bank's rate.
+YIELD_CURVE_BPS = ((1, -50), (8, 0), (20, 75), (40, 150))
+DISTRESSED_RECOVERY_BPS = 4000     # lenders to a company in trouble count on getting back 40% of what they are owed
+BOND_HALF_SPREAD_BPS = {"bill": 5, "government": 20, "company": 60, "distressed": 300}   # the desk's margin each way
+BOND_IMPACT_BPS = 50               # buying 1% of a whole bond issue moves the desk's prices by half a percent...
+MOST_BOND_IMPACT_BPS = 300         # ...and never by more than 3% in all
+GOVERNMENT_BOND_LINES = (          # kind, quarters to run, and what it is called
+    ("fixed", 8, "two-year"), ("fixed", 20, "five-year"), ("fixed", 40, "ten-year"),
+    ("floating", 12, "floating-rate"), ("inflation_linked", 20, "inflation-linked"),
+)
+GOVERNMENT_FIRST_ISSUE_NAIRA = 5_000_000_000    # of each of its first bonds
+GOVERNMENT_DEFICIT_BPS = 300       # the Government spends 3% more than it collects, and borrows the difference
+GOVERNMENT_BOND_APPETITE_BPS = 1000   # the pension funds put at most a tenth of their cash into one quarter's Government bonds
+COMPANY_BOND_APPETITE_BPS = 500    # ...and at most a twentieth into one company's new bond
+CONVERTIBLE_DISCOUNT_BPS = 300     # a bond that can be swapped for shares pays 3 points less interest
+CONVERSION_PREMIUM_BPS = 2500      # ...and swaps at a share price a quarter above the market's when it was issued
+COMPANY_BOND_QUARTERS = 20         # a company's new bond runs five game years
+MOST_BOND_ISSUES_A_QUARTER = 2
+BOND_ISSUE_GAP_QUARTERS = 12       # a company sells a new bond at most once in three game years
+BOND_SHARE_OF_LOAN_BPS = 2000      # a new bond replaces a fifth of what the company owes its bank
+PROJECT_BOND_ASSETS_BPS = 400      # a project bond raises 4% of the company's buildings and machines
+
+# Share offers.
+RIGHTS_DISCOUNT_BPS = 3000         # a rights issue is priced 30% below the market
+RIGHTS_TERMS = (1, 3)              # one new share for every three held
+OFFER_DISCOUNT_BPS = 200           # a sale to the public is priced 2% below the market
+OFFER_SIZE_BPS = 800               # ...and adds 8% to the shares in issue
+OFFER_WHEN_DEAR_BPS = 10_000       # a company sells new shares only when its price is no lower than what it is worth
+OFFER_GAP_QUARTERS = 12            # one share offer in three game years, at most
+MOST_RIGHTS_ISSUES_A_QUARTER = 2
+SMALL_INVESTORS_TAKE_UP_BPS = 7000 # small investors take up 70% of their rights
+SPLIT_ABOVE_KOBO = 10_000          # a company whose share costs ₦100 or more splits it
+VOTE_ABOVE_BPS = 1000              # new shares worth more than a tenth of the company need the owners' vote
+
+# Takeovers.
+TAKEOVER_STAKE_BPS = 6000          # a bidder offers for 60% of the shares
+TAKEOVER_PREMIUM_BPS = (2000, 4500)   # 20% to 45% above the market price
+TAKEOVER_ONE_IN = 3                # in about one quarter in three, a company makes an offer for another
+TAKEOVER_TARGET_SIZE_BPS = 4000    # the target is worth at most 40% of the bidder
+TAKEOVER_VOTE_ABOVE_BPS = 2500     # a purchase costing more than a quarter of the bidder's own value needs its owners' vote
+INTEGRATION_QUARTERS = 8           # joining two businesses takes two game years
+INTEGRATION_SAVING_BPS = 300       # the plan: costs lower by 3% of the target's sales
+
+# The starting grant is paid in parts (section 10).
+GRANT_ON_JOINING_NAIRA = 100_000
+GRANT_STEP_NAIRA = 100_000         # four further parts, each for a real thing the player has done
+GRANT_STEP_GAP_HOURS = 20          # at most one part in twenty real hours (about eleven game days)
+SMALL_INVESTORS_WITH_BOARD_BPS = 6500   # in a vote, about two thirds of small investors follow the board
+OFFER_CASH_BPS = 1000              # a computer-run investor puts at most a tenth of its cash into one share offer
+OFFER_FUNDS_SHARE_BPS = 5000       # in a sale to the public, pension funds ask for half the shares...
+OFFER_PUBLIC_SHARE_BPS = 3000      # ...and small investors for three tenths
+FUNDS_ACCEPT_PREMIUM_BPS = 2500    # pension funds accept a takeover offer 25% or more above the market price
+BOARD_ACCEPTS_PREMIUM_BPS = 3000   # a target's board recommends an offer 30% or more above the market price

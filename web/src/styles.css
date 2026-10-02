@@ -369,3 +369,61 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .trade-grid + .trade-grid { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
 .advice .why-title { margin-top: 12px; }
 .advice .why-title:first-child { margin-top: 0; }
+
+/* --- The price ticker across the top of every screen --- */
+.ticker-bar { display: flex; align-items: stretch; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 12px; min-width: 0; }
+.ticker-index { display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 20px; border-right: 1px solid var(--border); color: var(--text); white-space: nowrap; flex: none; }
+.ticker-index:hover, .ticker-item:hover { text-decoration: none; background: var(--raised); }
+.ticker-window { overflow: hidden; flex: 1; min-width: 0; }
+.ticker-track { display: inline-flex; white-space: nowrap; animation: ticker-roll linear infinite; }
+.ticker-window:hover .ticker-track, .ticker-window:focus-within .ticker-track { animation-play-state: paused; }
+.ticker-item { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; color: var(--text); border-right: 1px solid var(--border); }
+@keyframes ticker-roll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track { animation: none; }
+  .ticker-window { overflow-x: auto; }
+}
+
+/* --- The heat map: every company, sized by what it is worth, tinted by today's move --- */
+.heat { display: flex; flex-wrap: wrap; gap: 6px; }
+.heat-sector { display: flex; flex-direction: column; gap: 3px; min-width: 150px; }
+.heat-name { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); }
+.heat-tiles { display: flex; flex-wrap: wrap; gap: 2px; flex: 1; }
+.heat-tile {
+  display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 1px;
+  min-width: 52px; min-height: 46px; flex-basis: 52px; padding: 4px;
+  border-radius: 4px; color: var(--text); border: 1px solid var(--border);
+}
+.heat-tile:hover, .heat-tile:focus { text-decoration: none; outline: 2px solid var(--gold); outline-offset: -2px; }
+.heat-detail { margin-top: 10px; min-height: 2.6em; }
+
+/* --- Companies ranked by their share of an industry --- */
+.share-line { display: grid; grid-template-columns: 22px minmax(120px, 1.4fr) minmax(60px, 2fr) 56px 70px; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.share-rank { color: var(--muted); }
+.share-bar { height: 8px; background: var(--raised); border-radius: 4px; overflow: hidden; }
+.share-bar span { display: block; height: 100%; background: var(--gold); border-radius: 0 4px 4px 0; }
+.share-figure, .share-growth { text-align: right; }
+
+/* --- Bonds, offers, votes and bids --- */
+.bond { border-top: 1px solid var(--border); padding: 12px 0; display: flex; flex-direction: column; gap: 6px; }
+.bond-head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.bond-head > div:first-child { flex: 1; min-width: 220px; }
+.bond-kind { color: var(--gold); font-weight: 600; }
+.bond-prices { display: grid; grid-template-columns: auto auto; gap: 2px 10px; align-content: start; font-size: 13px; text-align: right; }
+.bond-prices > div { display: contents; }
+.bond-mine { color: var(--gold); }
+.bond-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bond-form input { width: 110px; }
+.spreads { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 13px; }
+.spread { display: inline-flex; align-items: center; gap: 6px; }
+.notice { border: 1px solid var(--gold); background: var(--gold-soft); border-radius: 8px; padding: 8px 12px; margin: 10px 0; font-size: 13px; }
+.advice li { color: var(--text); }
+a.tab { text-align: center; }
+a.tab:hover { text-decoration: none; }
+
+@media (max-width: 700px) {
+  .ticker-index { padding-left: 12px; }
+  .share-line { grid-template-columns: 18px 1fr 56px; }
+  .share-bar, .share-growth { display: none; }
+  .bond-prices { text-align: left; }
+}

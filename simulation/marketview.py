@@ -255,15 +255,8 @@ _OTHER_HOLDINGS: list = []
 def shareholders(conn: Connection, company_id, asset: str) -> list[dict]:
     """Who owns a company's shares, by kind of owner. Shares the exchange is holding for a sell
     order still belong to whoever is selling them."""
-    owners = _rows(
-        conn,
-        "SELECT a.kind, a.code, sum(x.shares)::bigint AS shares FROM ("
-        "   SELECT b.account_id, b.balance AS shares FROM ledger_balances b JOIN ledger_accounts k ON k.id = b.account_id"
-        "    WHERE b.asset = %s AND b.balance > 0 AND k.kind <> 'exchange'"
-        "   UNION ALL"
-        "   SELECT o.account_id, o.remaining FROM market_orders o"
-        "    WHERE o.company_id = %s AND o.side = 'sell' AND o.status = 'open' AND o.remaining > 0"
-        " ) x JOIN ledger_accounts a ON a.id = x.account_id GROUP BY a.kind, a.code", (asset, company_id))
+    owners = _rows(conn, "SELECT a.kind, a.code, a.name, o.shares FROM share_owners o JOIN ledger_accounts a ON a.id = o.account_id"
+                         " WHERE o.company_id = %s", (company_id,))
     enough_players = _rows(conn, "SELECT count(*) AS n FROM players")[0]["n"] >= MIN_PLAYERS_SHOWN
     groups = {"Founders": 0, "Pension funds": 0, "Small investors": 0, "Players": 0, "Others": 0}
     for owner in owners:
@@ -277,6 +270,9 @@ def shareholders(conn: Connection, company_id, asset: str) -> list[dict]:
             # While players are few, their shares are counted with the small investors, so that
             # no line shows one player's holding.
             groups["Players" if enough_players else "Small investors"] += owner["shares"]
+        elif owner["kind"] == "company":
+            # Another company that owns shares here (after a takeover) is named: that is public.
+            groups[owner["name"]] = groups.get(owner["name"], 0) + owner["shares"]
         else:
             groups["Others"] += owner["shares"]
     total = sum(groups.values())

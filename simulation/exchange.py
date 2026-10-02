@@ -513,8 +513,73 @@ def _pause_if_the_market_is_falling(conn: Connection, now: datetime) -> None:
 def relist(conn: Connection, company_id, price: int, now: datetime) -> None:
     """Move the starting price of a share that has NEVER traded to what it is now thought to be
     worth. Once a share has traded, only trading moves its price."""
+    before = _one(conn, "SELECT m.listing_price, -b.balance AS shares FROM market_instruments m JOIN assets a ON a.code = m.asset"
+                        " JOIN ledger_balances b ON b.account_id = a.issuer_account_id AND b.asset = m.asset"
+                        " WHERE m.company_id = %s AND m.last_price IS NULL", (company_id,))
+    if before is None:
+        return
     conn.execute("UPDATE market_instruments SET listing_price = %s, reference_price = %s, updated_at = %s"
                  " WHERE company_id = %s AND last_price IS NULL", (price, price, now, company_id))
+    # Once the index's base is kept on record, it moves with the starting price, so that
+    # a share standing at its starting price still counts as "unchanged since listing".
+    conn.execute("UPDATE market_status SET index_base = index_base + %s WHERE index_base IS NOT NULL",
+                 ((price - before["listing_price"]) * before["shares"],))
+
+
+def cancel_all_in(conn: Connection, company_id, now: datetime, reason: str) -> int:
+    """Cancel every waiting order in one share, whoever placed it, and hand back what was held.
+    Done when the share itself changes: new shares issued, or a split."""
+    ticker = _one(conn, "SELECT ticker FROM companies WHERE id = %s", (company_id,))["ticker"]
+    if _one(conn, "SELECT 1 AS found FROM market_instruments WHERE company_id = %s", (company_id,)) is None:
+        return 0
+    accounts = _accounts(conn)
+    share = _instrument(conn, ticker)
+    orders = _rows(conn, "SELECT * FROM market_orders WHERE company_id = %s AND status = 'open' ORDER BY id FOR UPDATE", (company_id,))
+    for order in orders:
+        _close(conn, order, share, accounts, now, "cancelled", reason)
+    return len(orders)
+
+
+def reprice(conn: Connection, company_id, price: int, now: datetime, reason: str) -> None:
+    """Set a share's price by rule, not by a trade. Only for a change to the share itself
+    (new shares issued, a split): the reason is written down for "Why?"."""
+    day, _ = session_of(now)
+    price = max(price, 1)
+    conn.execute("UPDATE market_instruments SET reference_price = %s, last_price = CASE WHEN last_price IS NULL THEN NULL ELSE %s END,"
+                 " updated_at = %s WHERE company_id = %s", (price, price, now, company_id))
+    conn.execute("INSERT INTO market_reasons (company_id, session_date, happened_at, reason) VALUES (%s, %s, %s, %s)",
+                 (company_id, day, now, reason))
+
+
+def allow_index_for(conn: Connection, added_value: int) -> None:
+    """Raise the figure the BSX 50 is measured against, in step with `added_value` kobo of new
+    shares coming to the market, so that new shares alone never move the index. Call it
+    BEFORE the shares are issued."""
+    row = _one(
+        conn,
+        "SELECT coalesce(sum(coalesce(m.last_price, m.reference_price)::numeric * -b.balance), 0) AS value,"
+        "       coalesce(sum(m.listing_price::numeric * -b.balance), 0) AS listed"
+        " FROM market_instruments m JOIN assets a ON a.code = m.asset"
+        " JOIN ledger_balances b ON b.account_id = a.issuer_account_id AND b.asset = m.asset")
+    status = _one(conn, "SELECT index_base FROM market_status FOR UPDATE")
+    base = status["index_base"] or row["listed"]
+    if not base:
+        return
+    if row["value"] > 0 and added_value > 0:
+        base = base * (row["value"] + added_value) // row["value"]
+    conn.execute("UPDATE market_status SET index_base = %s", (int(base),))
+
+
+def list_company(conn: Connection, company_id, price: int, now: datetime) -> None:
+    """Bring a company's shares to the exchange for the first time, at the price of its first sale to the public."""
+    company = _one(conn, "SELECT id, ticker, share_asset FROM companies WHERE id = %s", (company_id,))
+    day, _ = session_of(now)
+    shares = ledger.amount_in_existence(conn, company["share_asset"])
+    status = _one(conn, "SELECT index_base FROM market_status")
+    if status and status["index_base"]:
+        allow_index_for(conn, price * shares)
+    conn.execute("INSERT INTO market_instruments (company_id, asset, listing_price, reference_price, session_date)"
+                 " VALUES (%s, %s, %s, %s, %s)", (company["id"], company["share_asset"], price, price, day))
 
 
 def withdraw(conn: Connection, account_ids: list, now: datetime, reason: str) -> int:

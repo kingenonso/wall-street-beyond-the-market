@@ -4,6 +4,9 @@ import { formatCompact, formatNaira, MARKET_LABEL } from "./format";
 import { useLoad } from "./hooks";
 import { Change, Failed, Loading, Panel, Rating } from "./Shell";
 import { SingleLine } from "./TrendChart";
+import { ClosingBellPanel } from "./Bell";
+import { BondsWork, CorporateWork, OwnershipWork } from "./Capital";
+import { IndustriesWork } from "./Industries";
 
 const shares = (count: number) => count.toLocaleString("en-NG");
 const points = (level: number) => level.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -12,7 +15,30 @@ export const shortDate = (iso: string) =>
 
 type Order = "name" | "change" | "value" | "volume";
 
-export function MarketWork({ onLoggedOut }: { onLoggedOut: () => void }) {
+const TABS: [string, string][] = [
+  ["", "Shares"], ["bonds", "Bonds and bills"], ["offers", "Offers, votes and bids"], ["industries", "Industries"], ["owners", "Who owns what"],
+];
+
+/** The Market section: one place to trade, grouped by kind of asset. */
+export function MarketWork({ tab = "", onLoggedOut, onChanged }: { tab?: string; onLoggedOut: () => void; onChanged: () => void }) {
+  return (
+    <>
+      <div className="tabs tabs-inline" role="tablist" aria-label="The market, by kind of asset">
+        {TABS.map(([path, label]) => (
+          <a key={path} role="tab" aria-selected={tab === path} href={`#/market${path ? `/${path}` : ""}`}
+             className={tab === path ? "tab active" : "tab"}>{label}</a>
+        ))}
+      </div>
+      {tab === "bonds" ? <BondsWork onLoggedOut={onLoggedOut} onChanged={onChanged} />
+        : tab === "offers" ? <CorporateWork onLoggedOut={onLoggedOut} onChanged={onChanged} />
+        : tab === "industries" ? <IndustriesWork onLoggedOut={onLoggedOut} />
+        : tab === "owners" ? <OwnershipWork onLoggedOut={onLoggedOut} />
+        : <SharesWork onLoggedOut={onLoggedOut} />}
+    </>
+  );
+}
+
+function SharesWork({ onLoggedOut }: { onLoggedOut: () => void }) {
   const market = useLoad(api.market, "market", onLoggedOut);
   const watched = useLoad(api.watchlist, "watchlist", onLoggedOut);
   const [order, setOrder] = useState<Order>("value");
@@ -51,6 +77,8 @@ export function MarketWork({ onLoggedOut }: { onLoggedOut: () => void }) {
         </span>
       </div>
 
+      <ClosingBellPanel onLoggedOut={onLoggedOut} />
+
       <Panel title="BSX 50 index" aside="All fifty companies, each counted by its size">
         <div className="tiles">
           <div className="tile">
@@ -77,7 +105,7 @@ export function MarketWork({ onLoggedOut }: { onLoggedOut: () => void }) {
         )}
         <p className="muted small">
           The index stood at 1,000 when each share was first listed. It rises when companies' share prices rise, and a large
-          company moves it more than a small one.
+          company moves it more than a small one. New shares a company issues do not move it: only prices do.
         </p>
       </Panel>
 
@@ -167,7 +195,10 @@ export function MarketRail({ onLoggedOut }: { onLoggedOut: () => void }) {
       <WatchlistPanel onLoggedOut={onLoggedOut} />
       <Panel title="How the market works">
         <ul className="reasons">
-          <li>Open a company to buy or sell its shares. Buyer and seller each pay 0.5% in fees.</li>
+          <li>Open a company to buy or sell its shares. Buyer and seller each pay 0.5% in fees, and half that in the Closing Rush (21:50 to 22:00).</li>
+          <li>At 22:00 the Closing Bell names the day's winner, loser and boldest move.</li>
+          <li>Bonds and bills are bought from and sold to the pension funds' bond desk. A Government bill pays interest on cash you are not using.</li>
+          <li>Share offers, votes and takeover offers are announced when a quarter closes and settled when the next one closes.</li>
           <li>The market trades from 12:00 to 22:00 Lagos time. Orders placed at other times wait for the opening auction.</li>
           <li>A share cannot move more than a tenth in one day.</li>
           <li>Pension funds, small investors and founders trade too. Their buying and selling moves prices even when no player is trading.</li>

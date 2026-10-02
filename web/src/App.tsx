@@ -51,7 +51,7 @@ export function App() {
     rail = <CompaniesRail />;
   } else if (section === "market") {
     current = "market";
-    work = <MarketWork onLoggedOut={loggedOut} />;
+    work = <MarketWork key={item ?? ""} tab={item ?? ""} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <MarketRail onLoggedOut={loggedOut} />;
   } else if (section === "portfolio") {
     current = "portfolio";

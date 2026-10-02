@@ -686,7 +686,7 @@ def test_two_players_trade_through_the_website(client, player, db, trading_hours
     assert bought.status_code == 201, bought.text
     body = bought.json()
     assert body["order"]["status"] == "filled" and body["trades"][0]["quantity"] == 50
-    assert int(client.get("/api/me").json()["cash"]["amount_kobo"]) == naira(500_000) - price * 50 - exchange.fee_due(price * 50)
+    assert int(client.get("/api/me").json()["cash"]["amount_kobo"]) == naira(100_000) - price * 50 - exchange.fee_due(price * 50)
     assert client.get("/api/market/holdings").json()[0]["shares"] == 50
     assert client.get(f"/api/market/{T}").json()["last_price_kobo"] == str(price)
     sound(db)

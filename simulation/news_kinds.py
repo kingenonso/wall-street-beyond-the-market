@@ -52,6 +52,10 @@ _WATCH = {"reason": "Money grew 14% over the year while the economy's sales grew
           "money_growth": "14%", "output_growth": "6%",
           "action": "The Central Bank leans harder on its interest rate: half a point above what its rule alone would set."}
 
+_FIRM = {"company": "Kainji Textiles", "ticker": "KTX", "location": "Kano", "sector": "manufacturing"}
+_BID = {"bidder": "Idanre Cement", "target": "Kainji Textiles", "ticker": "KTX", "price": "₦42.50", "premium": "32%",
+        "stake": "60%", "value": "₦11 billion"}
+
 KINDS: tuple[NewsKind, ...] = (
     # --- Things that happen on a day, in a place ---
     NewsKind("flood", 80, _PLACE),
@@ -128,6 +132,27 @@ KINDS: tuple[NewsKind, ...] = (
     NewsKind("economy_slowing", 66, {"growth": "3.1%", "sales": "₦290 billion"}),
     NewsKind("commodity_up", 54, {"commodity": "farm produce", "size": "12%"}),
     NewsKind("commodity_down", 50, {"commodity": "farm produce", "size": "9%"}),
+    # --- Stage 4: companies using the market ---
+    NewsKind("takeover_bid", 85, _BID),
+    NewsKind("takeover_hostile", 88, _BID),
+    NewsKind("takeover_won", 82, {"bidder": "Idanre Cement", "target": "Kainji Textiles", "ticker": "KTX", "price": "₦42.50",
+                                  "stake": "63%", "value": "₦11.6 billion"}),
+    NewsKind("takeover_failed", 75, {"bidder": "Idanre Cement", "target": "Kainji Textiles", "ticker": "KTX", "price": "₦42.50",
+                                     "accepted": "38%"}),
+    NewsKind("rights_issue", 70, {**_FIRM, "amount": "₦6.2 billion", "price": "₦18.00", "discount": "25%",
+                                  "terms": "one new share for every four held"}),
+    NewsKind("share_offer", 62, {**_FIRM, "amount": "₦9.4 billion", "price": "₦31.20", "shares": "300 million"}),
+    NewsKind("offer_result", 55, {"company": "Kainji Textiles", "ticker": "KTX", "amount": "₦5.9 billion", "taken": "94%"}),
+    NewsKind("share_split", 50, {"company": "Kainji Textiles", "ticker": "KTX", "terms": "two new shares for each one held",
+                                 "old_price": "₦120.00", "new_price": "₦60.00"}),
+    NewsKind("bond_issue", 55, {**_FIRM, "amount": "₦8 billion", "rate": "16.5%", "bond": "a five-year bond"}),
+    NewsKind("government_bonds", 50, {"amount": "₦14 billion", "rate": "13.8%", "total": "₦240 billion"}),
+    NewsKind("vote_result", 50, {"company": "Kainji Textiles", "ticker": "KTX", "matter": "its plan to raise ₦6.2 billion from its owners",
+                                 "outcome": "approved", "support": "71%"}),
+    NewsKind("integration_good", 55, {"bidder": "Idanre Cement", "target": "Kainji Textiles", "ticker": "KTX",
+                                      "detail": "Costs at Kainji Textiles came in about 4% lower than before the takeover."}),
+    NewsKind("integration_bad", 60, {"bidder": "Idanre Cement", "target": "Kainji Textiles", "ticker": "KTX",
+                                     "detail": "Staff have been leaving and customers have gone elsewhere: sales at Kainji Textiles are about 5% lower."}),
     # --- Smaller items, gathered together ---
     NewsKind("roundup_results", 35, {"quarter": "Year 2 Q3", "count": "six",
                                      "list": "Ikoyi Bank (profit up 4%), Kainji Textiles (profit down 6%) and Zuma Rock Hotels (profit up 3%)"}),
@@ -165,4 +190,25 @@ FIELD_NOTES = {
     "action": "one complete sentence: what the Central Bank does about it",
     "growth": "how much the economy's sales grew over the year",
     "count": "a number in words", "list": "a ready-made list of companies with a figure each",
+    # Stage 4: companies using the market.
+    "bidder": "the full name of the company making a takeover offer",
+    "target": "the full name of the company it wants to buy (its market code is `ticker`)",
+    "price": "a price per share in naira, e.g. '₦42.50' (for takeovers: what the bidder offers for each share; "
+             "for share offers: what each new share costs)",
+    "premium": "how far the offer is above the share's last market price, e.g. '32%'",
+    "stake": "the part of the company's shares, e.g. '60%' (takeover_bid: what the bidder wants to end up owning; "
+             "takeover_won: what it now owns)",
+    "value": "what the whole purchase costs the bidder, e.g. '₦11 billion'",
+    "accepted": "the part of the target's shares whose owners accepted the offer, e.g. '38%' (it needed more than half)",
+    "terms": "a ready-made phrase, e.g. 'one new share for every four held' or 'two new shares for each one held'",
+    "discount": "how far the new shares' price is below the market price, e.g. '25%'",
+    "shares": "how many new shares, in words, e.g. '300 million'",
+    "taken": "the part of the new shares on offer that found buyers, e.g. '94%'",
+    "old_price": "the share price before a split", "new_price": "the share price after it",
+    "bond": "a noun phrase with its article naming the bond, e.g. 'a five-year bond', 'a bond that can be swapped for "
+            "shares', 'a green bond to pay for its solar plant', 'a high-interest bond'",
+    "total": "everything the Government now owes on its bonds",
+    "matter": "a noun phrase for what shareholders voted on, starting with 'its', e.g. 'its plan to raise ₦6.2 billion from its owners'",
+    "outcome": "'approved' or 'rejected'", "support": "the part of the votes cast that were in favour, e.g. '71%'",
+    "detail": "one complete sentence from the records saying how the joining of the two businesses is going",
 }

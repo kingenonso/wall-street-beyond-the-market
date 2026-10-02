@@ -328,10 +328,11 @@ def companies_buy_inputs(conn: Connection, world: World, companies: list[dict], 
         )
 
 
+CAPITAL_RETURNED = ("bond_redemption", "bond_trade", "bond_issue", "takeover_payment", "takeover_refund")
 GOVERNMENT_INCOME = ("company_tax", "debt_interest", "share_trade", "exchange_surplus")
 
 
-def government_spends(conn: Connection, world: World, period: int) -> None:
+def government_spends(conn: Connection, world: World, period: int, *, borrowed: int = 0, debt_cost: int = 0) -> None:
     """TEMPORARY STAND-IN (Stage 12 gives the Government a real budget).
 
     The Government spends the tax it collected this quarter: part on purchases
@@ -341,6 +342,8 @@ def government_spends(conn: Connection, world: World, period: int) -> None:
     # Tax, and the interest banks pay on what they have borrowed from the Central Bank.
     # ...and the stamp duty on share trades, and what the exchange earned in fees.
     collected = ledger.received_in_period(conn, world.treasury, period, kinds=GOVERNMENT_INCOME)
+    # It spends what it collected, plus what it borrowed to spend, less what its borrowing cost it.
+    collected = max(collected + borrowed - debt_cost, 0)
     purchases = apply_bps(collected, data.GOVERNMENT_PURCHASE_BPS)
     weights = {sector: row["government_bps"] for sector, row in world.demand.items()}
     ledger.pay_split_up_to(
@@ -361,8 +364,12 @@ def pensions_paid(conn: Connection, world: World, period: int) -> None:
     comes in.
     """
     cash = ledger.balance(conn, world.institutions)
+    # Money that came back from investments sold or repaid is savings changing form, not new income.
+    income = _rows(conn, "SELECT coalesce(sum(e.amount), 0)::bigint AS total FROM ledger_entries e JOIN ledger_transactions t"
+                         " ON t.id = e.transaction_id WHERE e.account_id = %s AND e.asset = 'NGN' AND t.period = %s AND e.amount > 0"
+                         " AND t.kind <> ALL(%s)", (world.institutions, period, list(CAPITAL_RETURNED)))[0]["total"]
     budget = (
-        apply_bps(ledger.received_in_period(conn, world.institutions, period), data.PENSION_PAY_FROM_INFLOW_BPS)
+        apply_bps(income, data.PENSION_PAY_FROM_INFLOW_BPS)
         + apply_bps(cash, data.PENSION_PAY_FROM_SAVINGS_BPS)
     )
     ledger.pay_split_up_to(

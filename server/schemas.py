@@ -460,6 +460,9 @@ class PortfolioResponse(BaseModel):
     dividends_kobo: Kobo               # all dividends received so far
     realised_kobo: Kobo                # gains less losses on shares already sold, after fees
     holdings: list[PortfolioHolding]
+    bonds_value_kobo: Kobo = 0         # bonds and bills, at their fair value
+    held_for_offers_kobo: Kobo = 0     # cash held for applications for new shares
+    offered_to_bidders_kobo: Kobo = 0  # shares offered to a bidder in a takeover, at the market price
     advice: list[str] = []             # the personal advisory summary: observations, never tips
     net_worth: list["NetWorthDay"] = []  # the end of each trading day, oldest first, then today so far
 
@@ -620,6 +623,8 @@ class CompanyFactsResponse(BaseModel):
     year_low_kobo: Kobo | None
     next_results: NextResults | None
     industry: IndustryPlace
+    control: str = ""                  # who controls the company, in a sentence
+    notices: list["Notice"] = []       # the exchange's notices about it, newest first
 
 
 class ReportQuarter(BaseModel):
@@ -662,3 +667,207 @@ class Industry(BaseModel):
 class NetWorthDay(BaseModel):
     session_date: date
     total_kobo: Kobo
+
+
+# ---------------------------------------------------------------------------
+# Stage 4, Part B: bonds and bills, share offers, votes, takeovers, the grant in parts.
+# ---------------------------------------------------------------------------
+
+class BondRow(BaseModel):
+    code: str
+    name: str
+    kind: str
+    kind_label: str                    # e.g. "Government bill", "High-yield bond", "Distressed debt"
+    issuer: str
+    ticker: str | None
+    rating: str | None
+    pays: str                          # the interest, in words
+    face_kobo: Kobo                    # what each bond is repaid at
+    maturity_label: str
+    quarters_left: int
+    yield_bps: int                     # the yearly return investors want from it today
+    distressed: bool
+    conversion_shares: int | None
+    project: str | None
+    green: bool
+    outstanding: int
+    fair_kobo: Kobo                    # the calculated fair value of one bond
+    ask_kobo: Kobo                     # what the desk sells one for
+    bid_kobo: Kobo                     # what the desk pays for one
+    on_offer: int | None               # how many the desk has to sell; empty for a bill (the Treasury sells any number)
+
+
+class BondHolding(BondRow):
+    units: int
+    held_for_swap: int
+    value_kobo: Kobo
+    cost_kobo: Kobo
+    gain_kobo: Kobo
+
+
+class CurvePoint(BaseModel):
+    label: str
+    quarters: int
+    yield_bps: int
+
+
+class CreditSpread(BaseModel):
+    rating: str
+    spread_bps: int
+
+
+class WaitingSwap(BaseModel):
+    id: int
+    code: str
+    name: str
+    units: int
+    shares: int
+
+
+class BondsResponse(BaseModel):
+    desk_open: bool
+    policy_rate_bps: int
+    curve: list[CurvePoint]            # the yield curve: what lending to the Government pays, by length of loan
+    spreads: list[CreditSpread]        # the extra a company pays, by credit rating
+    bonds: list[BondRow]
+    holdings: list[BondHolding]
+    income_kobo: Kobo                  # all bond interest received so far
+    swaps: list[WaitingSwap]
+
+
+class BondTradeRequest(Request):
+    code: str = Field(pattern=r"^[A-Z0-9]{3,12}$")
+    side: Literal["buy", "sell"]
+    units: int = Field(gt=0, le=1_000_000_000_000, strict=True)
+
+
+class BondTradeResponse(BaseModel):
+    code: str
+    name: str
+    side: str
+    units: int
+    price_kobo: Kobo
+    value_kobo: Kobo
+    fair_kobo: Kobo
+
+
+class ConvertRequest(Request):
+    code: str = Field(pattern=r"^[A-Z0-9]{3,12}$")
+    units: int = Field(gt=0, le=1_000_000_000_000, strict=True)
+
+
+class SharesRequest(Request):
+    shares: int = Field(ge=0, le=1_000_000_000_000, strict=True)
+
+
+class VoteRequest(Request):
+    choice: Literal["for", "against"]
+
+
+class OfferRow(BaseModel):
+    id: int
+    ticker: str
+    name: str
+    kind: str                          # ipo, public or rights
+    price_kobo: Kobo
+    shares: int
+    rights_new: int | None
+    rights_held: int | None
+    reason: str
+    status: str
+    closes_label: str
+    needs_vote: bool
+    outcome: str | None
+    asked: int                         # what this player has applied for
+    held_kobo: Kobo                    # the cash held for that application
+    allotted: int | None
+
+
+class VoteRow(BaseModel):
+    id: int
+    ticker: str
+    name: str
+    subject: str
+    question: str
+    explanation: str
+    board: str
+    status: str
+    closes_label: str
+    my_choice: str | None
+    my_shares: int
+    votes_for: int | None
+    votes_against: int | None
+    tally: dict | None
+
+
+class TakeoverRow(BaseModel):
+    id: int
+    bidder: str
+    bidder_ticker: str
+    target: str
+    ticker: str
+    price_kobo: Kobo
+    market_price_kobo: Kobo | None
+    premium_bps: int
+    shares_sought: int
+    hostile: bool
+    status: str
+    closes_label: str
+    needs_vote: bool
+    outcome: str | None
+    offered: int                       # shares this player has offered to the bidder
+    free: int                          # shares this player holds free to offer
+
+
+class IntegrationQuarter(BaseModel):
+    label: str
+    cost_bps: int
+    notes: list[str]
+
+
+class IntegrationRow(BaseModel):
+    bidder: str
+    target: str
+    ticker: str
+    planned_saving_bps: int
+    quarters: int
+    done: list[IntegrationQuarter]
+
+
+class Notice(BaseModel):
+    ticker: str | None
+    kind: str
+    title: str
+    body: str
+    posted_at: datetime
+    period_label: str
+
+
+class CorporateResponse(BaseModel):
+    offers: list[OfferRow]
+    votes: list[VoteRow]
+    takeovers: list[TakeoverRow]
+    integrations: list[IntegrationRow]
+    notices: list[Notice]
+
+
+class OwnershipRow(BaseModel):
+    ticker: str
+    name: str
+    controller: str | None
+    share_bps: int
+    summary: str
+
+
+class GrantStep(BaseModel):
+    step: str
+    what: str
+    earned: bool
+    paid: bool
+
+
+class GrantResponse(BaseModel):
+    received_kobo: Kobo
+    total_kobo: Kobo
+    steps: list[GrantStep]
+    next_payment_at: datetime | None

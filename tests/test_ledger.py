@@ -306,7 +306,8 @@ def test_balances_always_agree_with_the_entries(db):
 @pytest.mark.world("eight")
 def test_everything_in_the_ledger_sums_to_zero(db):
     totals = db.execute("SELECT asset, sum(balance) FROM ledger_balances GROUP BY asset").fetchall()
-    assert len(totals) == 51                       # naira and 50 share classes
+    assert len([asset for asset, _ in totals if not asset.startswith("BND-")]) == 51      # naira and 50 share classes
+    assert any(asset.startswith("BND-") for asset, _ in totals)                            # ...and, since Stage 4, the bonds
     assert all(total == 0 for _, total in totals)
 
 

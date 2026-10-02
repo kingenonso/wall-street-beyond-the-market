@@ -46,7 +46,7 @@ CASH_FLOW_LINES = (
     "capital_spending", "debt_repaid", "dividends_paid",
 )
 BALANCE_SHEET_LINES = (
-    "cash", "customer_loans", "loans_to_companies", "fixed_assets", "total_assets",
+    "cash", "customer_loans", "loans_to_companies", "fixed_assets", "investments", "total_assets",
     "borrowings", "payables", "customer_funds", "total_liabilities",
     "share_capital", "retained_earnings", "total_equity",
 )
@@ -70,6 +70,7 @@ class Context:
     damages: dict = field(default_factory=dict)    # company id -> buildings and machines destroyed this quarter
     ratings: dict = field(default_factory=dict)    # company id -> its latest filed credit rating
     banks: dict = field(default_factory=dict)      # a bank's account -> what it needs to decide its lending
+    integration: dict = field(default_factory=dict)   # company id -> what being joined to its new owner does this quarter
 
 
 def _rows(conn: Connection, sql: str, params=()) -> list[dict]:
@@ -174,19 +175,10 @@ def _settle_old_bills(conn, company, period) -> None:
 
 def _pay_dividend(conn, company, amount, period) -> int:
     """Share a dividend among the owners in proportion to their shares. Returns what was paid."""
-    # Shares the exchange is holding for a sell order still belong to whoever is selling
-    # them until they are sold, so their dividend goes to that seller, not to the exchange.
-    holders = _rows(
-        conn,
-        "SELECT account_id, sum(shares)::bigint AS balance FROM ("
-        "   SELECT b.account_id, b.balance AS shares FROM ledger_balances b JOIN ledger_accounts a ON a.id = b.account_id"
-        "    WHERE b.asset = %s AND b.balance > 0 AND a.kind <> 'exchange'"
-        "   UNION ALL"
-        "   SELECT o.account_id, o.remaining FROM market_orders o JOIN market_instruments m ON m.company_id = o.company_id"
-        "    WHERE m.asset = %s AND o.side = 'sell' AND o.status = 'open' AND o.remaining > 0"
-        " ) owned GROUP BY account_id ORDER BY account_id",
-        (company["share_asset"], company["share_asset"]),
-    )
+    # Shares the exchange is holding (for a sell order, or offered to a bidder in a takeover) still
+    # belong to their owner until they change hands, so their dividend goes to that owner.
+    holders = _rows(conn, "SELECT account_id, shares AS balance FROM share_owners WHERE company_id = %s ORDER BY account_id",
+                    (company["id"],))
     shares = sum(h["balance"] for h in holders)
     if shares == 0 or amount <= 0:
         return 0
@@ -293,7 +285,12 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     # 3. This quarter's costs. Direct labour follows what was sold; this quarter's
     #    good or bad fortune with costs shows here.
     cost_fortune = fortune_bps(ctx.fortune_seed, company["ticker"], period, "costs", company["volatility_bps"] // 3)
-    labour_rate = min(max(company["labour_bps"] + cost_fortune + happened["cost_bps"], 0), BPS)
+    # A company lately taken over is being joined to its new owner: that changes its costs, for better or worse.
+    joining = ctx.integration.get(company["id"])
+    labour_rate = min(max(company["labour_bps"] + cost_fortune + happened["cost_bps"]
+                          + (joining["cost_bps"] if joining else 0), 0), BPS)
+    if joining:
+        notes.extend(joining["notes"])
     direct_labour = _pay_people(
         conn, company, ctx, apply_bps(revenue, labour_rate), kind="cost_of_sales",
         memo=f"{name}: pay for the people who make and deliver what it sells, {label}", period=period,
@@ -348,9 +345,22 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         (company["id"],),
     )
     interest_expense = 0
+    traded_bonds = {debt["id"]: _bonds().of_debt(conn, debt["id"]) for debt in debts if debt["kind"] == "bond"}
     for debt in debts:
         due = quarterly_interest(debt["principal_outstanding"], debt["annual_rate_bps"])
         interest_expense += due
+        bond = traded_bonds.get(debt["id"])
+        if bond and bond["units"] > 0:
+            # A bond's interest goes to whoever holds the bonds today, in proportion.
+            amounts = _bonds().share_out(conn, bond, due)
+            got: dict = {}
+            ledger.pay_split_up_to(conn, payer=account, amounts=amounts, kind="debt_interest",
+                                   memo=f"{name}: interest on {debt['name']}, {label}", period=period,
+                                   reference=f"debt:{debt['id']}", paid_to=got)
+            for holder, owed in amounts.items():
+                if owed - got.get(UUID(str(holder)), 0) > 0:
+                    _owe(conn, company, holder, "debt_interest", owed - got.get(UUID(str(holder)), 0), period)
+            continue
         # The Central Bank hands its profit to the Government, so interest on its loans is paid to the Treasury.
         receiver = world.treasury if debt["kind"] == "central_bank_loan" else debt["lender_account_id"]
         _pay_or_owe(conn, company, receiver, due, kind="debt_interest",
@@ -359,7 +369,11 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
 
     # Interest it has received as a lender this quarter, read from the ledger.
     # (Its borrowers close their quarters before it does, so all of it has arrived.)
-    interest_income = received("debt_interest")
+    # Dividends from a company it owns shares in (after a takeover) are counted with it.
+    dividends_received = received("dividend")
+    interest_income = received("debt_interest") + dividends_received
+    if dividends_received:
+        notes.append(f"It received {in_words(dividends_received)} in dividends from the company it owns shares in.")
 
     # A lender writes off, a tenth each quarter, any loan that is past its repayment
     # date and unpaid. The borrower still owes all of it; the lender no longer counts on it.
@@ -382,8 +396,9 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     # A debt that falls due need not be paid back if the lender agrees to renew it.
     #   * A bank renews a loan when the borrower's credit rating is B or better, it is
     #     not behind on its bills, and the bank itself is sound.
-    #   * TEMPORARY STAND-IN (Stage 4: the bond market). A bond is renewed when the
-    #     company has made a profit over the last four quarters taken together.
+    #   * A bond that reaches its end is replaced by a new one, bought by the pension funds, when
+    #     the company has made a profit over the last four quarters taken together. Whoever
+    #     held the old bond is paid its face value.
     earlier_profit = _row(
         conn, "SELECT coalesce(sum(net_profit), 0)::bigint AS total FROM company_results"
               " WHERE company_id = %s AND period BETWEEN %s AND %s AND period >= 1",
@@ -409,21 +424,34 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
 
     for debt in debts:
         due = principal_due(debt["principal_outstanding"], debt["repayment"], debt["maturity_period"], period)
+        bond = traded_bonds.get(debt["id"])
         if due > 0 and renewed(debt):
-            term = data.BOND_TERM_QUARTERS if debt["repayment"] == "bullet" else 1
-            conn.execute("UPDATE company_debts SET maturity_period = maturity_period + %s WHERE id = %s",
-                         (term, debt["id"]))
-            continue
-        paid = ledger.pay_up_to(
-            conn, payer=account, receiver=debt["lender_account_id"], wanted=due,
-            kind="debt_repayment", memo=f"{name}: repayment of {debt['name']}, {label}",
-            period=period, reference=f"debt:{debt['id']}",
-        )
+            if bond and bond["units"] > 0:
+                if _bonds().refinance(conn, company, debt, period, rating, ctx.policy_rate_bps):
+                    notes.append(f"Its {debt['name']} reached its end and was replaced by a new one.")
+                    continue
+            else:
+                term = data.BOND_TERM_QUARTERS if debt["repayment"] == "bullet" else 1
+                conn.execute("UPDATE company_debts SET maturity_period = maturity_period + %s WHERE id = %s",
+                             (term, debt["id"]))
+                continue
+        if bond and bond["units"] > 0:
+            paid = ledger.pay_split_up_to(
+                conn, payer=account, amounts=_bonds().share_out(conn, bond, due), kind="debt_repayment",
+                memo=f"{name}: repayment of {debt['name']}, {label}", period=period, reference=f"debt:{debt['id']}")
+        else:
+            paid = ledger.pay_up_to(
+                conn, payer=account, receiver=debt["lender_account_id"], wanted=due,
+                kind="debt_repayment", memo=f"{name}: repayment of {debt['name']}, {label}",
+                period=period, reference=f"debt:{debt['id']}",
+            )
         if paid:
             conn.execute(
                 "UPDATE company_debts SET principal_outstanding = principal_outstanding - %s WHERE id = %s",
                 (paid, debt["id"]),
             )
+            if bond and bond["units"] > 0 and paid == debt["principal_outstanding"]:
+                _bonds().hand_in(conn, bond, period)
         if period >= debt["maturity_period"]:
             principal_overdue += debt["principal_outstanding"] - paid
         if paid < due:
@@ -514,13 +542,25 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     )
     customer_loans = to_households["total"] if to_households["n"] else prev["customer_loans"]
     shares_in_issue = ledger.amount_in_existence(conn, company["share_asset"])
+    # Money raised by selling new shares, debt that became shares when bondholders swapped
+    # their bonds, and what it paid for shares in another company (a takeover).
+    share_proceeds = moves.get("share_issue", {}).get("received", 0)
+    converted = _bonds().converted_in(conn, company["id"], period)
+    invested = paid("takeover_reserve") - moves.get("takeover_refund", {}).get("received", 0)
+    investments = prev["investments"] + invested
+    if share_proceeds:
+        notes.append(f"It raised {in_words(share_proceeds)} by selling new shares.")
+    if converted:
+        notes.append(f"{in_words(converted)} of its bonds were swapped for new shares.")
+    if invested > 0:
+        notes.append(f"It paid {in_words(invested)} for shares in another company.")
 
     # Cash the engine can explain: lending repaid to it, building work it paid for,
     # dividends and debt it paid out, and everything from trading.
     cash_from_investing = (
-        (lent_before - lent["gross"]) + (prev["customer_loans"] - customer_loans) - paid("capital_spending")
+        (lent_before - lent["gross"]) + (prev["customer_loans"] - customer_loans) - paid("capital_spending") - invested
     )
-    cash_from_financing = -paid("dividend") - (prev["borrowings"] - borrowings)
+    cash_from_financing = -paid("dividend") - (prev["borrowings"] - borrowings - converted) + share_proceeds
     trading_cash = (
         revenue + interest_income
         - supplies_bought - paid("cost_of_sales") - paid("wages") - paid("debt_interest") - paid("company_tax")
@@ -546,9 +586,10 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
 
     fixed_assets = prev["fixed_assets"] + capital_spending - depreciation
     retained_earnings = prev["retained_earnings"] + net_profit - dividends_paid
-    total_assets = cash_closing + customer_loans + loans_to_companies + fixed_assets
+    total_assets = cash_closing + customer_loans + loans_to_companies + fixed_assets + investments
     total_liabilities = borrowings + payables + prev["customer_funds"]
-    total_equity = prev["share_capital"] + retained_earnings
+    share_capital = prev["share_capital"] + share_proceeds + converted
+    total_equity = share_capital + retained_earnings
 
     # Guards. If any of these fail, the engine itself has made a mistake, and the
     # whole quarter is refused. (The database repeats these checks.)
@@ -564,6 +605,8 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     if added > 0 and prev["fixed_assets"] > 0:
         growth = min(added * data.EXPANSION_PULL_BPS // prev["fixed_assets"], 100)       # at most 1% a quarter
         lasting_pull = apply_bps(lasting_pull, BPS + growth)
+    if joining and joining["pull_bps"]:
+        lasting_pull = apply_bps(lasting_pull, BPS + joining["pull_bps"])      # customers lost, or won, in the joining
 
     drivers = {
         "revenue": _revenue_causes(company, world, period, ctx.sector_fortune.get(company["sector"], 0),
@@ -582,12 +625,12 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         "cash_opening": cash_opening, "cash_from_operations": cash_from_operations,
         "cash_from_investing": cash_from_investing, "cash_from_financing": cash_from_financing,
         "cash_closing": cash_closing, "capital_spending": capital_spending,
-        "debt_repaid": prev["borrowings"] - borrowings, "dividends_paid": dividends_paid,
+        "debt_repaid": prev["borrowings"] - borrowings - converted, "dividends_paid": dividends_paid,
         "cash": cash_closing, "customer_loans": customer_loans, "loan_losses": loan_losses,
-        "loans_to_companies": loans_to_companies, "fixed_assets": fixed_assets,
+        "loans_to_companies": loans_to_companies, "fixed_assets": fixed_assets, "investments": investments,
         "total_assets": total_assets, "borrowings": borrowings, "payables": payables,
         "customer_funds": prev["customer_funds"], "total_liabilities": total_liabilities,
-        "share_capital": prev["share_capital"], "retained_earnings": retained_earnings,
+        "share_capital": share_capital, "retained_earnings": retained_earnings,
         "total_equity": total_equity, "principal_overdue": principal_overdue,
         "shares_in_issue": shares_in_issue, "base_revenue": lasting_pull,
         "base_opex": operating_expenses, "ledger_totals": totals_now, "drivers": drivers,
@@ -717,8 +760,8 @@ def build_figures(conn: Connection, company: dict, result: dict) -> dict:
     """
     debts = _rows(
         conn,
-        "SELECT d.name, d.kind, a.name AS lender, d.principal_outstanding, d.annual_rate_bps,"
-        "       d.maturity_period, d.repayment"
+        "SELECT d.name, d.kind, CASE WHEN d.kind = 'bond' THEN 'Bondholders' ELSE a.name END AS lender,"
+        "       d.principal_outstanding, d.annual_rate_bps, d.maturity_period, d.repayment"
         " FROM company_debts d JOIN ledger_accounts a ON a.id = d.lender_account_id"
         " WHERE d.company_id = %s AND d.principal_outstanding > 0 ORDER BY d.start_period, d.name",
         (company["id"],),
@@ -731,7 +774,7 @@ def build_figures(conn: Connection, company: dict, result: dict) -> dict:
             "ebitda": result["operating_profit"] + result["depreciation"],
         },
         "cash_flow": {line: result[line] for line in CASH_FLOW_LINES},
-        "balance_sheet": {line: result[line] for line in BALANCE_SHEET_LINES},
+        "balance_sheet": {line: result.get(line, 0) for line in BALANCE_SHEET_LINES},
         "notes": {
             "shares_in_issue": result["shares_in_issue"],
             "principal_overdue": result["principal_overdue"],
@@ -785,6 +828,12 @@ def load_companies(conn: Connection) -> list[dict]:
         " FROM companies c JOIN sectors s ON s.code = c.sector"
         " ORDER BY is_lender, c.ticker",
     )
+
+
+def _bonds():
+    """The bond module, loaded when first needed."""
+    from simulation import bonds
+    return bonds
 
 
 def _banking():

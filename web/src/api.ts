@@ -34,6 +34,7 @@ export type Clock = {
   world_started: boolean;
   game_date: { year: number; quarter: number; day_of_quarter: number } | null;
   test_weeks_ahead: number;
+  closing_rush: boolean;
 };
 
 export type WorldStatus = { companies: number; last_closed_period: number; last_closed_label: string | null };
@@ -296,6 +297,115 @@ export type Portfolio = {
   dividends_kobo: Kobo;
   realised_kobo: Kobo;
   holdings: PortfolioHolding[];
+  bonds_value_kobo: Kobo;
+  held_for_offers_kobo: Kobo;
+  offered_to_bidders_kobo: Kobo;
+  advice: string[];
+  net_worth: { session_date: string; total_kobo: Kobo }[];
+};
+
+export type Ticker = {
+  market_state: MarketState;
+  closing_rush: boolean;
+  index: number;
+  index_change_bps: number;
+  shares: { ticker: string; price_kobo: Kobo; change_bps: number }[];
+};
+
+export type BellMover = { ticker: string; name: string; close_kobo: Kobo; change_bps: number };
+export type ClosingBell = {
+  in_rush: boolean;
+  fee_bps: number;
+  usual_fee_bps: number;
+  large_orders: { ticker: string; name: string; side: "buy" | "sell"; quantity: number; value_kobo: Kobo; shown_at: string }[];
+  bell: null | {
+    session_date: string; rung_at: string; index: number; index_change_bps: number; lines: string[]; stories: string[];
+    advisory: string[]; next: string; winner: BellMover | null; loser: BellMover | null; risers: number; fallers: number;
+  };
+};
+
+export type Notice = { ticker: string | null; kind: string; title: string; body: string; posted_at: string; period_label: string };
+
+export type CompanyFacts = {
+  ticker: string;
+  name: string;
+  filing_label: string;
+  profit_per_share: { period: number; label: string; kobo_per_share: number; net_profit_kobo: Kobo }[];
+  yearly_profit_per_share_kobo: number;
+  compared_with: string;
+  sales_change_bps: number | null;
+  profit_change_bps: number | null;
+  sales_before_kobo: Kobo | null;
+  profit_before_kobo: Kobo | null;
+  cash_kobo: Kobo;
+  cash_change_quarter_kobo: Kobo;
+  cash_change_year_kobo: Kobo;
+  cash_in_three_months_kobo: Kobo;
+  cash_outlook: string;
+  year_high_kobo: Kobo | null;
+  year_low_kobo: Kobo | null;
+  next_results: { at: string; label: string } | null;
+  industry: { sector: string; rank: number; of: number; share_bps: number };
+  control: string;
+  notices: Notice[];
+};
+
+export type ResultsReport = {
+  ticker: string; name: string; period: number; label: string; title: string; paragraphs: string[];
+  available: { period: number; label: string }[];
+};
+
+export type IndustryCompany = {
+  ticker: string; name: string; rank: number; share_bps: number; sales_kobo: Kobo; sales_growth_bps: number | null;
+  price_kobo: Kobo | null; change_bps: number; market_value_kobo: Kobo;
+};
+export type Industry = {
+  code: string; name: string; market_value_kobo: Kobo; change_bps: number; sales_kobo: Kobo; sales_growth_bps: number | null;
+  companies: IndustryCompany[];
+};
+
+export type Bond = {
+  code: string; name: string; kind: string; kind_label: string; issuer: string; ticker: string | null; rating: string | null;
+  pays: string; face_kobo: Kobo; maturity_label: string; quarters_left: number; yield_bps: number; distressed: boolean;
+  conversion_shares: number | null; project: string | null; green: boolean; outstanding: number;
+  fair_kobo: Kobo; ask_kobo: Kobo; bid_kobo: Kobo; on_offer: number | null;
+};
+export type BondHolding = Bond & { units: number; held_for_swap: number; value_kobo: Kobo; cost_kobo: Kobo; gain_kobo: Kobo };
+export type BondDesk = {
+  desk_open: boolean;
+  policy_rate_bps: number;
+  curve: { label: string; quarters: number; yield_bps: number }[];
+  spreads: { rating: string; spread_bps: number }[];
+  bonds: Bond[];
+  holdings: BondHolding[];
+  income_kobo: Kobo;
+  swaps: { id: number; code: string; name: string; units: number; shares: number }[];
+};
+
+export type Offer = {
+  id: number; ticker: string; name: string; kind: "ipo" | "public" | "rights"; price_kobo: Kobo; shares: number;
+  rights_new: number | null; rights_held: number | null; reason: string; status: string; closes_label: string;
+  needs_vote: boolean; outcome: string | null; asked: number; held_kobo: Kobo; allotted: number | null;
+};
+export type Vote = {
+  id: number; ticker: string; name: string; subject: string; question: string; explanation: string; board: "for" | "against";
+  status: string; closes_label: string; my_choice: "for" | "against" | null; my_shares: number;
+  votes_for: number | null; votes_against: number | null; tally: Record<string, { for: number; against: number }> | null;
+};
+export type Takeover = {
+  id: number; bidder: string; bidder_ticker: string; target: string; ticker: string; price_kobo: Kobo;
+  market_price_kobo: Kobo | null; premium_bps: number; shares_sought: number; hostile: boolean; status: string;
+  closes_label: string; needs_vote: boolean; outcome: string | null; offered: number; free: number;
+};
+export type Integration = {
+  bidder: string; target: string; ticker: string; planned_saving_bps: number; quarters: number;
+  done: { label: string; cost_bps: number; notes: string[] }[];
+};
+export type Corporate = { offers: Offer[]; votes: Vote[]; takeovers: Takeover[]; integrations: Integration[]; notices: Notice[] };
+export type Ownership = { ticker: string; name: string; controller: string | null; share_bps: number; summary: string };
+export type Grant = {
+  received_kobo: Kobo; total_kobo: Kobo; next_payment_at: string | null;
+  steps: { step: string; what: string; earned: boolean; paid: boolean }[];
 };
 
 export type Analysis = {
@@ -428,6 +538,27 @@ export const api = {
   placeOrder: (order: NewOrder) =>
     request<{ order: Order; trades: PublicTrade[] }>("/market/orders", { method: "POST", body: JSON.stringify(order) }),
   cancelOrder: (id: number) => request<Order>(`/market/orders/${id}`, { method: "DELETE" }),
+  ticker: () => request<Ticker>("/market/ticker"),
+  closingBell: () => request<ClosingBell>("/market/closing-bell"),
+  industries: () => request<Industry[]>("/market/industries"),
+  facts: (ticker: string) => request<CompanyFacts>(`/market/${encodeURIComponent(ticker)}/facts`),
+  resultsReport: (ticker: string, period?: number) =>
+    request<ResultsReport>(`/market/${encodeURIComponent(ticker)}/results${period === undefined ? "" : `?period=${period}`}`),
+  bonds: () => request<BondDesk>("/bonds"),
+  tradeBond: (code: string, side: "buy" | "sell", units: number) =>
+    request<{ name: string; side: string; units: number; price_kobo: Kobo; value_kobo: Kobo }>(
+      "/bonds/trade", { method: "POST", body: JSON.stringify({ code, side, units }) }),
+  swapBond: (code: string, units: number) => request<unknown>("/bonds/swaps", { method: "POST", body: JSON.stringify({ code, units }) }),
+  cancelSwap: (id: number) => request<void>(`/bonds/swaps/${id}`, { method: "DELETE" }),
+  corporate: () => request<Corporate>("/corporate"),
+  applyForShares: (id: number, shares: number) =>
+    request<Corporate>(`/corporate/offers/${id}`, { method: "PUT", body: JSON.stringify({ shares }) }),
+  castVote: (id: number, choice: "for" | "against") =>
+    request<Corporate>(`/corporate/votes/${id}`, { method: "PUT", body: JSON.stringify({ choice }) }),
+  answerTakeover: (id: number, shares: number) =>
+    request<Corporate>(`/corporate/takeovers/${id}`, { method: "PUT", body: JSON.stringify({ shares }) }),
+  ownership: () => request<Ownership[]>("/corporate/ownership"),
+  grant: () => request<Grant>("/me/grant", { method: "POST", body: "{}" }),
   company: (ticker: string) => request<Company>(`/companies/${encodeURIComponent(ticker)}?periods=8`),
   logout: () => request<void>("/auth/logout", { method: "POST" }),
   login: (email: string, password: string) =>

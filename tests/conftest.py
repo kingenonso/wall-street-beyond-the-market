@@ -165,3 +165,28 @@ def money_accounted_for(db) -> int:
     lent = db.execute(
         "SELECT coalesce(sum(principal_outstanding), 0) FROM company_debts WHERE kind = 'central_bank_loan'").fetchone()[0]
     return int(opening + lent)
+
+
+def government_budget(db, period: int) -> int:
+    """What the Government had to spend in one quarter, from the records: what it collected, plus
+    what it borrowed to spend by selling new bonds, less what its borrowing cost it (interest on its
+    bonds, and the difference between what a bill or bond was sold for and what it was repaid at)."""
+    from simulation import economy, ledger
+    treasury = ledger.account_id(db, ledger.TREASURY)
+    collected = ledger.received_in_period(db, treasury, period, kinds=economy.GOVERNMENT_INCOME)
+    one = lambda sql, params: int(db.execute(sql, params).fetchone()[0])          # noqa: E731
+    borrowed = one("SELECT coalesce(sum(e.amount), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
+                   " WHERE e.account_id = %s AND e.asset = 'NGN' AND e.amount > 0 AND t.period = %s AND t.kind = 'bond_issue'"
+                   " AND t.memo LIKE '%%new bonds sold'", (treasury, period))
+    coupons = one("SELECT coalesce(-sum(e.amount), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
+                  " WHERE e.account_id = %s AND e.asset = 'NGN' AND e.amount < 0 AND t.period = %s AND t.kind = 'bond_coupon'", (treasury, period))
+    discount = 0
+    for bond_id, in db.execute("SELECT id FROM bonds WHERE issuer = 'government' AND redeemed_period = %s", (period,)).fetchall():
+        repaid = one("SELECT coalesce(-sum(e.amount), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
+                     " WHERE e.account_id = %s AND e.asset = 'NGN' AND e.amount < 0 AND t.kind = 'bond_redemption' AND t.reference = %s",
+                     (treasury, f"bond:{bond_id}"))
+        sold = one("SELECT coalesce(sum(e.amount), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
+                   " WHERE e.account_id = %s AND e.asset = 'NGN' AND e.amount > 0 AND t.kind = 'bond_issue' AND t.reference = %s",
+                   (treasury, f"bond:{bond_id}"))
+        discount += max(repaid - sold, 0)
+    return max(collected + borrowed - coupons - discount, 0)

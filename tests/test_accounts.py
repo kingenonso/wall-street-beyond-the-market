@@ -26,7 +26,7 @@ def test_sign_up_creates_a_player_with_the_starting_position(client):
     body = response.json()
     assert body["display_name"] == "Ada"
     assert body["reputation"] == 50
-    assert body["cash"] == {"amount_kobo": "50000000", "currency": "NGN"}  # ₦500,000, as kobo in text
+    assert body["cash"] == {"amount_kobo": "10000000", "currency": "NGN"}  # ₦100,000, the first part of the grant, as kobo in text
     assert body["profile_icon"] == "female"
     assert "password" not in str(body).lower()
 
@@ -142,7 +142,7 @@ def test_world_clock_is_public_and_complete(client):
     assert body["market_state"] in {"opening_auction", "open", "closed"}
     assert body["lagos_time"].endswith("+01:00")
     assert set(body) == {
-        "lagos_time", "market_state", "next_state", "next_change_at", "world_started", "game_date", "test_weeks_ahead",
+        "lagos_time", "market_state", "next_state", "next_change_at", "world_started", "game_date", "test_weeks_ahead", "closing_rush",
     }
 
 
@@ -161,8 +161,8 @@ def test_starting_cash_is_paid_by_the_treasury_not_created(client, db):
 
     body = join(client, ADULT).json()
 
-    assert body["cash"]["amount_kobo"] == str(naira(500_000))
-    assert ledger.balance(db, treasury) == treasury_before - naira(500_000)      # the Treasury paid
+    assert body["cash"]["amount_kobo"] == str(naira(100_000))
+    assert ledger.balance(db, treasury) == treasury_before - naira(100_000)      # the Treasury paid
     assert ledger.amount_in_existence(db) == money_before                        # no new money appeared
 
 
@@ -171,9 +171,9 @@ def test_the_player_can_see_who_paid_them(client, player):
     assert movements == [{
         "at": movements[0]["at"],
         "kind": "starting_grant",
-        "memo": "Starting grant to a new professional",
+        "memo": "Starting grant to a new professional: the first part",
         "counterparty": "Federal Government Treasury",
-        "amount_kobo": "50000000",
+        "amount_kobo": "10000000",
         "currency": "NGN",
     }]
 
@@ -187,7 +187,7 @@ def test_starting_cash_can_never_be_paid_twice(client, player, db):
     """Loophole question 3 (farming)."""
     players.open_player_account(db, player["id"])
     players.open_player_account(db, player["id"])
-    assert client.get("/api/me").json()["cash"]["amount_kobo"] == str(naira(500_000))
+    assert client.get("/api/me").json()["cash"]["amount_kobo"] == str(naira(100_000))
     assert db.execute("SELECT count(*) FROM ledger_transactions WHERE kind = 'starting_grant'").fetchone()[0] == 1
 
 

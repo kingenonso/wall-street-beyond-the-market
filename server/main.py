@@ -56,9 +56,12 @@ from server.schemas import (
     Shareholder, TradingDay, WatchedShare, WatchRequest,
     BellMover, ClosingBell, ClosingBellResponse, CompanyFactsResponse, Industry, IndustryCompany, IndustryPlace, LargeOrder,
     NetWorthDay, NextResults, ProfitPerShare, ReportQuarter, ResultsReportResponse, TickerResponse, TickerShare,
+    BondHolding, BondRow, BondsResponse, BondTradeRequest, BondTradeResponse, ConvertRequest, CorporateResponse, CreditSpread,
+    CurvePoint, GrantResponse, GrantStep, IntegrationQuarter, IntegrationRow, Notice, OfferRow, OwnershipRow, SharesRequest,
+    TakeoverRow, VoteRequest, VoteRow, WaitingSwap,
 )
 from simulation import clock, exchange, investors, ledger, moneywatch, news, news_kinds, players, quarters
-from simulation import closingbell, insight, marketview
+from simulation import bonds, closingbell, corporate, grants, insight, marketview
 from simulation import world_data as data
 from simulation.ledger import NGN
 
@@ -704,12 +707,19 @@ def market(_: dict = Depends(current_player), conn: Connection = Depends(get_con
 
 @app.get("/api/market/portfolio", response_model=PortfolioResponse)
 def my_portfolio(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    mine = marketview.portfolio(conn, _trading_account(conn, player), _exchange_time(conn))
+    account, now = _trading_account(conn, player), _exchange_time(conn)
+    mine = marketview.portfolio(conn, account, now)
+    # Bonds and bills, and what the exchange holds for applications and takeover acceptances, are part of what a player is worth.
+    mine["bonds_value"] = sum(h["value"] for h in bonds.holdings_of(conn, account, now))
+    held_cash, offered = corporate.held_by_account(conn).get(account, (0, 0))
+    mine["total"] += mine["bonds_value"] + held_cash + offered
+    bill = next((b for b in bonds.curve(conn)["points"] if b["quarters"] == 1), None)
     days = [NetWorthDay(session_date=d["session_date"], total_kobo=d["total"]) for d in mine["net_worth_days"]
             if d["session_date"] < mine["today"]]
     days.append(NetWorthDay(session_date=mine["today"], total_kobo=mine["total"]))
     return PortfolioResponse(
-        advice=insight.personal_advice(conn, mine), net_worth=days,
+        advice=insight.personal_advice(conn, mine, bill_yield_bps=bill["yield_bps"] if bill else None), net_worth=days,
+        bonds_value_kobo=mine["bonds_value"], held_for_offers_kobo=held_cash, offered_to_bidders_kobo=offered,
         cash_kobo=mine["cash"], held_for_orders_kobo=mine["held_for_orders"], shares_value_kobo=mine["shares_value"],
         total_kobo=mine["total"], dividends_kobo=mine["dividends"], realised_kobo=mine["realised"],
         holdings=[PortfolioHolding(
@@ -820,6 +830,11 @@ def cancel_order(
     return _order_response(next(row for row in exchange.orders_of(conn, account, limit=200) if row["id"] == order_id))
 
 
+def _notice(row: dict, ticker: str | None) -> Notice:
+    return Notice(ticker=ticker, kind=row["kind"], title=row["title"], body=row["body"], posted_at=row["posted_at"],
+                  period_label=clock.period_label(row["period"]))
+
+
 @app.get("/api/market/ticker", response_model=TickerResponse)
 def price_ticker(_: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     """Every share's price and today's move, for the strip across the top of every screen."""
@@ -885,6 +900,10 @@ def company_facts(
         year_high_kobo=found["year_high"], year_low_kobo=found["year_low"],
         next_results=NextResults(**found["next_results"]) if found["next_results"] else None,
         industry=IndustryPlace(**found["industry"]),
+        control=corporate.control(conn, conn.execute("SELECT id FROM companies WHERE ticker = %s", (ticker,)).fetchone()["id"])["summary"],
+        notices=[_notice(n, ticker) for n in conn.execute(
+            "SELECT n.* FROM market_notices n JOIN companies c ON c.id = n.company_id WHERE c.ticker = %s ORDER BY n.id DESC LIMIT 8",
+            (ticker,)).fetchall()],
     )
 
 
@@ -1082,3 +1101,171 @@ def get_company(
             for r in reversed(filed)
         ],
     )
+
+
+# ---------------------------------------------------------------------------
+# Bonds and Government bills. A player trades with the bond desk (the pension funds),
+# from their own account only, at the desk's prices.
+# ---------------------------------------------------------------------------
+
+def _bond_row(b: dict) -> dict:
+    return dict(
+        code=b["code"], name=b["name"], kind=b["kind"], kind_label=b["kind_label"], issuer=b["issuer"], ticker=b["ticker"],
+        rating=b["rating"], pays=b["pays"], face_kobo=b["face"], maturity_label=b["maturity_label"], quarters_left=b["quarters_left"],
+        yield_bps=b["yield_bps"], distressed=b["distressed"], conversion_shares=b["conversion_shares"], project=b["project"],
+        green=b["green"], outstanding=b["outstanding"], fair_kobo=b["fair"], ask_kobo=b["ask"], bid_kobo=b["bid"],
+        on_offer=b.get("on_offer"))
+
+
+@app.get("/api/bonds", response_model=BondsResponse)
+def bond_desk(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    now = _exchange_time(conn)
+    account = _trading_account(conn, player)
+    curve = bonds.curve(conn)
+    swaps = conn.execute(
+        "SELECT v.id, b.asset, b.name, v.units, v.units * b.conversion_shares AS shares FROM bond_conversions v"
+        " JOIN bonds b ON b.id = v.bond_id WHERE v.account_id = %s AND v.status = 'waiting' ORDER BY v.id", (account,)).fetchall()
+    return BondsResponse(
+        desk_open=clock.market_state(now) is clock.MarketState.OPEN, policy_rate_bps=curve["policy_rate_bps"],
+        curve=[CurvePoint(**p) for p in curve["points"]], spreads=[CreditSpread(**p) for p in curve["spreads"]],
+        bonds=[BondRow(**_bond_row(b)) for b in bonds.listing(conn, now)],
+        holdings=[BondHolding(**_bond_row(h), units=h["units"], held_for_swap=h["held_for_swap"], value_kobo=h["value"],
+                              cost_kobo=h["cost"], gain_kobo=h["gain"]) for h in bonds.holdings_of(conn, account, now)],
+        income_kobo=bonds.income_of(conn, account),
+        swaps=[WaitingSwap(id=r["id"], code=r["asset"][4:], name=r["name"], units=r["units"], shares=r["shares"]) for r in swaps],
+    )
+
+
+@app.post("/api/bonds/trade", response_model=BondTradeResponse, status_code=status.HTTP_201_CREATED)
+def trade_a_bond(body: BondTradeRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    limits.allow("order", str(player["id"]), attempts=60, per_seconds=60)
+    try:
+        done = bonds.trade(conn, account=_trading_account(conn, player), code=body.code, side=body.side, units=body.units,
+                           now=_exchange_time(conn))
+    except bonds.BondError as refused:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
+    return BondTradeResponse(code=done["code"], name=done["name"], side=done["side"], units=done["units"],
+                             price_kobo=done["price"], value_kobo=done["value"], fair_kobo=done["fair"])
+
+
+@app.post("/api/bonds/swaps", response_model=WaitingSwap, status_code=status.HTTP_201_CREATED)
+def swap_bonds_for_shares(body: ConvertRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """Ask for convertible bonds to be swapped for shares when the quarter closes."""
+    limits.allow("order", str(player["id"]), attempts=60, per_seconds=60)
+    try:
+        done = bonds.ask_to_convert(conn, account=_trading_account(conn, player), code=body.code, units=body.units,
+                                    now=_exchange_time(conn))
+    except bonds.BondError as refused:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
+    name = conn.execute("SELECT name FROM bonds WHERE asset = %s", (f"BND-{body.code}",)).fetchone()["name"]
+    return WaitingSwap(id=done["id"], code=body.code, name=name, units=done["units"], shares=done["shares"])
+
+
+@app.delete("/api/bonds/swaps/{swap_id}", status_code=status.HTTP_204_NO_CONTENT)
+def cancel_a_swap(
+    swap_id: int = FastPath(ge=1, le=9_000_000_000_000_000_000),
+    player: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+) -> None:
+    limits.allow("order", str(player["id"]), attempts=60, per_seconds=60)
+    try:
+        bonds.cancel_conversion(conn, account=_trading_account(conn, player), request_id=swap_id, now=_exchange_time(conn))
+    except bonds.BondError as refused:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
+
+
+# ---------------------------------------------------------------------------
+# Share offers, votes and takeovers: what a shareholder can act on.
+# ---------------------------------------------------------------------------
+
+def _corporate(conn: Connection, player: dict) -> CorporateResponse:
+    account = _trading_account(conn, player)
+    world = _world(conn)
+    period = world["last_closed_period"] if world else 0
+    seen = corporate.board(conn, account, period)
+    closes = lambda row: f"when {clock.period_label(row['closes_period'])} closes"            # noqa: E731
+    return CorporateResponse(
+        offers=[OfferRow(
+            id=o["id"], ticker=o["ticker"], name=o["name"], kind=o["kind"], price_kobo=o["price"], shares=o["shares"],
+            rights_new=o["rights_new"], rights_held=o["rights_held"], reason=o["reason"], status=o["status"], closes_label=closes(o),
+            needs_vote=o["vote_id"] is not None, outcome=o["outcome"], asked=o["asked"] or 0, held_kobo=o["held"] or 0,
+            allotted=o["allotted"]) for o in seen["offers"]],
+        votes=[VoteRow(
+            id=v["id"], ticker=v["ticker"], name=v["name"], subject=v["subject"], question=v["question"], explanation=v["explanation"],
+            board=v["board"], status=v["status"], closes_label=closes(v), my_choice=v["choice"], my_shares=v["my_shares"],
+            votes_for=v["votes_for"], votes_against=v["votes_against"], tally=v["tally"]) for v in seen["votes"]],
+        takeovers=[TakeoverRow(
+            id=t["id"], bidder=t["bidder"], bidder_ticker=t["bidder_ticker"], target=t["target"], ticker=t["ticker"],
+            price_kobo=t["price"], market_price_kobo=t["market_price"], premium_bps=t["premium_bps"], shares_sought=t["shares_sought"],
+            hostile=t["hostile"], status=t["status"], closes_label=closes(t), needs_vote=t["vote_id"] is not None,
+            outcome=t["outcome"], offered=t["offered"] or 0, free=t["free"]) for t in seen["takeovers"]],
+        integrations=[IntegrationRow(
+            bidder=i["bidder"], target=i["target"], ticker=i["ticker"], planned_saving_bps=i["planned_saving_bps"], quarters=i["quarters"],
+            done=[IntegrationQuarter(label=clock.period_label(q["period"]), cost_bps=q["cost_bps"], notes=q["notes"])
+                  for q in (i["quarters_done"] or [])]) for i in seen["integrations"]],
+        notices=[_notice(n, n["ticker"]) for n in seen["notices"]],
+    )
+
+
+@app.get("/api/corporate", response_model=CorporateResponse)
+def corporate_board(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _corporate(conn, player)
+
+
+def _act(conn: Connection, player: dict, action) -> CorporateResponse:
+    limits.allow("order", str(player["id"]), attempts=60, per_seconds=60)
+    try:
+        action(_trading_account(conn, player), _exchange_time(conn))
+    except corporate.CorporateError as refused:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
+    return _corporate(conn, player)
+
+
+@app.put("/api/corporate/offers/{offer_id}", response_model=CorporateResponse)
+def apply_for_new_shares(
+    body: SharesRequest,
+    offer_id: int = FastPath(ge=1, le=9_000_000_000_000_000_000),
+    player: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    return _act(conn, player, lambda account, now: corporate.apply_for_shares(
+        conn, account=account, offer_id=offer_id, shares=body.shares, now=now))
+
+
+@app.put("/api/corporate/votes/{vote_id}", response_model=CorporateResponse)
+def cast_a_vote(
+    body: VoteRequest,
+    vote_id: int = FastPath(ge=1, le=9_000_000_000_000_000_000),
+    player: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    return _act(conn, player, lambda account, now: corporate.cast_vote(conn, account=account, vote_id=vote_id, choice=body.choice, now=now))
+
+
+@app.put("/api/corporate/takeovers/{takeover_id}", response_model=CorporateResponse)
+def answer_a_takeover_offer(
+    body: SharesRequest,
+    takeover_id: int = FastPath(ge=1, le=9_000_000_000_000_000_000),
+    player: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    return _act(conn, player, lambda account, now: corporate.tender(
+        conn, account=account, takeover_id=takeover_id, shares=body.shares, now=now))
+
+
+@app.get("/api/corporate/ownership", response_model=list[OwnershipRow])
+def who_owns_what(_: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return [OwnershipRow(**row) for row in corporate.ownership(conn)]
+
+
+# ---------------------------------------------------------------------------
+# The starting grant, paid in parts.
+# ---------------------------------------------------------------------------
+
+@app.post("/api/me/grant", response_model=GrantResponse)
+def my_grant(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """Where the player stands with their starting grant. Any part that has fallen due is paid."""
+    limits.allow("grant", str(player["id"]), attempts=30, per_seconds=60)
+    seen = grants.review(conn, player["id"], _exchange_time(conn))
+    return GrantResponse(received_kobo=seen["received"], total_kobo=seen["total"], next_payment_at=seen["next_payment_at"],
+                         steps=[GrantStep(**s) for s in seen["steps"]])

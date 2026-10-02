@@ -46,7 +46,7 @@ class TestStageTwo:
         """Each figure is re-read from where it is truly kept, then the sheet is added up again."""
         checked = 0
         for r in _dicts(db, "SELECT r.*, c.name, c.account_id FROM company_results r JOIN companies c ON c.id = r.company_id"):
-            assert r["total_assets"] == r["cash"] + r["customer_loans"] + r["loans_to_companies"] + r["fixed_assets"], r["name"]
+            assert r["total_assets"] == r["cash"] + r["customer_loans"] + r["loans_to_companies"] + r["fixed_assets"] + r["investments"], r["name"]
             assert r["total_liabilities"] == r["borrowings"] + r["payables"] + r["customer_funds"], r["name"]
             assert r["total_equity"] == r["share_capital"] + r["retained_earnings"], r["name"]
             assert r["total_assets"] == r["total_liabilities"] + r["total_equity"], f"{r['name']} period {r['period']}"
@@ -95,7 +95,10 @@ class TestStageTwo:
     def test_every_transaction_carries_a_reason(self, db):
         assert db.execute("SELECT count(*) FROM ledger_transactions WHERE kind = '' OR memo = ''").fetchone()[0] == 0
         kinds = {k for (k,) in db.execute("SELECT DISTINCT kind FROM ledger_transactions").fetchall()}
-        assert kinds == {
+        # Stage 4 added: bonds issued, their interest and repayment, and what companies do on the market.
+        market = {"bond_issue", "bond_coupon", "bond_redemption", "takeover_reserve", "takeover_payment", "takeover_refund",
+                  "exchange_surplus", "share_split", "bond_trade"}
+        assert kinds - market == {
             "opening_balance", "share_issue", "customer_revenue", "business_purchase", "cost_of_sales", "wages",
             "debt_interest", "company_tax", "debt_repayment", "capital_spending", "dividend",
             "government_purchase", "government_wages", "pension_payment",

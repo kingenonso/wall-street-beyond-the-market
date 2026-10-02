@@ -144,7 +144,7 @@ def test_a_player_from_before_the_ledger_existed_is_given_an_account_and_startin
     genesis.create_world(db, WORLD_START)          # running it again must not pay twice
 
     account = ledger.player_account_id(db, player_id)
-    assert ledger.balance(db, account) == naira(500_000)
+    assert ledger.balance(db, account) == naira(100_000)
     assert ledger.amount_in_existence(db) == money_before     # paid by the Treasury, not created
 
 
