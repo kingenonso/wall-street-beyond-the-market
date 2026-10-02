@@ -21,6 +21,7 @@ Stand-ins, to be replaced in Stage 3:
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -29,6 +30,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from simulation import clock, credit, ledger
+from simulation import world_data as data
 from simulation.ledger import NGN, Leg
 from simulation.money import BPS, apply_bps
 
@@ -63,6 +65,22 @@ class Context:
     public: UUID
     treasury: UUID
     tax_bps: int
+    fortune_seed: str = ""
+
+
+def fortune_bps(seed: str, subject: str, period: int, what: str, size_bps: int) -> int:
+    """This quarter's good or bad fortune for a company or a sector, between -size and +size.
+
+    It is worked out from the world's secret, so nobody outside the server can
+    know it in advance, yet asking again for the same quarter always gives the
+    same answer. Most quarters land near the middle; big swings are rare.
+    """
+    if size_bps <= 0:
+        return 0
+    digest = hashlib.sha256(f"{seed}:{subject}:{period}:{what}".encode()).digest()
+    first = int.from_bytes(digest[:4], "big") / 2**32
+    second = int.from_bytes(digest[4:8], "big") / 2**32
+    return round(size_bps * (first + second - 1))
 
 
 def _rows(conn: Connection, sql: str, params=()) -> list[dict]:
@@ -205,8 +223,12 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     conn.execute("SELECT 1 FROM ledger_balances WHERE account_id = %s AND asset = %s FOR UPDATE", (account, NGN))
 
     # 1. Sales. Customers can only spend what they have.
+    # The trend, the season, then this quarter's fortune: the sector's and the company's own.
     base_revenue = apply_bps(prev["base_revenue"], BPS + company["revenue_growth_bps"])
-    planned_revenue = apply_bps(base_revenue, season)
+    sector_fortune = fortune_bps(ctx.fortune_seed, company["sector"], period, "demand", data.SECTOR_VOLATILITY_BPS)
+    own_fortune = fortune_bps(ctx.fortune_seed, company["ticker"], period, "sales", company["volatility_bps"])
+    cost_fortune = fortune_bps(ctx.fortune_seed, company["ticker"], period, "costs", company["volatility_bps"] // 3)
+    planned_revenue = apply_bps(apply_bps(apply_bps(base_revenue, season), BPS + sector_fortune), BPS + own_fortune)
     ledger.pay_up_to(
         conn, payer=ctx.public, receiver=account, wanted=planned_revenue,
         kind="customer_revenue", memo=f"{name}: sales to customers, {label}", period=period,
@@ -219,7 +241,12 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     _settle_old_bills(conn, company, period)
 
     # 3. This quarter's costs.
-    cost_of_sales = apply_bps(revenue, company["cost_of_sales_bps"])
+    cost_rate = min(max(company["cost_of_sales_bps"] + cost_fortune, 0), BPS)
+    cost_of_sales = apply_bps(revenue, cost_rate)
+    if cost_fortune >= 100:
+        notes.append(f"Its costs ran {_percent(cost_fortune)} of sales higher than usual this quarter.")
+    elif cost_fortune <= -100:
+        notes.append(f"Its costs ran {_percent(-cost_fortune)} of sales lower than usual this quarter.")
     operating_expenses = apply_bps(prev["base_opex"], BPS + company["opex_growth_bps"])
     _pay_or_owe(conn, company, ctx.public, cost_of_sales, kind="cost_of_sales",
                 memo=f"{name}: cost of goods and services sold, {label}", period=period)
@@ -341,7 +368,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         raise BooksDoNotBalance(f"{name}: the balance sheet does not balance for {label}.")
 
     drivers = {
-        "revenue": _revenue_causes(company, season, revenue, planned_revenue),
+        "revenue": _revenue_causes(company, season, sector_fortune, own_fortune, revenue, planned_revenue),
         "notes": notes,
     }
 
@@ -368,17 +395,29 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     return result
 
 
-def _revenue_causes(company: dict, season: int, revenue: int, planned: int) -> list[str]:
+def _revenue_causes(company: dict, season: int, sector_fortune: int, own_fortune: int,
+                    revenue: int, planned: int) -> list[str]:
     """The causes behind this quarter's sales, in plain words, in order."""
     growth = company["revenue_growth_bps"]
     sector = company["sector_name"].lower()
-    causes = [
-        f"Demand for {sector} {'grew' if growth >= 0 else 'shrank'} {_percent(abs(growth))} this quarter"
-    ]
+    name = company["name"]
+    owner = f"{name}'" if name.endswith("s") else f"{name}'s"
+    if growth >= 0:
+        causes = [f"{owner} sales have been growing about {_percent(growth)} a quarter"]
+    else:
+        causes = [f"{owner} sales have been shrinking about {_percent(-growth)} a quarter"]
     if season > BPS:
         causes.append(f"This is a strong season: sales run {_percent(season - BPS)} above an average quarter")
     elif season < BPS:
         causes.append(f"This is a weak season: sales run {_percent(BPS - season)} below an average quarter")
+    if sector_fortune >= 100:
+        causes.append(f"The whole of {sector} had a good quarter: demand {_percent(sector_fortune)} above trend")
+    elif sector_fortune <= -100:
+        causes.append(f"The whole of {sector} had a poor quarter: demand {_percent(-sector_fortune)} below trend")
+    if own_fortune >= 100:
+        causes.append(f"{name} itself did well: sales {_percent(own_fortune)} above its usual")
+    elif own_fortune <= -100:
+        causes.append(f"{name} itself did badly: sales {_percent(-own_fortune)} below its usual")
     if revenue < planned:
         causes.append("Customers ran short of money and bought less than they wanted")
     return causes
@@ -411,7 +450,12 @@ def build_figures(conn: Connection, company: dict, result: dict) -> dict:
         (company["id"],),
     )
     return {
-        "income_statement": {line: result[line] for line in INCOME_LINES},
+        "income_statement": {
+            **{line: result[line] for line in INCOME_LINES},
+            # EBITDA: profit before interest paid, tax, and the wear on buildings and
+            # machines. It shows what the business itself produces.
+            "ebitda": result["operating_profit"] + result["depreciation"],
+        },
         "cash_flow": {line: result[line] for line in CASH_FLOW_LINES},
         "balance_sheet": {line: result[line] for line in BALANCE_SHEET_LINES},
         "notes": {

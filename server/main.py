@@ -480,6 +480,7 @@ def list_companies(_: dict = Depends(current_player), conn: Connection = Depends
                 period=r["period"], period_label=clock.period_label(r["period"]),
                 credit_rating=r["credit_rating"],
                 revenue_kobo=income["revenue"], net_profit_kobo=income["net_profit"],
+                ebitda_kobo=income.get("ebitda", income["operating_profit"] + income["depreciation"]),
                 total_assets_kobo=r["figures"]["balance_sheet"]["total_assets"],
                 revenue_change_bps=change,
             )

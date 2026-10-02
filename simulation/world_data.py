@@ -1,6 +1,6 @@
 """The Nigeria trial world as it stands on day one.
 
-This file is a catalogue, not logic: the 12 sectors, the 40 companies, and the
+This file is a catalogue, not logic: the 12 sectors, the 50 companies, and the
 opening size of each. `simulation/genesis.py` reads it once to create the world.
 
 All companies are invented. Names follow the design document, section 4.
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-LAGOS, ABUJA, PORT_HARCOURT = "Lagos", "Abuja", "Port Harcourt"
+LAGOS, ABUJA, PORT_HARCOURT, ABA, KANO = "Lagos", "Abuja", "Port Harcourt", "Aba", "Kano"
 
 
 @dataclass(frozen=True)
@@ -42,7 +42,7 @@ FLAT = (10000, 10000, 10000, 10000)
 SECTORS: tuple[Sector, ...] = (
     Sector("banking", "Commercial banks", 3800, 3000, 350, FLAT,
            fixed_assets_x=2500, cash_x=10000, debt_x=0,
-           customer_loans_x=35000, customer_funds_x=40000, payout_bps=4000),
+           customer_loans_x=35000, customer_funds_x=44000, payout_bps=4000),
     Sector("consumer", "Consumer goods, food and drinks", 6200, 2000, 400, (9700, 9800, 10000, 10500),
            fixed_assets_x=5500, cash_x=1000, debt_x=2000, loan_rate_bps=1900, payout_bps=4500),
     Sector("oil_gas", "Oil and gas", 5800, 1400, 350, FLAT,
@@ -81,15 +81,26 @@ class Company:
     yearly_revenue_m: int        # opening yearly revenue, in millions of naira
     lender: str | None = None    # ticker of the bank that holds its loan
     bond_share_bps: int = 0      # how much of its debt is a bond held by investors
+    # --- What makes this company different from the usual one in its sector. ---
+    # Left empty, a company gets a small variation of its own (see genesis).
+    trend_bps: int | None = None       # its sales growth each quarter, above or below its sector's
+    volatility_bps: int | None = None  # how far one quarter can swing from its usual
+    cost_extra_bps: int = 0            # extra cost of sales, in points of revenue
+    opex_times_bps: int = 10_000       # running costs against the sector's usual (10000 = the same)
+    debt_times_bps: int | None = None  # borrowing against the sector's usual
+    cash_times_bps: int = 10_000       # opening cash against the sector's usual
+    funds_times_bps: int = 10_000      # banks: customers' money against the sector's usual
+    overdue_bps: int = 0               # share of its bank loan that is ALREADY past its repayment date
+    unpaid_bills_bps: int = 0          # bills already owed and unpaid, as a share of one quarter's sales
 
 
 COMPANIES: tuple[Company, ...] = (
     # Commercial banks (6)
     Company("IKB", "Ikenga Bank", "banking", LAGOS, 340_000),
-    Company("OTB", "Olumo Trust Bank", "banking", LAGOS, 210_000),
+    Company("OTB", "Olumo Trust Bank", "banking", LAGOS, 210_000, cost_extra_bps=1_200, cash_times_bps=6_000, funds_times_bps=10_800),
     Company("HMB", "Harmattan Bank", "banking", ABUJA, 280_000),
-    Company("KCB", "Kainji Commercial Bank", "banking", LAGOS, 150_000),
-    Company("ZCB", "Zuma Capital Bank", "banking", ABUJA, 120_000),
+    Company("KCB", "Kainji Commercial Bank", "banking", LAGOS, 150_000, cost_extra_bps=2_000, cash_times_bps=4_500, funds_times_bps=11_000),
+    Company("ZCB", "Zuma Capital Bank", "banking", ABUJA, 120_000, cost_extra_bps=800, cash_times_bps=7_000, funds_times_bps=10_500),
     Company("OBB", "Obudu Bank", "banking", PORT_HARCOURT, 90_000),
     # Consumer goods, food and drinks (6)
     Company("ADF", "Adunni Foods", "consumer", LAGOS, 260_000, lender="OTB"),
@@ -129,14 +140,52 @@ COMPANIES: tuple[Company, ...] = (
     Company("TNL", "The Naira Ledger", "media", LAGOS, 12_000, lender="IKB"),
     # Insurance (2)
     Company("AGA", "Agbada Assurance", "insurance", LAGOS, 95_000),
-    Company("KKI", "Kuka Insurance", "insurance", ABUJA, 48_000),
+    Company("KKI", "Kuka Insurance", "insurance", ABUJA, 48_000, cost_extra_bps=300, cash_times_bps=8_500),
     # Power and utilities (2)
     Company("AMP", "Amadioha Power", "power", LAGOS, 260_000, lender="IKB", bond_share_bps=4000),
     Company("JPE", "Jos Plateau Electric", "power", ABUJA, 110_000, lender="KCB"),
     # Transport and logistics (2)
     Company("DFL", "Danfo Logistics", "transport", LAGOS, 150_000, lender="OTB"),
     Company("LFS", "Lokoja Freight & Shipping", "transport", PORT_HARCOURT, 90_000, lender="OBB"),
+
+    # --- Ten more, added by the owner on 2 October 2026: built weak or troubled on
+    # purpose, so that credit ratings run all the way from AAA to D from day one. ---
+    # Already in default: a loan has passed its repayment date unpaid.
+    Company("BTS", "Bonny Tide Shipping", "transport", PORT_HARCOURT, 40_000, lender="OBB",
+            trend_bps=-150, volatility_bps=900, cost_extra_bps=500, opex_times_bps=12_000,
+            debt_times_bps=20_000, cash_times_bps=2_500, overdue_bps=3_000),
+    Company("KTX", "Kainji Textiles", "manufacturing", KANO, 35_000, lender="ZCB",
+            trend_bps=-250, volatility_bps=800, cost_extra_bps=600, opex_times_bps=12_500,
+            debt_times_bps=22_000, cash_times_bps=2_000, overdue_bps=2_500),
+    # Behind on their bills.
+    Company("ZRH", "Zuma Rock Hotels", "real_estate", ABUJA, 28_000, lender="HMB",
+            trend_bps=-50, volatility_bps=1_000, cost_extra_bps=400, opex_times_bps=14_000,
+            debt_times_bps=16_000, cash_times_bps=1_500, unpaid_bills_bps=2_500),
+    Company("OGA", "Oguta Airways", "transport", LAGOS, 120_000, lender="KCB",
+            trend_bps=0, volatility_bps=1_200, cost_extra_bps=900, opex_times_bps=11_000,
+            debt_times_bps=17_000, cash_times_bps=1_500, unpaid_bills_bps=2_000),
+    Company("CPM", "Calabar Paper Mills", "manufacturing", ABA, 22_000, lender="OTB",
+            trend_bps=-200, volatility_bps=700, cost_extra_bps=900, opex_times_bps=12_000,
+            debt_times_bps=15_000, cash_times_bps=2_000, unpaid_bills_bps=1_500),
+    # Weak, but paying their way.
+    Company("LFN", "Lekki Fibre Networks", "telecoms", LAGOS, 60_000, lender="IKB",
+            trend_bps=250, volatility_bps=900, cost_extra_bps=500, opex_times_bps=11_000,
+            debt_times_bps=19_000, cash_times_bps=9_000),
+    Company("BHF", "Benue Harvest Foods", "agriculture", KANO, 45_000, lender="HMB",
+            trend_bps=-50, volatility_bps=1_400, cost_extra_bps=300, opex_times_bps=10_500,
+            debt_times_bps=16_000, cash_times_bps=9_000),
+    Company("NBS", "Niger Bridge Steel", "manufacturing", ABA, 160_000, lender="IKB", bond_share_bps=3000,
+            trend_bps=50, volatility_bps=700, cost_extra_bps=0,
+            debt_times_bps=15_000, cash_times_bps=25_000),
+    Company("SCM", "Sahel Crest Microfinance Bank", "banking", KANO, 9_000,
+            trend_bps=0, volatility_bps=900, cost_extra_bps=2_200, opex_times_bps=11_000,
+            cash_times_bps=3_000, funds_times_bps=8_300),
+    Company("ISP", "Ibom Solar Power", "power", PORT_HARCOURT, 30_000, lender="OBB",
+            trend_bps=150, volatility_bps=500, debt_times_bps=13_000, cash_times_bps=22_000),
 )
+
+# Whole sectors have good and bad quarters too: up to this far above or below trend.
+SECTOR_VOLATILITY_BPS = 300
 
 # --- Opening money (design document, section 10) ---
 # The Central Bank issues the opening money. From then on, no new naira appears.

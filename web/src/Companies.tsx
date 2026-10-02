@@ -31,7 +31,8 @@ export function CompaniesWork({ onLoggedOut }: { onLoggedOut: () => void }) {
                   <th scope="col">Head office</th>
                   <th scope="col" className="num">{opening ? "Total assets" : "Sales this quarter"}</th>
                   {!opening && <th scope="col" className="num">Against last quarter</th>}
-                  {!opening && <th scope="col" className="num">Profit</th>}
+                  {!opening && <th scope="col" className="num" title="Profit before interest, tax and wear on buildings and machines">EBITDA</th>}
+                  {!opening && <th scope="col" className="num">Net profit</th>}
                   <th scope="col">Rating</th>
                 </tr>
               </thead>
@@ -44,7 +45,8 @@ export function CompaniesWork({ onLoggedOut }: { onLoggedOut: () => void }) {
                     <td className="muted">{c.headquarters}</td>
                     <td className="num mono">{formatCompact(opening ? c.total_assets_kobo : c.revenue_kobo)}</td>
                     {!opening && <td className="num"><Change bps={c.revenue_change_bps} /></td>}
-                    {!opening && <td className="num mono">{formatCompact(c.net_profit_kobo)}</td>}
+                    {!opening && <td className="num mono">{formatCompact(c.ebitda_kobo)}</td>}
+                    {!opening && <td className={c.net_profit_kobo.startsWith("-") ? "num mono change-down" : "num mono"}>{formatCompact(c.net_profit_kobo)}</td>}
                     <td><Rating value={c.credit_rating} /></td>
                   </tr>
                 ))}
@@ -75,6 +77,12 @@ export function CompaniesRail() {
           </div>
         ))}
         <p className="muted small">A weaker rating means a company pays more interest to borrow.</p>
+      </Panel>
+      <Panel title="What is EBITDA?">
+        <p className="muted small">
+          Profit before interest, tax, and the wear on buildings and machines. It shows how much cash the business itself
+          produces, before the cost of its debts. Lenders compare it with what a company has borrowed.
+        </p>
       </Panel>
       <Panel title="Where these figures come from">
         <p className="muted small">

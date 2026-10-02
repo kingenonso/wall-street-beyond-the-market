@@ -24,6 +24,7 @@ const STATEMENTS: Record<string, { title: string; section: "income_statement" | 
       { key: "interest_income", label: "Interest earned", hint: "on money it has lent", optional: true },
       { key: "cost_of_sales", label: "Cost of sales", hint: "the direct cost of what it sold", cost: true },
       { key: "operating_expenses", label: "Running costs", hint: "wages, rent and overheads", cost: true },
+      { key: "ebitda", label: "EBITDA", hint: "profit before interest paid, tax and wear on assets", total: true },
       { key: "depreciation", label: "Depreciation", hint: "wear on buildings and machines", cost: true },
       { key: "operating_profit", label: "Operating profit", total: true },
       { key: "interest_expense", label: "Interest paid", hint: "on its borrowings", cost: true },
@@ -177,9 +178,9 @@ function CompanyBody({ company }: { company: Company }) {
         <Panel title="Sales and profit" aside="As filed, by quarter">
           <div className="tiles">
             <Tile label="Sales" now={latest.figures.income_statement.revenue} before={previous?.figures.income_statement.revenue} />
+            <Tile label="EBITDA" now={latest.figures.income_statement.ebitda} before={previous?.figures.income_statement.ebitda} />
             <Tile label="Net profit" now={latest.figures.income_statement.net_profit} before={previous?.figures.income_statement.net_profit} />
             <Tile label="Cash" now={latest.figures.balance_sheet.cash} before={previous?.figures.balance_sheet.cash} />
-            <Tile label="Total assets" now={latest.figures.balance_sheet.total_assets} before={previous?.figures.balance_sheet.total_assets} />
           </div>
           <TrendChart reports={trading} />
           <WhySales latest={latest} previous={previous?.period >= 1 ? previous : undefined} />

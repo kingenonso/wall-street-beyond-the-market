@@ -139,6 +139,7 @@ class CompanySummary(BaseModel):
     period_label: str
     credit_rating: str
     revenue_kobo: Kobo
+    ebitda_kobo: Kobo                  # profit before interest paid, tax and wear on assets
     net_profit_kobo: Kobo
     total_assets_kobo: Kobo
     revenue_change_bps: int | None     # against the quarter before; None when there is nothing to compare

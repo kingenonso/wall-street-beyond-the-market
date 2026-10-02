@@ -40,7 +40,7 @@ class TestStageTwo:
     def test_eight_game_quarters_ran(self, db):
         assert db.execute("SELECT last_closed_period FROM world_state").fetchone()[0] == 8
         per_period = db.execute("SELECT period, count(*) FROM company_results GROUP BY period ORDER BY period").fetchall()
-        assert per_period == [(p, 40) for p in range(9)]          # the opening position and eight quarters
+        assert per_period == [(p, 50) for p in range(9)]          # the opening position and eight quarters
 
     def test_every_balance_sheet_balances_from_independent_records(self, db):
         """Each figure is re-read from where it is truly kept, then the sheet is added up again."""
@@ -51,7 +51,7 @@ class TestStageTwo:
             assert r["total_equity"] == r["share_capital"] + r["retained_earnings"], r["name"]
             assert r["total_assets"] == r["total_liabilities"] + r["total_equity"], f"{r['name']} period {r['period']}"
             checked += 1
-        assert checked == 360
+        assert checked == 450
 
         # At the latest quarter, the sheet's figures match the ledger and the debt records.
         for r in _dicts(db, "SELECT r.*, c.name, c.id, c.account_id FROM company_results r JOIN companies c ON c.id = r.company_id WHERE r.period = 8"):
@@ -152,7 +152,9 @@ def test_debt_outstanding_matches_the_repayments_in_the_ledger(db):
 
 @pytest.mark.world("eight")
 def test_a_lenders_interest_income_is_exactly_what_its_borrowers_paid(db):
-    for bank in _dicts(db, "SELECT * FROM companies WHERE sector = 'banking'"):
+    lenders = _dicts(db, "SELECT * FROM companies c WHERE EXISTS (SELECT 1 FROM company_debts d WHERE d.lender_account_id = c.account_id)")
+    assert len(lenders) == 6                                 # the six commercial banks that lend to companies
+    for bank in lenders:
         for period in (1, 8):
             income = db.execute("SELECT interest_income FROM company_results WHERE company_id = %s AND period = %s", (bank["id"], period)).fetchone()[0]
             paid = db.execute(
@@ -249,7 +251,7 @@ def test_two_servers_closing_at_the_same_instant_close_each_quarter_once(db, con
     [t.join() for t in threads]
 
     assert sorted(sum(closed, [])) == [1, 2]
-    assert db.execute("SELECT count(*) FROM company_results WHERE period IN (1, 2)").fetchone()[0] == 80
+    assert db.execute("SELECT count(*) FROM company_results WHERE period IN (1, 2)").fetchone()[0] == 100
     assert db.execute("SELECT count(*) FROM ledger_transactions WHERE kind = 'government_spending'").fetchone()[0] == 2
 
 
@@ -264,7 +266,7 @@ def test_nothing_closes_before_the_world_exists(db):
 
 @pytest.mark.world("eight")
 def test_every_company_files_a_report_every_quarter(db):
-    assert db.execute("SELECT count(*), count(DISTINCT (company_id, period)) FROM company_reports").fetchone() == (360, 360)
+    assert db.execute("SELECT count(*), count(DISTINCT (company_id, period)) FROM company_reports").fetchone() == (450, 450)
 
 
 @pytest.mark.world("eight")
@@ -272,7 +274,10 @@ def test_honest_companies_report_exactly_what_happened(db):
     for row in _dicts(db, "SELECT r.*, p.figures FROM company_results r JOIN company_reports p ON p.company_id = r.company_id AND p.period = r.period AND p.version = 1"):
         filed = row["figures"]
         for section, lines in (("income_statement", INCOME_LINES), ("cash_flow", CASH_FLOW_LINES), ("balance_sheet", BALANCE_SHEET_LINES)):
-            assert filed[section] == {line: row[line] for line in lines}
+            expected = {line: row[line] for line in lines}
+            if section == "income_statement":
+                expected["ebitda"] = row["operating_profit"] + row["depreciation"]
+            assert filed[section] == expected
 
 
 @pytest.mark.world("eight")
@@ -401,7 +406,7 @@ def test_the_books_hold_together_over_a_long_run(db):
 
     assert ledger.amount_in_existence(db) == money_before
     assert db.execute("SELECT sum(balance) FROM ledger_balances WHERE asset = 'NGN'").fetchone()[0] == 0
-    assert db.execute("SELECT count(*) FROM company_results").fetchone()[0] == 40 * 35
+    assert db.execute("SELECT count(*) FROM company_results").fetchone()[0] == 50 * 35
     unbalanced = db.execute("SELECT count(*) FROM company_results WHERE total_assets <> total_liabilities + total_equity").fetchone()[0]
     assert unbalanced == 0
     # Every loan and bond that reached its end date was either repaid in full or is flagged as overdue.
@@ -409,3 +414,59 @@ def test_the_books_hold_together_over_a_long_run(db):
         assert d["principal_outstanding"] == 0 or d["principal_overdue"] >= d["principal_outstanding"]
     for r in _dicts(db, "SELECT p.credit_rating, r.principal_overdue FROM company_reports p JOIN company_results r ON r.company_id = p.company_id AND r.period = p.period WHERE p.period = 34"):
         assert (r["credit_rating"] == "D") == (r["principal_overdue"] > 0)
+
+
+# ---------------------------------------------------------------------------
+# Good times and bad times (owner, 2 October 2026).
+# ---------------------------------------------------------------------------
+
+@pytest.mark.world("eight")
+def test_ratings_run_all_the_way_from_aaa_to_d(db):
+    ratings = {r for (r,) in db.execute("SELECT DISTINCT credit_rating FROM company_reports WHERE period = 8").fetchall()}
+    assert ratings == {"AAA", "AA", "A", "BBB", "BB", "B", "CCC", "D"}
+
+
+@pytest.mark.world("eight")
+def test_some_companies_lose_money_and_most_do_not(db):
+    losing = db.execute("SELECT count(DISTINCT company_id) FROM company_results WHERE period >= 1 AND net_profit < 0").fetchone()[0]
+    assert 4 <= losing <= 20
+
+
+@pytest.mark.world("eight")
+def test_companies_in_one_sector_no_longer_move_in_step(db):
+    """Before, every company in a sector grew by exactly the same percentage."""
+    for (sector,) in db.execute("SELECT code FROM sectors").fetchall():
+        growth = db.execute(
+            "SELECT count(DISTINCT round(a.revenue * 10000.0 / b.revenue)) FROM company_results a"
+            " JOIN company_results b ON b.company_id = a.company_id AND b.period = 7"
+            " JOIN companies c ON c.id = a.company_id WHERE a.period = 8 AND c.sector = %s", (sector,),
+        ).fetchone()[0]
+        members = db.execute("SELECT count(*) FROM companies WHERE sector = %s", (sector,)).fetchone()[0]
+        assert growth == members, sector
+
+
+@pytest.mark.world("eight")
+def test_a_bad_quarter_says_why(db):
+    row = _dicts(db, "SELECT p.figures FROM company_reports p JOIN companies c ON c.id = p.company_id"
+                     " WHERE c.ticker = 'OGA' AND p.period >= 1 ORDER BY p.period")
+    causes = [cause for r in row for cause in r["figures"]["notes"]["why_revenue"]]
+    assert any("Oguta Airways itself did" in cause for cause in causes)
+    assert any("had a good quarter" in cause or "had a poor quarter" in cause for cause in causes)
+
+
+def test_fortune_is_fixed_by_the_worlds_secret_and_stays_within_its_limits():
+    from simulation.companies import fortune_bps
+    draws = [fortune_bps("seed", "IDC", period, "sales", 500) for period in range(1, 400)]
+    assert all(-500 <= d <= 500 for d in draws)
+    assert min(draws) < -200 and max(draws) > 200                    # real swings both ways
+    assert abs(sum(draws)) < 500 * 20                                # and no built-in lean either way
+    assert draws == [fortune_bps("seed", "IDC", period, "sales", 500) for period in range(1, 400)]   # repeatable
+    assert draws != [fortune_bps("other", "IDC", period, "sales", 500) for period in range(1, 400)]  # a different world differs
+    assert fortune_bps("seed", "IDC", 1, "sales", 0) == 0
+
+
+@pytest.mark.world("eight")
+def test_the_worlds_secret_and_each_companys_steadiness_are_never_sent_to_players(client, player):
+    for path in ("/api/companies", "/api/companies/OGA", "/api/world/status", "/api/world/clock"):
+        text = client.get(path).text
+        assert "a-fixed-seed" not in text and "fortune_seed" not in text and "volatility" not in text

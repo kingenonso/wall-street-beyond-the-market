@@ -13,12 +13,12 @@ from simulation.money import naira
 pytestmark = pytest.mark.world("eight")
 
 
-def test_the_list_shows_all_40_companies_in_their_12_sectors(client, player):
+def test_the_list_shows_all_50_companies_in_their_12_sectors(client, player):
     sectors = client.get("/api/companies").json()["sectors"]
     assert [s["name"] for s in sectors][:3] == ["Commercial banks", "Consumer goods, food and drinks", "Oil and gas"]
     assert len(sectors) == 12
-    assert sum(len(s["companies"]) for s in sectors) == 40
-    assert [len(s["companies"]) for s in sectors] == [6, 6, 4, 3, 3, 3, 3, 3, 3, 2, 2, 2]
+    assert sum(len(s["companies"]) for s in sectors) == 50
+    assert [len(s["companies"]) for s in sectors] == [7, 6, 4, 4, 3, 4, 4, 6, 3, 2, 3, 4]
 
     ikenga = next(c for c in sectors[0]["companies"] if c["ticker"] == "IKB")
     assert ikenga["name"] == "Ikenga Bank"
@@ -41,7 +41,9 @@ def test_a_company_page_shows_its_accounts_quarter_by_quarter(client, player):
     sheet = {k: int(v) for k, v in latest["figures"]["balance_sheet"].items()}
     assert sheet["total_assets"] == sheet["total_liabilities"] + sheet["total_equity"]
     assert latest["rating_reasons"] and latest["version"] == 1 and latest["amended"] is False
-    assert latest["figures"]["notes"]["why_revenue"][0].startswith("Demand for cement and building materials grew")
+    assert latest["figures"]["notes"]["why_revenue"][0].startswith("Idanre Cement's sales have been growing about")
+    income = {k: int(v) for k, v in latest["figures"]["income_statement"].items()}
+    assert income["ebitda"] == income["operating_profit"] + income["depreciation"]          # EBITDA is filed
 
     # Shares, owners and debts.
     assert int(body["shares_in_issue"]) == sum(int(o["shares"]) for o in body["owners"])
@@ -84,7 +86,7 @@ def test_companies_need_a_login(client):
 
 def test_world_status_names_the_latest_closed_quarter(client, player):
     assert client.get("/api/world/status").json() == {
-        "companies": 40, "last_closed_period": 8, "last_closed_label": "Year 2 Q4",
+        "companies": 50, "last_closed_period": 8, "last_closed_label": "Year 2 Q4",
     }
 
 

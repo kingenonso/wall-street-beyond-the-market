@@ -17,12 +17,17 @@ from __future__ import annotations
 SCALE = ("AAA", "AA", "A", "BBB", "BB", "B", "CCC", "D")
 
 # Total points needed for each rating. Below the last line is CCC.
-_BANDS = ((82, "AAA"), (70, "AA"), (58, "A"), (46, "BBB"), (34, "BB"), (22, "B"))
+_BANDS = ((85, "AAA"), (73, "AA"), (61, "A"), (48, "BBB"), (35, "BB"), (22, "B"))
 
 
 def _points(value: float, steps: tuple[tuple[float, int], ...]) -> int:
     """Points for the first step the value reaches. Steps run from best to worst."""
     return next((points for floor, points in steps if value >= floor), 0)
+
+
+def _cap(rating: str, ceiling: str) -> str:
+    """The weaker of a rating and a ceiling."""
+    return ceiling if SCALE.index(rating) < SCALE.index(ceiling) else rating
 
 
 def rate(figures: dict, trailing: list[dict]) -> tuple[str, list[str]]:
@@ -52,7 +57,7 @@ def rate(figures: dict, trailing: list[dict]) -> tuple[str, list[str]]:
     if financial:
         # For a bank or insurer the test is the owners' cushion against losses.
         cushion = equity / assets
-        points += _points(cushion, ((0.25, 30), (0.18, 24), (0.12, 16), (0.08, 8)))
+        points += _points(cushion, ((0.30, 30), (0.22, 24), (0.15, 16), (0.10, 8)))
         reasons.append(f"Owners' funds are {cushion:.0%} of everything it holds.")
     elif borrowings == 0:
         points += 30
@@ -66,7 +71,7 @@ def rate(figures: dict, trailing: list[dict]) -> tuple[str, list[str]]:
     if financial:
         # Could it hand customers their money back if they asked?
         ready = sheet["cash"] / sheet["customer_funds"]
-        points += _points(ready, ((0.5, 28), (0.3, 22), (0.2, 16), (0.1, 8)))
+        points += _points(ready, ((0.6, 28), (0.4, 22), (0.25, 16), (0.12, 8)))
         reasons.append(f"It holds {ready:.0%} of its customers' money in ready cash.")
 
     if not trailing:
@@ -107,6 +112,21 @@ def rate(figures: dict, trailing: list[dict]) -> tuple[str, list[str]]:
         reasons.append(f"Cash would cover {min(quarters, 99):.1f} quarters of running costs and interest.")
 
     rating = next((name for floor, name in _BANDS if points >= floor), "CCC")
+
+    # Debt against EBITDA: how many years of what the business produces it would
+    # take to repay everything it has borrowed. Heavy debt caps the rating.
+    if trailing and not financial and borrowings > 0:
+        yearly_ebitda = sum(i.get("ebitda", i["operating_profit"] + i["depreciation"]) for i in income) * 4 // len(income)
+        if yearly_ebitda <= 0:
+            rating = _cap(rating, "CCC")
+            reasons.append("Its business produces no cash before interest and tax (EBITDA), yet it has debts to service.")
+        else:
+            years = borrowings / yearly_ebitda
+            reasons.append(f"Its borrowings equal {years:.1f} years of EBITDA.")
+            if years > 6:
+                rating = _cap(rating, "B")
+            elif years > 4:
+                rating = _cap(rating, "BB")
 
     # Unpaid bills cap the rating, however strong the rest looks.
     if sheet["payables"] > 0 and SCALE.index(rating) < SCALE.index("CCC"):

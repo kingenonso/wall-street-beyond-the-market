@@ -8,14 +8,15 @@ import type { LiveClock } from "./useClock";
 type Card = { tag: string; when: string; title: string; text: string; action: string; href: string };
 
 /** "Needs you now": built only from things that are really true for this player right now. */
-function cardsFor(player: Player, latestQuarter: string | null, live: LiveClock | null): Card[] {
+function cardsFor(player: Player, latestQuarter: string | null, live: LiveClock | null, count: number | null): Card[] {
+  const all = count ? `All ${count}` : "All the";
   const cards: Card[] = [];
   if (latestQuarter) {
     cards.push({
       tag: "RESULTS",
       when: latestQuarter,
       title: `The ${latestQuarter} results are out`,
-      text: "All 40 companies have filed their accounts. See who grew, who slipped and who is short of cash.",
+      text: `${all} companies have filed their accounts. See who grew, who slipped, who lost money and who is in default.`,
       action: "Read the filings",
       href: "#/companies",
     });
@@ -23,7 +24,7 @@ function cardsFor(player: Player, latestQuarter: string | null, live: LiveClock 
     cards.push({
       tag: "THE WORLD",
       when: live && !live.clock.world_started ? "Not open yet" : "First quarter",
-      title: "Get to know the 40 companies",
+      title: count ? `Get to know the ${count} companies` : "Get to know the companies",
       text: "Each has an opening balance sheet on file. Their first quarterly results arrive one real week after the world opens.",
       action: "See the companies",
       href: "#/companies",
@@ -73,7 +74,7 @@ function Movers({ companies, quarter }: { companies: CompanySummary[]; quarter: 
   if (ranked.length === 0) return null;
   const rows = [...ranked.slice(0, 3), ...ranked.slice(-3)];
   return (
-    <Panel title={`Biggest moves in sales, ${quarter}`} aside={<a href="#/companies">All 40 companies</a>}>
+    <Panel title={`Biggest moves in sales, ${quarter}`} aside={<a href="#/companies">All {companies.length} companies</a>}>
       <div className="scroll">
         <table>
           <thead>
@@ -81,7 +82,7 @@ function Movers({ companies, quarter }: { companies: CompanySummary[]; quarter: 
               <th scope="col">Company</th>
               <th scope="col" className="num">Sales</th>
               <th scope="col" className="num">Against last quarter</th>
-              <th scope="col" className="num">Profit</th>
+              <th scope="col" className="num">Net profit</th>
               <th scope="col">Rating</th>
             </tr>
           </thead>
@@ -91,14 +92,14 @@ function Movers({ companies, quarter }: { companies: CompanySummary[]; quarter: 
                 <th scope="row"><a href={`#/companies/${c.ticker}`}>{c.name}</a></th>
                 <td className="num mono">{formatCompact(c.revenue_kobo)}</td>
                 <td className="num"><Change bps={c.revenue_change_bps} /></td>
-                <td className="num mono">{formatCompact(c.net_profit_kobo)}</td>
+                <td className={c.net_profit_kobo.startsWith("-") ? "num mono change-down" : "num mono"}>{formatCompact(c.net_profit_kobo)}</td>
                 <td><Rating value={c.credit_rating} /></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <p className="muted small">Some of each move is the season: cement sells more in the dry months, farms after harvest.</p>
+      <p className="muted small">The three strongest and the three weakest against last quarter. Open a company to see why its sales moved.</p>
     </Panel>
   );
 }
@@ -111,7 +112,7 @@ export function DeskWork({ player, live, onLoggedOut }: { player: Player; live: 
 
   return (
     <>
-      <NeedsYouNow cards={cardsFor(player, quarter, live)} />
+      <NeedsYouNow cards={cardsFor(player, quarter, live, status.data?.companies ?? null)} />
 
       {quarter && companies.data && (
         <Movers companies={companies.data.sectors.flatMap((s) => s.companies)} quarter={quarter} />

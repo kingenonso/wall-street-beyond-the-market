@@ -45,6 +45,7 @@ export type CompanySummary = {
   period_label: string;
   credit_rating: string;
   revenue_kobo: Kobo;
+  ebitda_kobo: Kobo;
   net_profit_kobo: Kobo;
   total_assets_kobo: Kobo;
   revenue_change_bps: number | null;

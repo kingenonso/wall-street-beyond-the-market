@@ -38,7 +38,7 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
             period = world["last_closed_period"] + 1
             if period > due:
                 return closed
-            _close_period(conn, period, world["company_tax_bps"])
+            _close_period(conn, period, world["company_tax_bps"], world["fortune_seed"])
             # Re-add the whole ledger before the quarter is allowed to close. If anything
             # is out, the quarter is not closed and the fault is reported loudly.
             problems = ledger.audit(conn)
@@ -59,11 +59,11 @@ def _received(conn: Connection, account, period: int) -> int:
     return ledger._first(row)
 
 
-def _close_period(conn: Connection, period: int, tax_bps: int) -> None:
+def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str = "") -> None:
     label = clock.period_label(period)
     public = ledger.account_id(conn, ledger.PUBLIC)
     treasury = ledger.account_id(conn, ledger.TREASURY)
-    ctx = companies.Context(public=public, treasury=treasury, tax_bps=tax_bps)
+    ctx = companies.Context(public=public, treasury=treasury, tax_bps=tax_bps, fortune_seed=fortune_seed)
 
     all_companies = companies.load_companies(conn)
     results = [(company, companies.close_company_quarter(conn, company, period, ctx)) for company in all_companies]

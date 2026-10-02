@@ -69,7 +69,8 @@ def _filing(**overrides) -> dict:
     """A healthy trading company's filing, with chosen figures changed."""
     figures = {
         "income_statement": {"revenue": 1_000, "interest_income": 0, "operating_profit": 300,
-                             "interest_expense": 20, "net_profit": 200, "operating_expenses": 100},
+                             "interest_expense": 20, "net_profit": 200, "operating_expenses": 100,
+                             "depreciation": 50, "ebitda": 350},
         "balance_sheet": {"total_equity": 5_000, "total_assets": 6_000, "borrowings": 500,
                           "customer_funds": 0, "cash": 800, "payables": 0},
         "notes": {"principal_overdue": 0},
@@ -105,6 +106,25 @@ class TestCreditRating:
         rating, reasons = credit.rate(filing, [filing])
         assert rating == "CCC"
         assert reasons[0] == "It has bills it could not pay on time."
+
+    def test_debt_that_is_many_years_of_ebitda_caps_the_rating(self):
+        scale = credit.SCALE
+        # Borrowings of 500 against yearly EBITDA of 4 x 20 = 80: more than six years.
+        filing = _filing(income_statement__ebitda=20)
+        rating, reasons = credit.rate(filing, [filing])
+        assert scale.index(rating) >= scale.index("B")
+        assert any("years of EBITDA" in r for r in reasons)
+
+    def test_a_business_that_produces_no_cash_but_has_debts_rates_ccc_at_best(self):
+        filing = _filing(income_statement__ebitda=-5)
+        rating, reasons = credit.rate(filing, [filing])
+        assert credit.SCALE.index(rating) >= credit.SCALE.index("CCC")
+        assert any("EBITDA" in r for r in reasons)
+
+    def test_a_filing_from_before_ebitda_was_filed_is_still_rated(self):
+        filing = _filing()
+        del filing["income_statement"]["ebitda"]
+        assert credit.rate(filing, [filing])[0] == "AAA"
 
     def test_debt_past_its_date_is_a_default(self):
         filing = _filing(notes__principal_overdue=1)

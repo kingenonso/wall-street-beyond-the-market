@@ -12,13 +12,14 @@ What it creates (design document, sections 4 and 10):
   * the Central Bank, which issues the opening money,
   * the Federal Government Treasury and the prize pool,
   * stand-in accounts for the public and for NPC investors,
-  * the 12 sectors and the 40 companies, each with an opening balance sheet,
+  * the 12 sectors and the 50 companies, each with an opening balance sheet,
     its shares handed to its owners, and its debts.
 """
 
 from __future__ import annotations
 
 import os
+import secrets
 from datetime import datetime
 
 import psycopg
@@ -35,47 +36,62 @@ _GENESIS_LOCK = 4_107_001      # any fixed number; stops two servers creating th
 
 
 def _company_shape(index: int, company: data.Company, sector: data.Sector) -> dict:
-    """A company's opening figures, in kobo, from its size and its sector's shape.
+    """A company's opening figures, in kobo, from its size, its sector's shape and
+    whatever makes it different from the usual company in that sector.
 
-    Companies in a sector are not identical: each gets a small fixed variation
-    in its costs and its debt, set by its position in the catalogue, so that the
-    same world is created every time.
+    Companies in a sector are not identical. Where the catalogue says nothing, each
+    gets a small fixed variation of its own, set by its position in the catalogue,
+    so that the same world is created every time.
     """
     revenue = million_naira(company.yearly_revenue_m)
+    quarter = revenue // 4
     cost_tweak = ((index * 37) % 7 - 3) * 50              # between -1.5 and +1.5 points of revenue
     debt_tweak = 10_000 + ((index * 53) % 5 - 2) * 1_000  # between 80% and 120% of the sector's usual debt
-    debt = apply_bps(apply_bps(revenue, sector.debt_x), debt_tweak)
+    trend = company.trend_bps if company.trend_bps is not None else ((index * 29) % 7 - 3) * 40
+    volatility = company.volatility_bps if company.volatility_bps is not None else 250 + ((index * 41) % 5) * 100
+    debt_times = company.debt_times_bps if company.debt_times_bps is not None else debt_tweak
+
+    debt = apply_bps(apply_bps(revenue, sector.debt_x), debt_times)
     bond = apply_bps(debt, company.bond_share_bps)
+    overdue = apply_bps(debt - bond, company.overdue_bps)
     return {
-        "cost_of_sales_bps": sector.cost_of_sales_bps + cost_tweak,
-        "base_revenue": revenue // 4,
-        "base_opex": apply_bps(revenue // 4, sector.opex_bps),
-        "cash": apply_bps(revenue, sector.cash_x),
+        "revenue_growth_bps": sector.revenue_growth_bps + trend,
+        "volatility_bps": volatility,
+        "cost_of_sales_bps": min(sector.cost_of_sales_bps + cost_tweak + company.cost_extra_bps, 10_000),
+        "base_revenue": quarter,
+        "base_opex": apply_bps(apply_bps(quarter, sector.opex_bps), company.opex_times_bps),
+        "cash": apply_bps(apply_bps(revenue, sector.cash_x), company.cash_times_bps),
         "fixed_assets": apply_bps(revenue, sector.fixed_assets_x),
         "customer_loans": apply_bps(revenue, sector.customer_loans_x),
-        "customer_funds": apply_bps(revenue, sector.customer_funds_x),
-        "bank_loan": debt - bond,
+        "customer_funds": apply_bps(apply_bps(revenue, sector.customer_funds_x), company.funds_times_bps),
+        "bank_loan": debt - bond - overdue,
+        "overdue_loan": overdue,
         "bond": bond,
+        "unpaid_bills": apply_bps(quarter, company.unpaid_bills_bps),
     }
 
 
-def create_world(conn: Connection, world_start: datetime) -> bool:
-    """Create the world if it does not exist yet. Returns True if it was created now."""
+def create_world(conn: Connection, world_start: datetime, fortune_seed: str | None = None) -> bool:
+    """Create the world if it does not exist yet. Returns True if it was created now.
+
+    `fortune_seed` is the world's secret, from which each quarter's good and bad
+    fortune is worked out. Left empty, a random one is chosen. Tests pass a fixed one.
+    """
     if world_start.tzinfo is None:
         raise ValueError("The world's start time must carry its time zone.")
     with conn.transaction():
         conn.execute("SELECT pg_advisory_xact_lock(%s)", (_GENESIS_LOCK,))
         created = conn.execute("SELECT 1 FROM world_state").fetchone() is None
         if created:
-            _create(conn, world_start)
+            _create(conn, world_start, fortune_seed or secrets.token_hex(16))
         _give_accounts_to_early_players(conn)
     return created
 
 
-def _create(conn: Connection, world_start: datetime) -> None:
+def _create(conn: Connection, world_start: datetime, fortune_seed: str) -> None:
     conn.execute(
-        "INSERT INTO world_state (world_start, company_tax_bps) VALUES (%s, %s)",
-        (world_start, data.COMPANY_TAX_BPS),
+        "INSERT INTO world_state (world_start, company_tax_bps, fortune_seed) VALUES (%s, %s, %s)",
+        (world_start, data.COMPANY_TAX_BPS, fortune_seed),
     )
 
     # --- The institutions and stand-in accounts ---
@@ -99,7 +115,7 @@ def _create(conn: Connection, world_start: datetime) -> None:
                      (sector.code, sector.name, order))
     sectors = {s.code: s for s in data.SECTORS}
 
-    # --- The 40 companies ---
+    # --- The companies ---
     shapes: dict[str, dict] = {}
     rows: dict[str, dict] = {}
     for index, company in enumerate(data.COMPANIES):
@@ -111,11 +127,12 @@ def _create(conn: Connection, world_start: datetime) -> None:
                             unit="share", issuer_account_id=account)
         company_id = conn.execute(
             "INSERT INTO companies (ticker, name, sector, headquarters, account_id, share_asset,"
-            " revenue_growth_bps, season_bps, cost_of_sales_bps, opex_growth_bps, depreciation_bps, payout_bps)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            " revenue_growth_bps, season_bps, cost_of_sales_bps, opex_growth_bps, depreciation_bps, payout_bps,"
+            " volatility_bps)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
             (company.ticker, company.name, company.sector, company.headquarters, account, share_asset,
-             sector.revenue_growth_bps, list(sector.season_bps), shape["cost_of_sales_bps"],
-             sector.revenue_growth_bps, data.DEPRECIATION_BPS, sector.payout_bps),
+             shape["revenue_growth_bps"], list(sector.season_bps), shape["cost_of_sales_bps"],
+             shape["revenue_growth_bps"], data.DEPRECIATION_BPS, sector.payout_bps, shape["volatility_bps"]),
         ).fetchone()
         shapes[company.ticker] = shape
         rows[company.ticker] = {
@@ -146,6 +163,22 @@ def _create(conn: Connection, world_start: datetime) -> None:
                 (row["id"], lender["account_id"], f"loan from {lender['name']}", shape["bank_loan"],
                  shape["bank_loan"], sector.loan_rate_bps, data.LOAN_TERM_QUARTERS),
             )
+        if shape["overdue_loan"] > 0:
+            # A loan that should have been repaid before the world began, and was not.
+            lender = rows[company.lender]
+            conn.execute(
+                "INSERT INTO company_debts (company_id, lender_account_id, kind, name, original_principal,"
+                " principal_outstanding, annual_rate_bps, start_period, maturity_period, repayment)"
+                " VALUES (%s, %s, 'bank_loan', %s, %s, %s, %s, -8, 0, 'bullet')",
+                (row["id"], lender["account_id"], f"overdue loan from {lender['name']}", shape["overdue_loan"],
+                 shape["overdue_loan"], sector.loan_rate_bps + 400),
+            )
+        if shape["unpaid_bills"] > 0:
+            conn.execute(
+                "INSERT INTO company_payables (company_id, payee_account_id, kind, amount_outstanding, incurred_period)"
+                " VALUES (%s, %s, 'operating_expenses', %s, 0)",
+                (row["id"], public, shape["unpaid_bills"]),
+            )
         if shape["bond"] > 0:
             conn.execute(
                 "INSERT INTO company_debts (company_id, lender_account_id, kind, name, original_principal,"
@@ -166,9 +199,9 @@ def _create(conn: Connection, world_start: datetime) -> None:
     for company in data.COMPANIES:
         shape, row = shapes[company.ticker], rows[company.ticker]
         loans_to_companies = lent.get(row["account_id"], 0)
-        borrowings = shape["bank_loan"] + shape["bond"]
+        borrowings = shape["bank_loan"] + shape["overdue_loan"] + shape["bond"]
         total_assets = shape["cash"] + shape["customer_loans"] + loans_to_companies + shape["fixed_assets"]
-        total_liabilities = borrowings + shape["customer_funds"]
+        total_liabilities = borrowings + shape["unpaid_bills"] + shape["customer_funds"]
         total_equity = total_assets - total_liabilities
         if total_equity <= 0:
             raise ValueError(f"{company.name} would start out owing more than it owns.")
@@ -201,16 +234,25 @@ def _create(conn: Connection, world_start: datetime) -> None:
             "debt_repaid": 0, "dividends_paid": 0,
             "cash": ledger.balance(conn, row["account_id"]), "customer_loans": shape["customer_loans"],
             "loans_to_companies": loans_to_companies, "fixed_assets": shape["fixed_assets"],
-            "total_assets": total_assets, "borrowings": borrowings, "payables": 0,
+            "total_assets": total_assets, "borrowings": borrowings, "payables": shape["unpaid_bills"],
             "customer_funds": shape["customer_funds"], "total_liabilities": total_liabilities,
             "share_capital": share_capital, "retained_earnings": total_equity - share_capital,
-            "total_equity": total_equity, "principal_overdue": 0, "shares_in_issue": shares,
+            "total_equity": total_equity, "principal_overdue": shape["overdue_loan"], "shares_in_issue": shares,
             "base_revenue": shape["base_revenue"], "base_opex": shape["base_opex"],
             "ledger_totals": companies.ledger_totals(conn, row["account_id"]),
-            "drivers": {"revenue": [], "notes": []},
+            "drivers": {"revenue": [], "notes": _opening_notes(shape)},
         }
         companies.insert_result(conn, result)
         companies.file_report(conn, loaded[company.ticker], result)
+
+
+def _opening_notes(shape: dict) -> list[str]:
+    notes = []
+    if shape["overdue_loan"] > 0:
+        notes.append("It began the game with a bank loan already past its repayment date and unpaid.")
+    if shape["unpaid_bills"] > 0:
+        notes.append("It began the game behind on its bills.")
+    return notes
 
 
 def _give_accounts_to_early_players(conn: Connection) -> None:
@@ -227,5 +269,5 @@ if __name__ == "__main__":
         raise SystemExit("Set DATABASE_URL first. See README.md.")
     start = datetime.fromisoformat(os.environ.get("WORLD_START", "2026-10-05T00:00:00+01:00"))
     with psycopg.connect(url, autocommit=True) as connection:
-        made = create_world(connection, start)
+        made = create_world(connection, start, os.environ.get("WORLD_SEED") or None)
     print("The world was created." if made else "The world already exists. Nothing was changed.")
