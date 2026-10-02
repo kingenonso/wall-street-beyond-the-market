@@ -1,0 +1,137 @@
+/* The look of every screen: dark, dense, one accent colour.
+   These named colours are reused everywhere, so a change here changes the whole game. */
+:root {
+  --bg: #060a12;
+  --panel: #0c1320;
+  --panel-raised: #111a2b;
+  --border: #1d2a42;
+  --text: #e9edf5;
+  --muted: #8f9bb3;
+  --gold: #d6a64a;
+  --gold-soft: rgba(214, 166, 74, 0.14);
+  --green: #2fd17b;
+  --amber: #f0b429;
+  --red: #f0596a;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --sans: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+  --serif: "Cinzel", "Trajan Pro", Georgia, "Times New Roman", serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { min-height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+h1 { font-size: 22px; font-weight: 600; margin: 0 0 16px; }
+h2 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+p { margin: 0 0 12px; }
+
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+/* Wordmark */
+.wordmark { display: flex; flex-direction: column; line-height: 1.1; }
+.wordmark-main { font-family: var(--serif); color: var(--gold); font-size: 20px; letter-spacing: 0.08em; }
+.wordmark-sub { font-family: var(--serif); color: var(--text); font-size: 10px; letter-spacing: 0.34em; }
+
+/* Top bar */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  padding: 10px 20px;
+  background: linear-gradient(180deg, #0d1626, #090f1b);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-clock { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.topbar-player { display: flex; align-items: center; gap: 12px; }
+.cash { font-size: 15px; color: var(--text); }
+.avatar {
+  width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--gold-soft); color: var(--gold); border: 1px solid var(--gold);
+  font-weight: 600;
+}
+
+/* Market status pill. The words carry the meaning; colour only reinforces it. */
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  border: 1px solid var(--border); background: var(--panel-raised); white-space: nowrap;
+}
+.pill-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pill-open { color: var(--green); border-color: rgba(47, 209, 123, 0.4); }
+.pill-opening_auction { color: var(--amber); border-color: rgba(240, 180, 41, 0.4); }
+.pill-closed { color: var(--muted); }
+
+/* Buttons and forms */
+button { font: inherit; cursor: pointer; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+.button-primary {
+  width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--gold);
+  background: var(--gold); color: #1a1204; font-weight: 600;
+}
+.button-primary:hover { filter: brightness(1.08); }
+.button-primary:disabled { opacity: 0.6; cursor: default; }
+
+.button-quiet {
+  padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border);
+  background: transparent; color: var(--muted);
+}
+.button-quiet:hover { color: var(--text); border-color: var(--muted); }
+
+label { display: block; margin-bottom: 14px; font-size: 13px; color: var(--muted); }
+input {
+  display: block; width: 100%; margin-top: 6px; padding: 9px 11px;
+  border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); font: inherit; color-scheme: dark;
+}
+.hint { display: block; margin-top: 5px; font-size: 12px; color: var(--muted); }
+.error {
+  padding: 9px 11px; border-radius: 8px;
+  background: rgba(240, 89, 106, 0.12); border: 1px solid rgba(240, 89, 106, 0.45); color: #ffb3bc;
+}
+
+/* Sign-up and login page */
+.auth-page { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.auth-card { width: 100%; max-width: 400px; padding: 28px; }
+.auth-card .wordmark { align-items: center; }
+.auth-card .wordmark-main { font-size: 26px; }
+.tagline { text-align: center; color: var(--muted); font-size: 12px; margin: 10px 0 22px; }
+.tabs { display: flex; gap: 4px; padding: 4px; margin-bottom: 20px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; }
+.tab { flex: 1; padding: 7px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-weight: 600; }
+.tab.active { background: var(--gold-soft); color: var(--gold); }
+.auth-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 12px; }
+
+/* Home */
+.home { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.tile-label { font-size: 12px; color: var(--muted); }
+.tile-value { font-size: 22px; margin: 4px 0 2px; }
+.tile-note { font-size: 12px; }
+.columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+
+table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+tbody tr:last-child td { border-bottom: 0; }
+.row-current td { background: var(--gold-soft); }
+.row-current td:first-child { color: var(--gold); font-weight: 600; box-shadow: inset 3px 0 0 var(--gold); }
+.next-change { margin: 12px 0 0; }
+
+.loading { min-height: 100vh; display: grid; place-items: center; color: var(--muted); }
