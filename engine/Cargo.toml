@@ -1,0 +1,13 @@
+[package]
+name = "bsx-engine"
+version = "0.1.0"
+edition = "2021"
+description = "The Broad Street Exchange's order-matching engine: it pairs buyers with sellers."
+
+# No outside libraries: the engine is small, and building it needs no downloads.
+[dependencies]
+
+[profile.release]
+opt-level = 3
+overflow-checks = true      # a sum too large to hold stops the engine instead of wrapping round silently
+panic = "abort"
