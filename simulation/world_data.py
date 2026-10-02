@@ -384,3 +384,14 @@ LOAN_TERM_QUARTERS = 24                   # bank loans are repaid over six game 
 BOND_TERM_QUARTERS = 32                   # bonds are repaid in one go after about eight game years
 BOND_STAGGER_QUARTERS = 3                 # ...but not all in the same quarter: each company's falls a little later than the last
 BOND_DISCOUNT_BPS = 150                   # bonds pay 1.5 points less interest than bank loans
+
+
+# ---------------------------------------------------------------------------
+# Stage 4, Part A: the Broad Street Exchange.
+# ---------------------------------------------------------------------------
+DAILY_PRICE_LIMIT_BPS = 1000       # a share may not trade more than 10% above or below yesterday's last price
+EXCHANGE_FEE_BPS = 30              # on every trade, buyer and seller each pay 0.3% to the exchange...
+STAMP_DUTY_BPS = 20                # ...and 0.2% to the Government as stamp duty
+ORDER_LIFE_DAYS = 7                # an order still unmatched after seven real days (one game quarter) is handed back
+MOST_OPEN_ORDERS = 50              # the most orders one player may have waiting at once
+LOWEST_LISTING_PRICE_KOBO = 100    # no share is listed below ₦1

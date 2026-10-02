@@ -14,6 +14,7 @@ from datetime import date, datetime, timezone
 
 import psycopg
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi import Path as FastPath
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from psycopg import Connection
@@ -50,8 +51,9 @@ from server.schemas import (
     display_name_key,
     WorldStatusResponse,
     CommodityPrice, MacroQuarter, MoneyWatch, NewsItem, NewsResponse, PricesAndRates,
+    Holding, OrderRequest, OrderResponse, PlacedOrderResponse, PriceLevel, PublicTrade, QuoteResponse,
 )
-from simulation import clock, ledger, moneywatch, news, news_kinds, players, quarters
+from simulation import clock, exchange, ledger, moneywatch, news, news_kinds, players, quarters
 from simulation import world_data as data
 from simulation.ledger import NGN
 
@@ -69,6 +71,9 @@ def _close_due_quarters_once() -> None:
         # can never close a quarter early.
         now = conn.execute("SELECT now()").fetchone()[0]
         quarters.close_due_quarters(conn, now)
+        # Start the trading day and run each share's opening auction when the market opens.
+        if conn.execute("SELECT to_regclass('market_instruments') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
+            exchange.open_market(conn, now)
 
 
 async def _quarter_closer() -> None:
@@ -643,6 +648,114 @@ def read_news(
             headline=r["headline"], body=r["body"], tickers=r["tickers"], locations=r["locations"],
         ) for r in found
     ])
+
+
+# ---------------------------------------------------------------------------
+# The Broad Street Exchange. A player trades only from their own account, and
+# sees of other people's orders only the totals waiting at each price.
+# ---------------------------------------------------------------------------
+
+def _trading_account(conn: Connection, player: dict):
+    account = ledger.player_account_id(conn, player["id"])
+    if account is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Your account is not open yet.")
+    return account
+
+
+def _order_response(row: dict) -> OrderResponse:
+    return OrderResponse(
+        id=row["id"], ticker=row["ticker"], name=row["name"], side=row["side"], kind=row["kind"],
+        limit_price_kobo=row["limit_price"], quantity=row["quantity"], remaining=row["remaining"],
+        held_kobo=row["reserved"], value_traded_kobo=row["value_filled"], fees_paid_kobo=row["fees_paid"],
+        status=row["status"], closed_reason=row["closed_reason"], placed_at=row["placed_at"], closed_at=row["closed_at"],
+    )
+
+
+def _exchange_time(conn: Connection) -> datetime:
+    # The database's clock, so every server agrees on whether the market is open.
+    return conn.execute("SELECT now() AS now").fetchone()["now"]
+
+
+@app.get("/api/market/orders", response_model=list[OrderResponse])
+def my_orders(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return [_order_response(row) for row in exchange.orders_of(conn, _trading_account(conn, player))]
+
+
+@app.get("/api/market/holdings", response_model=list[Holding])
+def my_holdings(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    holdings = []
+    for row in exchange.holdings_of(conn, _trading_account(conn, player)):
+        price = row["last_price"] or row["reference_price"]
+        holdings.append(Holding(
+            ticker=row["ticker"], name=row["name"], shares=row["shares"], held_for_orders=row["held_for_orders"],
+            price_kobo=price, value_kobo=price * (row["shares"] + row["held_for_orders"]),
+        ))
+    return holdings
+
+
+@app.post("/api/market/orders", response_model=PlacedOrderResponse, status_code=status.HTTP_201_CREATED)
+def place_order(body: OrderRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    limits.allow("order", str(player["id"]), attempts=60, per_seconds=60)
+    if (body.kind == "limit") != (body.limit_price_kobo is not None):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "Give a price for an order at your own price, and none for an order at the best price available.")
+    account = _trading_account(conn, player)
+    try:
+        result = exchange.place_order(
+            conn, account=account, ticker=body.ticker, side=body.side, kind=body.kind, quantity=body.quantity,
+            limit_price=body.limit_price_kobo, now=_exchange_time(conn),
+        )
+    except exchange.ExchangeError as refused:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
+    except exchange.EngineFailure:
+        log.exception("The order-matching engine failed.")
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "The exchange cannot take orders at this moment. Nothing was changed. Please try again.") from None
+    placed = next(row for row in exchange.orders_of(conn, account, limit=200) if row["id"] == result["order"]["id"])
+    return PlacedOrderResponse(
+        order=_order_response(placed),
+        trades=[PublicTrade(price_kobo=t["price"], quantity=t["quantity"], in_auction=t["in_auction"], traded_at=t["traded_at"])
+                for t in result["trades"]],
+    )
+
+
+@app.delete("/api/market/orders/{order_id}", response_model=OrderResponse)
+def cancel_order(
+    order_id: int = FastPath(ge=1, le=9_000_000_000_000_000_000),
+    player: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    limits.allow("order", str(player["id"]), attempts=60, per_seconds=60)
+    account = _trading_account(conn, player)
+    try:
+        exchange.cancel_order(conn, account=account, order_id=order_id, now=_exchange_time(conn))
+    except exchange.ExchangeError as refused:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
+    except exchange.EngineFailure:
+        log.exception("The order-matching engine failed.")
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "The exchange cannot do that at this moment. Nothing was changed. Please try again.") from None
+    return _order_response(next(row for row in exchange.orders_of(conn, account, limit=200) if row["id"] == order_id))
+
+
+@app.get("/api/market/{ticker}", response_model=QuoteResponse)
+def quote(
+    ticker: str = FastPath(pattern="^[A-Z]{3}$"),
+    _: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    found = exchange.quote(conn, ticker, _exchange_time(conn))
+    if found is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no share with that code on the exchange.")
+    level = lambda row: PriceLevel(price_kobo=row["price"], quantity=row["quantity"], orders=row["orders"])  # noqa: E731
+    return QuoteResponse(
+        ticker=found["ticker"], name=found["name"], market_state=found["state"], last_price_kobo=found["last_price"],
+        reference_price_kobo=found["reference_price"], lowest_today_kobo=found["lowest_today"],
+        highest_today_kobo=found["highest_today"], fee_bps=data.EXCHANGE_FEE_BPS + data.STAMP_DUTY_BPS,
+        bids=[level(row) for row in found["bids"]], offers=[level(row) for row in found["offers"]],
+        trades=[PublicTrade(price_kobo=t["price"], quantity=t["quantity"], in_auction=t["in_auction"], traded_at=t["traded_at"])
+                for t in found["trades"]],
+    )
 
 
 def _with_ebitda(figures: dict) -> dict:

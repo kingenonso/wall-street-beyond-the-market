@@ -306,3 +306,76 @@ class NewsItem(BaseModel):
 class NewsResponse(BaseModel):
     outlets: list[str]
     items: list[NewsItem]              # newest first
+
+
+# ---------------------------------------------------------------------------
+# The Broad Street Exchange
+# ---------------------------------------------------------------------------
+
+class OrderRequest(Request):
+    """An order to buy or sell shares. Prices are whole kobo per share."""
+    ticker: str = Field(pattern=r"^[A-Z]{3}$")
+    side: Literal["buy", "sell"]
+    kind: Literal["limit", "market"]
+    quantity: int = Field(gt=0, le=100_000_000_000, strict=True)
+    limit_price_kobo: int | None = Field(default=None, gt=0, le=1_000_000_000_000, strict=True)
+
+
+class PriceLevel(BaseModel):
+    price_kobo: Kobo
+    quantity: int                      # shares waiting at this price, all orders together
+    orders: int
+
+
+class PublicTrade(BaseModel):
+    price_kobo: Kobo
+    quantity: int
+    in_auction: bool
+    traded_at: datetime
+
+
+class QuoteResponse(BaseModel):
+    """What everybody may see of one share. Nobody's name is on it."""
+    ticker: str
+    name: str
+    market_state: str
+    last_price_kobo: Kobo | None       # none until the first trade
+    reference_price_kobo: Kobo         # the last price of the session before
+    lowest_today_kobo: Kobo
+    highest_today_kobo: Kobo
+    fee_bps: int                       # what buyer and seller each pay on a trade, in hundredths of a percent
+    bids: list[PriceLevel]             # buyers waiting, best price first
+    offers: list[PriceLevel]           # sellers waiting, best price first
+    trades: list[PublicTrade]          # newest first
+
+
+class OrderResponse(BaseModel):
+    id: int
+    ticker: str
+    name: str
+    side: str
+    kind: str
+    limit_price_kobo: Kobo | None
+    quantity: int
+    remaining: int
+    held_kobo: Kobo                    # cash the exchange is holding for this order
+    value_traded_kobo: Kobo
+    fees_paid_kobo: Kobo
+    status: str
+    closed_reason: str | None
+    placed_at: datetime
+    closed_at: datetime | None
+
+
+class PlacedOrderResponse(BaseModel):
+    order: OrderResponse
+    trades: list[PublicTrade]          # what this order traded at once
+
+
+class Holding(BaseModel):
+    ticker: str
+    name: str
+    shares: int                        # owned and free to sell
+    held_for_orders: int               # owned, and held by the exchange for sell orders still waiting
+    price_kobo: Kobo                   # the last price, or the listing price if it has never traded
+    value_kobo: Kobo

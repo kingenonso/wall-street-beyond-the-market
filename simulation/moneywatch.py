@@ -34,6 +34,7 @@ HOLDERS = (
     ("Pension funds", "a.code = 'investors:institutions'"),
     ("Private investors", "a.code IN ('investors:founders', 'investors:public')"),
     ("Government", "a.kind IN ('government', 'prize_pool')"),
+    ("The exchange", "a.kind = 'exchange'"),
     ("Players", "a.kind = 'player'"),
 )
 # What each reading asks for.

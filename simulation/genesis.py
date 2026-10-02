@@ -20,14 +20,14 @@ from __future__ import annotations
 
 import os
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 
 import psycopg
 from psycopg import Connection
 from psycopg.rows import tuple_row
 from psycopg.types.json import Jsonb
 
-from simulation import companies, events, ledger, macro, news, players
+from simulation import companies, events, exchange, ledger, macro, news, players
 from simulation import world_data as data
 from simulation.ledger import NGN, Leg
 from simulation.money import apply_bps, million_naira, naira
@@ -312,6 +312,9 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str, test_wor
     # The events of the first quarter are decided now, and stay out of sight until their day.
     news.for_events(conn, events.generate(conn, 1, fortune_seed))
 
+    # Every company's shares are listed on the Broad Street Exchange.
+    exchange.setup(conn, datetime.now(timezone.utc))
+
 
 def _describe_the_economy(conn: Connection, shapes: dict[str, dict]) -> tuple[int, int]:
     """Record what companies buy from each other and where spending goes.
@@ -404,4 +407,8 @@ if __name__ == "__main__":
         # for a real website (COOKIE_SECURE=true, the default) never can be.
         testing = os.environ.get("COOKIE_SECURE", "true").lower() == "false"
         made = create_world(connection, start, os.environ.get("WORLD_SEED") or None, test_world=testing)
+        if not made:
+            # A world from before the exchange existed gets its shares listed now.
+            with connection.transaction():
+                exchange.setup(connection, datetime.now(timezone.utc))
     print("The world was created." if made else "The world already exists. Nothing was changed.")

@@ -17,7 +17,7 @@ from datetime import datetime
 from psycopg import Connection
 from psycopg.rows import dict_row
 
-from simulation import banking, clock, companies, economy, events, ledger, macro, mindsets, moneywatch, news
+from simulation import banking, clock, companies, economy, events, exchange, ledger, macro, mindsets, moneywatch, news
 from simulation.money import BPS
 from simulation.ledger import NGN
 
@@ -42,7 +42,7 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
             _close_period(conn, period, world["company_tax_bps"], world["fortune_seed"])
             # Re-add the whole ledger before the quarter is allowed to close. If anything
             # is out, the quarter is not closed and the fault is reported loudly.
-            problems = ledger.audit(conn)
+            problems = ledger.audit(conn) + exchange.check_books(conn)
             if problems:
                 raise ledger.LedgerError("The ledger failed its end-of-quarter check: " + " ".join(problems))
             conn.execute("UPDATE world_state SET last_closed_period = %s", (period,))
