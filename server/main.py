@@ -49,8 +49,10 @@ from server.schemas import (
     SignUpRequest,
     display_name_key,
     WorldStatusResponse,
+    CommodityPrice, MacroQuarter, MoneyWatch, NewsItem, NewsResponse, PricesAndRates,
 )
-from simulation import clock, ledger, players, quarters
+from simulation import clock, ledger, moneywatch, news, news_kinds, players, quarters
+from simulation import world_data as data
 from simulation.ledger import NGN
 
 log = logging.getLogger("wsbm.server")
@@ -487,15 +489,6 @@ def _location_effect(conn: Connection, company: dict) -> LocationEffect | None:
 
 _MIN_PLAYERS_SHOWN = 20
 
-_HOLDERS = (
-    ("Households", "a.code LIKE 'households:%%'"),
-    ("Companies", "a.kind = 'company' AND NOT c.sector IN ('banking', 'insurance')"),
-    ("Banks and insurers", "a.kind = 'company' AND c.sector IN ('banking', 'insurance')"),
-    ("Pension funds", "a.code = 'investors:institutions'"),
-    ("Private investors", "a.code IN ('investors:founders', 'investors:public')"),
-    ("Government", "a.kind IN ('government', 'prize_pool')"),
-    ("Players", "a.kind = 'player'"),
-)
 
 
 @app.get("/api/economy", response_model=EconomyResponse)
@@ -521,16 +514,14 @@ def economy(_: dict = Depends(current_player), conn: Connection = Depends(get_co
     # A handful of players' balances would give each one away, so the players' line
     # appears only once there are enough of them. Until then they are part of "Other".
     enough_players = conn.execute("SELECT count(*) AS n FROM players").fetchone()["n"] >= _MIN_PLAYERS_SHOWN
-    holders = []
-    for name, condition in _HOLDERS:
-        if name == "Players" and not enough_players:
-            continue
-        amount = conn.execute(
-            "SELECT coalesce(sum(b.balance), 0)::bigint AS total FROM ledger_balances b"
-            " JOIN ledger_accounts a ON a.id = b.account_id LEFT JOIN companies c ON c.account_id = a.id"
-            f" WHERE b.asset = 'NGN' AND b.balance > 0 AND {condition}"
-        ).fetchone()["total"]
-        holders.append(MoneyHolder(holder=name, amount_kobo=amount, share_bps=amount * 10_000 // money if money else 0))
+    held = moneywatch.holders(conn)
+    if not enough_players:
+        # Counted with the other private investors, so that no line on the page is the players' money alone.
+        held["Private investors"] += held.pop("Players")
+    holders = [
+        MoneyHolder(holder=name, amount_kobo=amount, share_bps=amount * 10_000 // money if money else 0)
+        for name, amount in held.items()
+    ]
 
     listed = sum(h.amount_kobo for h in holders)
     if money - listed > 0:
@@ -550,14 +541,58 @@ def economy(_: dict = Depends(current_player), conn: Connection = Depends(get_co
     ).fetchall()
     spent = sum(r["amount"] for r in spending)
 
+    prices, watch, macro_history = None, None, []
+    state = conn.execute("SELECT * FROM economy_results WHERE period = %s", (period,)).fetchone() if period else None
+    if state:
+        earlier = conn.execute("SELECT * FROM economy_results WHERE period = %s", (period - 1,)).fetchone()
+        names = (("Energy (oil, gas, fuel)", "energy_bps"), ("Farm produce", "agriculture_bps"),
+                 ("Metals", "metals_bps"), ("Building materials", "materials_bps"))
+        prices = PricesAndRates(
+            inflation_bps=state["inflation_bps"], inflation_target_bps=data.INFLATION_TARGET_BPS,
+            inflation_low_bps=data.INFLATION_TARGET_BPS - data.INFLATION_BAND_BPS,
+            inflation_high_bps=data.INFLATION_TARGET_BPS + data.INFLATION_BAND_BPS,
+            price_index_bps=state["price_index_bps"], wage_index_bps=state["wage_index_bps"],
+            policy_rate_bps=state["next_policy_rate_bps"], previous_rate_bps=state["policy_rate_bps"],
+            rate_reason=state["rate_reason"],
+            household_loan_rate_bps=state["next_policy_rate_bps"] + data.HOUSEHOLD_LOAN_SPREAD_BPS,
+            confidence_bps=state["confidence_bps"], demand_gap_bps=state["demand_gap_bps"],
+            household_debt_kobo=sum(r["debt"] for r in now.values()),
+            central_bank_lending_kobo=conn.execute(
+                "SELECT coalesce(sum(principal_outstanding), 0)::bigint AS total FROM company_debts"
+                " WHERE kind = 'central_bank_loan'").fetchone()["total"],
+            commodities=[
+                CommodityPrice(
+                    name=name, index_bps=state[column],
+                    change_bps=round((state[column] - earlier[column]) * 10_000 / earlier[column]) if earlier else None,
+                ) for name, column in names
+            ],
+        )
+        macro_history = [
+            MacroQuarter(period=r["period"], period_label=clock.period_label(r["period"]), inflation_bps=r["inflation_bps"],
+                         policy_rate_bps=r["policy_rate_bps"], money_kobo=r["money"])
+            for r in conn.execute("SELECT period, inflation_bps, policy_rate_bps, money FROM economy_results"
+                                  " WHERE period >= 1 AND period > %s ORDER BY period", (period - 12,)).fetchall()
+        ]
+        reading = conn.execute("SELECT reading, reasons, action, money_growth_bps, output_growth_bps"
+                               " FROM money_watch_results WHERE period = %s", (period,)).fetchone()
+        if reading:
+            watch = MoneyWatch(
+                reading=reading["reading"], action=reading["action"],
+                # What players hold between them stays private until there are enough of them.
+                reasons=[r for r in reading["reasons"] if enough_players or not r.startswith("Players ")],
+                money_growth_bps=reading["money_growth_bps"], output_growth_bps=reading["output_growth_bps"],
+            )
+
     return EconomyResponse(
+        prices=prices, macro_history=macro_history, money_watch=watch,
         period=period, period_label=clock.period_label(period) if period else None,
         money_in_existence_kobo=money,
         households=[
             HouseholdGroup(
                 location=r["location"], population_bps=r["population_bps"], income_kobo=r["income"],
                 wages_kobo=r["wages"], government_kobo=r["government"], pensions_kobo=r["pensions"],
-                spending_kobo=r["spending"], savings_kobo=r["cash"], jobs=r["jobs"],
+                spending_kobo=r["spending"], savings_kobo=r["cash"], claims_kobo=r["claims"], debt_kobo=r["debt"],
+                jobs=r["jobs"],
                 income_change_bps=change(r["location"], "income"), jobs_change_bps=change(r["location"], "jobs"),
             )
             for r in sorted(now.values(), key=lambda r: r["sort_order"])
@@ -574,6 +609,40 @@ def economy(_: dict = Depends(current_player), conn: Connection = Depends(get_co
             SpendingShare(sector=r["name"], share_bps=r["amount"] * 10_000 // spent) for r in spending if spent
         ],
     )
+
+
+# ---------------------------------------------------------------------------
+# The news wire. A player is shown only what is dated up to the present game day:
+# an event later in the running quarter is already decided, and stays unseen.
+# ---------------------------------------------------------------------------
+
+@app.get("/api/news", response_model=NewsResponse)
+def read_news(
+    outlet: str | None = Query(default=None, max_length=40),
+    ticker: str | None = Query(default=None, pattern="^[A-Z]{2,5}$"),
+    limit: int = Query(default=60, ge=1, le=120),
+    _: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    world = _world(conn)
+    papers = list(news_kinds.OUTLETS.values())
+    if world is None:
+        return NewsResponse(outlets=papers, items=[])
+    code = next((key for key, name in news_kinds.OUTLETS.items() if outlet in (key, name)), None)
+    if outlet and code is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no newspaper of that name.")
+    today = clock.game_date(datetime.now(timezone.utc), clock.effective_start(world["world_start"], world["weeks_ahead"]))
+    if today is None:
+        return NewsResponse(outlets=papers, items=[])
+    period_now = (today.year - 1) * clock.QUARTERS_PER_YEAR + today.quarter
+    found = news.visible(conn, period_now, today.day_of_quarter, limit=limit, outlet=code, ticker=ticker)
+    return NewsResponse(outlets=papers, items=[
+        NewsItem(
+            period=r["period"], period_label=clock.period_label(r["period"]), day=r["day"],
+            outlet=news_kinds.OUTLETS[r["outlet"]], kind=r["kind"], story=r["story"], importance=r["importance"],
+            headline=r["headline"], body=r["body"], tickers=r["tickers"], locations=r["locations"],
+        ) for r in found
+    ])
 
 
 def _with_ebitda(figures: dict) -> dict:

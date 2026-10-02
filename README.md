@@ -14,8 +14,9 @@ The game is built in 16 stages. Each stage is finished only when its test passes
 | 1. Foundation: sign-up, login, world clock | **Done** |
 | 2. Ledger and companies | **Done** |
 | 3. The economy and its people, Part A: households, wages, spending | **Done** |
-| 3. Part B: banks, the Central Bank, inflation, the Money Watch, the news wire | Next (not started) |
-| 4 to 16 | Not started |
+| 3. Part B: banks, the Central Bank, inflation, events, the Money Watch, the news wire | **Done** |
+| 4. The stock market | Next (not started) |
+| 5 to 16 | Not started |
 
 Stage 1 test, from the design: *a player can sign up, log in and see Lagos
 time and whether the market is open.* It passes.
@@ -24,7 +25,10 @@ Stage 2 test, from the design: *eight game quarters run, every balance sheet
 balances, and no naira appears without a recorded payer.* It passes.
 See `docs/STAGE_02_LEDGER_AND_COMPANIES.md` for the full report.
 
-Stage 3 Part A report: `docs/STAGE_03A_HOUSEHOLDS_AND_SPENDING.md`.
+Stage 3 test, from the design: *five game years run on fast-forward with inflation
+inside its target band and no impossible values; twenty game years run without the
+economy seizing up.* It passes.
+Reports: `docs/STAGE_03A_HOUSEHOLDS_AND_SPENDING.md` and `docs/STAGE_03B_BANKS_PRICES_AND_NEWS.md`.
 
 ## What is in each folder
 

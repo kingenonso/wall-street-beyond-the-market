@@ -207,6 +207,8 @@ class HouseholdGroup(BaseModel):
     pensions_kobo: Kobo
     spending_kobo: Kobo
     savings_kobo: Kobo
+    claims_kobo: Kobo                  # paid to them by insurers after a severe event
+    debt_kobo: Kobo                    # what they owe the banks
     jobs: int
     income_change_bps: int | None
     jobs_change_bps: int | None
@@ -232,6 +234,48 @@ class SpendingShare(BaseModel):
     share_bps: int
 
 
+class CommodityPrice(BaseModel):
+    name: str                          # what it is called on screen
+    index_bps: int                     # 10000 = its price on the day the world began
+    change_bps: int | None             # against the quarter before
+
+
+class PricesAndRates(BaseModel):
+    """Prices and the Central Bank (design document, section 10)."""
+    inflation_bps: int                 # how much prices rose over the past year
+    inflation_target_bps: int
+    inflation_low_bps: int             # the band the Central Bank accepts
+    inflation_high_bps: int
+    price_index_bps: int               # 10000 = prices on the day the world began
+    wage_index_bps: int
+    policy_rate_bps: int               # the Central Bank's interest rate for the quarter now running
+    previous_rate_bps: int
+    rate_reason: str
+    household_loan_rate_bps: int       # what households pay on a bank loan this quarter
+    confidence_bps: int                # households' readiness to spend (10000 = the usual)
+    demand_gap_bps: int                # spending against what the economy can supply (0 = in step)
+    household_debt_kobo: Kobo
+    central_bank_lending_kobo: Kobo    # what the banks owe the Central Bank
+    commodities: list[CommodityPrice]
+
+
+class MacroQuarter(BaseModel):
+    period: int
+    period_label: str
+    inflation_bps: int
+    policy_rate_bps: int
+    money_kobo: Kobo
+
+
+class MoneyWatch(BaseModel):
+    """The Money Watch (design document, section 10)."""
+    reading: str                       # green, amber or red
+    reasons: list[str]
+    action: str
+    money_growth_bps: int              # over the past year
+    output_growth_bps: int
+
+
 class EconomyResponse(BaseModel):
     period: int
     period_label: str | None
@@ -240,3 +284,25 @@ class EconomyResponse(BaseModel):
     money: list[MoneyHolder]
     history: list[EconomyQuarter]              # oldest first
     household_spending: list[SpendingShare]    # where households' spending went in the latest quarter
+    prices: PricesAndRates | None = None       # none before the first quarter has closed
+    macro_history: list[MacroQuarter] = []     # oldest first
+    money_watch: MoneyWatch | None = None
+
+
+class NewsItem(BaseModel):
+    period: int
+    period_label: str
+    day: int                           # the day of that quarter, 1 to 90
+    outlet: str                        # the newspaper's name
+    kind: str
+    story: str                         # items about the same affair share a story
+    importance: int
+    headline: str
+    body: str
+    tickers: list[str]
+    locations: list[str]
+
+
+class NewsResponse(BaseModel):
+    outlets: list[str]
+    items: list[NewsItem]              # newest first

@@ -114,6 +114,8 @@ export type HouseholdGroup = {
   pensions_kobo: Kobo;
   spending_kobo: Kobo;
   savings_kobo: Kobo;
+  claims_kobo: Kobo;
+  debt_kobo: Kobo;
   jobs: number;
   income_change_bps: number | null;
   jobs_change_bps: number | null;
@@ -134,7 +136,52 @@ export type Economy = {
     jobs: number;
   }[];
   household_spending: { sector: string; share_bps: number }[];
+  prices: PricesAndRates | null;
+  macro_history: { period: number; period_label: string; inflation_bps: number; policy_rate_bps: number; money_kobo: Kobo }[];
+  money_watch: MoneyWatch | null;
 };
+
+export type PricesAndRates = {
+  inflation_bps: number;
+  inflation_target_bps: number;
+  inflation_low_bps: number;
+  inflation_high_bps: number;
+  price_index_bps: number;
+  wage_index_bps: number;
+  policy_rate_bps: number;
+  previous_rate_bps: number;
+  rate_reason: string;
+  household_loan_rate_bps: number;
+  confidence_bps: number;
+  demand_gap_bps: number;
+  household_debt_kobo: Kobo;
+  central_bank_lending_kobo: Kobo;
+  commodities: { name: string; index_bps: number; change_bps: number | null }[];
+};
+
+export type MoneyWatch = {
+  reading: "green" | "amber" | "red";
+  reasons: string[];
+  action: string;
+  money_growth_bps: number;
+  output_growth_bps: number;
+};
+
+export type NewsItem = {
+  period: number;
+  period_label: string;
+  day: number;
+  outlet: string;
+  kind: string;
+  story: string;
+  importance: number;
+  headline: string;
+  body: string;
+  tickers: string[];
+  locations: string[];
+};
+
+export type News = { outlets: string[]; items: NewsItem[] };
 
 /** Sign-up is not finished until the emailed code is typed in. */
 export type SignUpPending = {
@@ -186,6 +233,13 @@ export const api = {
   worldStatus: () => request<WorldStatus>("/world/status"),
   companies: () => request<{ sectors: Sector[] }>("/companies"),
   economy: () => request<Economy>("/economy"),
+  news: (filter: { outlet?: string; ticker?: string; limit?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (filter.outlet) query.set("outlet", filter.outlet);
+    if (filter.ticker) query.set("ticker", filter.ticker);
+    query.set("limit", String(filter.limit ?? 60));
+    return request<News>(`/news?${query}`);
+  },
   company: (ticker: string) => request<Company>(`/companies/${encodeURIComponent(ticker)}?periods=8`),
   logout: () => request<void>("/auth/logout", { method: "POST" }),
   login: (email: string, password: string) =>

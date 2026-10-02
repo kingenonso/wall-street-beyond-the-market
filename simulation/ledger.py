@@ -137,6 +137,15 @@ def audit(conn: Connection) -> list[str]:
     )[0][0]
     if overdrawn:
         problems.append(f"{overdrawn} accounts are below zero.")
+    # All the naira in existence is the opening money plus what banks still owe the
+    # Central Bank, counted from the loan records. (Before Stage 3 Part B's tables exist,
+    # there is nothing to compare with.)
+    if _rows(conn, "SELECT to_regclass('company_debts') IS NOT NULL")[0][0]:
+        opening = _rows(conn, "SELECT coalesce(sum(e.amount), 0) FROM ledger_entries e JOIN ledger_transactions t"
+                              " ON t.id = e.transaction_id WHERE t.kind = 'opening_balance' AND e.asset = 'NGN' AND e.amount > 0")[0][0]
+        lent = _rows(conn, "SELECT coalesce(sum(principal_outstanding), 0) FROM company_debts WHERE kind = 'central_bank_loan'")[0][0]
+        if amount_in_existence(conn) != opening + lent:
+            problems.append("The money in existence is not the opening money plus what banks owe the Central Bank.")
     return problems
 
 

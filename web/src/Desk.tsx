@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { api, type CompanySummary, type Player } from "./api";
+import { api, type CompanySummary, type NewsItem, type Player } from "./api";
+import { newsDate } from "./News";
 import { formatCompact, formatCountdown, formatLagosDay, formatLagosTime, formatNaira, MARKET_LABEL } from "./format";
 import { useLoad } from "./hooks";
 import { Change, Failed, Loading, Panel, Rating } from "./Shell";
@@ -8,9 +9,20 @@ import type { LiveClock } from "./useClock";
 type Card = { tag: string; when: string; title: string; text: string; action: string; href: string };
 
 /** "Needs you now": built only from things that are really true for this player right now. */
-function cardsFor(player: Player, latestQuarter: string | null, live: LiveClock | null, count: number | null): Card[] {
+function cardsFor(player: Player, latestQuarter: string | null, live: LiveClock | null, count: number | null,
+                  topStory: NewsItem | null): Card[] {
   const all = count ? `All ${count}` : "All the";
   const cards: Card[] = [];
+  if (topStory) {
+    cards.push({
+      tag: topStory.outlet.toUpperCase(),
+      when: newsDate(topStory),
+      title: topStory.headline,
+      text: topStory.body,
+      action: "Read the news",
+      href: "#/news",
+    });
+  }
   if (latestQuarter) {
     cards.push({
       tag: "RESULTS",
@@ -108,11 +120,32 @@ export function DeskWork({ player, live, onLoggedOut }: { player: Player; live: 
   const status = useLoad(api.worldStatus, "status", onLoggedOut);
   const companies = useLoad(api.companies, "companies", onLoggedOut);
   const movements = useLoad(api.movements, `movements:${player.cash.amount_kobo}`, onLoggedOut);
+  const news = useLoad(() => api.news({ limit: 40 }), "desk-news", onLoggedOut);
   const quarter = status.data?.last_closed_label ?? null;
+  // The top story: the most important item of the last three game days, if it matters enough to interrupt.
+  const items = news.data?.items ?? [];
+  const recent = items.filter((item) => item.period === items[0].period && item.day >= items[0].day - 2);
+  const top = recent.reduce<NewsItem | null>((best, item) => (!best || item.importance > best.importance ? item : best), null);
+  const seen = new Set<string>();
+  const headlines = items.filter((item) => {
+    const key = `${item.story}|${item.kind}|${item.period}`;
+    return item === top || seen.has(key) ? false : (seen.add(key), true);
+  }).slice(0, 6);
 
   return (
     <>
-      <NeedsYouNow cards={cardsFor(player, quarter, live, status.data?.companies ?? null)} />
+      <NeedsYouNow cards={cardsFor(player, quarter, live, status.data?.companies ?? null, top && top.importance >= 60 ? top : null)} />
+
+      {headlines.length > 0 && (
+        <Panel title="Latest news" aside={<a href="#/news">All news</a>}>
+          {headlines.map((item, index) => (
+            <div key={index} className="news-line">
+              <div className="small muted"><span className="mono">{newsDate(item)}</span> · {item.outlet}</div>
+              <div className="strong">{item.headline}</div>
+            </div>
+          ))}
+        </Panel>
+      )}
 
       {quarter && companies.data && (
         <Movers companies={companies.data.sectors.flatMap((s) => s.companies)} quarter={quarter} />

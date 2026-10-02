@@ -144,3 +144,16 @@ def player(client):
     response = join(client, ADULT)
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def money_accounted_for(db) -> int:
+    """All the naira that should exist, counted without looking at anybody's balance:
+    the opening money, plus what banks still owe the Central Bank on its loans to them.
+    (Stage 3 Part B: the Central Bank's lending to banks is the one way new money appears;
+    it goes out of existence again when a bank repays.)"""
+    opening = db.execute(
+        "SELECT sum(e.amount) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
+        " WHERE t.kind = 'opening_balance' AND e.asset = 'NGN' AND e.amount > 0").fetchone()[0]
+    lent = db.execute(
+        "SELECT coalesce(sum(principal_outstanding), 0) FROM company_debts WHERE kind = 'central_bank_loan'").fetchone()[0]
+    return int(opening + lent)

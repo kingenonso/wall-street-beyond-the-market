@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, type Company, type FiledReport, type Kobo } from "./api";
 import { changeBps, formatCompact, formatCount, formatLagosDate, formatMillions, formatPercent, periodLabel } from "./format";
 import { useLoad } from "./hooks";
+import { newsDate } from "./News";
 import { Change, Failed, Loading, Panel, Rating } from "./Shell";
 import { TrendChart } from "./TrendChart";
 
@@ -212,6 +213,28 @@ export function CompanyWork({ ticker, onLoggedOut }: { ticker: string; onLoggedO
   return data ? <CompanyBody company={data} /> : null;
 }
 
+function CompanyNews({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: () => void }) {
+  const { data } = useLoad(() => api.news({ ticker, limit: 12 }), `news:${ticker}`, onLoggedOut);
+  // One telling of each story is enough here.
+  const seen = new Set<string>();
+  const items = (data?.items ?? []).filter((item) => {
+    const key = `${item.story}|${item.kind}|${item.period}`;
+    return seen.has(key) ? false : (seen.add(key), true);
+  }).slice(0, 5);
+  if (items.length === 0) return null;
+  return (
+    <Panel title="In the news" aside={<a href="#/news">All news</a>}>
+      {items.map((item, index) => (
+        <div key={index} className="news-line">
+          <div className="small muted"><span className="mono">{newsDate(item)}</span> · {item.outlet}</div>
+          <div className="strong">{item.headline}</div>
+          <div className="small muted">{item.body}</div>
+        </div>
+      ))}
+    </Panel>
+  );
+}
+
 export function CompanyRail({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: () => void }) {
   const { data } = useLoad(() => api.company(ticker), `company:${ticker}`, onLoggedOut);
   if (!data) return null;
@@ -219,6 +242,8 @@ export function CompanyRail({ ticker, onLoggedOut }: { ticker: string; onLoggedO
   const notes = latest.figures.notes;
   return (
     <>
+      <CompanyNews ticker={ticker} onLoggedOut={onLoggedOut} />
+
       <Panel title="Credit rating">
         <div className="headline"><Rating value={latest.credit_rating} /></div>
         <div className="why-title">WHY THIS RATING?</div>

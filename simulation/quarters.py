@@ -17,7 +17,8 @@ from datetime import datetime
 from psycopg import Connection
 from psycopg.rows import dict_row
 
-from simulation import clock, companies, economy, ledger
+from simulation import banking, clock, companies, economy, events, ledger, macro, mindsets, moneywatch, news
+from simulation.money import BPS
 from simulation.ledger import NGN
 
 log = logging.getLogger("wsbm.quarters")
@@ -52,13 +53,17 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
 def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str) -> None:
     """One quarter of the whole economy, in order.
 
-      1. Households and investors spend at the companies.
-      2. Companies buy what they need from each other.
-      3. Each company closes its quarter: counts its sales, pays its people, its
+      1. Loans are brought to this quarter's interest rate.
+      2. Households pay interest, repay and borrow; then they spend at the companies.
+      3. Companies buy what they need from each other.
+      4. Insurers pay for what this quarter's events destroyed.
+      5. Each company closes its quarter: counts its sales, pays its people, its
          interest, its tax and its owners.
-      4. The Government spends the tax it collected.
-      5. Pension funds pay pensions.
-      6. Each location's households are written up, and every company files its report.
+      6. The Government spends what it collected. Pension funds pay pensions.
+      7. The economy is measured: prices, wages, commodities. The Money Watch takes
+         its reading, and the Central Bank sets the next interest rate.
+      8. Every company files its report, the news of the quarter is written, and next
+         quarter's events are decided.
 
     What households earn in one quarter, they spend in the next.
     """
@@ -66,15 +71,43 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
         raise ledger.LedgerError("The world has no secret. Quarters cannot be closed without one.")
     world = economy.load_world(conn)
     all_companies = companies.load_companies(conn)
+    before = macro.state(conn, period - 1)
+    if before is None:
+        raise economy.WorldTooOld("This world was created before prices and lending existed. Start a new world.")
+    policy_rate = before["next_policy_rate_bps"]            # the rate the Central Bank set for this quarter
+    happening = events.load(conn, period)
+    moods, severe = events.location_moods(happening)
+    lending_factor = moneywatch.lending_factor_bps(conn, period)
 
-    lasting_pull = economy.set_market_pulls(conn, world, all_companies, period, fortune_seed)
-    sector_weights, sector_fortune = economy.household_sector_weights(world, period, fortune_seed)
-    spent = economy.households_spend(conn, world, period, sector_weights, fortune_seed)
-    economy.companies_buy_inputs(conn, world, all_companies, period, fortune_seed)
+    banking.reprice_loans(conn, period, policy_rate)
+    lasting_pull = economy.set_market_pulls(conn, world, all_companies, period, fortune_seed, happening)
+    sector_weights, sector_fortune = economy.household_sector_weights(world, period, fortune_seed, before)
 
+    signals = economy.household_signals(conn, world, period, before, severe)
+    responses = {
+        location: mindsets.location_response(world.mindset_mix.get(location, {}), signals[location])
+        for location in world.households
+    }
+    borrowed, debt_service = banking.household_credit(
+        conn, world, period, policy_rate, {loc: r["borrow_bps"] for loc, r in responses.items()}, lending_factor,
+    )
+    spent = economy.households_spend(conn, world, period, sector_weights, fortune_seed, responses, moods, borrowed, debt_service)
+    economy.companies_buy_inputs(conn, world, all_companies, period, fortune_seed, before)
+    damages, claims_paid = economy.pay_claims(conn, world, all_companies, period, happening, spent)
+
+    ratings = {
+        r["company_id"]: r["credit_rating"]
+        for r in _dicts(conn, "SELECT DISTINCT ON (company_id) company_id, credit_rating FROM company_reports"
+                              " ORDER BY company_id, period DESC, version DESC")
+    }
+    lenders = {}
+    for bank in banking.banks(conn, period):
+        lenders[bank["account_id"]] = {**bank, "room": banking.lending_room(bank), "rating": ratings.get(bank["id"])}
     ctx = companies.Context(
         world=world, tax_bps=tax_bps, fortune_seed=fortune_seed,
         lasting_pull=lasting_pull, sector_fortune=sector_fortune,
+        policy_rate_bps=policy_rate, wage_index_bps=before["wage_index_bps"], lending_factor_bps=lending_factor,
+        damages=damages, ratings=ratings, banks=lenders,
     )
     results = [(company, companies.close_company_quarter(conn, company, period, ctx)) for company in all_companies]
 
@@ -82,5 +115,39 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     economy.pensions_paid(conn, world, period)
     economy.record_households(conn, world, period, spent, results)
 
+    # Measure the economy, take the Money Watch's reading, and let the Central Bank decide.
+    company_sales = sum(result["revenue"] for _, result in results)
+    household_spending = sum(spent.values())
+    money = ledger.amount_in_existence(conn)
+    watch = moneywatch.measure(
+        conn, period, money=money,
+        money_growth_bps=macro.yearly_change_bps(conn, "money", period, money, scale_up=False),
+        output_growth_bps=macro.yearly_change_bps(conn, "company_sales", period, company_sales, scale_up=False),
+        inflation_bps=before["inflation_bps"],
+    )
+    population = {loc["name"]: loc["population_bps"] for loc in world.locations}
+    confidence = sum(
+        population[location] * (response["spend_bps"] + moods.get(location, 0)) for location, response in responses.items()
+    ) // BPS
+    measured = macro.close_quarter(
+        conn, period, fortune_seed, company_sales=company_sales, household_spending=household_spending,
+        money=money, commodity_events=events.commodity_moves(happening),
+        premium_index_bps=economy.premium_index_bps(conn, period, claims_paid),
+        confidence_bps=confidence, rate_extra_bps=watch["rate_extra_bps"],
+    )
+
     for company, result in results:
         companies.file_report(conn, company, result)
+
+    # The news of the quarter just closed, then next quarter's events and the news of them
+    # (each dated the day it happens, and out of sight until then).
+    news.for_results(
+        conn, period, before=before, now=measured, watch=watch, happening=happening, companies=all_companies,
+        results=results, damages=damages, claims_paid=claims_paid, policy_rate_bps=policy_rate,
+    )
+    news.for_events(conn, events.generate(conn, period + 1, fortune_seed))
+
+
+def _dicts(conn: Connection, sql: str, params=()) -> list[dict]:
+    with conn.cursor(row_factory=dict_row) as cur:
+        return cur.execute(sql, params).fetchall()

@@ -185,7 +185,7 @@ COMPANIES: tuple[Company, ...] = (
 )
 
 # Whole sectors have good and bad quarters too: up to this far above or below trend.
-SECTOR_VOLATILITY_BPS = 300
+SECTOR_VOLATILITY_BPS = 150      # most of a sector's ups and downs now come from real events
 assert 0 <= SECTOR_VOLATILITY_BPS < 5_000
 
 # ---------------------------------------------------------------------------
@@ -292,8 +292,78 @@ SPARE_CASH_TO_OWNERS_BPS = 2500    # and this share is paid to owners as an extr
 EXPANSION_PULL_BPS = 5000          # how strongly expanding raises a company's share of its market
 PULL_RETURN_BPS = 500              # each quarter a company's pull drifts this far back towards where it began,
                                    # so no company can swallow its whole market just by trending
-HOUSEHOLD_MOOD_BPS = 300           # households spend up to this much more or less than their habit, quarter to quarter
+HOUSEHOLD_MOOD_BPS = 150           # households spend up to this much more or less than their habit, quarter to quarter
 EXTRA_DIVIDEND_LIMIT_BPS = 500     # an extra dividend may take at most this share of past profits kept in the business
+
+# ---------------------------------------------------------------------------
+# Stage 3, Part B: prices, the Central Bank, lending, events.
+# ---------------------------------------------------------------------------
+
+# The Central Bank's published rule (design document, section 10).
+INFLATION_TARGET_BPS = 600         # it aims for prices rising 6% a year...
+INFLATION_BAND_BPS = 300           # ...and accepts anything from 3% to 9%
+NEUTRAL_RATE_BPS = 1300            # the interest rate that neither pushes the economy on nor holds it back
+RATE_RESPONSE_BPS = 10_000         # for each point inflation is above target, the rate goes one point above neutral
+RATE_DEMAND_RESPONSE_BPS = 2500    # and a quarter of a point for each point spending runs ahead of what the economy can supply
+RATE_HOLD_WITHIN_BPS = 50          # it holds when its rule points to a rate within half a point of today's
+RATE_STEP_BPS = 50                 # it moves the rate at most half a point a quarter
+RATE_FLOOR_BPS, RATE_CEILING_BPS = 400, 3000
+OPENING_RATE_BPS = 1300
+
+# Prices.
+CAPACITY_GROWTH_BPS = 50           # what the economy can produce grows 0.5% a quarter
+PRICE_ADJUST_BPS = 1000            # on top of the expected rise, prices close a tenth of the gap to what demand justifies each quarter
+WAGE_FOLLOWS_PRICES_BPS = 10_000   # wages keep pace with prices
+COMMODITY_RETURN_BPS = 1500        # a commodity's price drifts this far back towards the general price level
+COMMODITY_SWING_BPS = 400          # and swings up to 4% a quarter by itself
+# Which kind of company sells each commodity, and how much of the general price level it carries.
+COMMODITIES: dict[str, tuple[str, int]] = {
+    "energy": ("oil_gas", 500), "agriculture": ("agriculture", 400),
+    "metals": ("manufacturing", 150), "materials": ("cement", 150),
+}
+
+# What a borrower pays above the Central Bank's rate, by credit rating.
+LOAN_SPREAD_BPS = {"AAA": 200, "AA": 300, "A": 400, "BBB": 550, "BB": 750, "B": 1000, "CCC": 1400, "D": 1800}
+HOUSEHOLD_LOAN_SPREAD_BPS = 600
+HOUSEHOLD_REPAY_BPS = 500          # households repay 5% of what they owe each quarter
+CREDIT_GROWTH_BPS = 200            # at the neutral rate, lending grows 2% a quarter, in step with a healthy economy
+CREDIT_RATE_SENSITIVITY_BPS = 1000 # each point the rate is below neutral raises new lending by a tenth, and the reverse
+CREDIT_APPETITE_LIMITS_BPS = (2000, 25_000)
+HOUSEHOLD_DEBT_COMFORT_QUARTERS = 3 # households grow their borrowing while they owe about three quarters' income; less as they owe more
+BANK_RESERVE_BPS = 1000            # a bank keeps ready cash of at least 10% of its customers' money
+BANK_LENDING_LIMIT_X = 8           # a bank's total lending may not pass eight times its owners' funds
+CENTRAL_BANK_LENDING_LIMIT_X = 8    # and the Central Bank will not lend a bank more than eight times those funds
+LOAN_LOSS_BPS = 1000               # each quarter a lender writes off 10% of a loan that is past its date
+EXPANSION_LOAN_BPS = 50            # a sound company may borrow 0.5% of its buildings and machines a quarter to expand
+EXPANSION_DEBT_LIMIT_YEARS = 2.5   # ...while its borrowings stay under 2.5 years of EBITDA
+
+# Insurance.
+INSURED_SHARE_BPS = 7000           # insurers pay 70% of damage to buildings and machines
+HOUSEHOLD_CLAIM_BPS = 30           # after a severe local event, insurers pay households 0.3% of their quarter's spending
+
+# The Money Watch (design document, section 10).
+MONEY_AMBER_GAP_BPS = 500          # amber when money grows five points a year faster than the economy...
+MONEY_AMBER_GROWTH_BPS = 1000      # ...and is itself growing more than 10% a year (a slump alone is not too much money)
+MONEY_RED_GAP_BPS = 1500           # red at fifteen points faster...
+MONEY_RED_GROWTH_BPS = 2000        # ...with money growing more than 20% a year
+MONEY_AMBER_INFLATION_BPS = 1200   # amber when prices rise more than 12% a year, however the money figures look
+MONEY_RED_INFLATION_BPS = 2000     # red at 20%
+MONEY_POOLING_AMBER_BPS = 600      # amber when one group's share of all money rises six points in a year
+MONEY_UNUSUAL_RECEIPT_NAIRA = 50_000_000   # a player receiving more than this in one quarter is looked at
+MONEY_LOW_GRANTS = 50_000          # amber when the Treasury's reserve covers fewer starting grants than this
+
+# The ten kinds of people (design document, section 4): each location's mix, in percent.
+MINDSETS = ("optimistic", "pessimistic", "risk_averse", "risk_seeking", "herding",
+            "contrarian", "loyal", "fearful", "sceptical", "opportunistic")
+MINDSET_MIX: dict[str, tuple[int, ...]] = {
+    #               opt pes avr sek hrd con loy fear scp opp
+    LAGOS:         (18,  6,  6, 16, 14,  6,  6,  6,  8, 14),
+    ABUJA:         (10,  8, 18,  6, 12,  6, 14,  8, 12,  6),
+    PORT_HARCOURT: (10, 12, 10, 10, 12,  8,  8, 14,  8,  8),
+    ABA:           (12,  6,  8, 12, 10, 10, 10,  6,  8, 18),
+    KANO:          ( 8, 10, 16,  6, 12,  6, 20,  8, 10,  4),
+}
+assert all(sum(mix) == 100 and len(mix) == len(MINDSETS) for mix in MINDSET_MIX.values())
 
 # --- Opening money (design document, section 10) ---
 # The Central Bank issues the opening money. From then on, no new naira appears.
@@ -301,7 +371,8 @@ EXTRA_DIVIDEND_LIMIT_BPS = 500     # an extra dividend may take at most this sha
 # The Treasury's reserve. Each new player's starting cash is paid out of it.
 TREASURY_OPENING_M = 500_000              # ₦500 billion: enough for one million players
 # The savings of all households on day one, shared out by population.
-HOUSEHOLDS_OPENING_M = 12_000_000         # ₦12 trillion
+HOUSEHOLDS_OPENING_M = 5_000_000          # ₦5 trillion
+HOUSEHOLD_OPENING_INCOME_BPS = 8_600       # what households are taken to have earned just before the game, against what they will spend
 
 STARTING_GRANT_NAIRA = 500_000            # what each new player receives (section 10)
 

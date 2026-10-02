@@ -1,4 +1,4 @@
-import { api, type Economy } from "./api";
+import { api, type Economy, type MoneyWatch } from "./api";
 import { changeBps, formatCompact, formatPercent } from "./format";
 import { useLoad } from "./hooks";
 import { Change, Failed, Loading, Panel } from "./Shell";
@@ -13,6 +13,113 @@ function Tile({ label, value, change }: { label: string; value: string; change: 
       <div className="mono figure-small">{value}</div>
       <div className="small"><Change bps={change} /> <span className="muted">on last quarter</span></div>
     </div>
+  );
+}
+
+const percentOf = (bps: number) => `${(bps / 100).toFixed(1).replace(/\.0$/, "")}%`;
+
+const WATCH = {
+  green: { mark: "●", word: "Green", meaning: "Money is growing in step with the economy." },
+  amber: { mark: "▲", word: "Amber", meaning: "Money is growing faster than the economy, or gathering in one place." },
+  red: { mark: "■", word: "Red", meaning: "Money is growing far too fast." },
+} as const;
+
+/** The Money Watch: a shape and a word as well as a colour, so it reads without colour. */
+function MoneyWatchPanel({ watch, quarter }: { watch: MoneyWatch; quarter: string | null }) {
+  const reading = WATCH[watch.reading];
+  return (
+    <Panel title="The Money Watch" aside={quarter ?? undefined}>
+      <div className={`watch watch-${watch.reading}`}>
+        <span className="watch-mark" aria-hidden="true">{reading.mark}</span>
+        <span className="watch-word">{reading.word}</span>
+      </div>
+      <p className="small">{reading.meaning}</p>
+      <div className="row"><span>Money, over the past year</span><Change bps={watch.money_growth_bps} /></div>
+      <div className="row"><span>The economy's sales, over the past year</span><Change bps={watch.output_growth_bps} /></div>
+      <div className="why-title">WHY THIS READING?</div>
+      <ul className="reasons">{watch.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+      <p className="muted small">{watch.action}</p>
+      <p className="muted small">
+        The Money Watch checks every quarter that there is not too much money for the goods on sale. It never takes money
+        from anybody.
+      </p>
+    </Panel>
+  );
+}
+
+function PricesPanel({ economy }: { economy: Economy }) {
+  const prices = economy.prices;
+  if (!prices) return null;
+  const inBand = prices.inflation_bps >= prices.inflation_low_bps && prices.inflation_bps <= prices.inflation_high_bps;
+  const rateMove = prices.policy_rate_bps - prices.previous_rate_bps;
+  const mood = prices.confidence_bps - 10000;
+  return (
+    <Panel title="Prices and the Central Bank" aside={economy.period_label ?? undefined}>
+      <div className="tiles">
+        <div className="tile">
+          <div className="muted small">Prices, over the past year</div>
+          <div className="mono figure-small">{percentOf(prices.inflation_bps)}</div>
+          <div className="small muted">
+            {inBand ? "Inside" : prices.inflation_bps > prices.inflation_high_bps ? "▲ Above" : "▼ Below"} the Central Bank's
+            band of {percentOf(prices.inflation_low_bps)} to {percentOf(prices.inflation_high_bps)}
+          </div>
+        </div>
+        <div className="tile">
+          <div className="muted small">Central Bank interest rate</div>
+          <div className="mono figure-small">{percentOf(prices.policy_rate_bps)}</div>
+          <div className="small muted">
+            {rateMove === 0 ? "– Unchanged" : `${rateMove > 0 ? "▲ Up" : "▼ Down"} from ${percentOf(prices.previous_rate_bps)}`}
+          </div>
+        </div>
+        <div className="tile">
+          <div className="muted small">Households pay on a bank loan</div>
+          <div className="mono figure-small">{percentOf(prices.household_loan_rate_bps)}</div>
+          <div className="small muted">a year. They owe {formatCompact(prices.household_debt_kobo)}</div>
+        </div>
+        <div className="tile">
+          <div className="muted small">Households' readiness to spend</div>
+          <div className="mono figure-small">
+            {Math.abs(mood) < 50 ? "As usual" : `${mood > 0 ? "▲" : "▼"} ${percentOf(Math.abs(mood))}`}
+          </div>
+          <div className="small muted">{Math.abs(mood) < 50 ? "neither keen nor cautious" : mood > 0 ? "keener than usual" : "more cautious than usual"}</div>
+        </div>
+      </div>
+      <p className="small">{prices.rate_reason}</p>
+      <LineChart
+        names={["Price rises", "Interest rate"]}
+        format={(value) => `${value.toFixed(1)}%`}
+        data={economy.macro_history.map((q) => ({ label: q.period_label, first: q.inflation_bps / 100, second: q.policy_rate_bps / 100 }))}
+      />
+      <p className="muted small">
+        The Central Bank aims for prices to rise {percentOf(prices.inflation_target_bps)} a year. When they rise faster it
+        raises its interest rate, which makes every loan dearer and slows borrowing and spending. When they rise slower, it
+        cuts. Prices today are {percentOf(prices.price_index_bps - 10000)} above where they stood when the world began.
+      </p>
+      <div className="scroll">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Commodity</th>
+              <th scope="col" className="num">Price (start of the world = 100)</th>
+              <th scope="col" className="num">Against last quarter</th>
+            </tr>
+          </thead>
+          <tbody>
+            {prices.commodities.map((commodity) => (
+              <tr key={commodity.name}>
+                <th scope="row">{commodity.name}</th>
+                <td className="num mono">{(commodity.index_bps / 100).toFixed(1)}</td>
+                <td className="num"><Change bps={commodity.change_bps} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="muted small">
+        A commodity's price is a cost for the companies that use it and extra sales for those that sell it. Energy is sold
+        by oil and gas companies, farm produce by farms, metals by manufacturers, building materials by cement makers.
+      </p>
+    </Panel>
   );
 }
 
@@ -57,6 +164,8 @@ function Body({ economy }: { economy: Economy }) {
         </p>
       </Panel>
 
+      <PricesPanel economy={economy} />
+
       <Panel title="Households, by location" aside={`${latest.period_label}, per quarter`}>
         <div className="scroll">
           <table>
@@ -100,7 +209,9 @@ function Body({ economy }: { economy: Economy }) {
                 <th scope="col" className="num">Pay from companies</th>
                 <th scope="col" className="num">Public-sector pay</th>
                 <th scope="col" className="num">Pensions</th>
+                <th scope="col" className="num">Insurance claims</th>
                 <th scope="col" className="num">Total income</th>
+                <th scope="col" className="num">Owed to banks</th>
               </tr>
             </thead>
             <tbody>
@@ -110,7 +221,9 @@ function Body({ economy }: { economy: Economy }) {
                   <td className="num mono">{formatCompact(h.wages_kobo)}</td>
                   <td className="num mono">{formatCompact(h.government_kobo)}</td>
                   <td className="num mono">{formatCompact(h.pensions_kobo)}</td>
+                  <td className="num mono">{formatCompact(h.claims_kobo)}</td>
                   <td className="num mono">{formatCompact(h.income_kobo)}</td>
+                  <td className="num mono">{formatCompact(h.debt_kobo)}</td>
                 </tr>
               ))}
             </tbody>
@@ -127,7 +240,7 @@ export function EconomyWork({ onLoggedOut }: { onLoggedOut: () => void }) {
     <>
       <div className="work-head">
         <h1>The economy</h1>
-        <span className="muted small">Who earns, who spends and where the money sits</span>
+        <span className="muted small">Prices, interest rates, who earns, who spends and where the money sits</span>
       </div>
       {loading && !data && <Loading what="the economy" />}
       {error && <Failed message={error} onRetry={reload} />}
@@ -142,6 +255,8 @@ export function EconomyRail({ onLoggedOut }: { onLoggedOut: () => void }) {
   const largest = Math.max(1, ...data.household_spending.map((s) => s.share_bps));
   return (
     <>
+      {data.money_watch && <MoneyWatchPanel watch={data.money_watch} quarter={data.period_label} />}
+
       <Panel title="Where the money sits" aside={formatCompact(data.money_in_existence_kobo)}>
         {data.money.map((holder) => (
           <div key={holder.holder} className="bar-row">
@@ -153,7 +268,9 @@ export function EconomyRail({ onLoggedOut }: { onLoggedOut: () => void }) {
           </div>
         ))}
         <p className="muted small">
-          All the naira in existence. None is created or destroyed: it only moves from one holder to another.
+          All the naira in existence. New naira appear in one way only: when the Central Bank lends to a bank that is
+          short of cash to lend. They go out of existence when the bank repays.
+          {data.prices && ` Banks owe the Central Bank ${formatCompact(data.prices.central_bank_lending_kobo)}.`}
         </p>
       </Panel>
 
@@ -171,12 +288,6 @@ export function EconomyRail({ onLoggedOut }: { onLoggedOut: () => void }) {
         </Panel>
       )}
 
-      <Panel title="Still to come">
-        <p className="muted small">
-          Bank lending, the Central Bank's interest rate, prices and inflation, commodity prices and the Money Watch arrive
-          in the next part of this stage.
-        </p>
-      </Panel>
     </>
   );
 }

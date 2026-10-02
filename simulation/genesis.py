@@ -27,7 +27,7 @@ from psycopg import Connection
 from psycopg.rows import tuple_row
 from psycopg.types.json import Jsonb
 
-from simulation import companies, ledger, players
+from simulation import companies, events, ledger, macro, news, players
 from simulation import world_data as data
 from simulation.ledger import NGN, Leg
 from simulation.money import apply_bps, million_naira, naira
@@ -168,14 +168,32 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str, test_wor
             "name": company.name, "index": index,
         }
 
-    household_spending = _describe_the_economy(conn, shapes)
+    household_spending, new_loans, to_live_on = _describe_the_economy(conn, shapes)
     savings = million_naira(data.HOUSEHOLDS_OPENING_M)
+    # The ten kinds of people: each location has its own mix.
+    for place in data.LOCATIONS:
+        for mindset, percent in zip(data.MINDSETS, data.MINDSET_MIX[place.name]):
+            conn.execute("INSERT INTO household_mindsets (location, mindset, share_bps) VALUES (%s, %s, %s)",
+                         (place.name, mindset, percent * 100))
+    # What households owe the banks on day one, shared out by population.
+    for company in data.COMPANIES:
+        if shapes[company.ticker]["customer_loans"] > 0 and company.sector == "banking":
+            for place in data.LOCATIONS:
+                conn.execute(
+                    "INSERT INTO household_debts (bank_company_id, location, principal) VALUES (%s, %s, %s)",
+                    (rows[company.ticker]["id"], place.name,
+                     apply_bps(shapes[company.ticker]["customer_loans"], place.population_bps)),
+                )
+            shapes[company.ticker]["customer_loans"] = sum(
+                apply_bps(shapes[company.ticker]["customer_loans"], place.population_bps) for place in data.LOCATIONS
+            )
     for place in data.LOCATIONS:
         conn.execute(
             "INSERT INTO households (location, account_id, spend_from_income_bps, spend_from_savings_bps)"
             " VALUES (%s, %s, %s, %s)",
             (place.name, households[place.name], data.HOUSEHOLD_SPEND_FROM_INCOME_BPS,
-             (10_000 - data.HOUSEHOLD_SPEND_FROM_INCOME_BPS) * household_spending // savings),
+             # Set so that, on day one, their habit plus their usual borrowing comes to what they spend.
+             max((household_spending - new_loans - apply_bps(to_live_on, data.HOUSEHOLD_SPEND_FROM_INCOME_BPS)) * 10_000 // savings, 0)),
         )
 
     # --- Opening money: issued by the Central Bank, to each account's opening balance ---
@@ -188,6 +206,8 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str, test_wor
         conn, kind="opening_balance", memo="Opening balances: the money in existence when the world began",
         legs=[Leg(central_bank, -sum(leg.amount for leg in opening)), *opening], period=0,
     )
+
+    macro.write_opening_state(conn, ledger.amount_in_existence(conn))
 
     # --- Debts: who owes whom on day one ---
     bonds_issued = -1
@@ -289,8 +309,11 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str, test_wor
         companies.insert_result(conn, result)
         companies.file_report(conn, loaded[company.ticker], result)
 
+    # The events of the first quarter are decided now, and stay out of sight until their day.
+    news.for_events(conn, events.generate(conn, 1, fortune_seed))
 
-def _describe_the_economy(conn: Connection, shapes: dict[str, dict]) -> int:
+
+def _describe_the_economy(conn: Connection, shapes: dict[str, dict]) -> tuple[int, int]:
     """Record what companies buy from each other and where spending goes.
 
     How households divide their spending is not typed in by hand. It is worked
@@ -298,7 +321,8 @@ def _describe_the_economy(conn: Connection, shapes: dict[str, dict]) -> int:
     households are what is left of its opening sales after what other companies,
     the Government and investment are expected to buy from it.
 
-    Returns the households' total spending in an opening quarter, in kobo.
+    Returns the households' total spending in an opening quarter and what they
+    newly borrow in it, in kobo.
     """
     for buyer, suppliers in data.INPUTS.items():
         for supplier, bps in suppliers.items():
@@ -318,6 +342,8 @@ def _describe_the_economy(conn: Connection, shapes: dict[str, dict]) -> int:
         from_government = apply_bps(government, data.GOVERNMENT_BUYS.get(sector, 0))
         from_investment = apply_bps(upkeep, data.INVESTMENT_BUYS.get(sector, 0))
         left = sales[sector] - from_business - from_government - from_investment
+        if sector == "banking":
+            left -= _opening_household_interest(shapes)     # households pay banks interest as well as fees
         to_households[sector] = max(left, sales[sector] // 50)                      # never less than 2% of its sales
     for sector, amount in to_households.items():
         conn.execute(
@@ -327,15 +353,28 @@ def _describe_the_economy(conn: Connection, shapes: dict[str, dict]) -> int:
     spending = sum(to_households.values())
     # The households' opening record: what they are taken to have earned in the
     # quarter before the game began, so that they have something to spend in the first.
+    # It is what they spend, plus what they pay the banks, less what they newly borrow.
+    lent = sum(shapes[c.ticker]["customer_loans"] for c in data.COMPANIES if c.sector == "banking")
+    new_loans = apply_bps(lent, data.HOUSEHOLD_REPAY_BPS + data.CREDIT_GROWTH_BPS)
+    earned = spending + _opening_household_interest(shapes) + apply_bps(lent, data.HOUSEHOLD_REPAY_BPS) - new_loans
     savings = million_naira(data.HOUSEHOLDS_OPENING_M)
     for place in data.LOCATIONS:
-        income = apply_bps(spending, place.population_bps)
+        income = apply_bps(apply_bps(earned, data.HOUSEHOLD_OPENING_INCOME_BPS), place.population_bps)
         conn.execute(
             "INSERT INTO household_results (location, period, wages, government, pensions, income, spending, cash, jobs)"
             " VALUES (%s, 0, %s, 0, 0, %s, 0, %s, 0)",
             (place.name, income, income, apply_bps(savings, place.population_bps)),
         )
-    return spending
+    # What is left of that income to live on once the banks have been paid.
+    to_live_on = apply_bps(earned, data.HOUSEHOLD_OPENING_INCOME_BPS) - (earned - spending + new_loans)
+    return spending, new_loans, to_live_on
+
+
+def _opening_household_interest(shapes: dict[str, dict]) -> int:
+    """What households pay the banks in interest in an opening quarter."""
+    rate = data.OPENING_RATE_BPS + data.HOUSEHOLD_LOAN_SPREAD_BPS
+    lent = sum(shapes[c.ticker]["customer_loans"] for c in data.COMPANIES if c.sector == "banking")
+    return lent * rate // (4 * 10_000)
 
 
 def _opening_notes(shape: dict) -> list[str]:

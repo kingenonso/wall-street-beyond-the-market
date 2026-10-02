@@ -34,8 +34,13 @@ export function TrendChart({ reports }: { reports: FiledReport[] }) {
   );
 }
 
-/** Two amounts in naira over the same quarters, on one scale. */
-export function LineChart({ names, data }: { names: [string, string]; data: TrendPoint[] }) {
+/** Two figures of the same unit over the same quarters, on one scale. */
+export function LineChart({ names, data, format = (value) => formatCompact(asKobo(value)) }: {
+  names: [string, string];
+  data: TrendPoint[];
+  /** How a value is written on the scale and in the tooltip. Naira unless told otherwise. */
+  format?: (value: number) => string;
+}) {
   const [hover, setHover] = useState<number | null>(null);
   const SERIES = [
     { key: "first", label: names[0], color: COLORS[0] },
@@ -67,7 +72,7 @@ export function LineChart({ names, data }: { names: [string, string]; data: Tren
           {ticks.map((tick) => (
             <g key={tick}>
               <line x1={PAD.left} x2={W - PAD.right} y1={y(tick)} y2={y(tick)} className={tick === 0 ? "axis-zero" : "grid-line"} />
-              <text x={PAD.left - 8} y={y(tick) + 4} textAnchor="end" className="tick-label">{formatCompact(asKobo(tick))}</text>
+              <text x={PAD.left - 8} y={y(tick) + 4} textAnchor="end" className="tick-label">{format(tick)}</text>
             </g>
           ))}
           {data.map((d, i) => (
@@ -91,7 +96,7 @@ export function LineChart({ names, data }: { names: [string, string]; data: Tren
             <rect key={i} x={x(i) - band / 2} y={PAD.top} width={band} height={H - PAD.top - PAD.bottom} fill="transparent"
                   onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
                   onFocus={() => setHover(i)} onBlur={() => setHover(null)} tabIndex={0}
-                  aria-label={`${data[i].label}: ${names[0]} ${formatCompact(asKobo(data[i].first))}, ${names[1]} ${formatCompact(asKobo(data[i].second))}`} />
+                  aria-label={`${data[i].label}: ${names[0]} ${format(data[i].first)}, ${names[1]} ${format(data[i].second)}`} />
           ))}
         </svg>
         {hover !== null && (
@@ -100,7 +105,7 @@ export function LineChart({ names, data }: { names: [string, string]; data: Tren
             {SERIES.map((s) => (
               <div key={s.key} className="tooltip-row">
                 <span><span className="swatch" style={{ background: s.color }} />{s.label}</span>
-                <span className="mono">{formatCompact(asKobo(data[hover][s.key]))}</span>
+                <span className="mono">{format(data[hover][s.key])}</span>
               </div>
             ))}
           </div>

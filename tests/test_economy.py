@@ -12,7 +12,7 @@ from psycopg.rows import dict_row
 from simulation import economy, genesis, ledger, quarters
 from simulation import world_data as data
 from simulation.money import BPS, apply_bps, million_naira, naira
-from tests.conftest import after_quarters
+from tests.conftest import after_quarters, money_accounted_for
 
 
 def _dicts(db, sql, params=()):
@@ -92,12 +92,19 @@ def test_households_spend_from_what_they_earned_last_quarter_and_never_more_than
         if period == 0:
             continue
         before = by[(location, period - 1)]
-        planned = (apply_bps(before["income"], habits[location]["spend_from_income_bps"])
-                   + apply_bps(before["cash"], habits[location]["spend_from_savings_bps"]))
-        assert 0 < r["spending"] <= before["cash"]
-        # Their habit, give or take their mood that quarter (up to 3% either way).
-        assert planned * 969 // 1000 <= r["spending"] <= planned * 1031 // 1000
-        assert r["income"] == r["wages"] + r["government"] + r["pensions"]
+        # What they have to live on is last quarter's income less what the banks took this
+        # quarter in interest and repayments. New loans are spent on top of their habit.
+        paid_to_banks = db.execute(
+            "SELECT coalesce(-sum(e.amount), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
+            " JOIN households h ON h.account_id = e.account_id WHERE h.location = %s AND t.period = %s"
+            " AND t.kind IN ('loan_interest', 'household_loan_repayment') AND e.amount < 0", (location, period)).fetchone()[0]
+        planned = (apply_bps(max(before["income"] - paid_to_banks, 0), habits[location]["spend_from_income_bps"])
+                   + apply_bps(before["cash"] - paid_to_banks, habits[location]["spend_from_savings_bps"])
+                   + r["borrowed"])
+        assert 0 < r["spending"] <= before["cash"] + r["borrowed"]
+        # Their habit, give or take their mood, their mindsets and the quarter's events (up to a tenth either way).
+        assert planned * 90 // 100 <= r["spending"] <= planned * 110 // 100
+        assert r["income"] == r["wages"] + r["government"] + r["pensions"] + r["claims"]
 
 
 @pytest.mark.world("eight")
@@ -159,7 +166,7 @@ def test_a_companys_sales_are_what_households_companies_and_government_paid_it(d
 # --- 5. Rivals compete ---
 
 def _world_with(companies: list[dict]) -> economy.World:
-    return economy.World(treasury=None, founders=None, institutions=None, small_investors=None, locations=[],
+    return economy.World(treasury=None, central_bank=None, founders=None, institutions=None, small_investors=None, locations=[],
                          households={}, demand={}, inputs={}, seasons={}, members={"cement": companies})
 
 
@@ -250,10 +257,7 @@ def test_pension_funds_pay_pensions_to_households_every_quarter(db):
 
 @pytest.mark.world("eight")
 def test_no_money_is_made_or_lost_and_the_whole_ledger_agrees(db):
-    opening = db.execute(
-        "SELECT sum(e.amount) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
-        " WHERE t.kind = 'opening_balance' AND e.amount > 0").fetchone()[0]
-    assert ledger.amount_in_existence(db) == opening
+    assert ledger.amount_in_existence(db) == money_accounted_for(db)
     assert ledger.audit(db) == []
 
 
@@ -261,7 +265,8 @@ def test_no_money_is_made_or_lost_and_the_whole_ledger_agrees(db):
 def test_the_government_spends_exactly_the_tax_it_collected_and_keeps_its_reserve(db):
     treasury = ledger.account_id(db, ledger.TREASURY)
     for period in range(1, 9):
-        collected = ledger.received_in_period(db, treasury, period, kinds=("company_tax",))
+        # Tax, and the interest banks pay on what the Central Bank has lent them.
+        collected = ledger.received_in_period(db, treasury, period, kinds=("company_tax", "debt_interest"))
         spent = db.execute(
             "SELECT coalesce(-sum(e.amount), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
             " WHERE e.account_id = %s AND e.amount < 0 AND t.period = %s"
@@ -280,12 +285,16 @@ def test_money_does_not_pile_up_in_one_place_over_twenty_quarters(db):
     start = held()
     assert quarters.close_due_quarters(db, after_quarters(20)) == list(range(1, 21))
     end = held()
-    assert end["households"] > start["households"] * 85 // 100          # households keep their savings
-    assert end["companies"] < start["companies"] * 150 // 100           # companies have not swallowed the money
+    # Prices now rise about 6% a year, so every figure is compared with the economy's size.
+    grown = db.execute("SELECT (SELECT company_sales FROM economy_results WHERE period = 20)::numeric"
+                       " / (SELECT company_sales FROM economy_results WHERE period = 1)").fetchone()[0]
+    assert end["households"] > start["households"] * 70 // 100          # households keep most of their savings
+    assert end["companies"] < start["companies"] * grown * 150 // 100   # companies have not swallowed the money
     sales = [s for (s,) in db.execute("SELECT sum(revenue) FROM company_results WHERE period >= 2 GROUP BY period ORDER BY period").fetchall()]
-    assert min(sales) > max(sales) * 80 // 100                          # no slump: sales stay within a fifth of their best
     spending = [s for (s,) in db.execute("SELECT sum(spending) FROM household_results WHERE period >= 2 GROUP BY period ORDER BY period").fetchall()]
-    assert min(spending) > max(spending) * 80 // 100
+    for series in (sales, spending):                                    # no slump: never a tenth below the quarter before
+        assert all(now > before * 90 // 100 for before, now in zip(series, series[1:]))
+    assert sales[-1] > sales[0]
     assert ledger.audit(db) == []
 
 
@@ -365,11 +374,11 @@ def test_household_spending_cannot_be_worked_out_exactly_from_published_figures(
         if period >= 1:
             before = by[(location, period - 1)]
             habit = (apply_bps(before["income"], habits[location]["spend_from_income_bps"])
-                     + apply_bps(before["cash"], habits[location]["spend_from_savings_bps"]))
+                     + apply_bps(before["cash"], habits[location]["spend_from_savings_bps"]) + r["borrowed"])
             misses.append(abs(r["spending"] - habit) * 10_000 // habit)
     assert max(misses) > 100 and sum(misses) / len(misses) > 30     # off by more than 1% at times, 0.3% on average
     # And two locations do not share one mood.
-    moods = {location: by[(location, 5)]["spending"] * 10_000 // by[(location, 4)]["spending"] for location in habits}
+    moods = {location: by[(location, 5)]["spending"] * 10_000_000 // by[(location, 4)]["spending"] for location in habits}
     assert len(set(moods.values())) == len(moods)
 
 
@@ -417,7 +426,10 @@ def test_unpaid_pay_stays_owed_to_exactly_whoever_was_due_it(db):
 def test_a_handful_of_players_balances_are_not_given_away_by_the_money_table(client, player):
     holders = {m["holder"]: int(m["amount_kobo"]) for m in client.get("/api/economy").json()["money"]}
     assert "Players" not in holders                       # one player: their balance would be the whole line
-    assert holders["Other"] >= naira(500_000)             # they are inside "Other" instead
+    # Nor in a catch-all line of their own (the Part B review read it there to the kobo):
+    # they are counted with the other private investors.
+    assert "Other" not in holders and naira(500_000) not in holders.values()
+    assert holders["Private investors"] > naira(500_000)
 
 
 def test_paying_several_receivers_copes_with_ids_written_as_text_or_twice(db):

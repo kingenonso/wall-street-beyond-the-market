@@ -142,7 +142,7 @@ def test_world_clock_is_public_and_complete(client):
     assert body["market_state"] in {"opening_auction", "open", "closed"}
     assert body["lagos_time"].endswith("+01:00")
     assert set(body) == {
-        "lagos_time", "market_state", "next_state", "next_change_at", "world_started", "game_date",
+        "lagos_time", "market_state", "next_state", "next_change_at", "world_started", "game_date", "test_weeks_ahead",
     }
 
 

@@ -19,7 +19,7 @@ from psycopg.types.json import Jsonb
 from simulation import companies, ledger, quarters
 from simulation.companies import BALANCE_SHEET_LINES, CASH_FLOW_LINES, INCOME_LINES
 from simulation.money import naira
-from tests.conftest import WORLD_START, after_quarters
+from tests.conftest import WORLD_START, after_quarters, money_accounted_for
 
 
 def _dicts(db, sql, params=()):
@@ -62,7 +62,8 @@ class TestStageTwo:
             # work) is in the bank already and will be counted as next quarter's sales.
             assert ledger.balance(db, r["account_id"]) >= r["cash"], r["name"]
             owed = db.execute("SELECT coalesce(sum(principal_outstanding), 0) FROM company_debts WHERE company_id = %s", (r["id"],)).fetchone()[0]
-            lent = db.execute("SELECT coalesce(sum(principal_outstanding), 0) FROM company_debts WHERE lender_account_id = %s", (r["account_id"],)).fetchone()[0]
+            # A lender shows its loans at what it still expects to be repaid: less what it has written off.
+            lent = db.execute("SELECT coalesce(sum(principal_outstanding - provision), 0) FROM company_debts WHERE lender_account_id = %s", (r["account_id"],)).fetchone()[0]
             assert (r["borrowings"], r["loans_to_companies"]) == (owed, lent), r["name"]
 
     def test_no_naira_appears_without_a_recorded_payer(self, db):
@@ -73,20 +74,17 @@ class TestStageTwo:
         ).fetchone()[0]
         assert broken == 0
 
-        # 2. The only payer that can pay without having been paid first is the Central Bank,
-        #    and it paid out once: the opening balances. Nothing since.
-        issued_kinds = db.execute(
+        # 2. The only payer that can pay without having been paid first is the Central Bank.
+        #    It pays out for two reasons only: the opening balances, and its loans to banks.
+        issued_kinds = {k for (k,) in db.execute(
             "SELECT DISTINCT t.kind FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
-            " JOIN ledger_accounts a ON a.id = e.account_id WHERE a.code = 'central_bank' AND e.asset = 'NGN'"
-        ).fetchall()
-        assert issued_kinds == [("opening_balance",)]
+            " JOIN ledger_accounts a ON a.id = e.account_id WHERE a.code = 'central_bank' AND e.asset = 'NGN' AND e.amount < 0"
+        ).fetchall()}
+        assert issued_kinds <= {"opening_balance", "central_bank_lending"} and "opening_balance" in issued_kinds
 
-        # 3. So the money in existence after eight quarters is exactly the opening money.
-        opening = db.execute(
-            "SELECT sum(e.amount) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
-            " WHERE t.kind = 'opening_balance' AND e.amount > 0"
-        ).fetchone()[0]
-        assert ledger.amount_in_existence(db) == opening
+        # 3. So the money in existence after eight quarters is exactly the opening money plus
+        #    what banks still owe the Central Bank, counted from the loan records.
+        assert ledger.amount_in_existence(db) == money_accounted_for(db)
 
         # 4. And nobody but the Central Bank is below zero.
         assert db.execute(
@@ -101,6 +99,8 @@ class TestStageTwo:
             "opening_balance", "share_issue", "customer_revenue", "business_purchase", "cost_of_sales", "wages",
             "debt_interest", "company_tax", "debt_repayment", "capital_spending", "dividend",
             "government_purchase", "government_wages", "pension_payment",
+            "loan_interest", "household_loan", "household_loan_repayment", "insurance_claim", "new_loan",
+            "central_bank_lending",
         }
 
 
@@ -111,7 +111,8 @@ class TestStageTwo:
 @pytest.mark.world("eight")
 def test_the_income_statement_adds_up(db):
     for r in _dicts(db, "SELECT * FROM company_results WHERE period >= 1"):
-        assert r["operating_profit"] == r["revenue"] + r["interest_income"] - r["cost_of_sales"] - r["operating_expenses"] - r["depreciation"]
+        assert r["operating_profit"] == (r["revenue"] + r["interest_income"] - r["cost_of_sales"] - r["operating_expenses"]
+                                         - r["depreciation"] - r["loan_losses"])
         assert r["profit_before_tax"] == r["operating_profit"] - r["interest_expense"]
         assert r["net_profit"] == r["profit_before_tax"] - r["tax"]
         assert r["tax"] >= 0 and r["revenue"] > 0
@@ -365,7 +366,7 @@ def test_money_moved_outside_a_companys_normal_business_is_shown_and_never_stops
     later = _dicts(db, "SELECT drivers FROM company_results WHERE period = 3 AND company_id IN (%s, %s)",
                    (taken_from["id"], given_to["id"]))
     assert not any("outside its normal business" in note for r in later for note in r["drivers"]["notes"])
-    assert ledger.amount_in_existence(db) == money_before and ledger.audit(db) == []
+    assert ledger.amount_in_existence(db) == money_accounted_for(db) and ledger.audit(db) == []
 
 
 @pytest.mark.world("eight")
@@ -408,7 +409,9 @@ def test_customers_short_of_money_buy_less_and_weak_companies_fall_behind_on_bil
 
     # Households cannot spend what they do not have, so companies sold far less to them.
     sold = db.execute("SELECT sum(sales_households) FROM company_results WHERE period = 1").fetchone()[0]
-    assert 0 < sold <= 5 * left_each
+    # (All they can spend is the little they have left and what the banks will lend them.)
+    borrowed = db.execute("SELECT sum(borrowed) FROM household_results WHERE period = 1").fetchone()[0]
+    assert 0 < sold <= 5 * left_each + borrowed + naira(1)
     # Some companies could not pay everything. What they could not pay is owed, not conjured.
     owing = _dicts(db, "SELECT r.*, p.credit_rating FROM company_results r JOIN company_reports p ON p.company_id = r.company_id AND p.period = r.period WHERE r.payables > 0")
     assert owing, "expected at least one company to fall behind"
@@ -416,8 +419,8 @@ def test_customers_short_of_money_buy_less_and_weak_companies_fall_behind_on_bil
         assert r["total_assets"] == r["total_liabilities"] + r["total_equity"]
         assert r["credit_rating"] in ("CCC", "D")
         assert r["dividends_paid"] == 0            # no dividends while bills are unpaid
-    # No money was created, and nobody went below zero.
-    assert ledger.amount_in_existence(db) == money_before
+    # No money appeared from nowhere, and nobody went below zero.
+    assert ledger.amount_in_existence(db) == money_accounted_for(db)
     assert db.execute("SELECT count(*) FROM ledger_balances b JOIN assets a ON a.code = b.asset WHERE b.balance < 0 AND b.account_id <> a.issuer_account_id").fetchone()[0] == 0
     # What is owed in the payables table is what the balance sheets say.
     for r in _dicts(db, "SELECT company_id, payables FROM company_results WHERE period = 6"):
@@ -430,7 +433,7 @@ def test_the_books_hold_together_over_a_long_run(db):
     money_before = ledger.amount_in_existence(db)
     assert len(quarters.close_due_quarters(db, after_quarters(34))) == 34
 
-    assert ledger.amount_in_existence(db) == money_before
+    assert ledger.amount_in_existence(db) == money_accounted_for(db) > money_before
     assert db.execute("SELECT sum(balance) FROM ledger_balances WHERE asset = 'NGN'").fetchone()[0] == 0
     assert db.execute("SELECT count(*) FROM company_results").fetchone()[0] == 50 * 35
     unbalanced = db.execute("SELECT count(*) FROM company_results WHERE total_assets <> total_liabilities + total_equity").fetchone()[0]

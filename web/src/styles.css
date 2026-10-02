@@ -307,3 +307,37 @@ h1 .ticker { font-size: 13px; }
   .chart { overflow-x: auto; }
   .chart-frame { min-width: 560px; }
 }
+
+/* --- News --- */
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0; }
+.tab {
+  padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: transparent;
+  color: var(--muted); font: inherit; font-size: 13px; cursor: pointer;
+}
+.tab:hover { color: var(--text); border-color: var(--muted); }
+.tab-current { color: var(--gold); border-color: var(--gold); background: var(--gold-soft); font-weight: 600; }
+.tab:focus-visible, .chip:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.stories { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 12px; }
+.story { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.story h3 { margin: 0 0 6px; font-family: var(--serif); font-size: 17px; line-height: 1.3; }
+.story p { margin: 0; font-size: 13px; }
+.story-top { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 12px; }
+.story-lead { border-color: var(--gold); background: linear-gradient(180deg, var(--gold-soft), var(--panel) 70%); }
+.story-lead h3 { font-size: 24px; }
+.story-lead p { font-size: 14px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.chip {
+  padding: 2px 8px; border-radius: 6px; border: 1px solid var(--border); color: var(--gold);
+  font-size: 12px; text-decoration: none;
+}
+.chip:hover { border-color: var(--gold); }
+.news-line { padding: 8px 0; border-top: 1px solid var(--border); }
+.news-line:first-of-type { border-top: 0; padding-top: 0; }
+
+/* --- The Money Watch: a shape and a word as well as a colour --- */
+.watch { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; border: 1px solid; margin-bottom: 8px; }
+.watch-mark { font-size: 12px; }
+.watch-word { font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; font-size: 13px; }
+.watch-green { color: var(--up); border-color: rgba(91, 227, 164, 0.45); }
+.watch-amber { color: var(--gold); border-color: rgba(217, 174, 85, 0.5); }
+.watch-red { color: var(--down); border-color: rgba(255, 177, 153, 0.6); border-style: dashed; }

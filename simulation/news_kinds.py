@@ -1,0 +1,168 @@
+"""The kinds of news the wire can carry (design document, section 12).
+
+Every kind lists the facts a headline may use. A wording may use only those
+facts, so nothing can be printed that the game's records do not hold.
+
+`sample` is one made-up set of facts for each kind. The tests fill every
+wording with it, to prove that no wording asks for a fact that is not there.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+OUTLETS = {
+    "herald": "The Lagoon Herald",        # a general daily: people, streets, traders, families
+    "ogene": "Ogene News Network",        # a broadcaster: short, urgent, present tense
+    "ledger": "The Naira Ledger",         # a financial paper: sober, figures first
+}
+
+
+@dataclass(frozen=True)
+class NewsKind:
+    name: str
+    importance: int                # where it starts on the front page, 0 to 100
+    sample: dict[str, str]         # the facts a wording may use, with an example of each
+
+    @property
+    def fields(self) -> tuple[str, ...]:
+        return tuple(self.sample)
+
+
+_PLACE = {"location": "Port Harcourt", "severity": "serious",
+          "companies": "Bonny Tide Shipping, Ibom Solar Power and 3 other companies based there"}
+_SECTOR = {"sector": "telecoms", "severity": "serious", "companies": "Lekki Fibre Networks and 3 other companies"}
+_COMPANY = {"company": "Kainji Textiles", "ticker": "KTX", "location": "Kano", "sector": "manufacturing",
+            "severity": "serious"}
+_PRICE = {"commodity": "energy", "size": "about 15%"}
+_RATE = {"rate": "13.5%", "old_rate": "12.5%", "inflation": "7.8%", "target": "6%",
+         "run": "the second rise in a row"}
+_PRICES = {"inflation": "9.4%", "previous": "8.1%", "target": "6%", "band": "3% to 9%", "driver": "dearer energy"}
+_RESULT = {"company": "Kainji Textiles", "ticker": "KTX", "location": "Kano", "sector": "manufacturing",
+           "quarter": "Year 2 Q3", "profit": "₦1.2 billion", "previous_profit": "₦800 million",
+           "sales": "₦14.6 billion", "change": "50%",
+           "cause": "A new product sold well: its sales rose about 9%."}
+_RATING = {"company": "Kainji Textiles", "ticker": "KTX", "location": "Kano", "sector": "manufacturing",
+           "rating": "BB", "old_rating": "BBB"}
+_OWES = {"company": "Kainji Textiles", "ticker": "KTX", "location": "Kano", "sector": "manufacturing",
+         "amount": "₦3.4 billion"}
+_JOBS = {"company": "Kainji Textiles", "ticker": "KTX", "location": "Kano", "sector": "manufacturing",
+         "jobs": "about 1,200", "staff": "about 14,000"}
+_WATCH = {"reason": "Money grew 14% over the year while the economy's sales grew 6%: faster than the economy.",
+          "money_growth": "14%", "output_growth": "6%",
+          "action": "The Central Bank leans harder on its interest rate: half a point above what its rule alone would set."}
+
+KINDS: tuple[NewsKind, ...] = (
+    # --- Things that happen on a day, in a place ---
+    NewsKind("flood", 80, _PLACE),
+    NewsKind("power_failure", 55, _PLACE),
+    NewsKind("security_incident", 78, _PLACE),
+    NewsKind("port_disruption", 62, _PLACE),
+    NewsKind("pipeline_incident", 72, _PLACE),
+    NewsKind("drought", 70, _PLACE),
+    NewsKind("local_boom", 50, {**_PLACE, "severity": "strong"}),
+    # --- ...to a whole kind of business ---
+    NewsKind("sector_strike", 68, _SECTOR),
+    NewsKind("sector_demand_surge", 55, {**_SECTOR, "severity": "strong"}),
+    NewsKind("good_harvest", 55, {**_SECTOR, "sector": "agriculture", "severity": "strong",
+                                  "companies": "Benue Harvest Foods and 2 other companies"}),
+    NewsKind("network_outage", 60, _SECTOR),
+    NewsKind("new_competition", 50, {**_SECTOR, "severity": "moderate"}),
+    # --- ...to one company ---
+    NewsKind("company_strike", 60, _COMPANY),
+    NewsKind("scandal", 70, _COMPANY),
+    NewsKind("contract_win", 55, {**_COMPANY, "severity": "strong"}),
+    NewsKind("factory_fire", 72, _COMPANY),
+    NewsKind("product_recall", 60, _COMPANY),
+    NewsKind("new_product", 50, {**_COMPANY, "severity": "strong"}),
+    # --- ...to the price of a commodity ---
+    NewsKind("energy_price_jump", 70, _PRICE),
+    NewsKind("energy_price_fall", 62, _PRICE),
+    NewsKind("metals_price_jump", 55, {**_PRICE, "commodity": "metals"}),
+    NewsKind("metals_price_fall", 50, {**_PRICE, "commodity": "metals"}),
+    NewsKind("materials_shortage", 55, {**_PRICE, "commodity": "building materials"}),
+    # --- The Central Bank ---
+    NewsKind("rate_rise", 90, _RATE),
+    NewsKind("rate_cut", 90, {**_RATE, "rate": "11.5%", "inflation": "4.1%", "run": "the second cut in a row"}),
+    NewsKind("rate_hold", 60, {**_RATE, "rate": "12.5%", "inflation": "6.2%", "run": "the third quarter without a change"}),
+    # --- Prices ---
+    NewsKind("inflation_high", 85, _PRICES),
+    NewsKind("inflation_low", 80, {**_PRICES, "inflation": "2.4%", "previous": "3.6%", "driver": "weak household spending"}),
+    NewsKind("inflation_rising", 65, {**_PRICES, "inflation": "7.6%", "previous": "6.3%"}),
+    NewsKind("inflation_easing", 60, {**_PRICES, "inflation": "5.2%", "previous": "6.6%", "driver": "cheaper farm produce"}),
+    NewsKind("inflation_steady", 40, {**_PRICES, "inflation": "6.1%", "previous": "6.3%", "driver": "steady household spending"}),
+    # --- Company results ---
+    NewsKind("results_strong", 50, _RESULT),
+    NewsKind("results_weak", 52, {**_RESULT, "profit": "₦400 million", "cause": "Power failures in Kano cost it sales of about 3%."}),
+    NewsKind("company_loss", 66, {**_RESULT, "profit": "₦600 million", "cause": "A strike by its own staff cut its sales by about 12%."}),
+    NewsKind("back_in_profit", 58, {**_RESULT, "previous_profit": "₦300 million"}),
+    # --- Credit ---
+    NewsKind("rating_upgrade", 55, {**_RATING, "rating": "A", "old_rating": "BBB"}),
+    NewsKind("rating_downgrade", 62, _RATING),
+    NewsKind("default", 88, _OWES),
+    NewsKind("missed_payment", 74, _OWES),
+    # --- Jobs, dividends, expansion ---
+    NewsKind("job_cuts", 60, _JOBS),
+    NewsKind("hiring", 48, _JOBS),
+    NewsKind("dividend_cut", 50, {"company": "Kainji Textiles", "ticker": "KTX", "location": "Kano", "sector": "manufacturing"}),
+    NewsKind("expansion", 45, _OWES),
+    # --- Banks and insurers ---
+    NewsKind("bank_loan_losses", 68, {"company": "Harmattan Bank", "ticker": "HMB", "amount": "₦8.2 billion"}),
+    NewsKind("bank_central_borrowing", 58, {"amount": "₦420 billion", "new": "₦35 billion"}),
+    NewsKind("insurance_claims", 60, {"amount": "₦12.6 billion", "cause": "the flood in Port Harcourt",
+                                      "insurers": "Kuka Insurance and 2 other insurers"}),
+    NewsKind("event_aftermath", 64, {"event": "the flood in Port Harcourt", "amount": "₦18 billion",
+                                     "paid": "₦12.6 billion",
+                                     "companies": "Bonny Tide Shipping, Ibom Solar Power and 3 other companies"}),
+    # --- The Money Watch ---
+    NewsKind("money_watch_amber", 76, _WATCH),
+    NewsKind("money_watch_red", 95, {**_WATCH, "action": "The Central Bank leans a full point harder on its interest rate, and new lending is halved next quarter."}),
+    NewsKind("money_watch_green", 50, {**_WATCH, "reason": "Money is growing in step with the economy, and is not pooling in one place.",
+                                       "action": "No action needed."}),
+    # --- The whole economy ---
+    NewsKind("household_borrowing_up", 52, {"change": "4.2%", "amount": "₦520 billion", "rate": "19%"}),
+    NewsKind("household_borrowing_down", 52, {"change": "2.1%", "amount": "₦480 billion", "rate": "22%"}),
+    NewsKind("jobs_report_up", 56, {"jobs": "about 612,000", "change": "about 9,000", "location": "Lagos"}),
+    NewsKind("jobs_report_down", 64, {"jobs": "about 590,000", "change": "about 11,000", "location": "Kano"}),
+    NewsKind("economy_growing", 58, {"growth": "9.4%", "sales": "₦310 billion"}),
+    NewsKind("economy_slowing", 66, {"growth": "3.1%", "sales": "₦290 billion"}),
+    NewsKind("commodity_up", 54, {"commodity": "farm produce", "size": "12%"}),
+    NewsKind("commodity_down", 50, {"commodity": "farm produce", "size": "9%"}),
+    # --- Smaller items, gathered together ---
+    NewsKind("roundup_results", 35, {"quarter": "Year 2 Q3", "count": "six",
+                                     "list": "Ikoyi Bank (profit up 4%), Kainji Textiles (profit down 6%) and Zuma Rock Hotels (profit up 3%)"}),
+    NewsKind("roundup_jobs", 32, {"quarter": "Year 2 Q3", "count": "four",
+                                  "list": "Ikoyi Bank (about 300 more staff), Kainji Textiles (about 200 fewer) and Zuma Rock Hotels (about 150 more)"}),
+)
+BY_NAME = {kind.name: kind for kind in KINDS}
+
+# What each fact means, for whoever writes wordings.
+FIELD_NOTES = {
+    "location": "a city: Lagos, Abuja, Port Harcourt, Aba or Kano",
+    "severity": "one adjective for how hard it hits: light, moderate, serious or severe (bad news); modest, strong or very strong (good news)",
+    "companies": "a noun phrase naming the companies touched, e.g. 'Bonny Tide Shipping, Ibom Solar Power and 3 other companies based there'; it may also read 'businesses in the area'",
+    "sector": "a kind of business in lower case, e.g. 'telecoms', 'cement and building materials', 'oil and gas'",
+    "company": "a company's full name", "ticker": "its three-letter market code",
+    "commodity": "energy, metals, farm produce or building materials",
+    "size": "a rough size such as 'about 15%' or '12%'",
+    "rate": "the Central Bank's new interest rate", "old_rate": "its rate before the decision",
+    "inflation": "how much prices rose over the past year", "previous": "the same figure a quarter earlier",
+    "target": "the Central Bank's inflation target", "band": "the range the Central Bank accepts",
+    "run": "a phrase that fits after a comma, e.g. 'the second rise in a row' or 'ending three quarters without a change'",
+    "driver": "a short noun phrase for the main cause, e.g. 'dearer energy'",
+    "quarter": "the game quarter the figures are for, e.g. 'Year 2 Q3'",
+    "profit": "profit after tax for the quarter (for company_loss: the size of the loss)",
+    "previous_profit": "the quarter before (for back_in_profit: the size of the earlier loss)",
+    "sales": "the quarter's sales", "change": "how much profit changed, as a percentage without a sign",
+    "cause": "one complete sentence from the company's own filing explaining the quarter",
+    "rating": "its new credit rating", "old_rating": "its rating before",
+    "amount": "a sum of money in words, e.g. '₦3.4 billion'",
+    "jobs": "how many jobs were cut or added", "staff": "how many people the company employs now",
+    "new": "how much more the banks borrowed from the Central Bank this quarter",
+    "insurers": "a noun phrase naming the insurers", "event": "a noun phrase naming an earlier event, e.g. 'the flood in Port Harcourt'",
+    "paid": "what insurers paid", "reason": "one complete sentence from the Money Watch",
+    "money_growth": "how fast money grew over the year", "output_growth": "how fast the economy's sales grew",
+    "action": "one complete sentence: what the Central Bank does about it",
+    "growth": "how much the economy's sales grew over the year",
+    "count": "a number in words", "list": "a ready-made list of companies with a figure each",
+}

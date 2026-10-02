@@ -5,6 +5,7 @@ import { CompaniesRail, CompaniesWork } from "./Companies";
 import { CompanyRail, CompanyWork } from "./Company";
 import { DeskRail, DeskWork } from "./Desk";
 import { EconomyRail, EconomyWork } from "./Economy";
+import { NewsRail, NewsWork } from "./News";
 import { useRoute } from "./hooks";
 import { ProfileRail, ProfileWork } from "./Profile";
 import { Panel, Shell } from "./Shell";
@@ -44,6 +45,10 @@ export function App() {
     current = "companies";
     work = <CompaniesWork onLoggedOut={loggedOut} />;
     rail = <CompaniesRail />;
+  } else if (section === "news") {
+    current = "news";
+    work = <NewsWork onLoggedOut={loggedOut} />;
+    rail = <NewsRail />;
   } else if (section === "economy") {
     current = "economy";
     work = <EconomyWork onLoggedOut={loggedOut} />;
