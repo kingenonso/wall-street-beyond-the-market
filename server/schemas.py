@@ -182,3 +182,60 @@ class CompanyResponse(BaseModel):
     shares_in_issue: Kobo
     owners: list[Owner]
     reports: list[FiledReport]         # oldest first
+    location: "LocationEffect | None" = None
+    buys_from: list["Supplier"] = []
+
+
+class LocationEffect(BaseModel):
+    """What a company's head-office location does to its running costs."""
+    running_cost_bps: int              # 10000 = the national average; 8800 = 12% cheaper
+    reasons: list[str]
+
+
+class Supplier(BaseModel):
+    sector: str
+    share_bps: int                     # of its own sales, spent with this kind of supplier
+
+
+class HouseholdGroup(BaseModel):
+    location: str
+    population_bps: int
+    income_kobo: Kobo
+    wages_kobo: Kobo
+    government_kobo: Kobo
+    pensions_kobo: Kobo
+    spending_kobo: Kobo
+    savings_kobo: Kobo
+    jobs: int
+    income_change_bps: int | None
+    jobs_change_bps: int | None
+
+
+class MoneyHolder(BaseModel):
+    holder: str
+    amount_kobo: Kobo
+    share_bps: int
+
+
+class EconomyQuarter(BaseModel):
+    period: int
+    period_label: str
+    company_sales_kobo: Kobo
+    household_income_kobo: Kobo
+    household_spending_kobo: Kobo
+    jobs: int
+
+
+class SpendingShare(BaseModel):
+    sector: str
+    share_bps: int
+
+
+class EconomyResponse(BaseModel):
+    period: int
+    period_label: str | None
+    money_in_existence_kobo: Kobo
+    households: list[HouseholdGroup]
+    money: list[MoneyHolder]
+    history: list[EconomyQuarter]              # oldest first
+    household_spending: list[SpendingShare]    # where households' spending went in the latest quarter

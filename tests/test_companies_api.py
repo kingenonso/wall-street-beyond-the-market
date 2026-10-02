@@ -41,7 +41,7 @@ def test_a_company_page_shows_its_accounts_quarter_by_quarter(client, player):
     sheet = {k: int(v) for k, v in latest["figures"]["balance_sheet"].items()}
     assert sheet["total_assets"] == sheet["total_liabilities"] + sheet["total_equity"]
     assert latest["rating_reasons"] and latest["version"] == 1 and latest["amended"] is False
-    assert latest["figures"]["notes"]["why_revenue"][0].startswith("Idanre Cement's sales have been growing about")
+    assert latest["figures"]["notes"]["why_revenue"][0].endswith("of its sales were to households")
     income = {k: int(v) for k, v in latest["figures"]["income_statement"].items()}
     assert income["ebitda"] == income["operating_profit"] + income["depreciation"]          # EBITDA is filed
 

@@ -71,7 +71,7 @@ def rate(figures: dict, trailing: list[dict]) -> tuple[str, list[str]]:
     if financial:
         # Could it hand customers their money back if they asked?
         ready = sheet["cash"] / sheet["customer_funds"]
-        points += _points(ready, ((0.6, 28), (0.4, 22), (0.25, 16), (0.12, 8)))
+        points += _points(ready, ((0.4, 28), (0.25, 22), (0.15, 16), (0.08, 8)))
         reasons.append(f"It holds {ready:.0%} of its customers' money in ready cash.")
 
     if not trailing:
@@ -90,7 +90,7 @@ def rate(figures: dict, trailing: list[dict]) -> tuple[str, list[str]]:
                 points += 30
             else:
                 cover = operating_profit / interest
-                points += _points(cover, ((12, 28), (8, 24), (5, 18), (3, 10), (1.5, 5)))
+                points += _points(cover, ((8, 28), (5, 24), (3.5, 18), (2.5, 13), (1.5, 7)))
                 if cover >= 1:
                     reasons.append(f"Profit covers its interest bill {cover:.1f} times.")
                 else:

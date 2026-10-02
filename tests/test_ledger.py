@@ -103,7 +103,7 @@ def test_the_database_refuses_a_transaction_with_no_entries(db):
     "TRUNCATE ledger_transactions CASCADE",
     "UPDATE ledger_accounts SET name = 'renamed'",
     "DELETE FROM ledger_accounts",
-    "UPDATE assets SET issuer_account_id = (SELECT id FROM ledger_accounts WHERE code = 'public')",
+    "UPDATE assets SET issuer_account_id = (SELECT id FROM ledger_accounts WHERE code = 'households:lagos')",
     "DELETE FROM assets",
 ])
 def test_ledger_records_cannot_be_edited_or_deleted(db, statement):
@@ -115,7 +115,7 @@ def test_ledger_records_cannot_be_edited_or_deleted(db, statement):
 
 @pytest.mark.parametrize("statement", [
     "UPDATE ledger_balances SET balance = balance + 100000000",
-    "INSERT INTO ledger_balances (account_id, asset, balance) SELECT id, 'SHR-IKB', 1000 FROM ledger_accounts WHERE code = 'public'",
+    "INSERT INTO ledger_balances (account_id, asset, balance) SELECT id, 'SHR-IKB', 1000 FROM ledger_accounts WHERE code = 'households:lagos'",
     "DELETE FROM ledger_balances",
     "TRUNCATE ledger_balances",
 ])
@@ -313,7 +313,7 @@ def test_everything_in_the_ledger_sums_to_zero(db):
 # --- Shares live in the same ledger, under the same rules ---
 
 def test_shares_cannot_be_created_from_nothing(db):
-    public = ledger.account_id(db, ledger.PUBLIC)
+    public = ledger.account_id(db, "households:lagos")
     small = ledger.account_id(db, ledger.INVESTORS_PUBLIC)
     assert ledger.balance(db, public, "SHR-IKB") == 0
     with pytest.raises(InsufficientFunds):

@@ -176,7 +176,7 @@ def test_responses_never_carry_passwords_or_email_addresses(client, player):
 
 @pytest.mark.world("eight")
 def test_no_request_reveals_the_treasury_or_any_other_accounts_balance(client, player, db):
-    hidden = [str(ledger.balance(db, ledger.account_id(db, code))) for code in (ledger.TREASURY, ledger.PUBLIC)]
+    hidden = [str(ledger.balance(db, ledger.account_id(db, code))) for code in (ledger.TREASURY, "households:lagos")]
     hidden.append(str(ledger.amount_in_existence(db)))
     pages = "".join(client.get(p).text for p in ("/api/me", "/api/me/movements", "/api/world/status", "/api/companies", "/api/companies/IKB"))
     for figure in hidden:
@@ -185,7 +185,7 @@ def test_no_request_reveals_the_treasury_or_any_other_accounts_balance(client, p
 
 def test_error_messages_do_not_describe_the_inside_of_the_game(client, db):
     treasury = ledger.account_id(db, ledger.TREASURY)
-    ledger.transfer(db, payer=treasury, receiver=ledger.account_id(db, ledger.PUBLIC), amount=ledger.balance(db, treasury), kind="test", memo="Test: Treasury emptied")
+    ledger.transfer(db, payer=treasury, receiver=ledger.account_id(db, "households:lagos"), amount=ledger.balance(db, treasury), kind="test", memo="Test: Treasury emptied")
     detail = join(client, ADULT).json()["detail"]
     assert detail == "New accounts cannot be opened right now. Please try again later."
 
@@ -374,7 +374,7 @@ def test_a_lookalike_currency_cannot_be_created(db):
 
 
 def test_an_account_cannot_pay_itself_by_spelling_its_id_differently(db):
-    public = ledger.account_id(db, ledger.PUBLIC)
+    public = ledger.account_id(db, "households:lagos")
     with pytest.raises(ledger.LedgerError):
         ledger.transfer(db, payer=public, receiver=str(public).upper(), amount=naira(1), kind="customer_revenue", memo="To myself")
     with pytest.raises(ledger.LedgerError):

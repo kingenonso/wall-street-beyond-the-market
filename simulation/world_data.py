@@ -188,15 +188,117 @@ COMPANIES: tuple[Company, ...] = (
 SECTOR_VOLATILITY_BPS = 300
 assert 0 <= SECTOR_VOLATILITY_BPS < 5_000
 
+# ---------------------------------------------------------------------------
+# Stage 3: the people and the places.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Location:
+    name: str
+    population_bps: int        # its share of the country's people
+    running_cost_bps: int      # cost of running a business here, against the average (10000)
+    monthly_wage_naira: int    # what one worker here is paid in a month
+
+
+LOCATIONS: tuple[Location, ...] = (
+    Location(LAGOS, 3500, 11_000, 300_000),
+    Location(ABUJA, 1500, 10_500, 280_000),
+    Location(PORT_HARCOURT, 1500, 10_000, 260_000),
+    Location(ABA, 1500, 8_800, 200_000),
+    Location(KANO, 2000, 8_500, 185_000),
+)
+
+# Where a kind of business fits especially well or badly: added to the location's
+# running cost. -500 = five points cheaper to run there.
+SECTOR_FIT: dict[tuple[str, str], int] = {
+    ("oil_gas", PORT_HARCOURT): -600,      # the oil and gas hub
+    ("banking", LAGOS): -400,              # the financial centre
+    ("telecoms", LAGOS): -300,
+    ("media", LAGOS): -300,
+    ("manufacturing", ABA): -500,          # the manufacturing and trading hub
+    ("manufacturing", KANO): -200,
+    ("agriculture", KANO): -600,           # farmland and the northern market
+    ("real_estate", ABUJA): -300,          # close to government contracts
+    ("transport", PORT_HARCOURT): -300,    # a port
+    ("transport", LAGOS): -300,            # the main port
+    ("cement", KANO): 500,                 # far from the ports
+    ("manufacturing", ABUJA): 300,
+    ("oil_gas", KANO): 800,
+    ("power", KANO): 400,
+    ("power", ABA): 300,
+}
+
+# What each kind of company buys from other kinds, as a share of its own sales
+# (hundredths of a percent). The rest of its cost of sales is paid to people.
+INPUTS: dict[str, dict[str, int]] = {
+    "banking":       {"telecoms": 200, "real_estate": 150, "power": 50, "media": 50, "insurance": 50},
+    "consumer":      {"agriculture": 1800, "manufacturing": 900, "transport": 500, "power": 300, "oil_gas": 300,
+                      "banking": 100, "telecoms": 50, "media": 150, "insurance": 50},
+    "oil_gas":       {"manufacturing": 800, "transport": 500, "power": 200, "real_estate": 100, "banking": 150,
+                      "insurance": 150, "telecoms": 50},
+    "telecoms":      {"power": 500, "manufacturing": 400, "real_estate": 300, "oil_gas": 200, "banking": 100,
+                      "media": 150, "insurance": 50},
+    "cement":        {"oil_gas": 900, "power": 600, "transport": 600, "manufacturing": 300, "banking": 100,
+                      "insurance": 50},
+    "agriculture":   {"oil_gas": 400, "transport": 500, "manufacturing": 500, "banking": 150, "insurance": 100,
+                      "power": 100},
+    "real_estate":   {"cement": 2000, "manufacturing": 900, "transport": 300, "oil_gas": 200, "banking": 250,
+                      "insurance": 100, "power": 100},
+    "manufacturing": {"power": 700, "oil_gas": 500, "transport": 500, "agriculture": 400, "manufacturing": 600,
+                      "cement": 100, "banking": 150, "insurance": 50, "telecoms": 50},
+    "media":         {"telecoms": 500, "power": 200, "manufacturing": 200, "real_estate": 200, "banking": 50},
+    "insurance":     {"banking": 150, "telecoms": 100, "media": 100, "real_estate": 100},
+    "power":         {"oil_gas": 2500, "manufacturing": 400, "transport": 200, "banking": 150, "insurance": 100},
+    "transport":     {"oil_gas": 2000, "manufacturing": 500, "insurance": 200, "banking": 150, "power": 100,
+                      "telecoms": 50},
+}
+
+# Where the Government's purchases go, and where companies' spending on buildings
+# and machines goes. Each adds up to 10000.
+GOVERNMENT_BUYS: dict[str, int] = {
+    "cement": 2500, "real_estate": 2500, "power": 1000, "manufacturing": 1000, "transport": 1000,
+    "telecoms": 500, "media": 500, "consumer": 500, "oil_gas": 500,
+}
+INVESTMENT_BUYS: dict[str, int] = {
+    "manufacturing": 3500, "cement": 3000, "real_estate": 2500, "transport": 500, "telecoms": 500,
+}
+assert sum(GOVERNMENT_BUYS.values()) == 10_000 and sum(INVESTMENT_BUYS.values()) == 10_000
+
+# TEMPORARY STAND-IN (Stage 12 gives the Government a real budget): of the tax it
+# collects, this share buys from companies and the rest pays public-sector wages.
+GOVERNMENT_PURCHASE_BPS = 4000
+
+HOME_STAFF_BPS = 5000              # half a company's staff work where its head office is; the rest are spread by population
+LOCAL_PREFERENCE_BPS = 13_000      # buyers favour companies based in their own location by this much
+HOUSEHOLD_SPEND_FROM_INCOME_BPS = 8500
+INVESTOR_SPEND_FROM_INCOME_BPS = 8500
+INVESTOR_SPEND_FROM_SAVINGS_BPS = 1000
+
+# Pensions (design document, section 11).
+PENSION_EMPLOYEE_BPS = 800         # taken from each wage
+PENSION_EMPLOYER_BPS = 1000        # added by the employer on top of the wage
+# TEMPORARY STAND-IN (the market opens in Stage 4, pension managers arrive with the
+# Asset Manager build): until funds have a market to invest in, they hold what they
+# own and pay out pensions at about the rate money comes in.
+PENSION_PAY_FROM_INFLOW_BPS = 9000
+PENSION_PAY_FROM_SAVINGS_BPS = 300
+
+# How companies behave.
+OPEX_ADJUST_BPS = 2500             # each quarter, running costs move this far towards what sales justify
+DISTRESS_CUT_BPS = 300             # a company in trouble cuts running costs a further 3% a quarter
+CASH_TARGET_QUARTERS = 3           # cash a healthy company likes to hold, in quarters of running costs
+SPARE_CASH_TO_EXPANSION_BPS = 2500 # of cash above that target, this share is spent on expanding
+SPARE_CASH_TO_OWNERS_BPS = 2500    # and this share is paid to owners as an extra dividend
+EXPANSION_PULL_BPS = 5000          # how strongly expanding raises a company's share of its market
+EXTRA_DIVIDEND_LIMIT_BPS = 500     # an extra dividend may take at most this share of past profits kept in the business
+
 # --- Opening money (design document, section 10) ---
 # The Central Bank issues the opening money. From then on, no new naira appears.
 
 # The Treasury's reserve. Each new player's starting cash is paid out of it.
 TREASURY_OPENING_M = 500_000              # ₦500 billion: enough for one million players
-# TEMPORARY STAND-IN (replaced in Stage 3 by real households): one account standing
-# for every household and small business. It buys from the companies and is paid
-# their wages and supplier bills.
-PUBLIC_OPENING_M = 12_000_000             # ₦12 trillion
+# The savings of all households on day one, shared out by population.
+HOUSEHOLDS_OPENING_M = 12_000_000         # ₦12 trillion
 
 STARTING_GRANT_NAIRA = 500_000            # what each new player receives (section 10)
 

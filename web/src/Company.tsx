@@ -22,8 +22,8 @@ const STATEMENTS: Record<string, { title: string; section: "income_statement" | 
     lines: [
       { key: "revenue", label: "Sales", hint: "what customers paid" },
       { key: "interest_income", label: "Interest earned", hint: "on money it has lent", optional: true },
-      { key: "cost_of_sales", label: "Cost of sales", hint: "the direct cost of what it sold", cost: true },
-      { key: "operating_expenses", label: "Running costs", hint: "wages, rent and overheads", cost: true },
+      { key: "cost_of_sales", label: "Cost of sales", hint: "supplies bought and pay for those who make what it sells", cost: true },
+      { key: "operating_expenses", label: "Running costs", hint: "wages and pension contributions", cost: true },
       { key: "ebitda", label: "EBITDA", hint: "profit before interest paid, tax and wear on assets", total: true },
       { key: "depreciation", label: "Depreciation", hint: "wear on buildings and machines", cost: true },
       { key: "operating_profit", label: "Operating profit", total: true },
@@ -226,6 +226,53 @@ export function CompanyRail({ ticker, onLoggedOut }: { ticker: string; onLoggedO
           {latest.rating_reasons.map((reason) => <li key={reason}>{reason}</li>)}
         </ul>
       </Panel>
+
+      {(notes.staff !== undefined || data.location) && (
+        <Panel title="People and place">
+          {notes.staff !== undefined && (
+            <div className="row"><span>Staff</span><span className="mono">{notes.staff.toLocaleString("en-NG")}</span></div>
+          )}
+          {notes.wages !== undefined && (
+            <div className="row"><span>Wages paid this quarter</span><span className="mono">{formatCompact(notes.wages)}</span></div>
+          )}
+          {data.location && (
+            <>
+              <div className="row">
+                <span>Running costs in {data.headquarters}</span>
+                <span className="mono">
+                  {data.location.running_cost_bps === 10000
+                    ? "average"
+                    : `${formatPercent(Math.abs(data.location.running_cost_bps - 10000), 0)} ${data.location.running_cost_bps < 10000 ? "below" : "above"} average`}
+                </span>
+              </div>
+              <ul className="reasons">{data.location.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+            </>
+          )}
+        </Panel>
+      )}
+
+      {notes.sales_to && latest.period >= 1 && (
+        <Panel title="Who it sells to" aside={latest.period_label}>
+          {([["Households", notes.sales_to.households], ["Other companies", notes.sales_to.other_companies], ["The Government", notes.sales_to.government]] as const).map(([who, amount]) => (
+            <div key={who} className="row">
+              <span>{who}</span>
+              <span className="mono">{formatCompact(amount)}</span>
+            </div>
+          ))}
+        </Panel>
+      )}
+
+      {data.buys_from.length > 0 && (
+        <Panel title="What it buys" aside="share of its sales">
+          {data.buys_from.slice(0, 6).map((supplier) => (
+            <div key={supplier.sector} className="row">
+              <span>{supplier.sector}</span>
+              <span className="mono">{formatPercent(supplier.share_bps)}</span>
+            </div>
+          ))}
+          <p className="muted small">It buys from the companies in these sectors, so its good and bad quarters reach them too.</p>
+        </Panel>
+      )}
 
       <Panel title="Who owns it" aside={`${formatCount(data.shares_in_issue)} shares`}>
         <div className="stack" role="img" aria-label={data.owners.map((o) => `${o.name} ${formatPercent(o.share_bps, 0)}`).join(", ")}>

@@ -17,7 +17,7 @@ from datetime import datetime
 from psycopg import Connection
 from psycopg.rows import dict_row
 
-from simulation import clock, companies, ledger
+from simulation import clock, companies, economy, ledger
 from simulation.ledger import NGN
 
 log = logging.getLogger("wsbm.quarters")
@@ -49,42 +49,38 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
         log.info("Closed %s", clock.period_label(period))
 
 
-def _received(conn: Connection, account, period: int) -> int:
-    row = conn.execute(
-        "SELECT coalesce(sum(e.amount), 0)::bigint FROM ledger_entries e"
-        " JOIN ledger_transactions t ON t.id = e.transaction_id"
-        " WHERE e.account_id = %s AND e.asset = %s AND t.period = %s AND e.amount > 0",
-        (account, NGN, period),
-    ).fetchone()
-    return ledger._first(row)
-
-
 def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str) -> None:
+    """One quarter of the whole economy, in order.
+
+      1. Households and investors spend at the companies.
+      2. Companies buy what they need from each other.
+      3. Each company closes its quarter: counts its sales, pays its people, its
+         interest, its tax and its owners.
+      4. The Government spends the tax it collected.
+      5. Pension funds pay pensions.
+      6. Each location's households are written up, and every company files its report.
+
+    What households earn in one quarter, they spend in the next.
+    """
     if len(fortune_seed) < 32:
         raise ledger.LedgerError("The world has no secret. Quarters cannot be closed without one.")
-    label = clock.period_label(period)
-    public = ledger.account_id(conn, ledger.PUBLIC)
-    treasury = ledger.account_id(conn, ledger.TREASURY)
-    ctx = companies.Context(public=public, treasury=treasury, tax_bps=tax_bps, fortune_seed=fortune_seed)
-
+    world = economy.load_world(conn)
     all_companies = companies.load_companies(conn)
+
+    lasting_pull = economy.set_market_pulls(conn, world, all_companies, period, fortune_seed)
+    sector_weights, sector_fortune = economy.household_sector_weights(world, period, fortune_seed)
+    spent = economy.households_spend(conn, world, period, sector_weights)
+    economy.companies_buy_inputs(conn, world, all_companies, period)
+
+    ctx = companies.Context(
+        world=world, tax_bps=tax_bps, fortune_seed=fortune_seed,
+        lasting_pull=lasting_pull, sector_fortune=sector_fortune,
+    )
     results = [(company, companies.close_company_quarter(conn, company, period, ctx)) for company in all_companies]
 
-    # TEMPORARY STAND-INS (replaced in Stage 3 by a real government budget and real
-    # households). Without them, money would pile up in the Treasury and with
-    # investors and never return to the customers who buy from the companies.
-    ledger.pay_up_to(
-        conn, payer=treasury, receiver=public, wanted=_received(conn, treasury, period),
-        kind="government_spending", period=period,
-        memo=f"Government spends the tax it collected in {label} on salaries and services",
-    )
-    for code in (ledger.INVESTORS_FOUNDERS, ledger.INVESTORS_INSTITUTIONS, ledger.INVESTORS_PUBLIC):
-        investors = ledger.account_id(conn, code)
-        ledger.pay_up_to(
-            conn, payer=investors, receiver=public, wanted=_received(conn, investors, period),
-            kind="investor_spending", period=period,
-            memo=f"Investors spend the dividends and interest they received in {label}",
-        )
+    economy.government_spends(conn, world, period)
+    economy.pensions_paid(conn, world, period)
+    economy.record_households(conn, world, period, spent, results)
 
     for company, result in results:
         companies.file_report(conn, company, result)

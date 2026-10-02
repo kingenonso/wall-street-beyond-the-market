@@ -29,6 +29,13 @@ from server.schemas import (
     CompanyResponse,
     CompanySummary,
     ConfirmEmailRequest,
+    EconomyQuarter,
+    EconomyResponse,
+    HouseholdGroup,
+    LocationEffect,
+    MoneyHolder,
+    SpendingShare,
+    Supplier,
     FiledReport,
     GameDateResponse,
     LoginRequest,
@@ -51,7 +58,7 @@ log = logging.getLogger("wsbm.server")
 QUARTER_CHECK_SECONDS = 30
 
 # Whole numbers in a filed report that are not amounts and stay as plain numbers.
-_NOT_AMOUNTS = {"annual_rate_bps", "maturity_period"}
+_NOT_AMOUNTS = {"annual_rate_bps", "maturity_period", "staff"}
 
 
 def _close_due_quarters_once() -> None:
@@ -450,6 +457,110 @@ def _amounts_as_text(value, key: str | None = None):
     return value
 
 
+def _location_effect(conn: Connection, company: dict) -> LocationEffect | None:
+    """What a company's head-office location does to its running costs, in plain words."""
+    place = conn.execute("SELECT * FROM locations WHERE name = %s", (company["headquarters"],)).fetchone()
+    if place is None:
+        return None
+    where, cost = place["name"], company["location_cost_bps"]
+    general = place["running_cost_bps"]
+    reasons = []
+    if general > 10_000:
+        reasons.append(f"Rents and wages in {where} are about {(general - 10_000) / 100:.0f}% above the national average.")
+    elif general < 10_000:
+        reasons.append(f"Rents and wages in {where} are about {(10_000 - general) / 100:.0f}% below the national average.")
+    else:
+        reasons.append(f"Rents and wages in {where} are close to the national average.")
+    fit = cost - general
+    kind = company["sector_name"].lower()
+    if fit < 0:
+        reasons.append(f"{where} suits {kind}: that takes a further {-fit / 100:.0f}% off its running costs.")
+    elif fit > 0:
+        reasons.append(f"{where} is a hard place for {kind}: that adds {fit / 100:.0f}% to its running costs.")
+    reasons.append(f"Half its staff work in {where}; the rest are spread across the country.")
+    return LocationEffect(running_cost_bps=cost, reasons=reasons)
+
+
+_HOLDERS = (
+    ("Households", "a.code LIKE 'households:%%'"),
+    ("Companies", "a.kind = 'company' AND NOT c.sector IN ('banking', 'insurance')"),
+    ("Banks and insurers", "a.kind = 'company' AND c.sector IN ('banking', 'insurance')"),
+    ("Pension funds", "a.code = 'investors:institutions'"),
+    ("Private investors", "a.code IN ('investors:founders', 'investors:public')"),
+    ("Government", "a.kind IN ('government', 'prize_pool')"),
+    ("Players", "a.kind = 'player'"),
+)
+
+
+@app.get("/api/economy", response_model=EconomyResponse)
+def economy(_: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """The published statistics of the economy: who earns, who spends, where money sits."""
+    world = _world(conn)
+    period = world["last_closed_period"] if world else 0
+    money = ledger.amount_in_existence(conn) if world else 0
+
+    now = {r["location"]: r for r in conn.execute(
+        "SELECT h.*, l.population_bps, l.sort_order FROM household_results h JOIN locations l ON l.name = h.location"
+        " WHERE h.period = %s", (period,)).fetchall()}
+    before = {r["location"]: r for r in conn.execute(
+        "SELECT * FROM household_results WHERE period = %s", (period - 1,)).fetchall()}
+
+    def change(location: str, column: str) -> int | None:
+        old = before.get(location, {}).get(column)
+        # The opening quarter has no real "before" to compare with.
+        if period < 2 or not old:
+            return None
+        return round((now[location][column] - old) * 10_000 / old)
+
+    holders = []
+    for name, condition in _HOLDERS:
+        amount = conn.execute(
+            "SELECT coalesce(sum(b.balance), 0)::bigint AS total FROM ledger_balances b"
+            " JOIN ledger_accounts a ON a.id = b.account_id LEFT JOIN companies c ON c.account_id = a.id"
+            f" WHERE b.asset = 'NGN' AND b.balance > 0 AND {condition}"
+        ).fetchone()["total"]
+        holders.append(MoneyHolder(holder=name, amount_kobo=amount, share_bps=amount * 10_000 // money if money else 0))
+
+    history = conn.execute(
+        "SELECT h.period, sum(h.income)::bigint AS income, sum(h.spending)::bigint AS spending, sum(h.jobs)::bigint AS jobs,"
+        "       (SELECT coalesce(sum(r.revenue), 0)::bigint FROM company_results r WHERE r.period = h.period) AS sales"
+        " FROM household_results h WHERE h.period >= 1 AND h.period > %s GROUP BY h.period ORDER BY h.period",
+        (period - 12,),
+    ).fetchall()
+
+    spending = conn.execute(
+        "SELECT s.name, sum(r.sales_households)::bigint AS amount FROM company_results r"
+        " JOIN companies c ON c.id = r.company_id JOIN sectors s ON s.code = c.sector"
+        " WHERE r.period = %s GROUP BY s.name, s.sort_order ORDER BY amount DESC, s.sort_order", (period,),
+    ).fetchall()
+    spent = sum(r["amount"] for r in spending)
+
+    return EconomyResponse(
+        period=period, period_label=clock.period_label(period) if period else None,
+        money_in_existence_kobo=money,
+        households=[
+            HouseholdGroup(
+                location=r["location"], population_bps=r["population_bps"], income_kobo=r["income"],
+                wages_kobo=r["wages"], government_kobo=r["government"], pensions_kobo=r["pensions"],
+                spending_kobo=r["spending"], savings_kobo=r["cash"], jobs=r["jobs"],
+                income_change_bps=change(r["location"], "income"), jobs_change_bps=change(r["location"], "jobs"),
+            )
+            for r in sorted(now.values(), key=lambda r: r["sort_order"])
+        ],
+        money=holders,
+        history=[
+            EconomyQuarter(
+                period=r["period"], period_label=clock.period_label(r["period"]), company_sales_kobo=r["sales"],
+                household_income_kobo=r["income"], household_spending_kobo=r["spending"], jobs=r["jobs"],
+            )
+            for r in history
+        ],
+        household_spending=[
+            SpendingShare(sector=r["name"], share_bps=r["amount"] * 10_000 // spent) for r in spending if spent
+        ],
+    )
+
+
 def _with_ebitda(figures: dict) -> dict:
     """Filings made before EBITDA was filed still show it: it is worked out from what they did file."""
     income = figures["income_statement"]
@@ -531,6 +642,14 @@ def get_company(
     return CompanyResponse(
         ticker=company["ticker"], name=company["name"], sector=company["sector_name"],
         headquarters=company["headquarters"], shares_in_issue=in_issue,
+        location=_location_effect(conn, company),
+        buys_from=[
+            Supplier(sector=r["name"], share_bps=r["bps"])
+            for r in conn.execute(
+                "SELECT s.name, i.bps FROM sector_inputs i JOIN sectors s ON s.code = i.supplier"
+                " WHERE i.buyer = %s ORDER BY i.bps DESC, s.name", (company["sector"],),
+            ).fetchall()
+        ],
         owners=[
             Owner(name=h["name"], shares=h["balance"], share_bps=h["balance"] * 10_000 // in_issue)
             for h in holders

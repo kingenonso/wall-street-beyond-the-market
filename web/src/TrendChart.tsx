@@ -3,10 +3,9 @@ import type { FiledReport } from "./api";
 import { formatCompact } from "./format";
 
 // Two series, checked for colour-blind separation and contrast against the panel colour.
-const SERIES = [
-  { key: "revenue", label: "Sales", color: "#B88A30" },
-  { key: "net_profit", label: "Net profit", color: "#8B7CF6" },
-] as const;
+const COLORS = ["#B88A30", "#8B7CF6"] as const;
+
+export type TrendPoint = { label: string; first: number; second: number };
 
 const W = 720, H = 250;
 const PAD = { left: 64, right: 86, top: 14, bottom: 30 };
@@ -18,21 +17,34 @@ function niceCeil(value: number): number {
   return [1, 2, 2.5, 5, 10].map((m) => m * step).find((candidate) => candidate >= value) ?? 10 * step;
 }
 
-const naira = (kobo: string) => Number(BigInt(kobo) / 100n);
+export const naira = (kobo: string) => Number(BigInt(kobo) / 100n);
 const asKobo = (value: number) => (BigInt(Math.round(value)) * 100n).toString();
 
 /** Sales and net profit by quarter, as filed. One scale, one unit (naira). */
 export function TrendChart({ reports }: { reports: FiledReport[] }) {
+  return (
+    <LineChart
+      names={["Sales", "Net profit"]}
+      data={reports.map((r) => ({
+        label: r.period_label,
+        first: naira(r.figures.income_statement.revenue),
+        second: naira(r.figures.income_statement.net_profit),
+      }))}
+    />
+  );
+}
+
+/** Two amounts in naira over the same quarters, on one scale. */
+export function LineChart({ names, data }: { names: [string, string]; data: TrendPoint[] }) {
   const [hover, setHover] = useState<number | null>(null);
-  const data = reports.map((r) => ({
-    label: r.period_label,
-    revenue: naira(r.figures.income_statement.revenue),
-    net_profit: naira(r.figures.income_statement.net_profit),
-  }));
+  const SERIES = [
+    { key: "first", label: names[0], color: COLORS[0] },
+    { key: "second", label: names[1], color: COLORS[1] },
+  ] as const;
   if (data.length < 2) return null;
 
-  const top = niceCeil(Math.max(...data.map((d) => d.revenue)));
-  const lowest = Math.min(0, ...data.map((d) => d.net_profit));
+  const top = niceCeil(Math.max(...data.map((d) => Math.max(d.first, d.second))));
+  const lowest = Math.min(0, ...data.map((d) => Math.min(d.first, d.second)));
   const bottom = lowest < 0 ? -niceCeil(-lowest) : 0;
   const x = (i: number) => PAD.left + (i * (W - PAD.left - PAD.right)) / (data.length - 1);
   const y = (v: number) => PAD.top + ((top - v) * (H - PAD.top - PAD.bottom)) / (top - bottom);
@@ -51,7 +63,7 @@ export function TrendChart({ reports }: { reports: FiledReport[] }) {
       </div>
       <div className="chart-frame">
         <svg viewBox={`0 0 ${W} ${H}`} role="img"
-             aria-label={`Sales and net profit by quarter, from ${data[0].label} to ${data[data.length - 1].label}. The same figures are in the income statement table.`}>
+             aria-label={`${names[0]} and ${names[1]} by quarter, from ${data[0].label} to ${data[data.length - 1].label}. The same figures are in the table on this page.`}>
           {ticks.map((tick) => (
             <g key={tick}>
               <line x1={PAD.left} x2={W - PAD.right} y1={y(tick)} y2={y(tick)} className={tick === 0 ? "axis-zero" : "grid-line"} />
@@ -79,7 +91,7 @@ export function TrendChart({ reports }: { reports: FiledReport[] }) {
             <rect key={i} x={x(i) - band / 2} y={PAD.top} width={band} height={H - PAD.top - PAD.bottom} fill="transparent"
                   onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
                   onFocus={() => setHover(i)} onBlur={() => setHover(null)} tabIndex={0}
-                  aria-label={`${data[i].label}: sales ${formatCompact(asKobo(data[i].revenue))}, net profit ${formatCompact(asKobo(data[i].net_profit))}`} />
+                  aria-label={`${data[i].label}: ${names[0]} ${formatCompact(asKobo(data[i].first))}, ${names[1]} ${formatCompact(asKobo(data[i].second))}`} />
           ))}
         </svg>
         {hover !== null && (

@@ -37,7 +37,6 @@ NGN = "NGN"
 CENTRAL_BANK = "central_bank"
 TREASURY = "treasury"
 PRIZE_POOL = "prize_pool"
-PUBLIC = "public"
 INVESTORS_FOUNDERS = "investors:founders"
 INVESTORS_INSTITUTIONS = "investors:institutions"
 INVESTORS_PUBLIC = "investors:public"
@@ -256,6 +255,61 @@ def pay_up_to(
             asset=asset, period=period, reference=reference,
         )
     return amount
+
+
+def pay_split_up_to(
+    conn: Connection,
+    *,
+    payer: UUID | str,
+    amounts: dict,
+    kind: str,
+    memo: str,
+    asset: str = NGN,
+    period: int | None = None,
+    reference: str | None = None,
+) -> int:
+    """Pay several receivers in one transaction: {receiver: amount wanted}.
+
+    If the payer cannot afford all of it, every receiver is paid the same
+    proportion of what they were due. Returns the total actually paid.
+    """
+    wanted = {account: amount for account, amount in amounts.items() if amount > 0}
+    if any(not is_whole_amount(amount) for amount in wanted.values()):
+        raise LedgerError("Amounts must be whole numbers.")
+    wanted.pop(payer, None)                                  # nobody pays themselves
+    total = sum(wanted.values())
+    if total == 0:
+        return 0
+    row = conn.execute(
+        "SELECT balance FROM ledger_balances WHERE account_id = %s AND asset = %s FOR UPDATE",
+        (payer, asset),
+    ).fetchone()
+    available = max(_first(row), 0) if row else 0
+    if available < total:
+        wanted = {account: amount * available // total for account, amount in wanted.items()}
+        wanted = {account: amount for account, amount in wanted.items() if amount > 0}
+    paid = sum(wanted.values())
+    if paid == 0:
+        return 0
+    post(
+        conn, kind=kind, memo=memo, period=period, reference=reference,
+        legs=[Leg(payer, -paid, asset), *[Leg(account, amount, asset) for account, amount in wanted.items()]],
+    )
+    return paid
+
+
+def received_in_period(conn: Connection, account: UUID | str, period: int, kinds: tuple[str, ...] | None = None) -> int:
+    """How much naira an account received in transactions belonging to one game quarter."""
+    sql = (
+        "SELECT coalesce(sum(e.amount), 0)::bigint FROM ledger_entries e"
+        " JOIN ledger_transactions t ON t.id = e.transaction_id"
+        " WHERE e.account_id = %s AND e.asset = %s AND t.period = %s AND e.amount > 0"
+    )
+    params: list = [account, NGN, period]
+    if kinds is not None:
+        sql += " AND t.kind = ANY(%s)"
+        params.append(list(kinds))
+    return _first(conn.execute(sql, params).fetchone())
 
 
 def _check_legs(legs: Sequence[Leg]) -> None:

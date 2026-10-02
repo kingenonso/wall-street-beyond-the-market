@@ -193,7 +193,7 @@ def test_starting_cash_can_never_be_paid_twice(client, player, db):
 
 def test_if_the_treasury_cannot_pay_no_half_made_account_is_left(client, db):
     treasury = ledger.account_id(db, ledger.TREASURY)
-    ledger.transfer(db, payer=treasury, receiver=ledger.account_id(db, ledger.PUBLIC),
+    ledger.transfer(db, payer=treasury, receiver=ledger.account_id(db, "households:lagos"),
                     amount=ledger.balance(db, treasury) - naira(100), kind="test", memo="Test: Treasury emptied")
 
     response = join(client, ADULT)

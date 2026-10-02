@@ -60,7 +60,7 @@ def test_accounts_exist_for_companies_banks_government_and_the_prize_pool(db):
         "SELECT count(*) FROM companies c JOIN ledger_accounts a ON a.id = c.account_id WHERE c.sector = 'banking'"
     ).fetchone()[0]
     assert banks == 7                             # six commercial banks and one microfinance bank
-    for code in (ledger.TREASURY, ledger.PRIZE_POOL, ledger.CENTRAL_BANK, ledger.PUBLIC):
+    for code in (ledger.TREASURY, ledger.PRIZE_POOL, ledger.CENTRAL_BANK, "households:lagos"):
         assert ledger.account_id(db, code)
 
 

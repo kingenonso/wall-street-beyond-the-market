@@ -2,21 +2,20 @@
 
 Once per game quarter, for each company, it:
 
-  1. collects the quarter's sales from customers,
+  1. counts the quarter's sales: what households, other companies and the
+     Government actually paid it,
   2. pays any old bills still owed,
-  3. pays the quarter's costs, interest and tax,
+  3. pays its people, its interest and its tax,
   4. repays the debt that is due,
-  5. spends on upkeep of buildings and machines, and pays a dividend, if it can afford to,
+  5. spends on upkeep and expansion and pays a dividend, if it can afford to,
   6. writes the three statements (income, cash flow, balance sheet) into the TRUE record,
   7. files a report for the public into the REPORTED record.
 
 Every naira moves through the ledger, so every payment has a payer and a
 receiver. If a company cannot pay a bill, it pays what it can and owes the rest.
 
-Stand-ins, to be replaced in Stage 3:
-  * Sales are paid by one account standing for all households and small
-    businesses ("the public"), and follow a simple trend and season.
-  * Costs and upkeep are paid to that same account, as wages and supplier bills.
+A company's sales are no longer set by a trend. They are whatever its customers
+chose to spend with it this quarter (see simulation/economy.py).
 """
 
 from __future__ import annotations
@@ -29,15 +28,18 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from simulation import clock, credit, ledger
+from simulation import clock, credit, economy, ledger
 from simulation import world_data as data
+from simulation.fortune import fortune_bps  # noqa: F401  (also used by tests through this module)
 from simulation.ledger import NGN, Leg
 from simulation.money import BPS, apply_bps
 
 # What a ledger movement means for the cash flow statement.
-_OPERATING = {"customer_revenue", "cost_of_sales", "operating_expenses", "debt_interest", "company_tax"}
-_INVESTING = {"capital_spending"}
+_SALES = ("customer_revenue", "business_purchase", "government_purchase", "capital_spending")
+_OPERATING = {"customer_revenue", "business_purchase", "government_purchase", "cost_of_sales", "wages",
+              "debt_interest", "company_tax"}
 _FINANCING = {"dividend"}
+# 'capital_spending' is investing for the company that spends it and a sale for the company that receives it.
 # 'debt_repayment' is financing for the borrower (money out) and investing for the lender (money in).
 
 INCOME_LINES = (
@@ -59,28 +61,14 @@ class BooksDoNotBalance(Exception):
     """A company's accounts failed a consistency check. The quarter is not closed."""
 
 
-@dataclass(frozen=True)
+@dataclass
 class Context:
-    """The accounts every company deals with."""
-    public: UUID
-    treasury: UUID
+    """What every company's quarter needs to know about the world around it."""
+    world: economy.World
     tax_bps: int
     fortune_seed: str
-
-
-def fortune_bps(seed: str, subject: str, period: int, what: str, size_bps: int) -> int:
-    """This quarter's good or bad fortune for a company or a sector, between -size and +size.
-
-    It is worked out from the world's secret, so nobody outside the server can
-    know it in advance, yet asking again for the same quarter always gives the
-    same answer. Most quarters land near the middle; big swings are rare.
-    """
-    if size_bps <= 0:
-        return 0
-    digest = hashlib.sha256(f"{seed}:{subject}:{period}:{what}".encode()).digest()
-    first = int.from_bytes(digest[:4], "big") / 2**32
-    second = int.from_bytes(digest[4:8], "big") / 2**32
-    return round(size_bps * (first + second - 1))
+    lasting_pull: dict            # company id -> the pull on customers it carries into next quarter
+    sector_fortune: dict          # sector -> this quarter's good or bad fortune
 
 
 def _rows(conn: Connection, sql: str, params=()) -> list[dict]:
@@ -117,12 +105,36 @@ def _pay_or_owe(conn, company, payee, amount, *, kind, memo, period, reference=N
         kind=kind, memo=memo, period=period, reference=reference,
     )
     if paid < amount:
-        conn.execute(
-            "INSERT INTO company_payables (company_id, payee_account_id, kind, amount_outstanding, incurred_period)"
-            " VALUES (%s, %s, %s, %s, %s)",
-            (company["id"], payee, kind, amount - paid, period),
-        )
+        _owe(conn, company, payee, kind, amount - paid, period)
     return paid
+
+
+def _owe(conn, company, payee, kind, amount, period) -> None:
+    conn.execute(
+        "INSERT INTO company_payables (company_id, payee_account_id, kind, amount_outstanding, incurred_period)"
+        " VALUES (%s, %s, %s, %s, %s)",
+        (company["id"], payee, kind, amount, period),
+    )
+
+
+def _pay_people(conn, company, ctx, amount, *, kind, memo, period, pension: int = 0) -> int:
+    """Pay a company's people, spread over the locations where they work.
+
+    `pension` is the part that goes to the pension funds instead of into pockets.
+    Whatever cannot be paid is owed to the households of its head-office location.
+    """
+    world = ctx.world
+    amounts = economy.split(amount - pension, world.staff_spread(company["headquarters"]))
+    if pension > 0:
+        amounts[world.institutions] = pension
+    due = sum(amounts.values())
+    paid = ledger.pay_split_up_to(
+        conn, payer=company["account_id"], amounts=amounts, kind=kind, memo=memo, period=period,
+    )
+    if paid < due:
+        home = world.households[company["headquarters"]]["account_id"]
+        _owe(conn, company, home, kind, due - paid, period)
+    return due
 
 
 def _settle_old_bills(conn, company, period) -> None:
@@ -212,48 +224,73 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     )
     if prev is None:
         raise BooksDoNotBalance(f"{company['name']} has no record for the quarter before {period}.")
+    world = ctx.world
     account = company["account_id"]
     name = company["name"]
     label = clock.period_label(period)
-    season = company["season_bps"][(period - 1) % 4]
     notes: list[str] = []
 
     # Hold the company's cash still while its quarter is closed: any other payment
     # touching this account waits until the close is saved.
     conn.execute("SELECT 1 FROM ledger_balances WHERE account_id = %s AND asset = %s FOR UPDATE", (account, NGN))
 
-    # 1. Sales. Customers can only spend what they have.
-    # The trend, the season, then this quarter's fortune: the sector's and the company's own.
-    base_revenue = apply_bps(prev["base_revenue"], BPS + company["revenue_growth_bps"])
-    sector_fortune = fortune_bps(ctx.fortune_seed, company["sector"], period, "demand", data.SECTOR_VOLATILITY_BPS)
-    own_fortune = fortune_bps(ctx.fortune_seed, company["ticker"], period, "sales", company["volatility_bps"])
-    cost_fortune = fortune_bps(ctx.fortune_seed, company["ticker"], period, "costs", company["volatility_bps"] // 3)
-    planned_revenue = max(
-        apply_bps(apply_bps(apply_bps(base_revenue, season), BPS + sector_fortune), BPS + own_fortune), 0
-    )
-    ledger.pay_up_to(
-        conn, payer=ctx.public, receiver=account, wanted=planned_revenue,
-        kind="customer_revenue", memo=f"{name}: sales to customers, {label}", period=period,
-    )
-    # Revenue is what customers actually paid since the last quarter closed.
+    # 1. Sales: what customers actually paid since the last quarter closed, read from the ledger.
     counted = prev["ledger_totals"]
-    revenue = _movements_since(conn, account, counted).get("customer_revenue", {}).get("received", 0)
+    moves = _movements_since(conn, account, counted)
+
+    def received(kind: str) -> int:
+        return moves.get(kind, {}).get("received", 0)
+
+    sales_households = received("customer_revenue")
+    sales_business = received("business_purchase") + received("capital_spending")
+    sales_government = received("government_purchase")
+    revenue = sales_households + sales_business + sales_government
+    supplies_bought = moves.get("business_purchase", {}).get("paid", 0)
 
     # 2. Old bills come before new spending.
     _settle_old_bills(conn, company, period)
 
-    # 3. This quarter's costs.
-    cost_rate = min(max(company["cost_of_sales_bps"] + cost_fortune, 0), BPS)
-    cost_of_sales = apply_bps(revenue, cost_rate)
+    # 3. This quarter's costs. Direct labour follows what was sold; this quarter's
+    #    good or bad fortune with costs shows here.
+    cost_fortune = fortune_bps(ctx.fortune_seed, company["ticker"], period, "costs", company["volatility_bps"] // 3)
+    labour_rate = min(max(company["labour_bps"] + cost_fortune, 0), BPS)
+    direct_labour = _pay_people(
+        conn, company, ctx, apply_bps(revenue, labour_rate), kind="cost_of_sales",
+        memo=f"{name}: pay for the people who make and deliver what it sells, {label}", period=period,
+    )
+    cost_of_sales = supplies_bought + direct_labour
     if cost_fortune >= 100:
         notes.append(f"Its costs ran {_percent(cost_fortune)} of sales higher than usual this quarter.")
     elif cost_fortune <= -100:
         notes.append(f"Its costs ran {_percent(-cost_fortune)} of sales lower than usual this quarter.")
-    operating_expenses = apply_bps(prev["base_opex"], BPS + company["opex_growth_bps"])
-    _pay_or_owe(conn, company, ctx.public, cost_of_sales, kind="cost_of_sales",
-                memo=f"{name}: cost of goods and services sold, {label}", period=period)
-    _pay_or_owe(conn, company, ctx.public, operating_expenses, kind="operating_expenses",
-                memo=f"{name}: wages and running costs, {label}", period=period)
+
+    # Running costs are mostly staff. They move part of the way, each quarter, towards
+    # what sales justify: a growing company hires, a shrinking one lets people go.
+    # A company in trouble cuts harder.
+    target = apply_bps(revenue, company["opex_bps"])
+    operating_expenses = prev["base_opex"] + apply_bps(target - prev["base_opex"], data.OPEX_ADJUST_BPS)
+    in_trouble = prev["payables"] > 0 or prev["principal_overdue"] > 0 or (prev["period"] >= 1 and prev["net_profit"] < 0)
+    if in_trouble:
+        operating_expenses = apply_bps(operating_expenses, BPS - data.DISTRESS_CUT_BPS)
+    operating_expenses = max(operating_expenses, 1)
+    # Of the running costs, the employer's pension contribution sits on top of the wage,
+    # and the employee's contribution is taken out of it.
+    wages = operating_expenses * BPS // (BPS + data.PENSION_EMPLOYER_BPS)
+    pension = operating_expenses - wages + apply_bps(wages, data.PENSION_EMPLOYEE_BPS)
+    # (Sharing pay out over five locations in whole kobo can leave a few kobo
+    # unshared; the cost recorded is exactly what was due.)
+    operating_expenses = _pay_people(
+        conn, company, ctx, operating_expenses, kind="wages", pension=pension,
+        memo=f"{name}: wages and pension contributions, {label}", period=period,
+    )
+    wage_here = next(loc["quarterly_wage"] for loc in world.locations if loc["name"] == company["headquarters"])
+    staff = max(wages // wage_here, 1)
+    if prev["staff"] > 0:
+        change = staff - prev["staff"]
+        if change * 50 <= -prev["staff"]:                      # two percent or more
+            notes.append(f"It cut about {_round_people(-change)} jobs this quarter.")
+        elif change * 50 >= prev["staff"]:
+            notes.append(f"It took on about {_round_people(change)} more staff this quarter.")
     depreciation = apply_bps(prev["fixed_assets"], company["depreciation_bps"])
 
     # 4. Interest on what it has borrowed.
@@ -277,15 +314,30 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     operating_profit = revenue + interest_income - cost_of_sales - operating_expenses - depreciation
     profit_before_tax = operating_profit - interest_expense
     tax = apply_bps(profit_before_tax, ctx.tax_bps) if profit_before_tax > 0 else 0
-    _pay_or_owe(conn, company, ctx.treasury, tax, kind="company_tax",
+    _pay_or_owe(conn, company, world.treasury, tax, kind="company_tax",
                 memo=f"{name}: company tax, {label}", period=period)
     net_profit = profit_before_tax - tax
 
     # 5. Repay the debt that is due.
     principal_overdue = 0
     repayments_missed = 0
+    # TEMPORARY STAND-IN (Stage 3 Part B: banks decide their own lending; Stage 4: the
+    # bond market). A lender renews the debt of a borrower in good health instead of
+    # taking the money back, so sound companies stay financed and money keeps moving.
+    # A borrower that is losing money, behind on its bills or already late must repay.
+    renewable = (
+        net_profit > 0 and prev["payables"] == 0 and prev["principal_overdue"] == 0
+        and ledger.balance(conn, account) > 0
+        and _row(conn, "SELECT coalesce(sum(amount_outstanding), 0)::bigint AS owed FROM company_payables"
+                       " WHERE company_id = %s", (company["id"],))["owed"] == 0
+    )
     for debt in debts:
         due = principal_due(debt["principal_outstanding"], debt["repayment"], debt["maturity_period"], period)
+        if due > 0 and renewable and debt["maturity_period"] > 0:
+            term = data.BOND_TERM_QUARTERS if debt["repayment"] == "bullet" else 1
+            conn.execute("UPDATE company_debts SET maturity_period = maturity_period + %s WHERE id = %s",
+                         (term, debt["id"]))
+            continue
         paid = ledger.pay_up_to(
             conn, payer=account, receiver=debt["lender_account_id"], wanted=due,
             kind="debt_repayment", memo=f"{name}: repayment of {debt['name']}, {label}",
@@ -310,22 +362,43 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         notes.append("It could not pay all of its bills this quarter. The unpaid part is still owed.")
 
     # 6. Optional spending, only when nothing is owed and a cash cushion remains.
+    #    Buildings and machines are bought from other companies, so this spending
+    #    is somebody else's sale.
     cushion = operating_expenses              # keep one quarter of running costs in hand
-    in_good_standing = payables == 0 and principal_overdue == 0
-    spare = max(ledger.balance(conn, account) - cushion, 0) if in_good_standing else 0
+    in_good_standing = payables == 0 and principal_overdue == 0 and repayments_missed == 0
+    comfortable = data.CASH_TARGET_QUARTERS * (operating_expenses + interest_expense)
+    investment_weights = {sector: row["investment_bps"] for sector, row in world.demand.items()}
 
-    capital_spending = ledger.pay_up_to(
-        conn, payer=account, receiver=ctx.public, wanted=min(depreciation, spare),
-        kind="capital_spending", memo=f"{name}: upkeep of buildings and machines, {label}", period=period,
+    def spare_above(level: int) -> int:
+        return max(ledger.balance(conn, account) - level, 0) if in_good_standing else 0
+
+    upkeep = min(depreciation, spare_above(cushion))
+    # A company holding more cash than it needs puts part of it to work.
+    lends = company["is_lender"] or prev["customer_funds"] > 0       # banks and insurers do not build factories
+    expansion = 0
+    if net_profit > 0 and not lends:
+        expansion = apply_bps(max(spare_above(comfortable) - upkeep, 0), data.SPARE_CASH_TO_EXPANSION_BPS)
+    capital_spending = ledger.pay_split_up_to(
+        conn, payer=account,
+        amounts=economy.allocate(world, upkeep + expansion, investment_weights,
+                                 location=company["headquarters"], exclude=account),
+        kind="capital_spending", memo=f"{name}: buildings and machines, {label}", period=period,
     )
-    if capital_spending < depreciation:
+    if capital_spending < depreciation * 99 // 100:
         notes.append("It cut back on upkeep of its buildings and machines to protect its cash.")
+    elif expansion > 0 and capital_spending > depreciation * 3 // 2:
+        notes.append("It put spare cash into expanding the business.")
 
     dividends_paid = 0
     if net_profit > 0:
         wanted = apply_bps(net_profit, company["payout_bps"])
-        spare = max(ledger.balance(conn, account) - cushion, 0) if in_good_standing else 0
-        dividends_paid = _pay_dividend(conn, company, min(wanted, spare), period)
+        # An extra dividend from spare cash, but never more than a small part of the
+        # past profits kept in the business: owners cannot strip a company bare.
+        extra = min(
+            apply_bps(spare_above(comfortable), data.SPARE_CASH_TO_OWNERS_BPS * (2 if lends else 1)),
+            apply_bps(max(prev["retained_earnings"], 0), data.EXTRA_DIVIDEND_LIMIT_BPS),
+        )
+        dividends_paid = _pay_dividend(conn, company, min(wanted + extra, spare_above(cushion)), period)
         if dividends_paid < wanted * 99 // 100:
             notes.append("It held back part of its dividend to protect its cash.")
 
@@ -333,7 +406,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     # A new kind of company payment added in a later stage must be given its place
     # here; until then the engine refuses to guess, and the quarter is not closed.
     moves = _movements_since(conn, account, counted)
-    unknown = set(moves) - _OPERATING - _INVESTING - _FINANCING - {"debt_repayment"}
+    unknown = set(moves) - _OPERATING - _FINANCING - {"debt_repayment", "capital_spending"}
     if unknown:
         raise BooksDoNotBalance(f"{name} has cash movements the company engine does not recognise: {sorted(unknown)}")
 
@@ -342,11 +415,17 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         return move["received"] - move["paid"]
 
     repay = moves.get("debt_repayment", {"received": 0, "paid": 0})
-    cash_from_operations = sum(net(kind) for kind in _OPERATING)
-    cash_from_investing = sum(net(kind) for kind in _INVESTING) + repay["received"]
+    built = moves.get("capital_spending", {"received": 0, "paid": 0})
+    cash_from_operations = sum(net(kind) for kind in _OPERATING) + built["received"]
+    cash_from_investing = repay["received"] - built["paid"]
     cash_from_financing = sum(net(kind) for kind in _FINANCING) - repay["paid"]
     cash_opening = prev["cash"]
     cash_closing = ledger.balance(conn, account)
+
+    # Sales that arrived while this quarter was being closed belong to this quarter too.
+    late = sum(moves.get(kind, {}).get("received", 0) for kind in _SALES) - revenue
+    if late:
+        raise BooksDoNotBalance(f"{name}: sales arrived while its quarter was being closed.")
 
     # 8. The balance sheet, each figure taken from where it is truly kept.
     borrowings = _row(
@@ -371,8 +450,17 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     if total_assets != total_liabilities + total_equity:
         raise BooksDoNotBalance(f"{name}: the balance sheet does not balance for {label}.")
 
+    # Expanding wins customers: the pull it carries into next quarter grows with
+    # what it added to its buildings and machines beyond upkeep.
+    lasting_pull = ctx.lasting_pull[company["id"]]
+    added = max(capital_spending - depreciation, 0)
+    if added > 0 and prev["fixed_assets"] > 0:
+        growth = min(added * data.EXPANSION_PULL_BPS // prev["fixed_assets"], 500)       # at most 5% a quarter
+        lasting_pull = apply_bps(lasting_pull, BPS + growth)
+
     drivers = {
-        "revenue": _revenue_causes(company, season, sector_fortune, own_fortune, revenue, planned_revenue),
+        "revenue": _revenue_causes(company, world, period, ctx.sector_fortune.get(company["sector"], 0),
+                                   revenue, prev, sales_households, sales_business, sales_government),
         "notes": notes,
         "repayments_missed": repayments_missed,
     }
@@ -393,38 +481,52 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         "customer_funds": prev["customer_funds"], "total_liabilities": total_liabilities,
         "share_capital": prev["share_capital"], "retained_earnings": retained_earnings,
         "total_equity": total_equity, "principal_overdue": principal_overdue,
-        "shares_in_issue": shares_in_issue, "base_revenue": base_revenue,
+        "shares_in_issue": shares_in_issue, "base_revenue": lasting_pull,
         "base_opex": operating_expenses, "ledger_totals": ledger_totals(conn, account), "drivers": drivers,
+        "staff": staff, "wages": wages, "sales_households": sales_households,
+        "sales_business": sales_business, "sales_government": sales_government,
     }
     insert_result(conn, result)
     return result
 
 
-def _revenue_causes(company: dict, season: int, sector_fortune: int, own_fortune: int,
-                    revenue: int, planned: int) -> list[str]:
+def _round_people(count: int) -> str:
+    """A head count the way a newspaper would give it: 1,240 becomes "1,200"."""
+    if count >= 1000:
+        count = round(count, -2)
+    elif count >= 100:
+        count = round(count, -1)
+    return f"{count:,}"
+
+
+def _revenue_causes(company: dict, world, period: int, sector_fortune: int, revenue: int, prev: dict,
+                    to_households: int, to_business: int, to_government: int) -> list[str]:
     """The causes behind this quarter's sales, in plain words, in order."""
-    growth = company["revenue_growth_bps"]
     sector = company["sector_name"].lower()
     name = company["name"]
-    owner = f"{name}'" if name.endswith("s") else f"{name}'s"
-    if growth >= 0:
-        causes = [f"{owner} sales have been growing about {_percent(growth)} a quarter"]
-    else:
-        causes = [f"{owner} sales have been shrinking about {_percent(-growth)} a quarter"]
+    causes = []
+    if revenue > 0:
+        biggest = max((to_households, "households"), (to_business, "other companies"), (to_government, "the Government"))
+        causes.append(f"{_percent(biggest[0] * BPS // revenue)} of its sales were to {biggest[1]}")
+    season = world.seasons[company["sector"]][(period - 1) % 4]
     if season > BPS:
-        causes.append(f"This is a strong season: sales run {_percent(season - BPS)} above an average quarter")
+        causes.append(f"This is a strong season for {sector}: about {_percent(season - BPS)} above an average quarter")
     elif season < BPS:
-        causes.append(f"This is a weak season: sales run {_percent(BPS - season)} below an average quarter")
+        causes.append(f"This is a weak season for {sector}: about {_percent(BPS - season)} below an average quarter")
     if sector_fortune >= 100:
-        causes.append(f"The whole of {sector} had a good quarter: demand {_percent(sector_fortune)} above trend")
+        causes.append(f"Households spent more on {sector} this quarter: {_percent(sector_fortune)} above their usual share")
     elif sector_fortune <= -100:
-        causes.append(f"The whole of {sector} had a poor quarter: demand {_percent(-sector_fortune)} below trend")
-    if own_fortune >= 100:
-        causes.append(f"{name} itself did well: sales {_percent(own_fortune)} above its usual")
-    elif own_fortune <= -100:
-        causes.append(f"{name} itself did badly: sales {_percent(-own_fortune)} below its usual")
-    if revenue < planned:
-        causes.append("Customers ran short of money and bought less than they wanted")
+        causes.append(f"Households spent less on {sector} this quarter: {_percent(-sector_fortune)} below their usual share")
+    own = company.get("own_fortune_bps", 0)
+    if own >= 100:
+        causes.append(f"{name} won customers from its rivals: its pull was {_percent(own)} above its usual")
+    elif own <= -100:
+        causes.append(f"{name} lost customers to its rivals: its pull was {_percent(-own)} below its usual")
+    trend = company["revenue_growth_bps"]
+    if trend >= 50:
+        causes.append(f"It has been gaining ground on its rivals by about {_percent(trend)} a quarter")
+    elif trend <= -50:
+        causes.append(f"It has been losing ground to its rivals by about {_percent(-trend)} a quarter")
     return causes
 
 
@@ -469,6 +571,13 @@ def build_figures(conn: Connection, company: dict, result: dict) -> dict:
             # Scheduled loan repayments it failed to make this quarter.
             "repayments_missed": result["drivers"].get("repayments_missed", 0),
             "borrowings": debts,
+            # Who it sold to, how many people it employs and what it paid them.
+            "sales_to": {
+                "households": result["sales_households"], "other_companies": result["sales_business"],
+                "government": result["sales_government"],
+            },
+            "staff": result["staff"],
+            "wages": result["wages"],
             "why_revenue": result["drivers"]["revenue"],
             "management_notes": result["drivers"]["notes"],
         },

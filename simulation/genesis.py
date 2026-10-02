@@ -11,7 +11,7 @@ up before the ledger existed).
 What it creates (design document, sections 4 and 10):
   * the Central Bank, which issues the opening money,
   * the Federal Government Treasury and the prize pool,
-  * stand-in accounts for the public and for NPC investors,
+  * the households of the five locations, and accounts for investors and pension funds,
   * the 12 sectors and the 50 companies, each with an opening balance sheet,
     its shares handed to its owners, and its debts.
 """
@@ -51,15 +51,27 @@ def _company_shape(index: int, company: data.Company, sector: data.Sector) -> di
     volatility = company.volatility_bps if company.volatility_bps is not None else 250 + ((index * 41) % 5) * 100
     debt_times = company.debt_times_bps if company.debt_times_bps is not None else debt_tweak
 
+    place = next(loc for loc in data.LOCATIONS if loc.name == company.headquarters)
+    location_cost = place.running_cost_bps + data.SECTOR_FIT.get((company.sector, company.headquarters), 0)
+    cost_of_sales = min(sector.cost_of_sales_bps + cost_tweak + company.cost_extra_bps, 10_000)
+    supplies = sum(data.INPUTS.get(company.sector, {}).values())
+    base_opex = apply_bps(apply_bps(apply_bps(quarter, sector.opex_bps), company.opex_times_bps), location_cost)
+    wage = naira(place.monthly_wage_naira * 3)
+
     debt = apply_bps(apply_bps(revenue, sector.debt_x), debt_times)
     bond = apply_bps(debt, company.bond_share_bps)
     overdue = apply_bps(debt - bond, company.overdue_bps)
     return {
-        "revenue_growth_bps": sector.revenue_growth_bps + trend,
+        "revenue_growth_bps": trend,                 # its own drift against its rivals
         "volatility_bps": volatility,
-        "cost_of_sales_bps": min(sector.cost_of_sales_bps + cost_tweak + company.cost_extra_bps, 10_000),
-        "base_revenue": quarter,
-        "base_opex": apply_bps(apply_bps(quarter, sector.opex_bps), company.opex_times_bps),
+        "cost_of_sales_bps": cost_of_sales,
+        "labour_bps": max(cost_of_sales - supplies, 0),   # what is left of cost of sales after supplies is pay
+        "location_cost_bps": location_cost,
+        "opex_bps": base_opex * 10_000 // quarter,
+        "base_revenue": quarter,                     # its pull on customers, to begin with
+        "base_opex": base_opex,
+        "wages": base_opex * 10_000 // (10_000 + data.PENSION_EMPLOYER_BPS),
+        "staff": max(base_opex * 10_000 // (10_000 + data.PENSION_EMPLOYER_BPS) // wage, 1),
         "cash": apply_bps(apply_bps(revenue, sector.cash_x), company.cash_times_bps),
         "fixed_assets": apply_bps(revenue, sector.fixed_assets_x),
         "customer_loans": apply_bps(revenue, sector.customer_loans_x),
@@ -105,8 +117,15 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str) -> None:
     treasury = ledger.create_account(
         conn, kind="government", name="Federal Government Treasury", code=ledger.TREASURY)
     ledger.create_account(conn, kind="prize_pool", name="Prize pool", code=ledger.PRIZE_POOL)
-    public = ledger.create_account(
-        conn, kind="npc_public", name="Households and small businesses of Nigeria", code=ledger.PUBLIC)
+    households: dict[str, object] = {}
+    for order, place in enumerate(data.LOCATIONS):
+        conn.execute(
+            "INSERT INTO locations (name, sort_order, population_bps, running_cost_bps, quarterly_wage)"
+            " VALUES (%s, %s, %s, %s, %s)",
+            (place.name, order, place.population_bps, place.running_cost_bps, naira(place.monthly_wage_naira * 3)),
+        )
+        households[place.name] = ledger.create_account(
+            conn, kind="npc_public", name=f"Households of {place.name}", code=f"households:{place.name.lower()}")
     founders = ledger.create_account(
         conn, kind="npc_investors", name="Founders and company insiders", code=ledger.INVESTORS_FOUNDERS)
     institutions = ledger.create_account(
@@ -132,11 +151,12 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str) -> None:
         company_id = conn.execute(
             "INSERT INTO companies (ticker, name, sector, headquarters, account_id, share_asset,"
             " revenue_growth_bps, season_bps, cost_of_sales_bps, opex_growth_bps, depreciation_bps, payout_bps,"
-            " volatility_bps)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            " volatility_bps, location_cost_bps, opex_bps, labour_bps)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
             (company.ticker, company.name, company.sector, company.headquarters, account, share_asset,
              shape["revenue_growth_bps"], list(sector.season_bps), shape["cost_of_sales_bps"],
-             shape["revenue_growth_bps"], data.DEPRECIATION_BPS, sector.payout_bps, shape["volatility_bps"]),
+             shape["revenue_growth_bps"], data.DEPRECIATION_BPS, sector.payout_bps, shape["volatility_bps"],
+             shape["location_cost_bps"], shape["opex_bps"], shape["labour_bps"]),
         ).fetchone()
         shapes[company.ticker] = shape
         rows[company.ticker] = {
@@ -144,10 +164,20 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str) -> None:
             "name": company.name, "index": index,
         }
 
+    household_spending = _describe_the_economy(conn, shapes)
+    savings = million_naira(data.HOUSEHOLDS_OPENING_M)
+    for place in data.LOCATIONS:
+        conn.execute(
+            "INSERT INTO households (location, account_id, spend_from_income_bps, spend_from_savings_bps)"
+            " VALUES (%s, %s, %s, %s)",
+            (place.name, households[place.name], data.HOUSEHOLD_SPEND_FROM_INCOME_BPS,
+             (10_000 - data.HOUSEHOLD_SPEND_FROM_INCOME_BPS) * household_spending // savings),
+        )
+
     # --- Opening money: issued by the Central Bank, to each account's opening balance ---
     opening = [
         Leg(treasury, million_naira(data.TREASURY_OPENING_M)),
-        Leg(public, million_naira(data.PUBLIC_OPENING_M)),
+        *[Leg(households[place.name], apply_bps(savings, place.population_bps)) for place in data.LOCATIONS],
         *[Leg(rows[t]["account_id"], shapes[t]["cash"]) for t in rows],
     ]
     ledger.post(
@@ -180,8 +210,8 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str) -> None:
         if shape["unpaid_bills"] > 0:
             conn.execute(
                 "INSERT INTO company_payables (company_id, payee_account_id, kind, amount_outstanding, incurred_period)"
-                " VALUES (%s, %s, 'operating_expenses', %s, 0)",
-                (row["id"], public, shape["unpaid_bills"]),
+                " VALUES (%s, %s, 'wages', %s, 0)",
+                (row["id"], households[company.headquarters], shape["unpaid_bills"]),
             )
         if shape["bond"] > 0:
             conn.execute(
@@ -245,9 +275,59 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str) -> None:
             "base_revenue": shape["base_revenue"], "base_opex": shape["base_opex"],
             "ledger_totals": companies.ledger_totals(conn, row["account_id"]),
             "drivers": {"revenue": [], "notes": _opening_notes(shape)},
+            "staff": shape["staff"], "wages": shape["wages"],
+            "sales_households": 0, "sales_business": 0, "sales_government": 0,
         }
         companies.insert_result(conn, result)
         companies.file_report(conn, loaded[company.ticker], result)
+
+
+def _describe_the_economy(conn: Connection, shapes: dict[str, dict]) -> int:
+    """Record what companies buy from each other and where spending goes.
+
+    How households divide their spending is not typed in by hand. It is worked
+    out so that the world starts close to balance: each sector's sales to
+    households are what is left of its opening sales after what other companies,
+    the Government and investment are expected to buy from it.
+
+    Returns the households' total spending in an opening quarter, in kobo.
+    """
+    for buyer, suppliers in data.INPUTS.items():
+        for supplier, bps in suppliers.items():
+            conn.execute("INSERT INTO sector_inputs (buyer, supplier, bps) VALUES (%s, %s, %s)", (buyer, supplier, bps))
+
+    sales = {s.code: 0 for s in data.SECTORS}
+    upkeep = 0
+    for company in data.COMPANIES:
+        sales[company.sector] += shapes[company.ticker]["base_revenue"]
+        upkeep += apply_bps(shapes[company.ticker]["fixed_assets"], data.DEPRECIATION_BPS)
+    total = sum(sales.values())
+    government = apply_bps(apply_bps(total, 300), data.GOVERNMENT_PURCHASE_BPS)     # tax runs near 3% of all sales
+
+    to_households = {}
+    for sector in sales:
+        from_business = sum(apply_bps(sales[buyer], data.INPUTS.get(buyer, {}).get(sector, 0)) for buyer in sales)
+        from_government = apply_bps(government, data.GOVERNMENT_BUYS.get(sector, 0))
+        from_investment = apply_bps(upkeep, data.INVESTMENT_BUYS.get(sector, 0))
+        left = sales[sector] - from_business - from_government - from_investment
+        to_households[sector] = max(left, sales[sector] // 50)                      # never less than 2% of its sales
+    for sector, amount in to_households.items():
+        conn.execute(
+            "INSERT INTO sector_demand (sector, household_bps, government_bps, investment_bps) VALUES (%s, %s, %s, %s)",
+            (sector, amount // 100_000_000, data.GOVERNMENT_BUYS.get(sector, 0), data.INVESTMENT_BUYS.get(sector, 0)),
+        )
+    spending = sum(to_households.values())
+    # The households' opening record: what they are taken to have earned in the
+    # quarter before the game began, so that they have something to spend in the first.
+    savings = million_naira(data.HOUSEHOLDS_OPENING_M)
+    for place in data.LOCATIONS:
+        income = apply_bps(spending, place.population_bps)
+        conn.execute(
+            "INSERT INTO household_results (location, period, wages, government, pensions, income, spending, cash, jobs)"
+            " VALUES (%s, 0, %s, 0, 0, %s, 0, %s, 0)",
+            (place.name, income, income, apply_bps(savings, place.population_bps)),
+        )
+    return spending
 
 
 def _opening_notes(shape: dict) -> list[str]:

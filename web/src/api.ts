@@ -73,6 +73,10 @@ export type Figures = {
     borrowings: Borrowing[];
     why_revenue: string[];
     management_notes: string[];
+    /** Present from Stage 3. */
+    sales_to?: { households: Kobo; other_companies: Kobo; government: Kobo };
+    staff?: number;
+    wages?: Kobo;
   };
 };
 
@@ -96,6 +100,39 @@ export type Company = {
   shares_in_issue: Kobo;
   owners: { name: string; shares: Kobo; share_bps: number }[];
   reports: FiledReport[];
+  location: { running_cost_bps: number; reasons: string[] } | null;
+  buys_from: { sector: string; share_bps: number }[];
+};
+
+export type HouseholdGroup = {
+  location: string;
+  population_bps: number;
+  income_kobo: Kobo;
+  wages_kobo: Kobo;
+  government_kobo: Kobo;
+  pensions_kobo: Kobo;
+  spending_kobo: Kobo;
+  savings_kobo: Kobo;
+  jobs: number;
+  income_change_bps: number | null;
+  jobs_change_bps: number | null;
+};
+
+export type Economy = {
+  period: number;
+  period_label: string | null;
+  money_in_existence_kobo: Kobo;
+  households: HouseholdGroup[];
+  money: { holder: string; amount_kobo: Kobo; share_bps: number }[];
+  history: {
+    period: number;
+    period_label: string;
+    company_sales_kobo: Kobo;
+    household_income_kobo: Kobo;
+    household_spending_kobo: Kobo;
+    jobs: number;
+  }[];
+  household_spending: { sector: string; share_bps: number }[];
 };
 
 /** Sign-up is not finished until the emailed code is typed in. */
@@ -147,6 +184,7 @@ export const api = {
   clock: () => request<Clock>("/world/clock"),
   worldStatus: () => request<WorldStatus>("/world/status"),
   companies: () => request<{ sectors: Sector[] }>("/companies"),
+  economy: () => request<Economy>("/economy"),
   company: (ticker: string) => request<Company>(`/companies/${encodeURIComponent(ticker)}?periods=8`),
   logout: () => request<void>("/auth/logout", { method: "POST" }),
   login: (email: string, password: string) =>

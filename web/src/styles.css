@@ -176,6 +176,8 @@ input {
 .reasons { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
 .reasons li { margin-bottom: 6px; }
 
+.bar-row { margin-bottom: 6px; }
+.bar-row .row { border-top: 0; padding-bottom: 4px; }
 .meter { height: 6px; border-radius: 3px; background: var(--raised); overflow: hidden; }
 .meter-fill { height: 100%; background: var(--gold); border-radius: 3px; }
 

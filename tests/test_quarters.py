@@ -55,7 +55,12 @@ class TestStageTwo:
 
         # At the latest quarter, the sheet's figures match the ledger and the debt records.
         for r in _dicts(db, "SELECT r.*, c.name, c.id, c.account_id FROM company_results r JOIN companies c ON c.id = r.company_id WHERE r.period = 8"):
-            assert r["cash"] == ledger.balance(db, r["account_id"]), r["name"]
+            # Cash on the sheet is everything the ledger had received less everything paid, at the close.
+            in_and_out = sum(k["received"] - k["paid"] for k in r["ledger_totals"].values())
+            assert r["cash"] == in_and_out, r["name"]
+            # Anything that has arrived since (the Government's orders, other companies' building
+            # work) is in the bank already and will be counted as next quarter's sales.
+            assert ledger.balance(db, r["account_id"]) >= r["cash"], r["name"]
             owed = db.execute("SELECT coalesce(sum(principal_outstanding), 0) FROM company_debts WHERE company_id = %s", (r["id"],)).fetchone()[0]
             lent = db.execute("SELECT coalesce(sum(principal_outstanding), 0) FROM company_debts WHERE lender_account_id = %s", (r["account_id"],)).fetchone()[0]
             assert (r["borrowings"], r["loans_to_companies"]) == (owed, lent), r["name"]
@@ -93,9 +98,9 @@ class TestStageTwo:
         assert db.execute("SELECT count(*) FROM ledger_transactions WHERE kind = '' OR memo = ''").fetchone()[0] == 0
         kinds = {k for (k,) in db.execute("SELECT DISTINCT kind FROM ledger_transactions").fetchall()}
         assert kinds == {
-            "opening_balance", "share_issue", "customer_revenue", "cost_of_sales", "operating_expenses",
+            "opening_balance", "share_issue", "customer_revenue", "business_purchase", "cost_of_sales", "wages",
             "debt_interest", "company_tax", "debt_repayment", "capital_spending", "dividend",
-            "government_spending", "investor_spending",
+            "government_purchase", "government_wages", "pension_payment",
         }
 
 
@@ -117,12 +122,12 @@ def test_the_cash_flow_statement_is_what_the_ledger_shows(db):
     """Opening cash plus the quarter's flows equals closing cash, and each flow matches ledger movements."""
     for r in _dicts(db, "SELECT r.*, c.account_id, c.name FROM company_results r JOIN companies c ON c.id = r.company_id WHERE r.period >= 1"):
         assert r["cash_closing"] == r["cash_opening"] + r["cash_from_operations"] + r["cash_from_investing"] + r["cash_from_financing"]
-        moved = db.execute(
-            "SELECT coalesce(sum(e.amount), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
-            " WHERE e.account_id = %s AND e.asset = 'NGN' AND t.period = %s",
-            (r["account_id"], r["period"]),
-        ).fetchone()[0]
-        assert moved == r["cash_closing"] - r["cash_opening"], f"{r['name']} period {r['period']}"
+        # Closing cash is exactly what the ledger had received less what it had paid, at the close.
+        assert r["cash_closing"] == sum(k["received"] - k["paid"] for k in r["ledger_totals"].values()), \
+            f"{r['name']} period {r['period']}"
+
+    # The whole ledger, added up from scratch, agrees with the latest balances.
+    assert ledger.audit(db) == []
 
     # Each quarter opens where the last one closed.
     gaps = db.execute(
@@ -188,7 +193,7 @@ def test_a_payment_still_being_saved_when_the_quarter_closes_is_not_lost(db, con
     extra = naira(7_000_000)
     paying = connect()
     paying.execute("BEGIN")
-    ledger.transfer(paying, payer=ledger.account_id(paying, ledger.PUBLIC), receiver=company["account_id"],
+    ledger.transfer(paying, payer=ledger.account_id(paying, "households:lagos"), receiver=company["account_id"],
                     amount=extra, kind="customer_revenue", memo="A sale still being saved")
 
     closed: list[list[int]] = []
@@ -202,11 +207,11 @@ def test_a_payment_still_being_saved_when_the_quarter_closes_is_not_lost(db, con
     assert closed == [[1]]
     q1 = _dicts(db, "SELECT * FROM company_results WHERE company_id = %s AND period = 1", (company["id"],))[0]
     planned = db.execute(
-        "SELECT e.amount FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
+        "SELECT sum(e.amount) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
         " WHERE t.kind = 'customer_revenue' AND t.period = 1 AND e.account_id = %s", (company["account_id"],)
     ).fetchone()[0]
-    assert q1["revenue"] == planned + extra
-    assert q1["cash"] == ledger.balance(db, company["account_id"])
+    assert q1["sales_households"] == planned + extra
+    assert q1["cash"] == sum(k["received"] - k["paid"] for k in q1["ledger_totals"].values())
     assert q1["total_assets"] == q1["total_liabilities"] + q1["total_equity"]
 
 
@@ -252,7 +257,8 @@ def test_two_servers_closing_at_the_same_instant_close_each_quarter_once(db, con
 
     assert sorted(sum(closed, [])) == [1, 2]
     assert db.execute("SELECT count(*) FROM company_results WHERE period IN (1, 2)").fetchone()[0] == 100
-    assert db.execute("SELECT count(*) FROM ledger_transactions WHERE kind = 'government_spending'").fetchone()[0] == 2
+    assert db.execute("SELECT count(*) FROM ledger_transactions WHERE kind = 'government_wages'").fetchone()[0] == 2
+    assert db.execute("SELECT count(*) FROM household_results WHERE period IN (1, 2)").fetchone()[0] == 10
 
 
 @pytest.mark.world("empty")
@@ -355,17 +361,17 @@ def test_sales_paid_between_quarter_closes_are_counted_once_in_the_next_quarter(
     company = _company(db, "ONP")
     quarters.close_due_quarters(db, after_quarters(1))
     extra = naira(5_000_000)
-    ledger.transfer(db, payer=ledger.account_id(db, ledger.PUBLIC), receiver=company["account_id"], amount=extra,
+    ledger.transfer(db, payer=ledger.account_id(db, "households:lagos"), receiver=company["account_id"], amount=extra,
                     kind="customer_revenue", memo="A sale made between quarter closes")
 
     quarters.close_due_quarters(db, after_quarters(3))
 
     q2, q3 = _dicts(db, "SELECT * FROM company_results WHERE company_id = %s AND period IN (2, 3) ORDER BY period", (company["id"],))
     planned_q2 = db.execute(
-        "SELECT e.amount FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
+        "SELECT sum(e.amount) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
         " WHERE t.kind = 'customer_revenue' AND t.period = 2 AND e.account_id = %s", (company["account_id"],)
     ).fetchone()[0]
-    assert q2["revenue"] == planned_q2 + extra                     # counted in quarter 2
+    assert q2["sales_households"] == planned_q2 + extra            # counted in quarter 2
     assert q3["cash_opening"] == q2["cash_closing"]                # and not again in quarter 3
     for r in (q2, q3):
         assert r["total_assets"] == r["total_liabilities"] + r["total_equity"]
@@ -373,16 +379,17 @@ def test_sales_paid_between_quarter_closes_are_counted_once_in_the_next_quarter(
 
 def test_customers_short_of_money_buy_less_and_weak_companies_fall_behind_on_bills(db):
     money_before = ledger.amount_in_existence(db)
-    public = ledger.account_id(db, ledger.PUBLIC)
-    # Customers start the world with only a little money: not enough to buy what companies plan to sell.
-    amount = ledger.balance(db, public) - naira(900_000_000_000)
-    ledger.transfer(db, payer=public, receiver=ledger.account_id(db, ledger.TREASURY), amount=amount, kind="test_drain", memo="Test: customers are poor", period=None)
+    # Households start the world with only a little money: far less than they would normally spend.
+    left_each = naira(40_000_000_000)
+    for (account,) in db.execute("SELECT account_id FROM households").fetchall():
+        ledger.transfer(db, payer=account, receiver=ledger.account_id(db, ledger.TREASURY),
+                        amount=ledger.balance(db, account) - left_each, kind="test_drain", memo="Test: households are poor")
 
     assert quarters.close_due_quarters(db, after_quarters(6)) == [1, 2, 3, 4, 5, 6]
 
-    # Sales fell short of plan somewhere, and the cause was recorded.
-    short = db.execute("SELECT count(*) FROM company_results WHERE drivers -> 'revenue' @> '[\"Customers ran short of money and bought less than they wanted\"]'").fetchone()[0]
-    assert short > 0
+    # Households cannot spend what they do not have, so companies sold far less to them.
+    sold = db.execute("SELECT sum(sales_households) FROM company_results WHERE period = 1").fetchone()[0]
+    assert 0 < sold <= 5 * left_each
     # Some companies could not pay everything. What they could not pay is owed, not conjured.
     owing = _dicts(db, "SELECT r.*, p.credit_rating FROM company_results r JOIN company_reports p ON p.company_id = r.company_id AND p.period = r.period WHERE r.payables > 0")
     assert owing, "expected at least one company to fall behind"
@@ -409,11 +416,18 @@ def test_the_books_hold_together_over_a_long_run(db):
     assert db.execute("SELECT count(*) FROM company_results").fetchone()[0] == 50 * 35
     unbalanced = db.execute("SELECT count(*) FROM company_results WHERE total_assets <> total_liabilities + total_equity").fetchone()[0]
     assert unbalanced == 0
-    # Every loan and bond that reached its end date was either repaid in full or is flagged as overdue.
-    for d in _dicts(db, "SELECT d.*, r.principal_overdue FROM company_debts d JOIN company_results r ON r.company_id = d.company_id AND r.period = 34"):
+    assert ledger.audit(db) == []
+    # Every loan and bond now past its end date was either repaid in full or is flagged as overdue.
+    # (A sound borrower's debt is renewed, so its end date moves on.)
+    for d in _dicts(db, "SELECT d.*, r.principal_overdue FROM company_debts d JOIN company_results r ON r.company_id = d.company_id AND r.period = 34 WHERE d.maturity_period <= 34"):
         assert d["principal_outstanding"] == 0 or d["principal_overdue"] >= d["principal_outstanding"]
-    for r in _dicts(db, "SELECT p.credit_rating, r.principal_overdue FROM company_reports p JOIN company_results r ON r.company_id = p.company_id AND r.period = p.period WHERE p.period = 34"):
-        assert (r["credit_rating"] == "D") == (r["principal_overdue"] > 0)
+    for r in _dicts(db, "SELECT p.credit_rating, r.principal_overdue, r.total_equity FROM company_reports p JOIN company_results r ON r.company_id = p.company_id AND r.period = p.period WHERE p.period = 34"):
+        assert (r["credit_rating"] == "D") == (r["principal_overdue"] > 0 or r["total_equity"] <= 0)
+    # The economy is still turning over: households are earning and spending, and most companies are still selling.
+    first, last = (db.execute("SELECT sum(revenue) FROM company_results WHERE period = %s", (p,)).fetchone()[0] for p in (2, 34))
+    assert last > first * 7 // 10
+    earning = db.execute("SELECT min(income), min(spending) FROM household_results WHERE period = 34").fetchone()
+    assert earning[0] > 0 and earning[1] > 0
 
 
 # ---------------------------------------------------------------------------
@@ -450,8 +464,9 @@ def test_a_bad_quarter_says_why(db):
     row = _dicts(db, "SELECT p.figures FROM company_reports p JOIN companies c ON c.id = p.company_id"
                      " WHERE c.ticker = 'OGA' AND p.period >= 1 ORDER BY p.period")
     causes = [cause for r in row for cause in r["figures"]["notes"]["why_revenue"]]
-    assert any("Oguta Airways itself did" in cause for cause in causes)
-    assert any("had a good quarter" in cause or "had a poor quarter" in cause for cause in causes)
+    assert any("customers from its rivals" in cause or "customers to its rivals" in cause for cause in causes)
+    assert any("Households spent more on" in cause or "Households spent less on" in cause for cause in causes)
+    assert all("of its sales were to" in r["figures"]["notes"]["why_revenue"][0] for r in row)
 
 
 def test_fortune_is_fixed_by_the_worlds_secret_and_stays_within_its_limits():
