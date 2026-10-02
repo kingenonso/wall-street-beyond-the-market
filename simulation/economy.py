@@ -144,10 +144,18 @@ def set_market_pulls(conn: Connection, world: World, companies: list[dict], peri
         r["company_id"]: r["base_revenue"]
         for r in _rows(conn, "SELECT company_id, base_revenue FROM company_results WHERE period = %s", (period - 1,))
     }
+    opening = {
+        r["company_id"]: r["base_revenue"]
+        for r in _rows(conn, "SELECT company_id, base_revenue FROM company_results WHERE period = 0")
+    }
     carried: dict[UUID, int] = {}
     world.members = {}
     for company in companies:
-        lasting = max(apply_bps(previous[company["id"]], BPS + company["revenue_growth_bps"]), 1)
+        drifted = apply_bps(previous[company["id"]], BPS + company["revenue_growth_bps"])
+        # Part of the way back towards where it began. A company can pull well ahead
+        # of its rivals or fall well behind, but none can swallow the whole market
+        # simply by trending for long enough.
+        lasting = max(drifted + apply_bps(opening[company["id"]] - drifted, data.PULL_RETURN_BPS), 1)
         own = fortune_bps(seed, company["ticker"], period, "sales", company["volatility_bps"])
         carried[company["id"]] = lasting
         company["own_fortune_bps"] = own
@@ -172,17 +180,25 @@ def household_sector_weights(world: World, period: int, seed: str) -> tuple[dict
     return weights, fortunes
 
 
-def households_spend(conn: Connection, world: World, period: int, sector_weights: dict[str, int]) -> dict[str, int]:
-    """Households and private investors spend at the companies. Returns spending by location."""
+def households_spend(conn: Connection, world: World, period: int, sector_weights: dict[str, int],
+                     seed: str) -> dict[str, int]:
+    """Households and private investors spend at the companies. Returns spending by location.
+
+    Households follow a habit (most of what they earned, a little of what they
+    have saved), but their mood varies from quarter to quarter and place to
+    place, so their spending cannot be worked out exactly in advance.
+    """
     label = clock.period_label(period)
     spent: dict[str, int] = {}
     last = {r["location"]: r for r in _rows(conn, "SELECT * FROM household_results WHERE period = %s", (period - 1,))}
     for location, household in world.households.items():
         cash = ledger.balance(conn, household["account_id"])
-        budget = (
+        habit = (
             apply_bps(last[location]["income"], household["spend_from_income_bps"])
             + apply_bps(cash, household["spend_from_savings_bps"])
         )
+        mood = fortune_bps(seed, f"households:{location}", period, "mood", data.HOUSEHOLD_MOOD_BPS)
+        budget = max(apply_bps(habit, BPS + mood), 0)
         spent[location] = ledger.pay_split_up_to(
             conn, payer=household["account_id"],
             amounts=allocate(world, min(budget, cash), sector_weights, location=location),
@@ -204,7 +220,7 @@ def households_spend(conn: Connection, world: World, period: int, sector_weights
     return spent
 
 
-def companies_buy_inputs(conn: Connection, world: World, companies: list[dict], period: int) -> None:
+def companies_buy_inputs(conn: Connection, world: World, companies: list[dict], period: int, seed: str) -> None:
     """Each company buys what it needs from other companies.
 
     How much it orders follows what it sold last quarter. Which supplier gets
@@ -220,7 +236,11 @@ def companies_buy_inputs(conn: Connection, world: World, companies: list[dict], 
     for company in companies:
         orders: dict[UUID, int] = {}
         for supplier_sector, share in world.inputs.get(company["sector"], {}).items():
-            wanted = apply_bps(last[company["id"]], share)
+            # Roughly in step with last quarter's sales, but each company orders a
+            # little more or less than that, as its managers judge the quarter ahead.
+            judgement = fortune_bps(seed, company["ticker"], period, f"orders:{supplier_sector}",
+                                    company["volatility_bps"] // 2 + 100)
+            wanted = max(apply_bps(apply_bps(last[company["id"]], share), BPS + judgement), 0)
             placed = allocate(world, wanted, {supplier_sector: 1},
                               location=company["headquarters"], exclude=company["account_id"])
             for account, amount in placed.items():

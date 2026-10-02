@@ -338,22 +338,41 @@ def _drain(db, account, keep=0):
     ledger.transfer(db, payer=account, receiver=ledger.account_id(db, ledger.TREASURY), amount=amount, kind="test_drain", memo="Test: cash removed", period=None)
 
 
-def test_a_cash_movement_the_engine_does_not_understand_stops_the_quarter(db):
-    """The engine never guesses. If a company's cash moved for a reason it has no
-    place for, the quarter is refused whole: nothing is half-closed."""
-    company = _company(db, "DFL")
+def test_money_moved_outside_a_companys_normal_business_is_shown_and_never_stops_the_calendar(db):
+    """Found by the independent review: one stray payment touching a company used to
+    stop every future quarter from closing, for ever. Now it is shown in that
+    company's accounts and the calendar carries on."""
+    taken_from, given_to = _company(db, "DFL"), _company(db, "IDC")
+    treasury = ledger.account_id(db, ledger.TREASURY)
     money_before = ledger.amount_in_existence(db)
     quarters.close_due_quarters(db, after_quarters(1))
-    entries_before = db.execute("SELECT count(*) FROM ledger_entries").fetchone()[0]
 
-    _drain(db, company["account_id"], keep=naira(1_000))
-    with pytest.raises(companies.BooksDoNotBalance):
-        quarters.close_due_quarters(db, after_quarters(2))
+    ledger.transfer(db, payer=taken_from["account_id"], receiver=treasury, amount=naira(1_000_000),
+                    kind="something_new", memo="Test: money leaves a company for a reason the engine has never seen")
+    ledger.transfer(db, payer=treasury, receiver=given_to["account_id"], amount=naira(2_000_000),
+                    kind="gift", memo="Test: money reaches a company for a reason the engine has never seen")
 
-    assert db.execute("SELECT last_closed_period FROM world_state").fetchone()[0] == 1
-    assert db.execute("SELECT count(*) FROM company_results WHERE period = 2").fetchone()[0] == 0
-    assert db.execute("SELECT count(*) FROM ledger_entries").fetchone()[0] == entries_before + 2   # only the test's own transfer
-    assert ledger.amount_in_existence(db) == money_before
+    assert quarters.close_due_quarters(db, after_quarters(3)) == [2, 3]          # the calendar carries on
+
+    loser, gainer = (_dicts(db, "SELECT * FROM company_results WHERE company_id = %s AND period = 2", (c["id"],))[0]
+                     for c in (taken_from, given_to))
+    assert "Money left it outside its normal business this quarter. It is shown as a cost." in loser["drivers"]["notes"]
+    assert "It received money outside its normal business this quarter. It is shown as other sales." in gainer["drivers"]["notes"]
+    for r in (loser, gainer):
+        assert r["total_assets"] == r["total_liabilities"] + r["total_equity"]
+        assert r["cash_closing"] == r["cash_opening"] + r["cash_from_operations"] + r["cash_from_investing"] + r["cash_from_financing"]
+    # It is counted once: the quarter after carries no such note.
+    later = _dicts(db, "SELECT drivers FROM company_results WHERE period = 3 AND company_id IN (%s, %s)",
+                   (taken_from["id"], given_to["id"]))
+    assert not any("outside its normal business" in note for r in later for note in r["drivers"]["notes"])
+    assert ledger.amount_in_existence(db) == money_before and ledger.audit(db) == []
+
+
+@pytest.mark.world("eight")
+def test_in_a_world_nobody_has_interfered_with_no_company_has_unexplained_money(db):
+    """The safety net above must stay empty in normal running: it is not a place to hide mistakes."""
+    stray = db.execute("SELECT count(*) FROM company_results WHERE drivers::text LIKE '%outside its normal business%'").fetchone()[0]
+    assert stray == 0
 
 
 def test_sales_paid_between_quarter_closes_are_counted_once_in_the_next_quarter(db):

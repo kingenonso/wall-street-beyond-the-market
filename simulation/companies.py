@@ -34,11 +34,6 @@ from simulation.fortune import fortune_bps  # noqa: F401  (also used by tests th
 from simulation.ledger import NGN, Leg
 from simulation.money import BPS, apply_bps
 
-# What a ledger movement means for the cash flow statement.
-_SALES = ("customer_revenue", "business_purchase", "government_purchase", "capital_spending")
-_OPERATING = {"customer_revenue", "business_purchase", "government_purchase", "cost_of_sales", "wages",
-              "debt_interest", "company_tax"}
-_FINANCING = {"dividend"}
 # 'capital_spending' is investing for the company that spends it and a sale for the company that receives it.
 # 'debt_repayment' is financing for the borrower (money out) and investing for the lender (money in).
 
@@ -110,31 +105,41 @@ def _pay_or_owe(conn, company, payee, amount, *, kind, memo, period, reference=N
 
 
 def _owe(conn, company, payee, kind, amount, period) -> None:
-    conn.execute(
-        "INSERT INTO company_payables (company_id, payee_account_id, kind, amount_outstanding, incurred_period)"
-        " VALUES (%s, %s, %s, %s, %s)",
-        (company["id"], payee, kind, amount, period),
-    )
+    """Record an unpaid bill. Bills of one kind owed to one payee are kept as a single running total."""
+    updated = conn.execute(
+        "UPDATE company_payables SET amount_outstanding = amount_outstanding + %s"
+        " WHERE id = (SELECT id FROM company_payables WHERE company_id = %s AND payee_account_id = %s AND kind = %s"
+        "             ORDER BY incurred_period, created_at, id LIMIT 1)",
+        (amount, company["id"], payee, kind),
+    ).rowcount
+    if not updated:
+        conn.execute(
+            "INSERT INTO company_payables (company_id, payee_account_id, kind, amount_outstanding, incurred_period)"
+            " VALUES (%s, %s, %s, %s, %s)",
+            (company["id"], payee, kind, amount, period),
+        )
 
 
 def _pay_people(conn, company, ctx, amount, *, kind, memo, period, pension: int = 0) -> int:
     """Pay a company's people, spread over the locations where they work.
 
     `pension` is the part that goes to the pension funds instead of into pockets.
-    Whatever cannot be paid is owed to the households of its head-office location.
+    Whatever cannot be paid stays owed to exactly whoever was due it: each
+    location's households, and the pension funds. Returns the amount that was due.
     """
     world = ctx.world
     amounts = economy.split(amount - pension, world.staff_spread(company["headquarters"]))
     if pension > 0:
         amounts[world.institutions] = pension
-    due = sum(amounts.values())
-    paid = ledger.pay_split_up_to(
-        conn, payer=company["account_id"], amounts=amounts, kind=kind, memo=memo, period=period,
+    got: dict = {}
+    ledger.pay_split_up_to(
+        conn, payer=company["account_id"], amounts=amounts, kind=kind, memo=memo, period=period, paid_to=got,
     )
-    if paid < due:
-        home = world.households[company["headquarters"]]["account_id"]
-        _owe(conn, company, home, kind, due - paid, period)
-    return due
+    for receiver, due in amounts.items():
+        unpaid = due - got.get(receiver, 0)
+        if unpaid > 0:
+            _owe(conn, company, receiver, kind, unpaid, period)
+    return sum(amounts.values())
 
 
 def _settle_old_bills(conn, company, period) -> None:
@@ -146,6 +151,8 @@ def _settle_old_bills(conn, company, period) -> None:
         (company["id"],),
     )
     for bill in owed:
+        if ledger.balance(conn, company["account_id"]) <= 0:
+            break                                  # nothing left to pay with
         paid = ledger.pay_up_to(
             conn, payer=company["account_id"], receiver=bill["payee_account_id"],
             wanted=bill["amount_outstanding"], kind=bill["kind"],
@@ -203,8 +210,12 @@ def _movements_since(conn, account, earlier: dict) -> dict[str, dict[str, int]]:
     Working from running totals means every movement lands in exactly one
     quarter, whenever it happened and in whatever order it was saved.
     """
+    return _difference(ledger_totals(conn, account), earlier)
+
+
+def _difference(now_totals: dict, earlier: dict) -> dict[str, dict[str, int]]:
     moves = {}
-    for kind, now in ledger_totals(conn, account).items():
+    for kind, now in now_totals.items():
         before = earlier.get(kind, {"received": 0, "paid": 0})
         change = {"received": now["received"] - before["received"], "paid": now["paid"] - before["paid"]}
         if change["received"] or change["paid"]:
@@ -309,7 +320,8 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
                     period=period, reference=f"debt:{debt['id']}")
 
     # Interest it has received as a lender this quarter, read from the ledger.
-    interest_income = _movements_since(conn, account, counted).get("debt_interest", {}).get("received", 0)
+    # (Its borrowers close their quarters before it does, so all of it has arrived.)
+    interest_income = received("debt_interest")
 
     operating_profit = revenue + interest_income - cost_of_sales - operating_expenses - depreciation
     profit_before_tax = operating_profit - interest_expense
@@ -325,8 +337,14 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     # bond market). A lender renews the debt of a borrower in good health instead of
     # taking the money back, so sound companies stay financed and money keeps moving.
     # A borrower that is losing money, behind on its bills or already late must repay.
+    # Judged on the last four quarters together, so one bad quarter does not cut it off.
+    earlier_profit = _row(
+        conn, "SELECT coalesce(sum(net_profit), 0)::bigint AS total FROM company_results"
+              " WHERE company_id = %s AND period BETWEEN %s AND %s AND period >= 1",
+        (company["id"], period - 3, period - 1),
+    )["total"]
     renewable = (
-        net_profit > 0 and prev["payables"] == 0 and prev["principal_overdue"] == 0
+        net_profit + earlier_profit > 0 and prev["payables"] == 0 and prev["principal_overdue"] == 0
         and ledger.balance(conn, account) > 0
         and _row(conn, "SELECT coalesce(sum(amount_outstanding), 0)::bigint AS owed FROM company_payables"
                        " WHERE company_id = %s", (company["id"],))["owed"] == 0
@@ -403,29 +421,14 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
             notes.append("It held back part of its dividend to protect its cash.")
 
     # 7. The cash flow statement is read straight from the ledger, not assumed.
-    # A new kind of company payment added in a later stage must be given its place
-    # here; until then the engine refuses to guess, and the quarter is not closed.
-    moves = _movements_since(conn, account, counted)
-    unknown = set(moves) - _OPERATING - _FINANCING - {"debt_repayment", "capital_spending"}
-    if unknown:
-        raise BooksDoNotBalance(f"{name} has cash movements the company engine does not recognise: {sorted(unknown)}")
+    totals_now = ledger_totals(conn, account)
+    moves = _difference(totals_now, counted)
 
-    def net(kind: str) -> int:
-        move = moves.get(kind, {"received": 0, "paid": 0})
-        return move["received"] - move["paid"]
+    def paid(kind: str) -> int:
+        return moves.get(kind, {}).get("paid", 0)
 
-    repay = moves.get("debt_repayment", {"received": 0, "paid": 0})
-    built = moves.get("capital_spending", {"received": 0, "paid": 0})
-    cash_from_operations = sum(net(kind) for kind in _OPERATING) + built["received"]
-    cash_from_investing = repay["received"] - built["paid"]
-    cash_from_financing = sum(net(kind) for kind in _FINANCING) - repay["paid"]
     cash_opening = prev["cash"]
     cash_closing = ledger.balance(conn, account)
-
-    # Sales that arrived while this quarter was being closed belong to this quarter too.
-    late = sum(moves.get(kind, {}).get("received", 0) for kind in _SALES) - revenue
-    if late:
-        raise BooksDoNotBalance(f"{name}: sales arrived while its quarter was being closed.")
 
     # 8. The balance sheet, each figure taken from where it is truly kept.
     borrowings = _row(
@@ -436,17 +439,44 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         conn, "SELECT coalesce(sum(principal_outstanding), 0)::bigint AS total FROM company_debts WHERE lender_account_id = %s",
         (account,),
     )["total"]
+    shares_in_issue = ledger.amount_in_existence(conn, company["share_asset"])
+
+    # Cash the engine can explain: lending repaid to it, building work it paid for,
+    # dividends and debt it paid out, and everything from trading.
+    cash_from_investing = (prev["loans_to_companies"] - loans_to_companies) - paid("capital_spending")
+    cash_from_financing = -paid("dividend") - (prev["borrowings"] - borrowings)
+    trading_cash = (
+        revenue + interest_income
+        - supplies_bought - paid("cost_of_sales") - paid("wages") - paid("debt_interest") - paid("company_tax")
+    )
+    # Anything else that moved its cash did not come from the company's own quarter:
+    # somebody paid it, or took from it, outside its normal business. Whatever it is,
+    # it is shown in the accounts rather than allowed to stop the calendar: money
+    # received counts as other sales, money gone counts as a cost.
+    unexplained = (cash_closing - cash_opening) - trading_cash - cash_from_investing - cash_from_financing
+    if unexplained > 0:
+        revenue += unexplained
+        sales_business += unexplained
+        notes.append("It received money outside its normal business this quarter. It is shown as other sales.")
+    elif unexplained < 0:
+        cost_of_sales -= unexplained
+        notes.append("Money left it outside its normal business this quarter. It is shown as a cost.")
+    if unexplained:
+        operating_profit += unexplained
+        profit_before_tax += unexplained
+        net_profit += unexplained              # no tax is worked out on it this quarter
+    cash_from_operations = cash_closing - cash_opening - cash_from_investing - cash_from_financing
+
     fixed_assets = prev["fixed_assets"] + capital_spending - depreciation
     retained_earnings = prev["retained_earnings"] + net_profit - dividends_paid
     total_assets = cash_closing + prev["customer_loans"] + loans_to_companies + fixed_assets
     total_liabilities = borrowings + payables + prev["customer_funds"]
     total_equity = prev["share_capital"] + retained_earnings
-    shares_in_issue = ledger.amount_in_existence(conn, company["share_asset"])
 
-    # Guards. If any of these fail, something moved money in a way the books cannot
-    # explain, and the whole quarter is refused. (The database repeats these checks.)
-    if cash_closing != cash_opening + cash_from_operations + cash_from_investing + cash_from_financing:
-        raise BooksDoNotBalance(f"{name}: cash does not reconcile with the ledger for {label}.")
+    # Guards. If any of these fail, the engine itself has made a mistake, and the
+    # whole quarter is refused. (The database repeats these checks.)
+    if dividends_paid != paid("dividend") or capital_spending != paid("capital_spending"):
+        raise BooksDoNotBalance(f"{name}: what it paid out does not match the ledger for {label}.")
     if total_assets != total_liabilities + total_equity:
         raise BooksDoNotBalance(f"{name}: the balance sheet does not balance for {label}.")
 
@@ -455,7 +485,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     lasting_pull = ctx.lasting_pull[company["id"]]
     added = max(capital_spending - depreciation, 0)
     if added > 0 and prev["fixed_assets"] > 0:
-        growth = min(added * data.EXPANSION_PULL_BPS // prev["fixed_assets"], 500)       # at most 5% a quarter
+        growth = min(added * data.EXPANSION_PULL_BPS // prev["fixed_assets"], 100)       # at most 1% a quarter
         lasting_pull = apply_bps(lasting_pull, BPS + growth)
 
     drivers = {
@@ -474,7 +504,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         "cash_opening": cash_opening, "cash_from_operations": cash_from_operations,
         "cash_from_investing": cash_from_investing, "cash_from_financing": cash_from_financing,
         "cash_closing": cash_closing, "capital_spending": capital_spending,
-        "debt_repaid": repay["paid"], "dividends_paid": dividends_paid,
+        "debt_repaid": prev["borrowings"] - borrowings, "dividends_paid": dividends_paid,
         "cash": cash_closing, "customer_loans": prev["customer_loans"],
         "loans_to_companies": loans_to_companies, "fixed_assets": fixed_assets,
         "total_assets": total_assets, "borrowings": borrowings, "payables": payables,
@@ -482,7 +512,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         "share_capital": prev["share_capital"], "retained_earnings": retained_earnings,
         "total_equity": total_equity, "principal_overdue": principal_overdue,
         "shares_in_issue": shares_in_issue, "base_revenue": lasting_pull,
-        "base_opex": operating_expenses, "ledger_totals": ledger_totals(conn, account), "drivers": drivers,
+        "base_opex": operating_expenses, "ledger_totals": totals_now, "drivers": drivers,
         "staff": staff, "wages": wages, "sales_households": sales_households,
         "sales_business": sales_business, "sales_government": sales_government,
     }

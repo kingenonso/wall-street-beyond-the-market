@@ -186,6 +186,7 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str) -> None:
     )
 
     # --- Debts: who owes whom on day one ---
+    bonds_issued = -1
     for company in data.COMPANIES:
         shape, row, sector = shapes[company.ticker], rows[company.ticker], sectors[company.sector]
         if shape["bank_loan"] > 0:
@@ -197,6 +198,8 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str) -> None:
                 (row["id"], lender["account_id"], f"loan from {lender['name']}", shape["bank_loan"],
                  shape["bank_loan"], sector.loan_rate_bps, data.LOAN_TERM_QUARTERS),
             )
+        if shape["bond"] > 0:
+            bonds_issued += 1
         if shape["overdue_loan"] > 0:
             # A loan that should have been repaid before the world began, and was not.
             lender = rows[company.lender]
@@ -219,7 +222,8 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str) -> None:
                 " principal_outstanding, annual_rate_bps, start_period, maturity_period, repayment)"
                 " VALUES (%s, %s, 'bond', %s, %s, %s, %s, 0, %s, 'bullet')",
                 (row["id"], institutions, f"{company.name} bond", shape["bond"], shape["bond"],
-                 sector.loan_rate_bps - data.BOND_DISCOUNT_BPS, data.BOND_TERM_QUARTERS),
+                 sector.loan_rate_bps - data.BOND_DISCOUNT_BPS,
+                 data.BOND_TERM_QUARTERS + bonds_issued * data.BOND_STAGGER_QUARTERS),
             )
 
     # --- Opening balance sheets, shares and first filings ---

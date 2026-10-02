@@ -69,8 +69,8 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
 
     lasting_pull = economy.set_market_pulls(conn, world, all_companies, period, fortune_seed)
     sector_weights, sector_fortune = economy.household_sector_weights(world, period, fortune_seed)
-    spent = economy.households_spend(conn, world, period, sector_weights)
-    economy.companies_buy_inputs(conn, world, all_companies, period)
+    spent = economy.households_spend(conn, world, period, sector_weights, fortune_seed)
+    economy.companies_buy_inputs(conn, world, all_companies, period, fortune_seed)
 
     ctx = companies.Context(
         world=world, tax_bps=tax_bps, fortune_seed=fortune_seed,

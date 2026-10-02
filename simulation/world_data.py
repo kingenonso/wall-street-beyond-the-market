@@ -290,6 +290,9 @@ CASH_TARGET_QUARTERS = 3           # cash a healthy company likes to hold, in qu
 SPARE_CASH_TO_EXPANSION_BPS = 2500 # of cash above that target, this share is spent on expanding
 SPARE_CASH_TO_OWNERS_BPS = 2500    # and this share is paid to owners as an extra dividend
 EXPANSION_PULL_BPS = 5000          # how strongly expanding raises a company's share of its market
+PULL_RETURN_BPS = 500              # each quarter a company's pull drifts this far back towards where it began,
+                                   # so no company can swallow its whole market just by trending
+HOUSEHOLD_MOOD_BPS = 300           # households spend up to this much more or less than their habit, quarter to quarter
 EXTRA_DIVIDEND_LIMIT_BPS = 500     # an extra dividend may take at most this share of past profits kept in the business
 
 # --- Opening money (design document, section 10) ---
@@ -307,5 +310,6 @@ BOOK_VALUE_PER_SHARE_NAIRA = 20           # sets how many shares each company st
 SHARE_LOT = 10_000_000                    # share counts are rounded to the nearest 10 million
 
 LOAN_TERM_QUARTERS = 24                   # bank loans are repaid over six game years
-BOND_TERM_QUARTERS = 32                   # bonds are repaid in one go after eight game years
+BOND_TERM_QUARTERS = 32                   # bonds are repaid in one go after about eight game years
+BOND_STAGGER_QUARTERS = 3                 # ...but not all in the same quarter: each company's falls a little later than the last
 BOND_DISCOUNT_BPS = 150                   # bonds pay 1.5 points less interest than bank loans

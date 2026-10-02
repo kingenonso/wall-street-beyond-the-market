@@ -95,7 +95,8 @@ def test_households_spend_from_what_they_earned_last_quarter_and_never_more_than
         planned = (apply_bps(before["income"], habits[location]["spend_from_income_bps"])
                    + apply_bps(before["cash"], habits[location]["spend_from_savings_bps"]))
         assert 0 < r["spending"] <= before["cash"]
-        assert planned - 1_000_000 <= r["spending"] <= planned      # the plan, less a few kobo lost to rounding when it is shared out
+        # Their habit, give or take their mood that quarter (up to 3% either way).
+        assert planned * 969 // 1000 <= r["spending"] <= planned * 1031 // 1000
         assert r["income"] == r["wages"] + r["government"] + r["pensions"]
 
 
@@ -317,7 +318,7 @@ def test_the_economy_page_reports_households_money_and_history(client, player):
     assert len(body["history"]) == 8 and body["history"][-1]["period"] == 8
     # Every naira is somewhere, and the holders add up to all the money there is.
     assert sum(int(m["amount_kobo"]) for m in body["money"]) == int(body["money_in_existence_kobo"])
-    assert {m["holder"] for m in body["money"]} >= {"Households", "Companies", "Banks and insurers", "Pension funds", "Players"}
+    assert {m["holder"] for m in body["money"]} >= {"Households", "Companies", "Banks and insurers", "Pension funds"}
     assert abs(sum(s["share_bps"] for s in body["household_spending"]) - 10_000) <= 12
 
 
@@ -347,3 +348,94 @@ def test_how_households_decide_what_to_spend_is_never_sent_to_players(client, pl
     text = client.get("/api/economy").text + client.get("/api/companies/KTX").text
     for hidden in ("spend_from", "fortune", "volatility", '"pull"', "base_revenue", "opex_bps", "labour_bps"):
         assert hidden not in text
+
+
+# ---------------------------------------------------------------------------
+# Found by the independent review of Part A. Each test is one of its attacks.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.world("eight")
+def test_household_spending_cannot_be_worked_out_exactly_from_published_figures(db):
+    """The reviewer recovered the households' spending rule exactly from six quarters of
+    published figures and predicted the next quarter to the kobo. Their mood now varies."""
+    habits = {r["location"]: r for r in _dicts(db, "SELECT * FROM households")}
+    by = {(r["location"], r["period"]): r for r in _dicts(db, "SELECT * FROM household_results")}
+    misses = []
+    for (location, period), r in by.items():
+        if period >= 1:
+            before = by[(location, period - 1)]
+            habit = (apply_bps(before["income"], habits[location]["spend_from_income_bps"])
+                     + apply_bps(before["cash"], habits[location]["spend_from_savings_bps"]))
+            misses.append(abs(r["spending"] - habit) * 10_000 // habit)
+    assert max(misses) > 100 and sum(misses) / len(misses) > 30     # off by more than 1% at times, 0.3% on average
+    # And two locations do not share one mood.
+    moods = {location: by[(location, 5)]["spending"] * 10_000 // by[(location, 4)]["spending"] for location in habits}
+    assert len(set(moods.values())) == len(moods)
+
+
+def test_a_companys_market_share_cannot_run_away(db):
+    """The reviewer found companies with a steady trend swallowing 80% of their market
+    after 130 quarters. A company's pull now drifts back towards where it began."""
+    world = economy.load_world(db)
+    companies_ = _dicts(db, "SELECT c.*, s.name AS sector_name FROM companies c JOIN sectors s ON s.code = c.sector")
+    opening = dict(db.execute("SELECT company_id, base_revenue FROM company_results WHERE period = 0").fetchall())
+    lfn = next(c for c in companies_ if c["ticker"] == "LFN")            # gaining 2.5% a quarter on its rivals
+    pull = opening[lfn["id"]]
+    for _ in range(400):                                                  # a hundred game years
+        drifted = apply_bps(pull, BPS + lfn["revenue_growth_bps"])
+        pull = drifted + apply_bps(opening[lfn["id"]] - drifted, data.PULL_RETURN_BPS)
+    assert opening[lfn["id"]] < pull < opening[lfn["id"]] * 5 // 2        # ahead of where it began, but bounded
+    # The engine applies exactly this rule.
+    carried = economy.set_market_pulls(db, world, companies_, 1, "x" * 32)
+    first = apply_bps(opening[lfn["id"]], BPS + lfn["revenue_growth_bps"])
+    assert carried[lfn["id"]] == first + apply_bps(opening[lfn["id"]] - first, data.PULL_RETURN_BPS)
+    assert data.PULL_RETURN_BPS > max(abs(c["revenue_growth_bps"]) for c in companies_ if c["revenue_growth_bps"] > 0)
+
+
+def test_bonds_do_not_all_fall_due_in_the_same_quarter(db):
+    dates = [d for (d,) in db.execute("SELECT maturity_period FROM company_debts WHERE kind = 'bond'").fetchall()]
+    assert len(dates) >= 9 and len(set(dates)) == len(dates)
+    assert min(dates) == data.BOND_TERM_QUARTERS
+
+
+@pytest.mark.world("eight")
+def test_unpaid_pay_stays_owed_to_exactly_whoever_was_due_it(db):
+    """The reviewer found all of a company's unpaid wages re-addressed to its head-office
+    households, and its unpaid pension contributions with them."""
+    owed = dict(db.execute(
+        "SELECT a.code, sum(p.amount_outstanding) FROM company_payables p JOIN ledger_accounts a ON a.id = p.payee_account_id"
+        " JOIN companies c ON c.id = p.company_id WHERE c.ticker = 'OGA' AND p.kind = 'wages' GROUP BY a.code").fetchall())
+    assert set(owed) == {"households:lagos", "households:abuja", "households:port harcourt", "households:aba",
+                         "households:kano", "investors:institutions"}
+    assert all(amount > 0 for amount in owed.values())
+    # One running total per payee and kind, not a new row every quarter.
+    rows, pairs = db.execute("SELECT count(*), count(DISTINCT (company_id, payee_account_id, kind)) FROM company_payables").fetchone()
+    assert rows == pairs
+
+
+@pytest.mark.world("eight")
+def test_a_handful_of_players_balances_are_not_given_away_by_the_money_table(client, player):
+    holders = {m["holder"]: int(m["amount_kobo"]) for m in client.get("/api/economy").json()["money"]}
+    assert "Players" not in holders                       # one player: their balance would be the whole line
+    assert holders["Other"] >= naira(500_000)             # they are inside "Other" instead
+
+
+def test_paying_several_receivers_copes_with_ids_written_as_text_or_twice(db):
+    treasury = ledger.account_id(db, ledger.TREASURY)
+    lagos = ledger.account_id(db, "households:lagos")
+    before = ledger.balance(db, lagos)
+    paid = ledger.pay_split_up_to(db, payer=str(treasury).upper(), kind="test", memo="Test",
+                                  amounts={lagos: 100, str(lagos): 50, treasury: 999, str(treasury): 999})
+    assert paid == 150 and ledger.balance(db, lagos) == before + 150      # itself left out, the double merged
+
+
+def test_paying_several_receivers_never_pays_more_than_the_payer_has(db):
+    prize_pool = ledger.account_id(db, ledger.PRIZE_POOL)                  # holds nothing
+    treasury = ledger.account_id(db, ledger.TREASURY)
+    receivers = [a for (a,) in db.execute("SELECT account_id FROM households").fetchall()]
+    assert ledger.pay_split_up_to(db, payer=prize_pool, kind="test", memo="Test", amounts={r: 1_000 for r in receivers}) == 0
+    ledger.transfer(db, payer=treasury, receiver=prize_pool, amount=7, kind="test", memo="Test: seven kobo")
+    got: dict = {}
+    paid = ledger.pay_split_up_to(db, payer=prize_pool, kind="test", memo="Test", paid_to=got,
+                                  amounts={r: 1_000 for r in receivers})
+    assert paid == sum(got.values()) == 5 and ledger.balance(db, prize_pool) == 2     # one kobo each; the rest stays put

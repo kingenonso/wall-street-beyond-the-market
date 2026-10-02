@@ -481,6 +481,8 @@ def _location_effect(conn: Connection, company: dict) -> LocationEffect | None:
     return LocationEffect(running_cost_bps=cost, reasons=reasons)
 
 
+_MIN_PLAYERS_SHOWN = 20
+
 _HOLDERS = (
     ("Households", "a.code LIKE 'households:%%'"),
     ("Companies", "a.kind = 'company' AND NOT c.sector IN ('banking', 'insurance')"),
@@ -512,14 +514,23 @@ def economy(_: dict = Depends(current_player), conn: Connection = Depends(get_co
             return None
         return round((now[location][column] - old) * 10_000 / old)
 
+    # A handful of players' balances would give each one away, so the players' line
+    # appears only once there are enough of them. Until then they are part of "Other".
+    enough_players = conn.execute("SELECT count(*) AS n FROM players").fetchone()["n"] >= _MIN_PLAYERS_SHOWN
     holders = []
     for name, condition in _HOLDERS:
+        if name == "Players" and not enough_players:
+            continue
         amount = conn.execute(
             "SELECT coalesce(sum(b.balance), 0)::bigint AS total FROM ledger_balances b"
             " JOIN ledger_accounts a ON a.id = b.account_id LEFT JOIN companies c ON c.account_id = a.id"
             f" WHERE b.asset = 'NGN' AND b.balance > 0 AND {condition}"
         ).fetchone()["total"]
         holders.append(MoneyHolder(holder=name, amount_kobo=amount, share_bps=amount * 10_000 // money if money else 0))
+
+    listed = sum(h.amount_kobo for h in holders)
+    if money - listed > 0:
+        holders.append(MoneyHolder(holder="Other", amount_kobo=money - listed, share_bps=(money - listed) * 10_000 // money))
 
     history = conn.execute(
         "SELECT h.period, sum(h.income)::bigint AS income, sum(h.spending)::bigint AS spending, sum(h.jobs)::bigint AS jobs,"

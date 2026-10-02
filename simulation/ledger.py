@@ -267,33 +267,41 @@ def pay_split_up_to(
     asset: str = NGN,
     period: int | None = None,
     reference: str | None = None,
+    paid_to: dict | None = None,
 ) -> int:
     """Pay several receivers in one transaction: {receiver: amount wanted}.
 
     If the payer cannot afford all of it, every receiver is paid the same
-    proportion of what they were due. Returns the total actually paid.
+    proportion of what they were due. Returns the total actually paid. If
+    `paid_to` is given, it is filled with what each receiver actually got.
     """
-    wanted = {account: amount for account, amount in amounts.items() if amount > 0}
-    if any(not is_whole_amount(amount) for amount in wanted.values()):
-        raise LedgerError("Amounts must be whole numbers.")
-    wanted.pop(payer, None)                                  # nobody pays themselves
+    payer_id = UUID(str(payer))
+    wanted: dict[UUID, int] = {}
+    for account, amount in amounts.items():
+        if not is_whole_amount(amount):
+            raise LedgerError("Amounts must be whole numbers.")
+        account_id = UUID(str(account))
+        if amount > 0 and account_id != payer_id:                # nobody pays themselves
+            wanted[account_id] = wanted.get(account_id, 0) + amount
     total = sum(wanted.values())
     if total == 0:
         return 0
     row = conn.execute(
         "SELECT balance FROM ledger_balances WHERE account_id = %s AND asset = %s FOR UPDATE",
-        (payer, asset),
+        (payer_id, asset),
     ).fetchone()
     available = max(_first(row), 0) if row else 0
     if available < total:
         wanted = {account: amount * available // total for account, amount in wanted.items()}
         wanted = {account: amount for account, amount in wanted.items() if amount > 0}
     paid = sum(wanted.values())
+    if paid_to is not None:
+        paid_to.update(wanted)
     if paid == 0:
         return 0
     post(
         conn, kind=kind, memo=memo, period=period, reference=reference,
-        legs=[Leg(payer, -paid, asset), *[Leg(account, amount, asset) for account, amount in wanted.items()]],
+        legs=[Leg(payer_id, -paid, asset), *[Leg(account, amount, asset) for account, amount in wanted.items()]],
     )
     return paid
 
