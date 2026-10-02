@@ -199,6 +199,12 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
         <div>
           <div className="why-title">WHO IS WAITING</div>
           <Book quote={q} />
+          {!open && (q.bids.length > 0 || q.offers.length > 0) && (
+            <p className="muted small">
+              These orders are waiting for the opening auction. Until then a buyer's price may be above a seller's:
+              the auction pairs them at one price when the market opens.
+            </p>
+          )}
           {mine.length > 0 && (
             <>
               <div className="why-title">YOUR ORDERS WAITING</div>
