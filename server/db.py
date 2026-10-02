@@ -14,14 +14,18 @@ from server.config import get_settings
 
 @lru_cache
 def _pool() -> ConnectionPool:
-    pool = ConnectionPool(get_settings().database_url, kwargs={"row_factory": dict_row}, open=False)
+    # autocommit: a single statement is saved at once. Anything that takes several
+    # statements must be wrapped in `with conn.transaction():`, which saves all of it
+    # or none of it, and has saved it by the time the block ends.
+    pool = ConnectionPool(
+        get_settings().database_url, kwargs={"row_factory": dict_row, "autocommit": True}, open=False
+    )
     pool.open()
     return pool
 
 
 def get_connection() -> Iterator[Connection]:
-    """Hands one request a database connection. Its work is saved if the request
-    succeeds and undone if it fails."""
+    """Hands one request a database connection."""
     with _pool().connection() as conn:
         yield conn
 

@@ -14,6 +14,7 @@ class Settings:
     secret_key: str
     world_start: datetime
     cookie_secure: bool
+    run_quarter_closer: bool = True
     session_days: int = 7
     minimum_age: int = 18
 
@@ -27,7 +28,8 @@ def get_settings() -> Settings:
     if not secret_key or len(secret_key) < 32:
         raise RuntimeError("SECRET_KEY must be set and at least 32 characters. See README.md.")
 
-    # The moment the game world begins. Must include a time zone.
+    # The moment the game world begins. Must include a time zone. This is read only
+    # when the world is first created; after that the world remembers its own start.
     world_start = datetime.fromisoformat(os.environ.get("WORLD_START", "2026-10-05T00:00:00+01:00"))
     if world_start.tzinfo is None:
         raise RuntimeError("WORLD_START must include a time zone, for example +01:00.")
@@ -38,4 +40,6 @@ def get_settings() -> Settings:
         world_start=world_start,
         # Cookies are sent over secure connections only, unless switched off for local work.
         cookie_secure=os.environ.get("COOKIE_SECURE", "true").lower() != "false",
+        # The server closes each game quarter when it ends. Switched off in automated tests.
+        run_quarter_closer=os.environ.get("RUN_QUARTER_CLOSER", "true").lower() != "false",
     )

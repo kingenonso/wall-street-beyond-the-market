@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
 import jwt
 from argon2 import PasswordHasher
@@ -46,4 +47,8 @@ def read_session_token(token: str) -> str | None:
         payload = jwt.decode(token, get_settings().secret_key, algorithms=["HS256"])
     except jwt.PyJWTError:
         return None
-    return payload.get("sub")
+    subject = payload.get("sub")
+    try:
+        return str(UUID(subject))        # a pass must name a real kind of player id
+    except (TypeError, ValueError, AttributeError):
+        return None

@@ -1,14 +1,19 @@
 """The server. It checks every request and decides every outcome.
 
-Stage 1 covers: sign-up, login, logout, "who am I", and the world clock.
+Stage 1: sign-up, login, logout, "who am I", and the world clock.
+Stage 2: the player's cash and account history from the ledger, the companies
+         and their filed reports, and closing each game quarter when it ends.
 """
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import asyncio
+import logging
+from contextlib import asynccontextmanager, suppress
 from datetime import date, datetime, timezone
 
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Response, status
+import psycopg
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Response, status
 from psycopg import Connection
 from psycopg.errors import UniqueViolation
 
@@ -17,19 +22,56 @@ from server.config import get_settings
 from server.db import close_pool, get_connection
 from server.schemas import (
     ClockResponse,
+    CompaniesResponse,
+    CompanyResponse,
+    CompanySummary,
+    FiledReport,
     GameDateResponse,
     LoginRequest,
     Money,
+    MovementResponse,
+    Owner,
     PlayerResponse,
+    ProfileIconRequest,
+    SectorCompanies,
     SignUpRequest,
+    WorldStatusResponse,
 )
-from simulation import clock
+from simulation import clock, ledger, players, quarters
+from simulation.ledger import NGN
+
+log = logging.getLogger("wsbm.server")
+
+QUARTER_CHECK_SECONDS = 30
+
+# Whole numbers in a filed report that are not amounts and stay as plain numbers.
+_NOT_AMOUNTS = {"annual_rate_bps", "maturity_period"}
+
+
+def _close_due_quarters_once() -> None:
+    with psycopg.connect(get_settings().database_url, autocommit=True) as conn:
+        quarters.close_due_quarters(conn, datetime.now(timezone.utc))
+
+
+async def _quarter_closer() -> None:
+    """Runs for as long as the server is up: closes each game quarter when it ends."""
+    while True:
+        try:
+            await asyncio.to_thread(_close_due_quarters_once)
+        except Exception:  # keep trying; one failure must not stop the calendar
+            log.exception("Closing the quarter failed. It will be tried again.")
+        await asyncio.sleep(QUARTER_CHECK_SECONDS)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    get_settings()  # Fail at start-up, not mid-request, if a setting is missing.
+    settings = get_settings()  # Fail at start-up, not mid-request, if a setting is missing.
+    closer = asyncio.create_task(_quarter_closer()) if settings.run_quarter_closer else None
     yield
+    if closer:
+        closer.cancel()
+        with suppress(asyncio.CancelledError):
+            await closer
     close_pool()
 
 
@@ -40,12 +82,15 @@ def _age_on(day: date, born: date) -> int:
     return day.year - born.year - ((day.month, day.day) < (born.month, born.day))
 
 
-def _player_response(row: dict) -> PlayerResponse:
+def _player_response(conn: Connection, row: dict) -> PlayerResponse:
+    account = ledger.player_account_id(conn, row["id"])
+    cash = ledger.balance(conn, account) if account else 0
     return PlayerResponse(
         id=str(row["id"]),
         display_name=row["display_name"],
         reputation=row["reputation"],
-        cash=Money(amount_kobo=row["opening_cash_kobo"], currency=row["currency"]),
+        profile_icon=row["profile_icon"],
+        cash=Money(amount_kobo=cash, currency=NGN),
     )
 
 
@@ -80,6 +125,10 @@ def health(conn: Connection = Depends(get_connection)) -> dict:
     return {"status": "ok"}
 
 
+# ---------------------------------------------------------------------------
+# Accounts
+# ---------------------------------------------------------------------------
+
 @app.post("/api/auth/signup", response_model=PlayerResponse, status_code=status.HTTP_201_CREATED)
 def sign_up(body: SignUpRequest, response: Response, conn: Connection = Depends(get_connection)):
     settings = get_settings()
@@ -90,18 +139,33 @@ def sign_up(body: SignUpRequest, response: Response, conn: Connection = Depends(
             f"This game is for players aged {settings.minimum_age} and above.",
         )
 
+    password_hash = security.hash_password(body.password)
     try:
-        row = conn.execute(
-            "INSERT INTO players (email, display_name, password_hash, adult_confirmed_at)"
-            " VALUES (%s, %s, %s, now()) RETURNING *",
-            (body.email.lower(), body.display_name, security.hash_password(body.password)),
-        ).fetchone()
+        # All or nothing: the player, their ledger account and their starting cash
+        # are created together, and are saved by the time this block ends.
+        with conn.transaction():
+            row = conn.execute(
+                "INSERT INTO players (email, display_name, password_hash, adult_confirmed_at, profile_icon)"
+                " VALUES (%s, %s, %s, now(), %s) RETURNING *",
+                (body.email.lower(), body.display_name, password_hash, body.profile_icon),
+            ).fetchone()
+            players.open_player_account(conn, row["id"])
     except UniqueViolation as error:
-        taken = "display name" if "display_name" in (error.diag.constraint_name or "") else "email"
+        constraint = error.diag.constraint_name or ""
+        if constraint not in ("players_email_unique", "players_display_name_unique"):
+            raise
+        taken = "display name" if "display_name" in constraint else "email"
         raise HTTPException(status.HTTP_409_CONFLICT, f"That {taken} is already in use.") from error
+    except ledger.LedgerError as error:
+        # The world does not exist yet, or the Treasury cannot pay the starting cash.
+        log.error("Sign-up refused: %s", error)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "New accounts cannot be opened right now. Please try again later.",
+        ) from error
 
     _start_session(response, str(row["id"]))
-    return _player_response(row)
+    return _player_response(conn, row)
 
 
 @app.post("/api/auth/login", response_model=PlayerResponse)
@@ -115,7 +179,7 @@ def log_in(body: LoginRequest, response: Response, conn: Connection = Depends(ge
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Email or password is incorrect.")
 
     _start_session(response, str(row["id"]))
-    return _player_response(row)
+    return _player_response(conn, row)
 
 
 @app.post("/api/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -124,13 +188,64 @@ def log_out(response: Response) -> None:
 
 
 @app.get("/api/me", response_model=PlayerResponse)
-def me(player: dict = Depends(current_player)):
-    return _player_response(player)
+def me(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _player_response(conn, player)
+
+
+@app.patch("/api/me/profile-icon", response_model=PlayerResponse)
+def set_profile_icon(
+    body: ProfileIconRequest,
+    player: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    row = conn.execute(
+        "UPDATE players SET profile_icon = %s WHERE id = %s RETURNING *", (body.profile_icon, player["id"])
+    ).fetchone()
+    return _player_response(conn, row)
+
+
+@app.get("/api/me/movements", response_model=list[MovementResponse])
+def my_movements(
+    limit: int = Query(default=20, ge=1, le=100),
+    player: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    """The player's own account history: every naira in and out, newest first."""
+    account = ledger.player_account_id(conn, player["id"])
+    if account is None:
+        return []
+    rows = conn.execute(
+        "SELECT t.created_at, t.kind, t.memo, e.amount, e.asset,"
+        "  (SELECT CASE WHEN count(*) = 1 THEN min(a.name) ELSE 'Several accounts' END"
+        "     FROM ledger_entries o JOIN ledger_accounts a ON a.id = o.account_id"
+        "    WHERE o.transaction_id = t.id AND o.account_id <> e.account_id AND o.asset = e.asset) AS counterparty"
+        " FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
+        " WHERE e.account_id = %s AND e.asset = %s ORDER BY e.id DESC LIMIT %s",
+        (account, NGN, limit),
+    ).fetchall()
+    return [
+        MovementResponse(
+            at=r["created_at"], kind=r["kind"], memo=r["memo"], counterparty=r["counterparty"],
+            amount_kobo=r["amount"], currency=r["asset"],
+        )
+        for r in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
+# The world
+# ---------------------------------------------------------------------------
+
+def _world(conn: Connection) -> dict | None:
+    return conn.execute("SELECT * FROM world_state").fetchone()
 
 
 @app.get("/api/world/clock", response_model=ClockResponse)
-def world_clock():
-    snap = clock.snapshot(datetime.now(timezone.utc), get_settings().world_start)
+def world_clock(conn: Connection = Depends(get_connection)):
+    world = _world(conn)
+    # The world remembers its own start. Before it is created, the setting is used.
+    world_start = world["world_start"] if world else get_settings().world_start
+    snap = clock.snapshot(datetime.now(timezone.utc), world_start)
     return ClockResponse(
         lagos_time=snap.lagos_time,
         market_state=snap.market_state.value,
@@ -138,4 +253,118 @@ def world_clock():
         next_change_at=snap.next_change_at,
         world_started=snap.world_started,
         game_date=GameDateResponse(**vars(snap.game_date)) if snap.game_date else None,
+    )
+
+
+@app.get("/api/world/status", response_model=WorldStatusResponse)
+def world_status(_: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    world = _world(conn)
+    last = world["last_closed_period"] if world else 0
+    count = conn.execute("SELECT count(*) AS n FROM companies").fetchone()["n"]
+    return WorldStatusResponse(
+        companies=count,
+        last_closed_period=last,
+        last_closed_label=clock.period_label(last) if last else None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Companies. Everything here is read from the REPORTED record: what each company
+# filed. The true record is never sent to a player.
+# ---------------------------------------------------------------------------
+
+def _amounts_as_text(value, key: str | None = None):
+    """Rewrite a filed report so every amount is kobo written as text."""
+    if isinstance(value, dict):
+        return {k: _amounts_as_text(v, k) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_amounts_as_text(v, key) for v in value]
+    if isinstance(value, int) and not isinstance(value, bool) and key not in _NOT_AMOUNTS:
+        return str(value)
+    return value
+
+
+@app.get("/api/companies", response_model=CompaniesResponse)
+def list_companies(_: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    rows = conn.execute(
+        "SELECT c.ticker, c.name, c.headquarters, s.code AS sector_code, s.name AS sector_name,"
+        "       r.period, r.credit_rating, r.figures,"
+        "       (prev.figures -> 'income_statement' ->> 'revenue')::bigint AS previous_revenue"
+        " FROM companies c"
+        " JOIN sectors s ON s.code = c.sector"
+        " JOIN LATERAL (SELECT * FROM company_reports x WHERE x.company_id = c.id"
+        "               ORDER BY x.period DESC, x.version DESC LIMIT 1) r ON true"
+        " LEFT JOIN LATERAL (SELECT figures FROM company_reports y WHERE y.company_id = c.id"
+        "                    AND y.period = r.period - 1 ORDER BY y.version DESC LIMIT 1) prev ON true"
+        " ORDER BY s.sort_order, c.name"
+    ).fetchall()
+
+    sectors: dict[str, SectorCompanies] = {}
+    for r in rows:
+        income = r["figures"]["income_statement"]
+        previous = r["previous_revenue"]
+        change = None
+        if previous and previous > 0:
+            change = round((income["revenue"] - previous) * 10_000 / previous)
+        sector = sectors.setdefault(
+            r["sector_code"], SectorCompanies(code=r["sector_code"], name=r["sector_name"], companies=[])
+        )
+        sector.companies.append(
+            CompanySummary(
+                ticker=r["ticker"], name=r["name"], headquarters=r["headquarters"],
+                period=r["period"], period_label=clock.period_label(r["period"]),
+                credit_rating=r["credit_rating"],
+                revenue_kobo=income["revenue"], net_profit_kobo=income["net_profit"],
+                total_assets_kobo=r["figures"]["balance_sheet"]["total_assets"],
+                revenue_change_bps=change,
+            )
+        )
+    return CompaniesResponse(sectors=list(sectors.values()))
+
+
+@app.get("/api/companies/{ticker}", response_model=CompanyResponse)
+def get_company(
+    ticker: str,
+    periods: int = Query(default=8, ge=1, le=40),
+    _: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    company = conn.execute(
+        "SELECT c.*, s.name AS sector_name FROM companies c JOIN sectors s ON s.code = c.sector"
+        " WHERE c.ticker = %s",
+        (ticker.upper(),),
+    ).fetchone()
+    if company is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no company with that ticker.")
+
+    filed = conn.execute(
+        "SELECT DISTINCT ON (period) period, version, figures, credit_rating, rating_reasons, filed_by, filed_at"
+        " FROM company_reports WHERE company_id = %s ORDER BY period DESC, version DESC LIMIT %s",
+        (company["id"], periods),
+    ).fetchall()
+
+    # The share register: who holds the shares, from the ledger.
+    holders = conn.execute(
+        "SELECT a.name, b.balance FROM ledger_balances b JOIN ledger_accounts a ON a.id = b.account_id"
+        " WHERE b.asset = %s AND b.balance > 0 ORDER BY b.balance DESC, a.name",
+        (company["share_asset"],),
+    ).fetchall()
+    in_issue = sum(h["balance"] for h in holders)
+
+    return CompanyResponse(
+        ticker=company["ticker"], name=company["name"], sector=company["sector_name"],
+        headquarters=company["headquarters"], shares_in_issue=in_issue,
+        owners=[
+            Owner(name=h["name"], shares=h["balance"], share_bps=h["balance"] * 10_000 // in_issue)
+            for h in holders
+        ],
+        reports=[
+            FiledReport(
+                period=r["period"], period_label=clock.period_label(r["period"]), version=r["version"],
+                amended=r["version"] > 1, filed_by=r["filed_by"], filed_at=r["filed_at"],
+                credit_rating=r["credit_rating"], rating_reasons=r["rating_reasons"],
+                figures=_amounts_as_text(r["figures"]),
+            )
+            for r in reversed(filed)
+        ],
     )

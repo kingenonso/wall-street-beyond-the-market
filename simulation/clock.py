@@ -118,6 +118,34 @@ def game_date(moment: datetime, world_start: datetime) -> GameDate | None:
     )
 
 
+def periods_completed(moment: datetime, world_start: datetime) -> int:
+    """How many whole game quarters have finished. 0 before the world starts.
+
+    Quarters are numbered from 1. Quarter 1 is Year 1 Q1, quarter 5 is Year 2 Q1.
+    """
+    _require_aware(moment)
+    _require_aware(world_start)
+    elapsed = moment - world_start
+    if elapsed < timedelta(0):
+        return 0
+    return elapsed // timedelta(days=REAL_DAYS_PER_QUARTER)
+
+
+def period_to_date(period: int) -> tuple[int, int]:
+    """Quarter number to (game year, quarter of that year). Quarter 6 is (2, 2)."""
+    if period < 1:
+        raise ValueError("Quarters are numbered from 1.")
+    return (period - 1) // QUARTERS_PER_YEAR + 1, (period - 1) % QUARTERS_PER_YEAR + 1
+
+
+def period_label(period: int) -> str:
+    """A quarter number in words: "Year 2 Q3". Quarter 0 is the opening position."""
+    if period == 0:
+        return "Opening"
+    year, quarter = period_to_date(period)
+    return f"Year {year} Q{quarter}"
+
+
 def snapshot(moment: datetime, world_start: datetime) -> ClockSnapshot:
     """Everything a screen needs to show the time and the market's status."""
     upcoming_state, upcoming_at = next_change(moment)
