@@ -13,6 +13,8 @@
 --   3. Nobody can spend what they do not have. Only the issuer of an asset
 --      (the Central Bank for naira, a company for its own shares) may hold a
 --      negative balance in it. That negative balance IS the amount in existence.
+--      Even the issuer can add to the amount in existence only for the two
+--      reasons listed in the rule below. Nothing else can make new money or shares.
 --   4. A finished transaction is closed. Nothing can be added to it later.
 --   5. Running balances can only be changed by adding a ledger entry.
 
@@ -36,7 +38,8 @@ CREATE TABLE ledger_accounts (
 -- Assets: what can be held. Naira (counted in kobo) and each company's shares.
 -- ---------------------------------------------------------------------------
 CREATE TABLE assets (
-    code               text PRIMARY KEY,
+    -- 'NGN' for naira, 'SHR-ABC' for a company's shares. Nothing that merely looks similar.
+    code               text PRIMARY KEY CHECK (code ~ '^([A-Z]{3}|SHR-[A-Z]{3})$'),
     kind               text NOT NULL CHECK (kind IN ('currency', 'share')),
     name               text NOT NULL,
     -- The smallest unit an amount is counted in. Naira is stored as whole kobo
@@ -129,11 +132,12 @@ CREATE TRIGGER ledger_transactions_stamp BEFORE INSERT ON ledger_transactions
 CREATE FUNCTION ledger_apply_entry() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
     opened_in    bigint;
+    reason       text;
     new_balance  bigint;
     issuer       uuid;
 BEGIN
     -- Rule 4: entries can only join a transaction that is still being written.
-    SELECT created_txid INTO opened_in FROM ledger_transactions WHERE id = NEW.transaction_id;
+    SELECT created_txid, kind INTO opened_in, reason FROM ledger_transactions WHERE id = NEW.transaction_id;
     IF opened_in IS DISTINCT FROM txid_current() THEN
         RAISE EXCEPTION 'That ledger transaction is closed. Nothing can be added to it.'
             USING ERRCODE = 'restrict_violation', CONSTRAINT = 'ledger_transaction_closed';
@@ -152,6 +156,12 @@ BEGIN
         IF issuer IS DISTINCT FROM NEW.account_id THEN
             RAISE EXCEPTION 'Not enough % in the account to make this payment.', NEW.asset
                 USING ERRCODE = 'check_violation', CONSTRAINT = 'ledger_insufficient_balance';
+        END IF;
+        -- The issuer paying out while below zero is new money, or new shares, coming
+        -- into existence. That is allowed for these reasons only.
+        IF NEW.amount < 0 AND reason NOT IN ('opening_balance', 'share_issue') THEN
+            RAISE EXCEPTION 'New % cannot be brought into existence for the reason "%".', NEW.asset, reason
+                USING ERRCODE = 'restrict_violation', CONSTRAINT = 'ledger_issuance_reason';
         END IF;
     END IF;
     RETURN NULL;
@@ -219,3 +229,20 @@ ALTER TABLE players DROP COLUMN currency;
 
 -- The standard profile picture a player chose. Empty until they choose one.
 ALTER TABLE players ADD COLUMN profile_icon text CHECK (profile_icon IN ('male', 'female'));
+
+-- Logging out raises this number, which cancels every login pass issued before it.
+ALTER TABLE players ADD COLUMN session_version integer NOT NULL DEFAULT 0;
+
+-- The starting grant is paid once per account. The database itself refuses a second one,
+-- whatever the code above it does. The reference of a grant is the account it was paid to.
+CREATE UNIQUE INDEX ledger_one_starting_grant ON ledger_transactions (reference)
+    WHERE kind = 'starting_grant';
+ALTER TABLE ledger_transactions ADD CONSTRAINT ledger_starting_grant_names_account
+    CHECK (kind <> 'starting_grant' OR reference IS NOT NULL);
+
+-- Two display names that look alike at a glance ("Ada", "ada", "A da", "Ádá") count
+-- as the same name, so nobody can pass themselves off as another player.
+ALTER TABLE players ADD COLUMN display_name_key text;
+UPDATE players SET display_name_key = lower(regexp_replace(display_name, '[^[:alnum:]]', '', 'g'));
+ALTER TABLE players ALTER COLUMN display_name_key SET NOT NULL;
+CREATE UNIQUE INDEX players_display_name_key_unique ON players (display_name_key);

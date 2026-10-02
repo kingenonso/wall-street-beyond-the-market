@@ -21,6 +21,7 @@ def open_player_account(conn: Connection, player_id: UUID | str) -> None:
     Raises ledger.LedgerError if the world has not been created yet, and
     ledger.InsufficientFunds if the Treasury cannot pay.
     """
+    player_id = UUID(str(player_id))        # one spelling of the id, whoever is calling
     treasury = ledger.account_id(conn, ledger.TREASURY)
     account = ledger.player_account_id(conn, player_id)
     if account is None:
@@ -32,5 +33,6 @@ def open_player_account(conn: Connection, player_id: UUID | str) -> None:
         amount=naira(data.STARTING_GRANT_NAIRA),
         kind="starting_grant",
         memo="Starting grant to a new professional",
+        reference=str(account),             # the database allows one grant per account
         idempotency_key=f"starting_grant:{player_id}",
     )

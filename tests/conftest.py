@@ -28,6 +28,7 @@ os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["SECRET_KEY"] = "test-only-secret-key-that-is-long-enough-0123456789"
 os.environ["COOKIE_SECURE"] = "false"
 os.environ["WORLD_START"] = WORLD_START.isoformat()
+os.environ["RATE_LIMITS"] = "false"            # switched on only by the tests that are about them
 os.environ["RUN_QUARTER_CLOSER"] = "false"     # tests close quarters themselves, at chosen times
 
 from database.migrate import apply_migrations  # noqa: E402

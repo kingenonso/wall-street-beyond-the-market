@@ -51,7 +51,7 @@ def test_a_profile_change_cannot_carry_other_changes(client, player):
 
 def _token(player_id, *, key=SECRET, algorithm="HS256", expires_in=timedelta(days=1)):
     now = datetime.now(timezone.utc)
-    return jwt.encode({"sub": player_id, "iat": now, "exp": now + expires_in}, key, algorithm=algorithm)
+    return jwt.encode({"sub": player_id, "ver": 0, "iat": now, "exp": now + expires_in}, key, algorithm=algorithm)
 
 
 def test_a_login_pass_signed_with_the_wrong_key_is_refused(client, player):
@@ -217,3 +217,233 @@ def test_changing_the_setting_does_not_move_a_world_that_already_exists(client, 
     finally:
         monkeypatch.undo()
         get_settings.cache_clear()
+
+
+# ---------------------------------------------------------------------------
+# Found by the independent reviewer (a second AI told to break Stage 1 and
+# Stage 2). Each test below is one of its attacks, now proven to fail.
+# ---------------------------------------------------------------------------
+
+def test_a_correctly_signed_pass_still_works_so_the_tests_above_mean_something(client, player):
+    client.cookies.set(security.SESSION_COOKIE, _token(player["id"]))
+    assert client.get("/api/me").status_code == 200
+
+
+def test_a_login_pass_with_no_expiry_date_is_refused(client, player):
+    forever = jwt.encode({"sub": player["id"], "ver": 0, "iat": datetime.now(timezone.utc)}, SECRET, algorithm="HS256")
+    client.cookies.set(security.SESSION_COOKIE, forever)
+    assert client.get("/api/me").status_code == 401
+
+
+def test_a_copied_login_pass_stops_working_after_logout(client, player):
+    copied = client.cookies.get(security.SESSION_COOKIE)
+    assert client.post("/api/auth/logout").status_code == 204
+    client.cookies.set(security.SESSION_COOKIE, copied)
+    assert client.get("/api/me").status_code == 401
+    # Logging in again gives a fresh pass that works.
+    client.cookies.clear()
+    assert client.post("/api/auth/login", json={"email": ADULT["email"], "password": ADULT["password"]}).status_code == 200
+    assert client.get("/api/me").status_code == 200
+
+
+@pytest.mark.parametrize("key", ["change-me-to-a-long-random-string-of-at-least-32-characters", "a" * 40])
+def test_the_server_will_not_start_with_the_example_secret_key(monkeypatch, key):
+    from server.config import get_settings
+    monkeypatch.setenv("SECRET_KEY", key)
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(RuntimeError):
+            get_settings()
+    finally:
+        monkeypatch.undo()
+        get_settings.cache_clear()
+
+
+@pytest.fixture
+def limited(monkeypatch):
+    from server import limits
+    from server.config import get_settings
+    monkeypatch.setenv("RATE_LIMITS", "true")
+    get_settings.cache_clear()
+    limits.forget_all()
+    yield
+    monkeypatch.undo()
+    get_settings.cache_clear()
+    limits.forget_all()
+
+
+def test_password_guessing_is_cut_off(client, player, limited):
+    wrong = {"email": ADULT["email"], "password": "a wrong guess"}
+    codes = [client.post("/api/auth/login", json=wrong).status_code for _ in range(12)]
+    assert codes[:8] == [401] * 8 and codes[8:] == [429] * 4
+    # Even the right password must now wait: the guesser gets no signal.
+    assert client.post("/api/auth/login", json={"email": ADULT["email"], "password": ADULT["password"]}).status_code == 429
+
+
+def test_one_visitor_cannot_open_accounts_without_limit(client, db, limited):
+    codes = []
+    for n in range(13):
+        details = {**ADULT, "email": f"bot{n}@example.com", "display_name": f"Bot number {n}"}
+        codes.append(client.post("/api/auth/signup", json=details).status_code)
+    assert codes == [201] * 10 + [429] * 3
+    assert db.execute("SELECT count(*) FROM players").fetchone()[0] == 10
+
+
+@pytest.mark.parametrize("lookalike", ["ada", "A da", "Ada_", "A-d-a", "Ádá", "Ａｄａ"])
+def test_a_display_name_that_looks_like_another_players_is_refused(client, player, lookalike):
+    response = client.post("/api/auth/signup", json={**ADULT, "email": "other@example.com", "display_name": lookalike})
+    assert response.status_code == 409, response.text
+
+
+@pytest.mark.parametrize("name", [
+    "Аda",                      # the first letter is Cyrillic, not English
+    "Central Bank of Nigeria", "Prize pool", "Company management", "admin", "Federal Government Treasury",
+])
+def test_a_display_name_cannot_imitate_the_game_or_use_lookalike_alphabets(client, db, name):
+    assert client.post("/api/auth/signup", json={**ADULT, "display_name": name}).status_code == 422
+    assert db.execute("SELECT count(*) FROM players").fetchone()[0] == 0
+
+
+def test_nigerian_names_with_accents_and_under_dots_are_welcome(client):
+    response = client.post("/api/auth/signup", json={**ADULT, "display_name": "Ọláyínká Asset Mgmt"})
+    assert response.status_code == 201, response.text
+
+
+def test_a_rejected_request_does_not_repeat_back_what_was_typed(client):
+    response = client.post("/api/auth/signup", json={**ADULT, "password": "s3cret-pw", "date_of_birth": "nonsense"})
+    assert response.status_code == 422
+    assert "s3cret-pw" not in response.text and "nonsense" not in response.text
+
+
+def test_an_oversized_request_is_refused_before_it_is_read(client):
+    response = client.post("/api/auth/login", json={"email": "a@example.com", "password": "x" * 100_000})
+    assert response.status_code == 413
+
+
+def test_an_impossible_date_of_birth_is_refused(client, db):
+    assert client.post("/api/auth/signup", json={**ADULT, "date_of_birth": "0001-01-01"}).status_code == 400
+    assert db.execute("SELECT count(*) FROM players").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("ticker", ["%00", "ZZ", "ABCD", "A%00B", "ÀBC"])
+def test_a_nonsense_ticker_is_simply_not_found(client, player, ticker):
+    assert client.get(f"/api/companies/{ticker}").status_code == 404
+
+
+def test_the_starting_grant_cannot_be_paid_twice_by_spelling_the_player_differently(client, player, db):
+    from simulation import players
+    players.open_player_account(db, player["id"].upper())
+    players.open_player_account(db, player["id"])
+    assert db.execute("SELECT count(*) FROM ledger_transactions WHERE kind = 'starting_grant'").fetchone()[0] == 1
+
+
+def test_the_database_itself_refuses_a_second_starting_grant(client, player, db):
+    treasury = ledger.account_id(db, ledger.TREASURY)
+    account = ledger.player_account_id(db, player["id"])
+    with pytest.raises(Exception) as refused:
+        ledger.transfer(db, payer=treasury, receiver=account, amount=naira(500_000), kind="starting_grant",
+                        memo="A second grant", reference=str(account), idempotency_key="some-other-key")
+    assert refused.value.diag.constraint_name == "ledger_one_starting_grant"
+    assert ledger.balance(db, account) == naira(500_000)
+
+
+def test_new_money_cannot_be_issued_for_a_made_up_reason(db):
+    central_bank = ledger.account_id(db, ledger.CENTRAL_BANK)
+    prize_pool = ledger.account_id(db, ledger.PRIZE_POOL)
+    before = ledger.amount_in_existence(db, ledger.NGN)
+    with pytest.raises(Exception) as refused:
+        ledger.transfer(db, payer=central_bank, receiver=prize_pool, amount=naira(1_000_000), kind="gift", memo="Free money")
+    assert refused.value.diag.constraint_name == "ledger_issuance_reason"
+    assert ledger.amount_in_existence(db, ledger.NGN) == before
+
+
+def test_new_shares_cannot_be_issued_for_a_made_up_reason(db):
+    company = ledger.account_id(db, "company:IKB")
+    prize_pool = ledger.account_id(db, ledger.PRIZE_POOL)
+    with pytest.raises(Exception) as refused:
+        ledger.transfer(db, payer=company, receiver=prize_pool, amount=1_000, asset="SHR-IKB", kind="gift", memo="Free shares")
+    assert refused.value.diag.constraint_name == "ledger_issuance_reason"
+
+
+def test_a_lookalike_currency_cannot_be_created(db):
+    prize_pool = ledger.account_id(db, ledger.PRIZE_POOL)
+    for code in ("NGN ", "ngn", "NGN2", "SHR-IKBX"):
+        with pytest.raises(Exception):
+            db.execute("INSERT INTO assets (code, kind, name, unit, issuer_account_id) VALUES (%s, 'currency', 'Fake', 'kobo', %s)", (code, prize_pool))
+
+
+def test_an_account_cannot_pay_itself_by_spelling_its_id_differently(db):
+    public = ledger.account_id(db, ledger.PUBLIC)
+    with pytest.raises(ledger.LedgerError):
+        ledger.transfer(db, payer=public, receiver=str(public).upper(), amount=naira(1), kind="customer_revenue", memo="To myself")
+    with pytest.raises(ledger.LedgerError):
+        ledger.post(db, kind="customer_revenue", memo="To myself", legs=[
+            ledger.Leg(public, -naira(1)), ledger.Leg(str(public).upper(), naira(1)),
+        ])
+
+
+@pytest.mark.world("eight")
+@pytest.mark.parametrize("statement", [
+    "UPDATE world_state SET last_closed_period = 0",            # rewind the calendar
+    "UPDATE world_state SET last_closed_period = 50",           # skip ahead
+    "UPDATE world_state SET world_start = now()",               # restart the world
+    "DELETE FROM world_state",
+    "TRUNCATE world_state",
+])
+def test_the_calendar_cannot_be_rewound_skipped_or_restarted(db, statement):
+    with pytest.raises(Exception) as refused:
+        db.execute(statement)
+    assert refused.value.diag.constraint_name == "world_is_permanent"
+    assert db.execute("SELECT last_closed_period FROM world_state").fetchone()[0] == 8
+
+
+@pytest.mark.world("eight")
+@pytest.mark.parametrize("period, version, rating", [
+    (8, 7, "AAA"),      # jumps the queue of versions
+    (8, 1, "AAA"),      # pretends to be the original filing
+    (999, 1, "AAA"),    # a quarter that has not happened
+    (8, 2, "ZZZ"),      # a rating that does not exist
+])
+def test_a_filing_out_of_order_or_for_a_future_quarter_is_refused(db, period, version, rating):
+    from psycopg.types.json import Jsonb
+    company = db.execute("SELECT id FROM companies WHERE ticker = 'IKB'").fetchone()[0]
+    with pytest.raises(Exception):
+        db.execute(
+            "INSERT INTO company_reports (company_id, period, version, figures, credit_rating, rating_reasons, filed_by)"
+            " VALUES (%s, %s, %s, %s, %s, %s, 'Somebody')",
+            (company, period, version, Jsonb({}), rating, Jsonb([])),
+        )
+
+
+@pytest.mark.world("eight")
+def test_a_filing_cannot_be_backdated(db):
+    from psycopg.types.json import Jsonb
+    company = db.execute("SELECT id FROM companies WHERE ticker = 'IKB'").fetchone()[0]
+    filed_at = db.execute(
+        "INSERT INTO company_reports (company_id, period, version, figures, credit_rating, rating_reasons, filed_by, filed_at)"
+        " VALUES (%s, 8, 2, %s, 'A', %s, 'Somebody', '2020-01-01') RETURNING filed_at",
+        (company, Jsonb({}), Jsonb([])),
+    ).fetchone()[0]
+    assert filed_at.year >= 2026
+
+
+@pytest.mark.world("eight")
+def test_the_whole_ledger_is_re_added_and_agrees_after_eight_quarters(db):
+    assert ledger.audit(db) == []
+
+
+def test_a_quarter_will_not_close_if_the_ledger_has_been_tampered_with(db):
+    """Somebody with direct access to the database switches the rules off and edits a
+    balance. A player cannot do this; the check is there in case anyone ever does."""
+    from simulation import quarters
+    from tests.conftest import after_quarters
+    db.execute("SET session_replication_role = replica")
+    db.execute("UPDATE ledger_balances SET balance = balance + 100 WHERE account_id = %s",
+               (ledger.account_id(db, ledger.PRIZE_POOL),))
+    db.execute("INSERT INTO ledger_balances (account_id, asset, balance) VALUES (%s, 'NGN', 100) ON CONFLICT DO NOTHING",
+               (ledger.account_id(db, ledger.PRIZE_POOL),))
+    db.execute("SET session_replication_role = origin")
+    assert ledger.audit(db) != []
+    with pytest.raises(ledger.LedgerError):
+        quarters.close_due_quarters(db, after_quarters(1))
+    assert db.execute("SELECT last_closed_period FROM world_state").fetchone()[0] == 0

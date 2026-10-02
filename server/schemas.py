@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 from datetime import date, datetime
 from typing import Annotated, Literal
 
@@ -13,6 +14,21 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, PlainSerializer, fi
 Kobo = Annotated[int, PlainSerializer(lambda value: str(value), return_type=str)]
 
 ProfileIcon = Literal["male", "female"]
+
+
+# No player may pass themselves off as the game, the state or an institution.
+RESERVED_NAME_PARTS = (
+    "admin", "moderator", "gamemaster", "officialsupport", "centralbank", "treasury", "federalgovernment",
+    "prizepool", "companymanagement", "playeraccount", "smallinvestors",
+)
+
+
+def display_name_key(name: str) -> str:
+    """What a display name looks like at a glance: no accents, capitals, spaces or
+    punctuation. Two names with the same key would be mistaken for each other, so
+    only one player may hold each key."""
+    stripped = unicodedata.normalize("NFKD", name)
+    return "".join(ch for ch in stripped if ch.isalnum()).lower()
 
 
 class Request(BaseModel):
@@ -32,11 +48,20 @@ class SignUpRequest(Request):
     @field_validator("display_name")
     @classmethod
     def tidy_display_name(cls, value: str) -> str:
-        value = value.strip()
+        value = " ".join(unicodedata.normalize("NFKC", value).split())   # no stray or doubled spaces
         if len(value) < 3:
             raise ValueError("Display name must be at least 3 characters.")
-        if not all(ch.isalnum() or ch in " _-" for ch in value):
-            raise ValueError("Display name may use letters, numbers, spaces, hyphens and underscores.")
+        # Letters of the Latin alphabet (accents and under-dots included) and digits only.
+        # This stops names written with lookalike letters from another alphabet.
+        for ch in value:
+            latin_letter = ch.isalpha() and unicodedata.name(ch, "").startswith("LATIN")
+            if not (latin_letter or ch in "0123456789 _-"):
+                raise ValueError("Display name may use letters, numbers, spaces, hyphens and underscores.")
+        key = display_name_key(value)
+        if len(key) < 3:
+            raise ValueError("Display name must have at least 3 letters or numbers.")
+        if any(word in key for word in RESERVED_NAME_PARTS):
+            raise ValueError("That display name is reserved. Please choose another.")
         return value
 
 

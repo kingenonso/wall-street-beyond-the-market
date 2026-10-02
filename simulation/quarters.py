@@ -39,6 +39,11 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
             if period > due:
                 return closed
             _close_period(conn, period, world["company_tax_bps"])
+            # Re-add the whole ledger before the quarter is allowed to close. If anything
+            # is out, the quarter is not closed and the fault is reported loudly.
+            problems = ledger.audit(conn)
+            if problems:
+                raise ledger.LedgerError("The ledger failed its end-of-quarter check: " + " ".join(problems))
             conn.execute("UPDATE world_state SET last_closed_period = %s", (period,))
         closed.append(period)
         log.info("Closed %s", clock.period_label(period))

@@ -15,6 +15,8 @@ class Settings:
     world_start: datetime
     cookie_secure: bool
     run_quarter_closer: bool = True
+    rate_limits: bool = True
+    database_pool_size: int = 20
     session_days: int = 7
     minimum_age: int = 18
 
@@ -27,6 +29,8 @@ def get_settings() -> Settings:
         raise RuntimeError("DATABASE_URL is not set. See README.md.")
     if not secret_key or len(secret_key) < 32:
         raise RuntimeError("SECRET_KEY must be set and at least 32 characters. See README.md.")
+    if secret_key.startswith("change-me") or len(set(secret_key)) < 10:
+        raise RuntimeError("SECRET_KEY is still the example value. Replace it with your own random text.")
 
     # The moment the game world begins. Must include a time zone. This is read only
     # when the world is first created; after that the world remembers its own start.
@@ -42,4 +46,7 @@ def get_settings() -> Settings:
         cookie_secure=os.environ.get("COOKIE_SECURE", "true").lower() != "false",
         # The server closes each game quarter when it ends. Switched off in automated tests.
         run_quarter_closer=os.environ.get("RUN_QUARTER_CLOSER", "true").lower() != "false",
+        # Limits on how fast one address may try to log in or sign up. Switched off in most tests.
+        rate_limits=os.environ.get("RATE_LIMITS", "true").lower() != "false",
+        database_pool_size=int(os.environ.get("DATABASE_POOL_SIZE", "20")),
     )

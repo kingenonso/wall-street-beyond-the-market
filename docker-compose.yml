@@ -22,7 +22,7 @@ services:
     environment:
       DATABASE_URL: postgresql://wsbm:${POSTGRES_PASSWORD}@database:5432/wsbm
       SECRET_KEY: ${SECRET_KEY:?Copy .env.example to .env first}
-      WORLD_START: ${WORLD_START:-2026-10-05T00:00:00+01:00}
+      WORLD_START: ${WORLD_START:-2026-08-03T00:00:00+01:00}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
     depends_on:
       database:

@@ -27,6 +27,7 @@ from uuid import UUID
 
 from psycopg import Connection
 from psycopg.errors import CheckViolation
+from psycopg.rows import tuple_row
 
 from simulation.money import MAX_AMOUNT, is_whole_amount
 
@@ -111,6 +112,40 @@ def amount_in_existence(conn: Connection, asset: str = NGN) -> int:
     return _first(row)
 
 
+def audit(conn: Connection) -> list[str]:
+    """Re-add the whole ledger from scratch and report anything that does not agree.
+
+    An empty list means: every asset adds up to zero across all accounts, every
+    running balance equals the sum of its entries, and nobody but an issuer is
+    below zero. Run at the end of every game quarter.
+    """
+    problems: list[str] = []
+    for (asset,) in _rows(conn, "SELECT asset FROM ledger_entries GROUP BY asset HAVING sum(amount) <> 0"):
+        problems.append(f"{asset} does not add up to zero across all accounts.")
+    mismatched = _rows(
+        conn,
+        "SELECT count(*) FROM"
+        " (SELECT account_id, asset, sum(amount) AS total FROM ledger_entries GROUP BY account_id, asset) e"
+        " FULL JOIN ledger_balances b USING (account_id, asset)"
+        " WHERE e.total IS DISTINCT FROM b.balance",
+    )[0][0]
+    if mismatched:
+        problems.append(f"{mismatched} running balances do not match their entries.")
+    overdrawn = _rows(
+        conn,
+        "SELECT count(*) FROM ledger_balances b JOIN assets a ON a.code = b.asset"
+        " WHERE b.balance < 0 AND b.account_id <> a.issuer_account_id",
+    )[0][0]
+    if overdrawn:
+        problems.append(f"{overdrawn} accounts are below zero.")
+    return problems
+
+
+def _rows(conn: Connection, query: str) -> list[tuple]:
+    with conn.cursor(row_factory=tuple_row) as cur:
+        return cur.execute(query).fetchall()
+
+
 def post(
     conn: Connection,
     *,
@@ -178,7 +213,7 @@ def transfer(
     """Move `amount` from one account to another. The amount must be a positive whole number."""
     if not is_whole_amount(amount) or amount <= 0:
         raise LedgerError("A transfer must be a positive whole amount.")
-    if str(payer) == str(receiver):
+    if UUID(str(payer)) == UUID(str(receiver)):
         raise LedgerError("The payer and the receiver must be different accounts.")
     return post(
         conn,
@@ -227,7 +262,13 @@ def _check_legs(legs: Sequence[Leg]) -> None:
     if len(legs) < 2:
         raise LedgerError("A transaction needs at least a payer and a receiver.")
     totals: dict[str, int] = defaultdict(int)
+    directions: dict[tuple[UUID, str], bool] = {}
     for leg in legs:
+        # An account cannot both pay and receive the same thing in one transaction:
+        # that would record money as "received" that never left anybody else.
+        key = (UUID(str(leg.account_id)), leg.asset)
+        if directions.setdefault(key, leg.amount > 0) != (leg.amount > 0):
+            raise LedgerError("An account cannot pay itself.")
         if not is_whole_amount(leg.amount):
             raise LedgerError("Amounts must be whole numbers.")
         if leg.amount == 0:

@@ -13,6 +13,27 @@ CREATE TABLE world_state (
     created_at          timestamptz NOT NULL DEFAULT now()
 );
 
+-- The calendar cannot be rewound, skipped forward or restarted: the start never
+-- changes and quarters close one at a time, in order.
+CREATE FUNCTION world_state_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP <> 'UPDATE' THEN
+        RAISE EXCEPTION 'The world cannot be removed.'
+            USING ERRCODE = 'restrict_violation', CONSTRAINT = 'world_is_permanent';
+    END IF;
+    IF NEW.world_start <> OLD.world_start OR NEW.created_at <> OLD.created_at
+       OR NEW.last_closed_period NOT IN (OLD.last_closed_period, OLD.last_closed_period + 1) THEN
+        RAISE EXCEPTION 'The calendar only moves forward, one quarter at a time.'
+            USING ERRCODE = 'restrict_violation', CONSTRAINT = 'world_is_permanent';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER world_state_guard BEFORE UPDATE OR DELETE ON world_state
+    FOR EACH ROW EXECUTE FUNCTION world_state_guard();
+CREATE TRIGGER world_state_no_truncate BEFORE TRUNCATE ON world_state
+    FOR EACH STATEMENT EXECUTE FUNCTION world_state_guard();
+
 CREATE TABLE sectors (
     code        text PRIMARY KEY,
     name        text NOT NULL UNIQUE,
@@ -155,7 +176,8 @@ CREATE TABLE company_reports (
     period          integer NOT NULL CHECK (period >= 0),
     version         integer NOT NULL DEFAULT 1 CHECK (version >= 1),
     figures         jsonb NOT NULL,        -- the statements, as filed
-    credit_rating   text NOT NULL,         -- worked out from the filed figures
+    credit_rating   text NOT NULL          -- worked out from the filed figures
+                    CHECK (credit_rating IN ('AAA', 'AA', 'A', 'BBB', 'BB', 'B', 'CCC', 'D')),
     rating_reasons  jsonb NOT NULL,
     filed_by        text NOT NULL,
     filed_at        timestamptz NOT NULL DEFAULT now(),
@@ -172,6 +194,27 @@ CREATE TRIGGER company_results_permanent BEFORE UPDATE OR DELETE ON company_resu
     FOR EACH ROW EXECUTE FUNCTION records_forbid_change();
 CREATE TRIGGER company_results_no_truncate BEFORE TRUNCATE ON company_results
     FOR EACH STATEMENT EXECUTE FUNCTION records_forbid_change();
+-- A filing is stamped with the real time by the database, takes the next version
+-- number in line, and can only be for a quarter that has ended (or is being closed).
+CREATE FUNCTION company_reports_check() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    latest  integer;
+    closed  integer;
+BEGIN
+    SELECT coalesce(max(version), 0) INTO latest FROM company_reports
+     WHERE company_id = NEW.company_id AND period = NEW.period;
+    SELECT last_closed_period INTO closed FROM world_state;
+    IF NEW.version <> latest + 1 OR NEW.period > coalesce(closed, 0) + 1 THEN
+        RAISE EXCEPTION 'A filing must be the next version, for a quarter that has ended.'
+            USING ERRCODE = 'restrict_violation', CONSTRAINT = 'filing_in_order';
+    END IF;
+    NEW.filed_at := now();
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER company_reports_check BEFORE INSERT ON company_reports
+    FOR EACH ROW EXECUTE FUNCTION company_reports_check();
+
 CREATE TRIGGER company_reports_permanent BEFORE UPDATE OR DELETE ON company_reports
     FOR EACH ROW EXECUTE FUNCTION records_forbid_change();
 CREATE TRIGGER company_reports_no_truncate BEFORE TRUNCATE ON company_reports

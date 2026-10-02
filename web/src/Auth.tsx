@@ -87,7 +87,7 @@ export function Auth({ live, onSignedIn }: { live: LiveClock | null; onSignedIn:
             <label>
               Display name
               <input type="text" autoComplete="nickname" required minLength={3} maxLength={24} value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
-              <span className="hint">The name other players see. 3 to 24 characters.</span>
+              <span className="hint">The name other players see. 3 to 24 letters and numbers.</span>
             </label>
           )}
 

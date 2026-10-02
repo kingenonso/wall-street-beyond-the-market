@@ -13,13 +13,16 @@ from contextlib import asynccontextmanager, suppress
 from datetime import date, datetime, timezone
 
 import psycopg
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Response, status
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from psycopg import Connection
 from psycopg.errors import UniqueViolation
+from psycopg_pool import PoolTimeout
 
-from server import security
+from server import limits, security
 from server.config import get_settings
-from server.db import close_pool, get_connection
+from server.db import close_pool, connection, get_connection
 from server.schemas import (
     ClockResponse,
     CompaniesResponse,
@@ -35,6 +38,7 @@ from server.schemas import (
     ProfileIconRequest,
     SectorCompanies,
     SignUpRequest,
+    display_name_key,
     WorldStatusResponse,
 )
 from simulation import clock, ledger, players, quarters
@@ -50,7 +54,10 @@ _NOT_AMOUNTS = {"annual_rate_bps", "maturity_period"}
 
 def _close_due_quarters_once() -> None:
     with psycopg.connect(get_settings().database_url, autocommit=True) as conn:
-        quarters.close_due_quarters(conn, datetime.now(timezone.utc))
+        # The database's clock decides, so that servers whose own clocks disagree
+        # can never close a quarter early.
+        now = conn.execute("SELECT now()").fetchone()[0]
+        quarters.close_due_quarters(conn, now)
 
 
 async def _quarter_closer() -> None:
@@ -77,6 +84,41 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Wall Street: Beyond the Market", lifespan=lifespan)
 
+MAX_BODY_BYTES = 16 * 1024      # nothing a player sends is anywhere near this size
+
+
+@app.middleware("http")
+async def refuse_oversized_requests(request: Request, call_next):
+    length = request.headers.get("content-length", "0")
+    if not length.isdigit() or int(length) > MAX_BODY_BYTES:
+        return JSONResponse({"detail": "That request is too large."}, status_code=413)
+    if request.method in ("POST", "PUT", "PATCH") and "content-length" not in request.headers:
+        return JSONResponse({"detail": "That request is not complete."}, status_code=411)
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
+    return response
+
+
+@app.exception_handler(RequestValidationError)
+async def invalid_request(_: Request, error: RequestValidationError):
+    # Say what was wrong and where, but never send back what was typed:
+    # it may be a password.
+    problems = [
+        {"loc": list(e.get("loc", ())), "msg": str(e.get("msg", "")).removeprefix("Value error, "), "type": e.get("type")}
+        for e in error.errors()
+    ]
+    return JSONResponse({"detail": problems}, status_code=422)
+
+
+@app.exception_handler(PoolTimeout)
+async def server_busy(_: Request, __: PoolTimeout):
+    return JSONResponse(
+        {"detail": "The server is busy. Please try again in a moment."},
+        status_code=503, headers={"Retry-After": "5"},
+    )
+
 
 def _age_on(day: date, born: date) -> int:
     return day.year - born.year - ((day.month, day.day) < (born.month, born.day))
@@ -94,11 +136,11 @@ def _player_response(conn: Connection, row: dict) -> PlayerResponse:
     )
 
 
-def _start_session(response: Response, player_id: str) -> None:
+def _start_session(response: Response, row: dict) -> None:
     settings = get_settings()
     response.set_cookie(
         key=security.SESSION_COOKIE,
-        value=security.create_session_token(player_id),
+        value=security.create_session_token(str(row["id"]), row["session_version"]),
         max_age=settings.session_days * 24 * 60 * 60,
         httponly=True,  # Page scripts cannot read it, which blocks a common way of stealing logins.
         secure=settings.cookie_secure,
@@ -110,10 +152,14 @@ def current_player(
     session: str | None = Cookie(default=None, alias=security.SESSION_COOKIE),
     conn: Connection = Depends(get_connection),
 ) -> dict:
-    player_id = security.read_session_token(session) if session else None
+    named = security.read_session_token(session) if session else None
     row = None
-    if player_id:
-        row = conn.execute("SELECT * FROM players WHERE id = %s", (player_id,)).fetchone()
+    if named:
+        # The pass must carry the player's current version number. Logging out
+        # raises the number, so a copied pass stops working at once.
+        row = conn.execute(
+            "SELECT * FROM players WHERE id = %s AND session_version = %s", named
+        ).fetchone()
     if row is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Please log in.")
     return row
@@ -130,60 +176,92 @@ def health(conn: Connection = Depends(get_connection)) -> dict:
 # ---------------------------------------------------------------------------
 
 @app.post("/api/auth/signup", response_model=PlayerResponse, status_code=status.HTTP_201_CREATED)
-def sign_up(body: SignUpRequest, response: Response, conn: Connection = Depends(get_connection)):
+def sign_up(body: SignUpRequest, request: Request, response: Response):
+    limits.allow("signup", limits.visitor(request), attempts=10, per_seconds=3600)
     settings = get_settings()
     today = datetime.now(clock.LAGOS).date()
-    if body.date_of_birth > today or _age_on(today, body.date_of_birth) < settings.minimum_age:
+    age = _age_on(today, body.date_of_birth)
+    if age > 120:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Please check your date of birth.")
+    if body.date_of_birth > today or age < settings.minimum_age:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             f"This game is for players aged {settings.minimum_age} and above.",
         )
 
-    password_hash = security.hash_password(body.password)
-    try:
-        # All or nothing: the player, their ledger account and their starting cash
-        # are created together, and are saved by the time this block ends.
-        with conn.transaction():
-            row = conn.execute(
-                "INSERT INTO players (email, display_name, password_hash, adult_confirmed_at, profile_icon)"
-                " VALUES (%s, %s, %s, now(), %s) RETURNING *",
-                (body.email.lower(), body.display_name, password_hash, body.profile_icon),
-            ).fetchone()
-            players.open_player_account(conn, row["id"])
-    except UniqueViolation as error:
-        constraint = error.diag.constraint_name or ""
-        if constraint not in ("players_email_unique", "players_display_name_unique"):
-            raise
-        taken = "display name" if "display_name" in constraint else "email"
-        raise HTTPException(status.HTTP_409_CONFLICT, f"That {taken} is already in use.") from error
-    except ledger.LedgerError as error:
-        # The world does not exist yet, or the Treasury cannot pay the starting cash.
-        log.error("Sign-up refused: %s", error)
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "New accounts cannot be opened right now. Please try again later.",
-        ) from error
+    # The slow password work is done before a database connection is taken,
+    # so slow work never ties up the connections other players need.
+    with limits.password_work:
+        password_hash = security.hash_password(body.password)
+    with connection() as conn:
+        try:
+            # All or nothing: the player, their ledger account and their starting cash
+            # are created together, and are saved by the time this block ends.
+            with conn.transaction():
+                row = conn.execute(
+                    "INSERT INTO players (email, display_name, display_name_key, password_hash,"
+                    "                     adult_confirmed_at, profile_icon)"
+                    " VALUES (%s, %s, %s, %s, now(), %s) RETURNING *",
+                    (body.email.lower(), body.display_name, display_name_key(body.display_name),
+                     password_hash, body.profile_icon),
+                ).fetchone()
+                players.open_player_account(conn, row["id"])
+        except UniqueViolation as error:
+            constraint = error.diag.constraint_name or ""
+            if constraint not in (
+                "players_email_unique", "players_display_name_unique", "players_display_name_key_unique"
+            ):
+                raise
+            taken = "display name" if "display_name" in constraint else "email"
+            message = (
+                "That display name, or one that looks just like it, is already in use."
+                if taken == "display name" else "That email is already in use."
+            )
+            raise HTTPException(status.HTTP_409_CONFLICT, message) from error
+        except ledger.LedgerError as error:
+            # The world does not exist yet, or the Treasury cannot pay the starting cash.
+            log.error("Sign-up refused: %s", error)
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "New accounts cannot be opened right now. Please try again later.",
+            ) from error
 
-    _start_session(response, str(row["id"]))
-    return _player_response(conn, row)
+        _start_session(response, row)
+        return _player_response(conn, row)
 
 
 @app.post("/api/auth/login", response_model=PlayerResponse)
-def log_in(body: LoginRequest, response: Response, conn: Connection = Depends(get_connection)):
-    row = conn.execute(
-        "SELECT * FROM players WHERE lower(email) = %s", (body.email.lower(),)
-    ).fetchone()
-    if not security.verify_password(body.password, row["password_hash"] if row else None):
+def log_in(body: LoginRequest, request: Request, response: Response):
+    email = body.email.lower()
+    limits.allow("login", limits.visitor(request), attempts=30, per_seconds=300)
+    limits.allow("login-email", email, attempts=8, per_seconds=300)
+    with connection() as conn:
+        row = conn.execute("SELECT * FROM players WHERE lower(email) = %s", (email,)).fetchone()
+    with limits.password_work:
+        correct = security.verify_password(body.password, row["password_hash"] if row else None)
+    if not correct:
         # One message for both a wrong email and a wrong password, so nobody can
         # use this form to find out which emails have accounts.
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Email or password is incorrect.")
 
-    _start_session(response, str(row["id"]))
-    return _player_response(conn, row)
+    _start_session(response, row)
+    with connection() as conn:
+        return _player_response(conn, row)
 
 
 @app.post("/api/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
-def log_out(response: Response) -> None:
+def log_out(
+    response: Response,
+    session: str | None = Cookie(default=None, alias=security.SESSION_COOKIE),
+    conn: Connection = Depends(get_connection),
+) -> None:
+    named = security.read_session_token(session) if session else None
+    if named:
+        # Cancel every pass issued so far, on every device, not just this browser's copy.
+        conn.execute(
+            "UPDATE players SET session_version = session_version + 1"
+            " WHERE id = %s AND session_version = %s", named,
+        )
     response.delete_cookie(security.SESSION_COOKIE)
 
 
@@ -329,11 +407,13 @@ def get_company(
     _: dict = Depends(current_player),
     conn: Connection = Depends(get_connection),
 ):
-    company = conn.execute(
-        "SELECT c.*, s.name AS sector_name FROM companies c JOIN sectors s ON s.code = c.sector"
-        " WHERE c.ticker = %s",
-        (ticker.upper(),),
-    ).fetchone()
+    company = None
+    if len(ticker) == 3 and ticker.isascii() and ticker.isalpha():   # anything else cannot be a ticker
+        company = conn.execute(
+            "SELECT c.*, s.name AS sector_name FROM companies c JOIN sectors s ON s.code = c.sector"
+            " WHERE c.ticker = %s",
+            (ticker.upper(),),
+        ).fetchone()
     if company is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no company with that ticker.")
 
