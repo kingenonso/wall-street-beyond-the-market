@@ -959,13 +959,10 @@ def get_company(
         (company["id"], periods),
     ).fetchall()
 
-    # The share register: who holds the shares, from the ledger.
-    holders = conn.execute(
-        "SELECT a.name, b.balance FROM ledger_balances b JOIN ledger_accounts a ON a.id = b.account_id"
-        " WHERE b.asset = %s AND b.balance > 0 ORDER BY b.balance DESC, a.name",
-        (company["share_asset"],),
-    ).fetchall()
-    in_issue = sum(h["balance"] for h in holders)
+    # The share register: who holds the shares, by kind of owner. No single player's holding is
+    # ever listed, and shares the exchange holds for a sell order still count as their seller's.
+    holders = marketview.shareholders(conn, company["id"], company["share_asset"])
+    in_issue = sum(h["shares"] for h in holders)
 
     return CompanyResponse(
         ticker=company["ticker"], name=company["name"], sector=company["sector_name"],
@@ -979,7 +976,7 @@ def get_company(
             ).fetchall()
         ],
         owners=[
-            Owner(name=h["name"], shares=h["balance"], share_bps=h["balance"] * 10_000 // in_issue)
+            Owner(name=h["holder"], shares=h["shares"], share_bps=h["share_bps"])
             for h in holders
         ],
         reports=[

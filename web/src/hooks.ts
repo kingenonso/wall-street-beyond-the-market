@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError } from "./api";
+import { ApiError , WATCHLIST_CHANGED } from "./api";
 
 /** The page being shown, taken from the part of the address after "#". */
 export function useRoute(): string[] {
@@ -44,5 +44,12 @@ export function useLoad<T>(ask: () => Promise<T>, key: string, onLoggedOut: () =
   }, [key, attempt]);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
+  // Some things are shown in several places at once (the watchlist). When one place changes
+  // it, the others are told and read it again.
+  useEffect(() => {
+    if (key !== "watchlist") return;
+    window.addEventListener(WATCHLIST_CHANGED, reload);
+    return () => window.removeEventListener(WATCHLIST_CHANGED, reload);
+  }, [key, reload]);
   return { ...state, reload };
 }

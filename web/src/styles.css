@@ -105,7 +105,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, rect:focus-visible {
   padding: 16px;
   min-width: 0;
 }
-.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
 
 /* ---------- "Needs you now" ---------- */
 
@@ -354,7 +354,6 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .why-box { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
 
 /* --- Market, portfolio and the investor's panel --- */
-.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .sort { display: inline-flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
 .link-button { background: none; border: 0; padding: 0; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; text-decoration: underline; }
 .link-button:hover { color: var(--text); }

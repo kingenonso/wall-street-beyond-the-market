@@ -15,8 +15,8 @@ The game is built in 16 stages. Each stage is finished only when its test passes
 | 2. Ledger and companies | **Done** |
 | 3. The economy and its people, Part A: households, wages, spending | **Done** |
 | 3. Part B: banks, the Central Bank, inflation, events, the Money Watch, the news wire | **Done** |
-| 4. The stock market, Part A, slices 1 and 2 of 5: orders, the order-matching engine, computer-run investors, "Why?" | **Done** |
-| 4. Part A, slices 3 to 5: market screens, Closing Bell, review | Next |
+| 4. The stock market, Part A, slices 1 to 3 of 5: orders, the order-matching engine, computer-run investors, "Why?", the market screens | **Done** |
+| 4. Part A, slices 4 and 5: the Closing Rush and Closing Bell, the independent review | Next |
 | 5 to 16 | Not started |
 
 Stage 1 test, from the design: *a player can sign up, log in and see Lagos
@@ -33,7 +33,7 @@ Reports: `docs/STAGE_03A_HOUSEHOLDS_AND_SPENDING.md` and `docs/STAGE_03B_BANKS_P
 
 Stage 4 Part A test, from the design: *two test players trade a share, buying pressure
 raises the price, and "Why?" shows the cause.* It passes.
-Stage 4 so far: `docs/STAGE_04A_SLICE_1_ORDERS.md`, `docs/STAGE_04A_SLICE_2_INVESTORS.md`.
+Stage 4 so far: `docs/STAGE_04A_SLICE_1_ORDERS.md`, `docs/STAGE_04A_SLICE_2_INVESTORS.md`, `docs/STAGE_04A_SLICE_3_SCREENS.md`.
 
 ## What is in each folder
 

@@ -89,12 +89,14 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     )
     assert writes == [
         ("DELETE", "/api/market/orders/{order_id}"),
+        ("DELETE", "/api/market/watchlist/{ticker}"),
         ("PATCH", "/api/me/profile-icon"),
         ("POST", "/api/auth/confirm-email"),
         ("POST", "/api/auth/login"),
         ("POST", "/api/auth/logout"),
         ("POST", "/api/auth/signup"),
         ("POST", "/api/market/orders"),
+        ("PUT", "/api/market/watchlist/{ticker}"),
     ]
     for method, path in [("post", "/api/companies"), ("put", "/api/companies/IKB"), ("delete", "/api/companies/IKB"),
                          ("post", "/api/me/movements"), ("post", "/api/world/clock"), ("delete", "/api/me")]:

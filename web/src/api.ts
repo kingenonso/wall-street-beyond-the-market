@@ -388,6 +388,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
+/** Told to every part of the page showing the watchlist, so that each reads it again. */
+export const WATCHLIST_CHANGED = "watchlist-changed";
+const announce = (name: string) => <T,>(result: T): T => {
+  window.dispatchEvent(new Event(name));
+  return result;
+};
+
 export const api = {
   me: () => request<Player>("/me"),
   movements: () => request<Movement[]>("/me/movements?limit=10"),
@@ -408,8 +415,10 @@ export const api = {
   portfolio: () => request<Portfolio>("/market/portfolio"),
   watchlist: () => request<Watched[]>("/market/watchlist"),
   watch: (ticker: string, alerts: { alert_above_kobo?: number; alert_below_kobo?: number } = {}) =>
-    request<Watched[]>(`/market/watchlist/${encodeURIComponent(ticker)}`, { method: "PUT", body: JSON.stringify(alerts) }),
-  unwatch: (ticker: string) => request<Watched[]>(`/market/watchlist/${encodeURIComponent(ticker)}`, { method: "DELETE" }),
+    request<Watched[]>(`/market/watchlist/${encodeURIComponent(ticker)}`, { method: "PUT", body: JSON.stringify(alerts) })
+      .then(announce(WATCHLIST_CHANGED)),
+  unwatch: (ticker: string) =>
+    request<Watched[]>(`/market/watchlist/${encodeURIComponent(ticker)}`, { method: "DELETE" }).then(announce(WATCHLIST_CHANGED)),
   priceHistory: (ticker: string) => request<TradingDay[]>(`/market/${encodeURIComponent(ticker)}/history`),
   analysis: (ticker: string) => request<Analysis>(`/market/${encodeURIComponent(ticker)}/analysis`),
   quote: (ticker: string) => request<Quote>(`/market/${encodeURIComponent(ticker)}`),

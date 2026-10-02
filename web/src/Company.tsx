@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, type Company, type FiledReport, type Kobo } from "./api";
-import { changeBps, formatCompact, formatCount, formatLagosDate, formatMillions, formatPercent, periodLabel } from "./format";
+import { changeBps, formatCompact, formatLagosDate, formatMillions, formatPercent, periodLabel } from "./format";
 import { useLoad } from "./hooks";
 import { InvestorPanel } from "./Investor";
 import { TradePanel } from "./Trade";
@@ -304,20 +304,6 @@ export function CompanyRail({ ticker, onLoggedOut }: { ticker: string; onLoggedO
           <p className="muted small">It buys from the companies in these sectors, so its good and bad quarters reach them too.</p>
         </Panel>
       )}
-
-      <Panel title="Who owns it" aside={`${formatCount(data.shares_in_issue)} shares`}>
-        <div className="stack" role="img" aria-label={data.owners.map((o) => `${o.name} ${formatPercent(o.share_bps, 0)}`).join(", ")}>
-          {data.owners.map((owner, index) => (
-            <span key={owner.name} className={`stack-part stack-${index}`} style={{ width: `${owner.share_bps / 100}%` }} />
-          ))}
-        </div>
-        {data.owners.map((owner, index) => (
-          <div key={owner.name} className="row">
-            <span><span className={`swatch stack-${index}`} />{owner.name}</span>
-            <span className="mono">{formatPercent(owner.share_bps, 0)}</span>
-          </div>
-        ))}
-      </Panel>
 
       <Panel title="What it owes">
         {notes.borrowings.length === 0 && <p className="muted">It has no borrowings.</p>}

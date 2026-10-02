@@ -102,7 +102,7 @@ export function MarketWork({ onLoggedOut }: { onLoggedOut: () => void }) {
                 <th scope="col" className="num">Shares traded</th>
                 <th scope="col" className="num">Whole company</th>
                 <th scope="col">Rating</th>
-                <th scope="col"><span className="visually-hidden">Watch</span></th>
+                <th scope="col" aria-label="Watch" />
               </tr>
             </thead>
             <tbody>
