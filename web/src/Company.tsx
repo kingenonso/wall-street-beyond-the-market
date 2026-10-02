@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, type Company, type FiledReport, type Kobo } from "./api";
 import { changeBps, formatCompact, formatCount, formatLagosDate, formatMillions, formatPercent, periodLabel } from "./format";
 import { useLoad } from "./hooks";
+import { TradePanel } from "./Trade";
 import { newsDate } from "./News";
 import { Change, Failed, Loading, Panel, Rating } from "./Shell";
 import { TrendChart } from "./TrendChart";
@@ -147,7 +148,7 @@ function WhySales({ latest, previous }: { latest: FiledReport; previous?: FiledR
   );
 }
 
-function CompanyBody({ company }: { company: Company }) {
+function CompanyBody({ company, onLoggedOut, onTraded }: { company: Company; onLoggedOut: () => void; onTraded: () => void }) {
   const [tab, setTab] = useState<keyof typeof STATEMENTS>("income");
   const trading = company.reports.filter((r) => r.period >= 1);
   const latest = company.reports[company.reports.length - 1];
@@ -167,6 +168,8 @@ function CompanyBody({ company }: { company: Company }) {
           {latest.amended && <span className="amended"> · Amended filing, version {latest.version}</span>}
         </span>
       </div>
+
+      <TradePanel ticker={company.ticker} onLoggedOut={onLoggedOut} onTraded={onTraded} />
 
       {trading.length === 0 ? (
         <Panel>
@@ -206,11 +209,11 @@ function CompanyBody({ company }: { company: Company }) {
   );
 }
 
-export function CompanyWork({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: () => void }) {
+export function CompanyWork({ ticker, onLoggedOut, onTraded }: { ticker: string; onLoggedOut: () => void; onTraded: () => void }) {
   const { data, error, loading, reload } = useLoad(() => api.company(ticker), `company:${ticker}`, onLoggedOut);
   if (loading && !data) return <Loading what="the company" />;
   if (error) return <Failed message={error} onRetry={reload} />;
-  return data ? <CompanyBody company={data} /> : null;
+  return data ? <CompanyBody company={data} onLoggedOut={onLoggedOut} onTraded={onTraded} /> : null;
 }
 
 function CompanyNews({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: () => void }) {

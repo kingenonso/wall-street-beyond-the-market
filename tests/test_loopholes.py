@@ -78,7 +78,9 @@ def test_a_login_pass_for_a_player_who_does_not_exist_is_refused(client):
 
 
 def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
-    """There is simply no request that pays money, edits a company or closes a quarter."""
+    """Every request that changes anything is on this list. There is none that pays money
+    directly, edits a company or closes a quarter. Since Stage 4 a player can place and cancel
+    orders on the exchange; those are attacked in test_market.py."""
     from server.main import app
 
     writes = sorted(
@@ -86,11 +88,13 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         for method in route.methods if method not in ("GET", "HEAD", "OPTIONS")
     )
     assert writes == [
+        ("DELETE", "/api/market/orders/{order_id}"),
         ("PATCH", "/api/me/profile-icon"),
         ("POST", "/api/auth/confirm-email"),
         ("POST", "/api/auth/login"),
         ("POST", "/api/auth/logout"),
         ("POST", "/api/auth/signup"),
+        ("POST", "/api/market/orders"),
     ]
     for method, path in [("post", "/api/companies"), ("put", "/api/companies/IKB"), ("delete", "/api/companies/IKB"),
                          ("post", "/api/me/movements"), ("post", "/api/world/clock"), ("delete", "/api/me")]:

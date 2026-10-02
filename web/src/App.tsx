@@ -22,6 +22,8 @@ export function App() {
   }, []);
 
   const loggedOut = useCallback(() => setPlayer(null), []);
+  // After a trade, the cash shown in the top bar is read again.
+  const refreshPlayer = useCallback(() => { api.me().then(setPlayer).catch(() => undefined); }, []);
 
   async function logout() {
     await api.logout().catch(() => undefined);
@@ -39,7 +41,7 @@ export function App() {
 
   if (section === "companies" && item) {
     current = "companies";
-    work = <CompanyWork key={item} ticker={item} onLoggedOut={loggedOut} />;
+    work = <CompanyWork key={item} ticker={item} onLoggedOut={loggedOut} onTraded={refreshPlayer} />;
     rail = <CompanyRail key={item} ticker={item} onLoggedOut={loggedOut} />;
   } else if (section === "companies") {
     current = "companies";

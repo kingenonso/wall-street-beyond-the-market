@@ -15,7 +15,8 @@ The game is built in 16 stages. Each stage is finished only when its test passes
 | 2. Ledger and companies | **Done** |
 | 3. The economy and its people, Part A: households, wages, spending | **Done** |
 | 3. Part B: banks, the Central Bank, inflation, events, the Money Watch, the news wire | **Done** |
-| 4. The stock market | Next (not started) |
+| 4. The stock market, Part A, slice 1 of 5: the order-matching engine and orders | **Done** |
+| 4. Part A, slices 2 to 5: computer-run investors, market screens, Closing Bell, review | Next |
 | 5 to 16 | Not started |
 
 Stage 1 test, from the design: *a player can sign up, log in and see Lagos
@@ -30,6 +31,8 @@ inside its target band and no impossible values; twenty game years run without t
 economy seizing up.* It passes.
 Reports: `docs/STAGE_03A_HOUSEHOLDS_AND_SPENDING.md` and `docs/STAGE_03B_BANKS_PRICES_AND_NEWS.md`.
 
+Stage 4 so far: `docs/STAGE_04A_SLICE_1_ORDERS.md`.
+
 ## What is in each folder
 
 | Folder | Holds | Language |
@@ -39,6 +42,7 @@ Reports: `docs/STAGE_03A_HOUSEHOLDS_AND_SPENDING.md` and `docs/STAGE_03B_BANKS_P
 | `simulation` | The game's rules and calculations: the clock, the ledger, the companies and their accounts | Python |
 | `database` | The database tables, as numbered change files | SQL |
 | `tests` | Automated checks that the rules work | Python |
+| `engine` | The order-matching engine of the exchange: it pairs buyers with sellers | Rust |
 | `docs` | The design and a note on each finished stage | |
 
 ## Run it on your computer
@@ -99,6 +103,7 @@ With a PostgreSQL database available:
 
 ```
 pip install -r server/requirements.txt -r tests/requirements.txt
+(cd engine && cargo test --release && cargo build --release)     # the order-matching engine, written in Rust
 TEST_DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/wsbm_test python -m pytest
 cd web && npm install && npm test && npm run build
 ```

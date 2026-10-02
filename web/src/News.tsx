@@ -54,10 +54,10 @@ export function NewsWork({ onLoggedOut }: { onLoggedOut: () => void }) {
         <h1>News</h1>
         <span className="muted small">Every headline comes from something that really happened in the game</span>
       </div>
-      <div className="tabs" role="tablist" aria-label="Newspaper">
+      <div className="tabs tabs-inline" role="tablist" aria-label="Newspaper">
         {["", ...(data?.outlets ?? [])].map((name) => (
           <button key={name} role="tab" aria-selected={outlet === name}
-                  className={outlet === name ? "tab tab-current" : "tab"} onClick={() => setOutlet(name)}>
+                  className={outlet === name ? "tab active" : "tab"} onClick={() => setOutlet(name)}>
             {name || "All papers"}
           </button>
         ))}

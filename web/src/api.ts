@@ -183,6 +183,59 @@ export type NewsItem = {
 
 export type News = { outlets: string[]; items: NewsItem[] };
 
+export type PriceLevel = { price_kobo: Kobo; quantity: number; orders: number };
+export type PublicTrade = { price_kobo: Kobo; quantity: number; in_auction: boolean; traded_at: string };
+
+/** What everybody may see of one share on the exchange. */
+export type Quote = {
+  ticker: string;
+  name: string;
+  market_state: "opening_auction" | "open" | "closed";
+  last_price_kobo: Kobo | null;
+  reference_price_kobo: Kobo;
+  lowest_today_kobo: Kobo;
+  highest_today_kobo: Kobo;
+  fee_bps: number;
+  bids: PriceLevel[];
+  offers: PriceLevel[];
+  trades: PublicTrade[];
+};
+
+export type Order = {
+  id: number;
+  ticker: string;
+  name: string;
+  side: "buy" | "sell";
+  kind: "limit" | "market";
+  limit_price_kobo: Kobo | null;
+  quantity: number;
+  remaining: number;
+  held_kobo: Kobo;
+  value_traded_kobo: Kobo;
+  fees_paid_kobo: Kobo;
+  status: "open" | "filled" | "cancelled" | "expired";
+  closed_reason: string | null;
+  placed_at: string;
+  closed_at: string | null;
+};
+
+export type Holding = {
+  ticker: string;
+  name: string;
+  shares: number;
+  held_for_orders: number;
+  price_kobo: Kobo;
+  value_kobo: Kobo;
+};
+
+export type NewOrder = {
+  ticker: string;
+  side: "buy" | "sell";
+  kind: "limit" | "market";
+  quantity: number;
+  limit_price_kobo?: number;
+};
+
 /** Sign-up is not finished until the emailed code is typed in. */
 export type SignUpPending = {
   detail: string;
@@ -240,6 +293,12 @@ export const api = {
     query.set("limit", String(filter.limit ?? 60));
     return request<News>(`/news?${query}`);
   },
+  quote: (ticker: string) => request<Quote>(`/market/${encodeURIComponent(ticker)}`),
+  myOrders: () => request<Order[]>("/market/orders"),
+  myHoldings: () => request<Holding[]>("/market/holdings"),
+  placeOrder: (order: NewOrder) =>
+    request<{ order: Order; trades: PublicTrade[] }>("/market/orders", { method: "POST", body: JSON.stringify(order) }),
+  cancelOrder: (id: number) => request<Order>(`/market/orders/${id}`, { method: "DELETE" }),
   company: (ticker: string) => request<Company>(`/companies/${encodeURIComponent(ticker)}?periods=8`),
   logout: () => request<void>("/auth/logout", { method: "POST" }),
   login: (email: string, password: string) =>

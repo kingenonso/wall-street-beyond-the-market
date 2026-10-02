@@ -309,14 +309,7 @@ h1 .ticker { font-size: 13px; }
 }
 
 /* --- News --- */
-.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0; }
-.tab {
-  padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: transparent;
-  color: var(--muted); font: inherit; font-size: 13px; cursor: pointer;
-}
-.tab:hover { color: var(--text); border-color: var(--muted); }
-.tab-current { color: var(--gold); border-color: var(--gold); background: var(--gold-soft); font-weight: 600; }
-.tab:focus-visible, .chip:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.chip:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .stories { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 12px; }
 .story { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
 .story h3 { margin: 0 0 6px; font-family: var(--serif); font-size: 17px; line-height: 1.3; }
@@ -341,3 +334,20 @@ h1 .ticker { font-size: 13px; }
 .watch-green { color: var(--up); border-color: rgba(91, 227, 164, 0.45); }
 .watch-amber { color: var(--gold); border-color: rgba(217, 174, 85, 0.5); }
 .watch-red { color: var(--down); border-color: rgba(255, 177, 153, 0.6); border-style: dashed; }
+
+/* --- Trading --- */
+.trade-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+@media (max-width: 760px) { .trade-grid { grid-template-columns: minmax(0, 1fr); } }
+.trade-form .row-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.choice { display: flex; gap: 6px; margin-bottom: 12px; }
+.choice button {
+  flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent;
+  color: var(--muted); font: inherit; font-weight: 600; cursor: pointer;
+}
+.choice button[aria-pressed="true"] { color: var(--gold); border-color: var(--gold); background: var(--gold-soft); }
+.choice button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.book td, .book th { padding: 5px 8px; }
+.notice { margin: 10px 0; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(91, 227, 164, 0.4); color: var(--up); font-size: 13px; }
+.order-line { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13px; }
+.order-line:first-of-type { border-top: 0; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
