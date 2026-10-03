@@ -1344,6 +1344,11 @@ def after_close(conn: Connection, period: int, now: datetime) -> None:
             if empire["head_player_id"] is None:
                 _computer_head(conn, empire, period, now)
     tick(conn, now)
+    # What each empire is worth as the quarter closes, written down for good: the line on the head's screen.
+    for empire in _rows(conn, "SELECT * FROM empires WHERE status = 'active' AND kind <> 'pension' ORDER BY id"):
+        have = worth(conn, empire, now)
+        conn.execute("INSERT INTO empire_worth (empire_id, period, worth, cash) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                     (empire["id"], period, have["total"], have["cash"]))
     from simulation import pensionfunds
     pensionfunds.after_close(conn, period, now)
 
@@ -1380,6 +1385,29 @@ def _computer_head(conn: Connection, empire: dict, period: int, now: datetime) -
 # ---------------------------------------------------------------------------
 # What players see
 # ---------------------------------------------------------------------------
+
+def badge(conn: Connection, player_id, now: datetime) -> dict | None:
+    """The line about a player's empire in the sections menu: its name, its place in the league,
+    and how many things are waiting for this player in the War Room."""
+    seat = seat_of(conn, player_id)
+    if seat is None:
+        return None
+    is_head = seat["head_player_id"] == player_id
+    waiting = _one(conn, "SELECT count(*) AS n FROM empire_task_steps s JOIN empire_tasks t ON t.id = s.task_id"
+                         " WHERE t.empire_id = %s AND t.status = 'open' AND s.status = 'current' AND ((s.template IS NOT NULL AND s.build = %s"
+                         " AND NOT EXISTS (SELECT 1 FROM objectives o WHERE o.id = s.objective_id AND o.state = 'active')"
+                         " AND NOT EXISTS (SELECT 1 FROM objectives o WHERE o.player_id = %s AND o.terms ->> 'step_id' = s.id::text))"
+                         " OR (s.build = 'head' AND %s))", (seat["empire_id"], seat["build"], player_id, is_head))["n"]
+    waiting += _one(conn, "SELECT count(*) AS n FROM empire_audits WHERE empire_id = %s AND auditor_id = %s AND status = 'open'",
+                    (seat["empire_id"], player_id))["n"]
+    if is_head:
+        waiting += _one(conn, "SELECT (SELECT count(*) FROM empire_applications WHERE empire_id = %s AND status = 'waiting')"
+                              " + (SELECT count(*) FROM empire_cases WHERE empire_id = %s AND status = 'open')"
+                              " + (SELECT count(*) FROM empire_pacts WHERE (to_empire = %s AND status = 'proposed')"
+                              "    OR (from_empire = %s AND status = 'drafted')) AS n", (seat["empire_id"],) * 4)["n"]
+    place = next((e["place"] for e in league(conn, now) if e["id"] == seat["empire_id"]), None)
+    return {"name": seat["empire_name"], "place": place, "is_head": is_head, "waiting": waiting, "forming": seat["empire_status"] == "forming"}
+
 
 def directory(conn: Connection, player_id, now: datetime) -> dict:
     """Every empire, the league table, and where this player could sit."""
@@ -1472,14 +1500,14 @@ def war_room(conn: Connection, player_id, now: datetime) -> dict | None:
         if pact["kind"] == "share_information" and pact["status"] == "signed":
             other = _empire(conn, pact["to_empire"] if pact["from_empire"] == empire["id"] else pact["from_empire"])
             theirs = worth(conn, other, now)
-            shared.append({"name": other["name"], "cash": theirs["cash"], "shares": theirs["shares"], "bonds": theirs["bonds"],
+            shared.append({"name": other["name"], "cash": theirs["cash"], "shares_value": theirs["shares"], "bonds_value": theirs["bonds"],
                            "lines": [{"ticker": line["ticker"], "value": line["value"]} for line in theirs["lines"]]})
     limit = signing_limit(conn, seat)
     trade_limit = apply_bps(have["total"], empire["trade_limit_bps"])
     return {
         "id": empire["id"], "name": empire["name"], "kind": empire["kind"], "status": empire["status"], "trust": empire["trust"],
         "run_by_computer": empire["head_player_id"] is None, "is_head": is_head, "your_build": seat["build"], "place": place,
-        "empires": len(table), "worth": have["total"], "cash": have["cash"], "shares": have["shares"], "bonds": have["bonds"],
+        "empires": len(table), "worth": have["total"], "cash": have["cash"], "shares_value": have["shares"], "bonds_value": have["bonds"],
         "holdings": [{"ticker": line["ticker"], "shares": line["shares"], "value": line["value"]} for line in have["lines"]],
         "bond_holdings": [{"code": b["code"], "name": b["name"], "units": b["units"], "value": b["value"]} for b in have["bond_lines"]],
         "orders": exchange.orders_of(conn, empire["account_id"], limit=10),

@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Player } from "./api";
 import { Auth } from "./Auth";
-import { AccountantRail, AccountantWork, AssetManagerRail, AssetManagerWork } from "./BuildDesk";
+import { AccountantRail, AccountantWork, AssetManagerRail, AssetManagerWork, BuildRail } from "./BuildDesk";
 import { CareerRail, CareerWork } from "./Career";
 import { CompaniesRail, CompaniesWork } from "./Companies";
 import { CompanyRail, CompanyWork } from "./Company";
 import { DeskRail, DeskWork } from "./Desk";
+import {
+  HeadRail, HeadWork, InvestmentBankerRail, InvestmentBankerWork, JournalistWork, LawyerWork, RiskManagerWork,
+} from "./Desks2";
+import { EmpireRail, EmpireWork } from "./Empire";
 import { EconomyRail, EconomyWork } from "./Economy";
 import { MarketRail, MarketWork } from "./Market";
 import { NewsRail, NewsWork } from "./News";
@@ -43,6 +47,7 @@ export function App() {
   let work = <DeskWork player={player} live={live} onLoggedOut={loggedOut} />;
   let rail = <DeskRail player={player} live={live} onLoggedOut={loggedOut} />;
   let current = "";
+  let accent: string | undefined;
 
   if (section === "companies" && item) {
     current = "companies";
@@ -76,6 +81,32 @@ export function App() {
     current = "build";
     work = <AccountantWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <AccountantRail player={player} onLoggedOut={loggedOut} />;
+  } else if (section === "build" && player.build === "investment_banker") {
+    current = "build";
+    work = <InvestmentBankerWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <InvestmentBankerRail player={player} onLoggedOut={loggedOut} />;
+  } else if (section === "build" && player.build === "risk_manager") {
+    current = "build";
+    work = <RiskManagerWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <BuildRail player={player} onLoggedOut={loggedOut} />;
+  } else if (section === "build" && player.build === "lawyer") {
+    current = "build";
+    work = <LawyerWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <BuildRail player={player} onLoggedOut={loggedOut} />;
+  } else if (section === "build" && player.build === "journalist") {
+    current = "build";
+    work = <JournalistWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <BuildRail player={player} onLoggedOut={loggedOut} />;
+  } else if (section === "empire" || (section === "head" && !player.empire)) {
+    current = "empire";
+    accent = "neutral";
+    work = <EmpireWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <EmpireRail player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+  } else if (section === "head") {
+    current = "head";
+    accent = "gold";
+    work = <HeadWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <HeadRail player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
   } else if (section === "work") {
     current = "work";
     work = <WorkWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
@@ -97,5 +128,5 @@ export function App() {
     rail = <></>;
   }
 
-  return <Shell player={player} live={live} current={current} onLogout={logout} work={work} rail={rail} />;
+  return <Shell player={player} live={live} current={current} onLogout={logout} work={work} rail={rail} accent={accent} />;
 }

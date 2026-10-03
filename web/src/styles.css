@@ -435,6 +435,12 @@ a.tab:hover { text-decoration: none; }
    ------------------------------------------------------------------ */
 .app[data-accent="violet"] { --gold: #a996ff; --gold-soft: rgba(169, 150, 255, 0.13); }
 .app[data-accent="green"] { --gold: #4fc38a; --gold-soft: rgba(79, 195, 138, 0.13); }
+/* Stage 6: the other four builds. The head's screen keeps the game's gold; the War Room is neutral. */
+.app[data-accent="purple"] { --gold: #d08cf0; --gold-soft: rgba(208, 140, 240, 0.13); }
+.app[data-accent="orange"] { --gold: #ff9f45; --gold-soft: rgba(255, 159, 69, 0.13); }
+.app[data-accent="red"] { --gold: #ff6f8a; --gold-soft: rgba(255, 111, 138, 0.13); }
+.app[data-accent="blue"] { --gold: #6db3ff; --gold-soft: rgba(109, 179, 255, 0.13); }
+.app[data-accent="neutral"] { --gold: #c5cede; --gold-soft: rgba(197, 206, 222, 0.10); }
 .wordmark-main { color: #d9ae55; }                      /* the game's own name keeps its gold on every screen */
 .build-badge { color: var(--gold); font-weight: 600; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -456,6 +462,10 @@ a.tab:hover { text-decoration: none; }
 .build-card { display: flex; flex-direction: column; gap: 6px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--raised); border-top: 3px solid var(--card-accent, var(--gold)); }
 .build-card.accent-violet { --card-accent: #a996ff; }
 .build-card.accent-green { --card-accent: #4fc38a; }
+.build-card.accent-purple { --card-accent: #d08cf0; }
+.build-card.accent-orange { --card-accent: #ff9f45; }
+.build-card.accent-red { --card-accent: #ff6f8a; }
+.build-card.accent-blue { --card-accent: #6db3ff; }
 .build-card h3 { color: var(--card-accent, var(--gold)); }
 .build-card.chosen { background: var(--gold-soft); }
 .build-card button { margin-top: auto; }
@@ -487,3 +497,52 @@ tr.row-chosen > *, .definition.row-chosen { background: var(--gold-soft); }
 .wheel-caption { fill: var(--muted); font-size: 8px; }
 .wheel-list { flex: 1; min-width: 190px; }
 .wheel-list .row:first-child { border-top: 0; }
+
+
+/* ------------------------------------------------------------------
+   Stage 6: empires, the War Room, and the other builds' screens.
+   ------------------------------------------------------------------ */
+.count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border-radius: 9px; background: var(--gold); color: #0a0f18; font-size: 11px; font-weight: 700; font-family: var(--mono); }
+.empire-badge { display: flex; flex-direction: column; gap: 1px; margin: 10px 0 4px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 9px; }
+.empire-badge:hover { border-color: var(--gold); }
+
+.inline-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin: 10px 0; }
+.inline-form .answer { flex: 1 1 150px; min-width: 0; }
+.inline-form > .muted { flex-basis: 100%; }
+.stack-form { display: grid; gap: 10px; max-width: 520px; margin-top: 10px; }
+.stack-form textarea, .chat-form input { width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; }
+.stack-form button { justify-self: start; }
+td .button-quiet + .button-quiet, .row .button-quiet + .button-quiet, .row .button-outline + .button-quiet { margin-left: 6px; }
+
+.handoffs { list-style: none; margin: 0 0 12px; padding: 0; }
+.handoff { display: flex; gap: 10px; padding: 10px 0 10px 2px; border-top: 1px solid var(--border); color: var(--muted); position: relative; }
+.handoff:first-child { border-top: 0; }
+.handoff .strong { color: var(--text); }
+.handoff-done .tracker-mark { background: var(--up); border-color: var(--up); color: #06120c; font-weight: 700; }
+.handoff-current { background: var(--gold-soft); box-shadow: inset 3px 0 0 var(--gold); padding-left: 10px; padding-right: 8px; }
+.handoff-current .tracker-mark { border-color: var(--gold); color: var(--gold); font-weight: 700; }
+.handoff button { margin-top: 8px; }
+
+.shadow { margin-top: 14px; padding: 12px 14px; border: 1px dashed var(--border); border-radius: 10px; background: var(--raised); }
+.chat { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.chat-line { padding: 7px 10px; border-radius: 9px; background: var(--raised); border: 1px solid var(--border); overflow-wrap: anywhere; }
+.chat-line.yours { border-color: var(--gold); background: var(--gold-soft); }
+.chat-form { display: flex; gap: 8px; margin-bottom: 8px; }
+.chat-form input { flex: 1; min-width: 0; }
+
+.range { position: relative; height: 34px; margin: 4px 0 14px; border-radius: 6px; background: var(--raised); }
+.range-band { position: absolute; top: 14px; height: 12px; border-radius: 4px; background: var(--gold); opacity: 0.55; min-width: 4px; }
+.range-mark { position: absolute; top: -4px; transform: translateX(-50%); color: var(--text); white-space: nowrap; }
+.meter-loss { background: var(--down); }
+details.why { margin-top: 4px; }
+details.why summary { cursor: pointer; color: var(--gold); font-size: 12px; font-weight: 600; }
+details.why p { margin-top: 8px; }
+
+.map { width: 100%; max-width: 340px; height: auto; }
+.map-land { fill: var(--raised); stroke: var(--border); stroke-width: 1.5; }
+.map-dot { fill: var(--gold); fill-opacity: 0.75; stroke: var(--panel); stroke-width: 2; }
+.map-dot.empty { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+.map-label { fill: var(--text); font-size: 10px; }
+
+.fund-card { padding: 12px 0; border-top: 1px solid var(--border); }
+.fund-card:first-of-type { border-top: 0; }

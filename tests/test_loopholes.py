@@ -84,7 +84,9 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     desk, share offers, votes and takeover offers (attacked in test_bonds.py and test_corporate.py)
     and collecting the starting grant's later parts (test_grants.py). Stage 5 added choosing a
     build, a bank, an employer and a retirement fund (test_careers.py), and taking on, handing in
-    and giving up professional work (test_objectives.py)."""
+    and giving up professional work (test_objectives.py). Stage 6 added empires and pension funds run
+    by players (test_empires.py, test_savings.py, test_empire_api.py): every one of those requests acts
+    on the empire or fund the server knows the player belongs to, and moves money only through the ledger."""
     from server.main import app
 
     writes = sorted(
@@ -94,9 +96,16 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     assert writes == [
         ("DELETE", "/api/bonds/swaps/{swap_id}"),
         ("DELETE", "/api/career/job"),
+        ("DELETE", "/api/empire/application"),
+        ("DELETE", "/api/empire/founding"),
+        ("DELETE", "/api/empire/members/{member_id}"),
+        ("DELETE", "/api/empire/orders/{order_id}"),
+        ("DELETE", "/api/empire/seat"),
         ("DELETE", "/api/market/orders/{order_id}"),
         ("DELETE", "/api/market/watchlist/{ticker}"),
         ("DELETE", "/api/objectives/{objective_id}"),
+        ("DELETE", "/api/pension-fund/orders/{order_id}"),
+        ("DELETE", "/api/pension-fund/savings"),
         ("PATCH", "/api/me/profile-icon"),
         ("POST", "/api/auth/confirm-email"),
         ("POST", "/api/auth/login"),
@@ -104,18 +113,50 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/auth/signup"),
         ("POST", "/api/bonds/swaps"),
         ("POST", "/api/bonds/trade"),
+        ("POST", "/api/career/retirement/pension"),
+        ("POST", "/api/empire/ai-audit"),
+        ("POST", "/api/empire/audits"),
+        ("POST", "/api/empire/bonds"),
+        ("POST", "/api/empire/bonuses"),
+        ("POST", "/api/empire/capital"),
+        ("POST", "/api/empire/expenses"),
+        ("POST", "/api/empire/investigations"),
+        ("POST", "/api/empire/messages"),
+        ("POST", "/api/empire/opening"),
+        ("POST", "/api/empire/orders"),
+        ("POST", "/api/empire/pacts"),
+        ("POST", "/api/empire/reports"),
+        ("POST", "/api/empire/steps/{step_id}/approve"),
+        ("POST", "/api/empire/steps/{step_id}/take"),
+        ("POST", "/api/empire/tasks"),
+        ("POST", "/api/empires"),
+        ("POST", "/api/empires/{empire_id}/applications"),
         ("POST", "/api/market/orders"),
         ("POST", "/api/me/grant"),
         ("POST", "/api/objectives"),
         ("POST", "/api/objectives/{objective_id}/hand-in"),
+        ("POST", "/api/pension-fund/ai-audit"),
+        ("POST", "/api/pension-fund/bonds"),
+        ("POST", "/api/pension-fund/costs"),
+        ("POST", "/api/pension-fund/orders"),
+        ("POST", "/api/pension-funds"),
         ("PUT", "/api/career/bank"),
         ("PUT", "/api/career/build"),
+        ("PUT", "/api/career/extra-saving"),
         ("PUT", "/api/career/job"),
         ("PUT", "/api/career/retirement"),
         ("PUT", "/api/corporate/offers/{offer_id}"),
         ("PUT", "/api/corporate/takeovers/{takeover_id}"),
         ("PUT", "/api/corporate/votes/{vote_id}"),
+        ("PUT", "/api/empire/applications/{application_id}"),
+        ("PUT", "/api/empire/audits/{audit_id}"),
+        ("PUT", "/api/empire/cases/{case_id}"),
+        ("PUT", "/api/empire/limits"),
+        ("PUT", "/api/empire/pacts/{pact_id}"),
+        ("PUT", "/api/empire/staff"),
         ("PUT", "/api/market/watchlist/{ticker}"),
+        ("PUT", "/api/pension-fund/fee"),
+        ("PUT", "/api/pension-funds/{fund_id}/savings"),
     ]
     for method, path in [("post", "/api/companies"), ("put", "/api/companies/IKB"), ("delete", "/api/companies/IKB"),
                          ("post", "/api/me/movements"), ("post", "/api/world/clock"), ("delete", "/api/me")]:

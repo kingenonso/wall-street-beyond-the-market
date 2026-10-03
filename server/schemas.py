@@ -93,6 +93,15 @@ class Money(BaseModel):
     currency: str
 
 
+class EmpireBadge(BaseModel):
+    """The player's empire, as the sections menu shows it."""
+    name: str
+    place: int | None
+    is_head: bool
+    waiting: int
+    forming: bool
+
+
 class PlayerResponse(BaseModel):
     id: str
     display_name: str
@@ -105,6 +114,8 @@ class PlayerResponse(BaseModel):
     accent: str | None = None
     level: int | None = None
     employer: str | None = None
+    # Stage 6: the empire the player holds a seat in, if any.
+    empire: EmpireBadge | None = None
 
 
 class MovementResponse(BaseModel):
@@ -900,6 +911,10 @@ class FundRequest(Request):
     fund: Literal["growth", "balanced", "cautious", "income"]
 
 
+class ExtraSavingRequest(Request):
+    extra_bps: int = Field(ge=0, le=2000, multiple_of=100, strict=True)
+
+
 class BuildInfo(BaseModel):
     code: str
     name: str
@@ -966,6 +981,8 @@ class PayInfo(BaseModel):
     living_costs_kobo: Kobo
     take_home_kobo: Kobo
     at_next_level_kobo: Kobo
+    extra_saving_kobo: Kobo
+    employer_match_kobo: Kobo
     worked_this_quarter: bool
 
 
@@ -1002,6 +1019,12 @@ class PensionFund(BaseModel):
     bonds_bps: int
     cash_bps: int
     last_return_bps: int | None
+    good: str
+    bad: str
+    best_bps: int | None
+    worst_bps: int | None
+    year_bps: int | None
+    year_after_prices_bps: int | None
 
 
 class RetirementEntry(BaseModel):
@@ -1012,6 +1035,7 @@ class RetirementEntry(BaseModel):
     paid_in_by_you_kobo: Kobo
     paid_in_by_employer_kobo: Kobo
     closing_kobo: Kobo
+    paid_out_kobo: Kobo
 
 
 class RetirementInfo(BaseModel):
@@ -1020,6 +1044,18 @@ class RetirementInfo(BaseModel):
     can_change: bool
     funds: list[PensionFund]
     entries: list[RetirementEntry]
+    extra_bps: int
+    most_extra_bps: int
+    match_most_bps: int
+    sound_finances: bool
+    retired: bool
+    can_retire: bool
+    retirement_level: int
+    quarters_to_go: int
+    retires_label: str | None
+    early_withdrawal_used: bool
+    managed_by: str | None
+    leaving_fund: bool
 
 
 class CareerEvent(BaseModel):

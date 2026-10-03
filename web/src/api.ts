@@ -19,7 +19,10 @@ export type Player = {
   accent: string | null;
   level: number | null;
   employer: string | null;
+  /** Stage 6. The empire the player holds a seat in, if any. */
+  empire: EmpireBadge | null;
 };
+export type EmpireBadge = { name: string; place: number | null; is_head: boolean; waiting: number; forming: boolean };
 
 export type BuildCode = "asset_manager" | "accountant" | "investment_banker" | "risk_manager" | "lawyer" | "journalist";
 export type BuildInfo = {
@@ -33,6 +36,7 @@ export type Payslip = {
 export type PensionFund = {
   code: "growth" | "balanced" | "cautious" | "income"; name: string; who_for: string;
   shares_bps: number; bonds_bps: number; cash_bps: number; last_return_bps: number | null;
+  good: string; bad: string; best_bps: number | null; worst_bps: number | null; year_bps: number | null; year_after_prices_bps: number | null;
 };
 export type Career = {
   build: BuildCode | null;
@@ -50,14 +54,17 @@ export type Career = {
   bank: null | { ticker: string; name: string; since: string; savings_rate_bps: number; can_move: boolean };
   pay: null | {
     gross_kobo: Kobo; pension_yours_kobo: Kobo; pension_employer_kobo: Kobo; tax_kobo: Kobo; living_costs_kobo: Kobo;
-    take_home_kobo: Kobo; at_next_level_kobo: Kobo; worked_this_quarter: boolean;
+    take_home_kobo: Kobo; at_next_level_kobo: Kobo; extra_saving_kobo: Kobo; employer_match_kobo: Kobo; worked_this_quarter: boolean;
   };
   payslips: Payslip[];
   interest: { period_label: string; bank: string; lowest_balance_kobo: Kobo; rate_bps: number; amount_kobo: Kobo }[];
   retirement: null | {
     fund: PensionFund["code"]; value_kobo: Kobo; can_change: boolean; funds: PensionFund[];
     entries: { period_label: string; fund: string; opening_kobo: Kobo; growth_kobo: Kobo; paid_in_by_you_kobo: Kobo;
-               paid_in_by_employer_kobo: Kobo; closing_kobo: Kobo }[];
+               paid_in_by_employer_kobo: Kobo; closing_kobo: Kobo; paid_out_kobo: Kobo }[];
+    extra_bps: number; most_extra_bps: number; match_most_bps: number; sound_finances: boolean; retired: boolean; can_retire: boolean;
+    retirement_level: number; quarters_to_go: number; retires_label: string | null; early_withdrawal_used: boolean;
+    managed_by: string | null; leaving_fund: boolean;
   };
   events: { kind: string; words: string; at: string }[];
   next_pay_day: string | null;
@@ -69,7 +76,7 @@ export type Opening = {
 export type PlayerBank = { ticker: string; name: string; headquarters: string; rating: string | null; savings_rate_bps: number; yours: boolean };
 
 export type ObjectiveField =
-  | { key: string; label: string; kind: "millions" | "percent" | "times" | "ticker" }
+  | { key: string; label: string; kind: "millions" | "percent" | "times" | "ticker" | "naira" | "number" }
   | { key: string; label: string; kind: "choice"; options: { code: string; label: string }[] }
   | { key: string; label: string; kind: "classify"; options: { code: string; label: string }[];
       items: { key: string; label: string; kobo: Kobo }[] };
@@ -515,6 +522,110 @@ export type Grant = {
   steps: { step: string; what: string; earned: boolean; paid: boolean }[];
 };
 
+// ---------------------------------------------------------------------------
+// Stage 6: empires, the War Room, pension funds run by players, and the other builds' screens.
+// ---------------------------------------------------------------------------
+export type LeagueRow = {
+  id: number; name: string; kind: string; worth_kobo: Kobo; trust: number; members: number; place: number;
+  seats_open: number; run_by: string; yours: boolean; applied: boolean;
+};
+export type EmpireDirectory = {
+  league: LeagueRow[]; forming: { id: number; name: string; founder: string }[]; in_empire: boolean;
+  exposed_pacts: { kind: string; legal: boolean; one: string; other: string }[];
+  can_found: boolean; founding_level: number; registration_fee_kobo: Kobo;
+};
+export type Seat = {
+  build: BuildCode; build_name: string; slot: 1 | 2; player_id: string | null; name: string; level: number | null;
+  staffed: boolean; you: boolean; head: boolean; signing_limit_kobo?: Kobo; lead?: boolean;
+};
+export type TaskStep = {
+  id: number; position: number; build: string; build_name: string; what: string; hands_on: string; status: "waiting" | "current" | "done";
+  done_by: string | null; taken_by: string | null; yours_to_take: boolean; yours_to_approve: boolean;
+};
+export type BookEntry = { id: number; period: number; period_label: string; category: string; description?: string; amount_kobo: Kobo; found: boolean };
+export type EmpireOrder = {
+  id: number; ticker: string; name: string; side: "buy" | "sell"; kind: string; limit_price_kobo?: Kobo; quantity: number; remaining: number; status: string;
+};
+export type EmpireRoom = {
+  id: number; name: string; kind: string; status: "forming" | "active" | "closed"; trust: number; run_by_computer: boolean; is_head: boolean;
+  your_build: BuildCode; place: number | null; empires: number; worth_kobo: Kobo; cash_kobo: Kobo; shares_value_kobo: Kobo; bonds_value_kobo: Kobo;
+  holdings: { ticker: string; shares: number; value_kobo: Kobo }[];
+  bond_holdings: { code: string; name: string; units: number; value_kobo: Kobo }[];
+  orders: EmpireOrder[]; seats: Seat[]; humans: number; can_trade: boolean; trade_limit_kobo: Kobo; trade_used_kobo: Kobo;
+  signing_limit_kobo: Kobo; signing_used_kobo: Kobo; disguise: string;
+  task: null | { id: number; company: string; ticker: string; amount_kobo: Kobo; status: "open" | "done" | "failed"; steps: TaskStep[] };
+  books: BookEntry[]; your_entries: BookEntry[];
+  cases: { id: number; amount_kobo: Kobo; status: "open" | "punished" | "forgiven"; repaid_kobo: Kobo; fine_kobo: Kobo; debt_left_kobo: Kobo;
+           who: string; category: string; period_label: string }[];
+  audits: { id: number; kind: "accountant" | "staff" | "ai"; period_label: string; from_period_label: string; to_period_label: string;
+            fee_kobo: Kobo; examined: number; status: string; reported: number; yours: boolean }[];
+  open_audit: null | { id: number; findings: { book_id: number; period_label: string; category: string; amount_kobo: Kobo; yours: boolean }[] };
+  can_audit: boolean; audit_season: boolean; ai_audit_fee_kobo: Kobo; ai_audit_done: boolean; next_audit_season: string;
+  pacts: { id: number; kind: string; legal: boolean; terms: string; status: string; with: string; ours: boolean; exposed: boolean }[];
+  pact_kinds: { code: string; label: string; legal: boolean }[]; can_draft: boolean;
+  shared: { name: string; cash_kobo: Kobo; shares_value_kobo: Kobo; bonds_value_kobo: Kobo; lines: { ticker: string; value_kobo: Kobo }[] }[];
+  others: { id: number; name: string }[];
+  applications: { id: number; display_name: string; build: BuildCode }[];
+  capital: { display_name: string; amount_kobo: Kobo }[];
+  expense_limit_kobo: Kobo; trade_limit_bps: number; registration_fee_kobo: Kobo; least_humans: number;
+  messages: { id: number; who: string; body: string; at: string; yours: boolean }[];
+  events: { words: string; at: string }[]; legal_record: { words: string; at: string }[];
+};
+export type EmpireView = { room: EmpireRoom | null; directory: EmpireDirectory; notice?: string };
+
+export type PlayerFund = {
+  id: number; name: string; manager: string | null; struck_off: boolean; run_by_regulator: boolean; fee_bps: number; worth_kobo: Kobo;
+  cash_kobo: Kobo; shares_value_kobo: Kobo; bonds_value_kobo: Kobo; unit_price: number; savers: number; since_label?: string;
+  over_year_bps: number | null; history: { period_label: string; unit_price: number }[]; proved_thefts: number;
+  yours: boolean; your_value_kobo: Kobo; leaving: boolean;
+};
+export type ManagedFund = {
+  id: number; name: string; fee_bps: number; worth_kobo: Kobo; cash_kobo: Kobo; shares_value_kobo: Kobo; bonds_value_kobo: Kobo; unit_price: number;
+  holdings: { ticker: string; shares: number; value_kobo: Kobo }[]; bond_holdings: { code: string; name: string; units: number; value_kobo: Kobo }[];
+  orders: EmpireOrder[]; savers: number; leaving: number; signing_limit_kobo: Kobo; signing_used_kobo: Kobo;
+  books: BookEntry[]; events: { words: string; at: string }[];
+};
+export type PensionFunds = {
+  funds: PlayerFund[]; manager_level: number; registration_fee_kobo: Kobo; fee_most_bps: number; audit_season: boolean; can_open: boolean;
+  managing: ManagedFund | null;
+};
+
+type Multiples = { earnings: number | null; book: number | null; ebitda: number | null };
+export type BankerDesk = {
+  ticker: string; name: string; sector: string; headquarters: string; is_employer: boolean;
+  companies: { ticker: string; name: string; sector: string }[];
+  price_kobo: Kobo; change_bps: number; market_value_kobo: Kobo; shares_in_issue: number; rating: string; period_label: string;
+  revenue_kobo: Kobo; net_profit_kobo: Kobo; ebitda_kobo: Kobo; borrowings_kobo: Kobo; cash_kobo: Kobo; equity_kobo: Kobo;
+  multiples: Multiples; peer_median: Multiples;
+  peers: { ticker: string; name: string; rating: string; price_kobo: Kobo; market_value_kobo: Kobo; multiples: Multiples; this: boolean }[];
+  implied_kobo: { earnings: Kobo | null; book: Kobo | null; ebitda: Kobo | null };
+  diligence: { label: string; ok: boolean; words: string }[]; control: string;
+  pipeline: { kind: string; stage: string; open: boolean; ticker: string; title: string; price_kobo?: Kobo; deadline: string; words: string }[];
+};
+export type RiskDesk = {
+  book: "empire" | "own"; book_name: string; in_empire: boolean; total_kobo: Kobo; cash_kobo: Kobo; shares_value_kobo: Kobo; bonds_value_kobo: Kobo;
+  at_risk_kobo: Kobo; var_bps: number | null; var_kobo?: Kobo; shortfall_bps: number | null; shortfall_kobo?: Kobo;
+  worst_bps: number | null; worst_kobo?: Kobo; days_of_history: number;
+  categories: Slice[]; sectors: { label: string; value_kobo: Kobo; share_bps: number }[]; cities: { label: string; value_kobo: Kobo; share_bps: number }[];
+  exposures: { name: string; what: string; value_kobo: Kobo; share_bps: number; rating: string | null; level: "low" | "medium" | "high" }[];
+  scenarios: { name: string; loss_kobo: Kobo; words: string }[]; alerts: string[]; cash_share_bps: number;
+  staff_pay_kobo?: Kobo; quarters_of_staff_pay: number | null;
+};
+export type LawyerDesk = {
+  ticker: string; name: string; sector: string; headquarters: string; companies: { ticker: string; name: string; sector: string }[];
+  rating: string; period_label: string; control: string; holders: { holder: string; shares: number; share_bps: number }[];
+  ranking: { rank: number; who: string; amount_kobo: Kobo; why: string }[]; total_owed_kobo: Kobo; overdue: boolean;
+  bid: null | { price_kobo: Kobo; hostile: boolean; closes_label: string };
+  watch: { ticker: string; name: string; rating: string; reasons: string[] }[];
+  exposed_pacts: { kind: string; legal: boolean; one: string; other: string }[]; your_record: { words: string; at: string }[];
+};
+export type HeadDesk = {
+  worth_kobo: Kobo; liquid_kobo: Kobo; companies: number; players: number; staff: number;
+  history: { label: string; worth_kobo: Kobo }[]; assets: Slice[];
+  holdings: { ticker: string; name: string; sector: string; city: string; value_kobo: Kobo; share_bps: number }[];
+  cities: { city: string; value_kobo: Kobo }[]; government_kobo: Kobo; government_bps: number;
+};
+
 export type Analysis = {
   ticker: string;
   name: string;
@@ -674,6 +785,18 @@ export const api = {
   banks: () => request<PlayerBank[]>("/career/banks"),
   chooseBank: (ticker: string) => request<Career>("/career/bank", { method: "PUT", body: JSON.stringify({ ticker }) }),
   chooseFund: (fund: string) => request<Career>("/career/retirement", { method: "PUT", body: JSON.stringify({ fund }) }),
+  setExtraSaving: (extra_bps: number) => request<Career>("/career/extra-saving", { method: "PUT", body: JSON.stringify({ extra_bps }) }),
+  beginPension: () => request<Career>("/career/retirement/pension", { method: "POST" }),
+  empires: () => request<EmpireView>("/empires"),
+  empire: (method: "POST" | "PUT" | "DELETE", path: string, body?: unknown) =>
+    request<EmpireView>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) }),
+  pensionFunds: () => request<PensionFunds>("/pension-funds"),
+  pensionFund: (method: "POST" | "PUT" | "DELETE", path: string, body?: unknown) =>
+    request<PensionFunds>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) }),
+  bankerDesk: (ticker?: string) => request<BankerDesk>(`/desk/investment-banker${ticker ? `?ticker=${encodeURIComponent(ticker)}` : ""}`),
+  riskDesk: (book: "auto" | "own") => request<RiskDesk>(`/desk/risk-manager?book=${book}`),
+  lawyerDesk: (ticker?: string) => request<LawyerDesk>(`/desk/lawyer${ticker ? `?ticker=${encodeURIComponent(ticker)}` : ""}`),
+  headDesk: () => request<HeadDesk>("/desk/head"),
   objectives: () => request<ObjectiveBoard>("/objectives"),
   takeWork: (template: string) => request<Objective>("/objectives", { method: "POST", body: JSON.stringify({ template }) }),
   handIn: (id: number, answers: Record<string, unknown>) =>

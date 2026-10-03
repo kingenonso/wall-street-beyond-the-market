@@ -472,7 +472,7 @@ def listing(conn: Connection, player_id, now: datetime) -> dict:
         funds.append({
             "id": fund["id"], "name": fund["name"], "manager": fund["manager"], "struck_off": fund["struck_off"],
             "run_by_regulator": fund["head_player_id"] is None, "fee_bps": fund["fee_bps"], "worth": have["total"],
-            "cash": have["cash"], "shares": have["shares"], "bonds": have["bonds"], "unit_price": price / UNIT / 100,
+            "cash": have["cash"], "shares_value": have["shares"], "bonds_value": have["bonds"], "unit_price": price / UNIT / 100,
             "savers": _one(conn, "SELECT count(*) AS n FROM retirement_accounts WHERE managed_fund_id = %s", (fund["id"],))["n"],
             "since": fund["founded_period"], "over_year_bps": over_year,
             "history": [{"period": h["period"], "unit_price": h["unit_price"] / UNIT / 100} for h in reversed(history)],
@@ -500,7 +500,7 @@ def manager_view(conn: Connection, manager_id, now: datetime) -> dict | None:
     limit = signing_limit(conn, fund, now)
     return {
         "id": fund["id"], "name": fund["name"], "fee_bps": fund["fee_bps"], "worth": have["total"], "cash": have["cash"],
-        "shares": have["shares"], "bonds": have["bonds"], "unit_price": unit_price(fund, have["total"]) / UNIT / 100,
+        "shares_value": have["shares"], "bonds_value": have["bonds"], "unit_price": unit_price(fund, have["total"]) / UNIT / 100,
         "holdings": [{"ticker": line["ticker"], "shares": line["shares"], "value": line["value"]} for line in have["lines"]],
         "bond_holdings": [{"code": b["code"], "name": b["name"], "units": b["units"], "value": b["value"]} for b in have["bond_lines"]],
         "orders": exchange.orders_of(conn, fund["account_id"], limit=10),

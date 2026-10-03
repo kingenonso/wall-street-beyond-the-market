@@ -72,6 +72,8 @@ function sectionsFor(player: Player) {
     { path: "", label: "My desk" },
     ...(player.build_name ? [{ path: "build", label: player.build_name }] : []),
     { path: "work", label: "Work" },
+    ...(player.empire && !player.empire.forming ? [{ path: "head", label: player.empire.is_head ? "Head of empire" : "Empire overview" }] : []),
+    { path: "empire", label: player.empire ? "War Room" : "Empires", count: player.empire?.waiting ?? 0 },
     { path: "market", label: "Market" },
     { path: "portfolio", label: "Portfolio" },
     { path: "news", label: "News" },
@@ -94,8 +96,15 @@ function SectionsMenu({ player, current, onLogout }: { player: Player; current: 
           aria-current={section.path === current ? "page" : undefined}
         >
           {section.label}
+          {"count" in section && (section.count ?? 0) > 0 && <span className="count" aria-label={`${section.count} waiting`}>{section.count}</span>}
         </a>
       ))}
+      {player.empire && (
+        <a href="#/empire" className="empire-badge plain-link">
+          <span className="strong">{player.empire.name}</span>
+          <span className="muted small">{player.empire.forming ? "being founded" : player.empire.place ? `place ${player.empire.place} in the league` : ""}</span>
+        </a>
+      )}
       <button className="section section-button" onClick={onLogout}>Log out</button>
     </nav>
   );
@@ -105,16 +114,18 @@ function SectionsMenu({ player, current, onLogout }: { player: Player; current: 
  * The standard layout every screen uses (design document, section 18):
  * top bar, sections menu, work area and context rail.
  */
-export function Shell({ player, live, current, onLogout, work, rail }: {
+export function Shell({ player, live, current, onLogout, work, rail, accent }: {
   player: Player;
   live: LiveClock | null;
+  /** The accent of the screen being shown, when it is not the player's own build's (the head's screen is gold; the War Room is neutral). */
+  accent?: string;
   current: string;
   onLogout: () => void;
   work: ReactNode;
   rail: ReactNode;
 }) {
   return (
-    <div className="app" data-accent={player.accent ?? undefined}>
+    <div className="app" data-accent={accent ?? player.accent ?? undefined}>
       <TopBar player={player} live={live} />
       <PriceTicker />
       <div className="shell">

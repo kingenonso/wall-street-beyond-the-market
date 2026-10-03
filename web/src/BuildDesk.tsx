@@ -20,9 +20,14 @@ type Props = { player: Player; onLoggedOut: () => void; onChanged: () => void };
 type Card = { tag: string; when: string; title: string; text: string; action: string; href: string };
 
 /** "Needs you now" for a professional: only things that are true for this player at this moment. */
-function urgent(board: ObjectiveBoard | null, career: Career | null): Card[] {
+export function urgent(board: ObjectiveBoard | null, career: Career | null, player?: Player): Card[] {
   const cards: Card[] = [];
   if (!career || !board) return cards;
+  if (player?.empire && player.empire.waiting > 0) {
+    cards.push({ tag: "WAR ROOM", when: player.empire.name, title: `${player.empire.waiting} waiting for you in the War Room`,
+                 text: "A step in the empire's task, an approval, or a report to file. Your colleagues cannot go on until it is done.",
+                 action: "Open the War Room", href: "#/empire" });
+  }
   if (career.career?.review) {
     cards.push({ tag: "PERFORMANCE REVIEW", when: `${career.career.review.passes} passed of ${career.career.review.finished}`,
                  title: "Your work is under review", text: `${career.career.review.why} ${career.career.review.how_to_recover}`,
@@ -57,7 +62,7 @@ function urgent(board: ObjectiveBoard | null, career: Career | null): Card[] {
   return cards.slice(0, 3);
 }
 
-function NeedsYouNow({ cards }: { cards: Card[] }) {
+export function NeedsYouNow({ cards }: { cards: Card[] }) {
   return (
     <section aria-labelledby="needs-heading">
       <div className="work-head">
@@ -115,7 +120,7 @@ export function AssetManagerWork({ player, onLoggedOut, onChanged }: Props) {
 
   return (
     <>
-      <NeedsYouNow cards={urgent(board.data, career.data)} />
+      <NeedsYouNow cards={urgent(board.data, career.data, player)} />
 
       <Panel title="Portfolio" aside="Everything you own, at today's prices">
         <div className="tiles">
@@ -260,7 +265,7 @@ export function AccountantWork({ player, onLoggedOut }: Props) {
 
   return (
     <>
-      <NeedsYouNow cards={urgent(board.data, career.data)} />
+      <NeedsYouNow cards={urgent(board.data, career.data, player)} />
 
       <Panel title="The books" aside={d.is_employer ? "Your employer" : d.sector}>
         <label className="answer">

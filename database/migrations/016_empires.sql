@@ -301,3 +301,12 @@ ALTER TABLE career_events ADD CONSTRAINT career_events_kind_check CHECK (kind IN
     'build_chosen', 'hired', 'left_job', 'bank_chosen', 'level_up', 'review_opened', 'review_closed', 'demoted', 'fund_chosen',
     'saving_changed', 'retired', 'early_withdrawal', 'joined_empire', 'left_empire', 'sacked', 'theft_proved', 'founded_empire',
     'fund_opened', 'struck_off'));
+
+CREATE TABLE empire_worth (                -- what each empire was worth as each quarter closed. Permanent.
+    empire_id   bigint NOT NULL REFERENCES empires (id),
+    period      integer NOT NULL,
+    worth       bigint NOT NULL,
+    cash        bigint NOT NULL,
+    PRIMARY KEY (empire_id, period)
+);
+CREATE TRIGGER empire_worth_permanent BEFORE UPDATE OR DELETE ON empire_worth FOR EACH ROW EXECUTE FUNCTION records_forbid_change();

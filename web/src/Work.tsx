@@ -13,7 +13,7 @@ export function inMillions(kobo: Kobo): string {
   return (Number(BigInt(kobo)) / 1e8).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-const UNIT: Record<string, string> = { millions: "₦ million", percent: "%", times: "times", ticker: "" };
+const UNIT: Record<string, string> = { millions: "₦ million", percent: "%", times: "times", ticker: "", naira: "₦", number: "" };
 
 function Field({ field, value, onChange }: { field: ObjectiveField; value: any; onChange: (value: any) => void }) {
   if (field.kind === "choice") {

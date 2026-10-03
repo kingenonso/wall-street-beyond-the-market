@@ -58,7 +58,7 @@ from server.schemas import (
     NetWorthDay, NextResults, ProfitPerShare, ReportQuarter, ResultsReportResponse, TickerResponse, TickerShare,
     BondHolding, BondRow, BondsResponse, BondTradeRequest, BondTradeResponse, ConvertRequest, CorporateResponse, CreditSpread,
     AcceptRequest, AccountantDeskResponse, AllocationSlice, AssetDeskResponse, BankInfo, BuildInfo, BuildRequest, CareerEvent,
-    CareerInfo, CareerResponse, FundRequest, HandInRequest, InterestPaid, JobInfo, ObjectiveOffer, ObjectiveRow, ObjectivesResponse,
+    CareerInfo, CareerResponse, ExtraSavingRequest, FundRequest, HandInRequest, InterestPaid, JobInfo, ObjectiveOffer, ObjectiveRow, ObjectivesResponse,
     Opening, OtherBuild, PayInfo, Payslip, PensionFund, PlayerBank, RetirementEntry, RetirementInfo, ReviewStanding, Skill,
     StatementQuarter, TickerRequest, WatchRow,
     CurvePoint, GrantResponse, GrantStep, IntegrationQuarter, IntegrationRow, Notice, OfferRow, OwnershipRow, SharesRequest,
@@ -172,7 +172,15 @@ def _player_response(conn: Connection, row: dict) -> PlayerResponse:
         accent=mine and careers.BUILDS[mine["build"]]["accent"],
         level=mine and mine["level"],
         employer=job and job["name"],
+        empire=_empire_badge(conn, row["id"]),
     )
+
+
+def _empire_badge(conn: Connection, player_id):
+    from server.schemas import EmpireBadge
+    from simulation import empires
+    seen = empires.badge(conn, player_id, _exchange_time(conn))
+    return seen and EmpireBadge(**seen)
 
 
 def _start_session(response: Response, row: dict) -> None:
@@ -1301,7 +1309,8 @@ def _career(conn: Connection, player: dict) -> CareerResponse:
         job=seen["job"] and JobInfo(ticker=seen["job"]["ticker"], name=seen["job"]["name"], headquarters=seen["job"]["headquarters"],
                                     since=seen["job"]["since"], can_move=seen["job"]["can_move"], owed_kobo=seen["job"]["owed"]),
         bank=seen["bank"] and BankInfo(**seen["bank"]),
-        pay=pay and PayInfo(**money(pay, "gross", "pension_yours", "pension_employer", "tax", "living_costs", "take_home", "at_next_level"),
+        pay=pay and PayInfo(**money(pay, "gross", "pension_yours", "pension_employer", "tax", "living_costs", "take_home", "at_next_level",
+                                    "extra_saving", "employer_match"),
                             worked_this_quarter=pay["worked_this_quarter"]),
         payslips=[Payslip(period_label=label(p["period"]), employer=p["employer"], level=p["level"], days_worked=p["days_worked"],
                           worked=p["worked"], note=p["note"],
@@ -1312,10 +1321,17 @@ def _career(conn: Connection, player: dict) -> CareerResponse:
         retirement=savings and RetirementInfo(
             fund=savings["fund"], value_kobo=savings["value"], can_change=savings["can_change"],
             funds=[PensionFund(code=f["code"], name=f["name"], who_for=f["for"], shares_bps=f["shares_bps"], bonds_bps=f["bonds_bps"],
-                               cash_bps=f["cash_bps"], last_return_bps=f["last_return_bps"]) for f in savings["funds"]],
+                               cash_bps=f["cash_bps"], last_return_bps=f["last_return_bps"], good=f["good"], bad=f["bad"],
+                               best_bps=f["best_bps"], worst_bps=f["worst_bps"], year_bps=f["year_bps"],
+                               year_after_prices_bps=f["year_after_prices_bps"]) for f in savings["funds"]],
             entries=[RetirementEntry(period_label=label(e["period"]), fund=e["fund"],
-                                     **money(e, "opening", "growth", "paid_in_by_you", "paid_in_by_employer", "closing"))
-                     for e in savings["entries"]]),
+                                     **money(e, "opening", "growth", "paid_in_by_you", "paid_in_by_employer", "closing", "paid_out"))
+                     for e in savings["entries"]],
+            extra_bps=savings["extra_bps"], most_extra_bps=savings["most_extra_bps"], match_most_bps=savings["match_most_bps"],
+            sound_finances=savings["sound_finances"], retired=savings["retired"], can_retire=savings["can_retire"],
+            retirement_level=savings["retirement_level"], quarters_to_go=savings["quarters_to_go"],
+            retires_label=savings["retires_label"], early_withdrawal_used=savings["early_withdrawal_used"],
+            managed_by=savings["managed_by"] and savings["managed_by"]["name"], leaving_fund=savings["leaving_fund"]),
         events=[CareerEvent(**e) for e in seen["events"]], next_pay_day=seen["next_pay_day"],
     )
 
@@ -1370,6 +1386,16 @@ def choose_my_bank(body: TickerRequest, player: dict = Depends(current_player), 
 @app.put("/api/career/retirement", response_model=CareerResponse)
 def choose_my_fund(body: FundRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     return _career_step(conn, player, lambda now: careers.choose_fund(conn, player["id"], body.fund, now))
+
+
+@app.put("/api/career/extra-saving", response_model=CareerResponse)
+def choose_my_extra_saving(body: ExtraSavingRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _career_step(conn, player, lambda now: careers.set_extra_saving(conn, player["id"], body.extra_bps, now))
+
+
+@app.post("/api/career/retirement/pension", response_model=CareerResponse)
+def begin_my_pension(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _career_step(conn, player, lambda now: careers.retire(conn, player["id"], now))
 
 
 # ---------------------------------------------------------------------------
@@ -1475,3 +1501,7 @@ def accountant_desk(
         watch=[WatchRow(ticker=w["ticker"], name=w["name"], credit_rating=w["credit_rating"], unpaid_bills_kobo=w["unpaid"],
                         overdue_debt_kobo=w["overdue"], cash_kobo=w["cash"]) for w in seen["watch"]],
         tax_rate_bps=seen["tax_rate_bps"])
+
+
+# Stage 6: empires, the War Room and pension funds run by players.
+from server import empire_routes  # noqa: E402,F401  (importing it adds its routes to the application)
