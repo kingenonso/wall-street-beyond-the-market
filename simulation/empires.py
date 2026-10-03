@@ -495,7 +495,7 @@ def staff_seat(conn: Connection, head_id, build: str, slot: int, staffed: bool, 
                 raise EmpireError(f"Staff who are let go are paid for the quarter: {_money(salary)}. The empire has not the cash.")
         conn.execute("UPDATE empire_seats SET staffed = %s, staffed_in_period = CASE WHEN %s THEN %s ELSE staffed_in_period END WHERE id = %s",
                      (staffed, staffed, state["period"], seat["id"]))
-        _log(conn, empire["id"], f"Computer-run staff were {'hired for' if staffed else 'let go from'} a {BUILD_NAMES.get(build, build)} seat.", now)
+        _log(conn, empire["id"], f"Computer-run staff were {'hired for' if staffed else 'let go from'} {careers._a(BUILD_NAMES.get(build, build))} seat.", now)
 
 
 def _spent(conn: Connection, empire_id, player_id, period: int) -> int:
@@ -1258,8 +1258,16 @@ def _work_step(conn: Connection, step_id: int, now: datetime) -> bool:
             low, high = exchange.price_limits(share["reference"])
             try:
                 with conn.transaction():
+                    # The staff buy patiently: a quarter of what is needed at a time, a kobo above the best buyer already waiting,
+                    # so that one empire's purchase does not sweep every seller out of a small company's shares.
+                    bids = exchange.quote(conn, share["ticker"], now)["bids"]
+                    # Never above what the company is thought to be worth (the figure on its own page).
+                    thought = _one(conn, "SELECT value_per_share FROM company_valuations WHERE company_id = %s ORDER BY period DESC LIMIT 1",
+                                   (task["company_id"],))
+                    ceiling = min(share["price"], thought["value_per_share"] if thought else share["price"]) * 99 // 100
+                    wanted = min(bids[0]["price"] + 1, ceiling) if bids else ceiling
                     exchange.place_order(conn, account=empire["account_id"], ticker=share["ticker"], side="buy", kind="limit",
-                                         quantity=need, limit_price=min(max(share["price"] * 101 // 100, low), high), now=now)
+                                         quantity=max(need // 4, 1), limit_price=min(max(wanted, low), high), now=now)
             except (exchange.ExchangeError, ledger.LedgerError):
                 pass
     return False

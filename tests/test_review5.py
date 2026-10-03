@@ -178,12 +178,12 @@ def test_more_of_the_record_is_guarded_in_the_database(db):
 @pytest.mark.world("eight")
 def test_the_saving_is_credited_even_when_the_employer_pays_late(db):
     company = _dicts(db, "SELECT ticker, account_id, id FROM companies WHERE ticker = 'KTX'")[0]
+    player, _ = professional(db, employer="KTX", now=NOW9)
+    pass_one(db, player, NOW9)                 # the work is done first: its client may be this very company
     cash = ledger.balance(db, company["account_id"])
     if cash:
         ledger.transfer(db, payer=company["account_id"], receiver=ledger.account_id(db, ledger.TREASURY), amount=cash,
                         kind="test_drain", memo="Test: the company has no cash")
-    player, _ = professional(db, employer="KTX", now=NOW9)
-    pass_one(db, player, NOW9)
     quarters.close_due_quarters(db, after_quarters(9))
     slip = _dicts(db, "SELECT * FROM payslips WHERE player_id = %s", (player,))[0]
     entry = _dicts(db, "SELECT * FROM retirement_entries WHERE player_id = %s", (player,))[0]

@@ -130,7 +130,7 @@ def banker_desk(conn: Connection, player_id, account, ticker: str | None, now: d
                          "price": offer["price"], "deadline": f"closes with {clock.period_label(offer['closes_period'])}", "words": offer["reason"]})
     for vote in board["votes"]:
         if vote["status"] == "open":
-            pipeline.append({"kind": "Shareholder vote", "stage": "Voting", "open": True, "ticker": vote["ticker"], "title": f"{vote['name']}: {vote['subject']}",
+            pipeline.append({"kind": "Shareholder vote", "stage": "Voting", "open": True, "ticker": vote["ticker"], "title": f"{vote['name']}: {vote['subject'].replace('_', ' ')}",
                              "price": None, "deadline": f"closes with {clock.period_label(vote['closes_period'])}", "words": vote["question"]})
     pipeline.sort(key=lambda d: not d["open"])
     return {

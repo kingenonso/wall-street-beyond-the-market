@@ -90,3 +90,33 @@ def test_one_players_requests_never_reach_another_empires_room(db, client):
     assert seen["room"]["name"] == league[1]["name"] and "Our secret plan." not in str(seen)
     # There is no way to name another empire in a request about "my empire".
     assert client.get(f"/api/empires/{league[0]['id']}").status_code in (404, 405)
+
+
+def test_the_new_build_screens_have_their_figures_and_show_nothing_hidden(db, client):
+    assert join(client, ADULT).status_code == 201
+    client.put("/api/career/build", json={"build": "risk_manager"})
+    assert client.get("/api/desk/head").status_code == 404                     # no seat, no empire to head
+    banker = client.get("/api/desk/investment-banker").json()
+    assert banker["peers"] and len(banker["diligence"]) == 8 and set(banker["multiples"]) == {"earnings", "book", "ebitda"}
+    assert int(banker["price_kobo"]) > 0 and any(p["this"] for p in banker["peers"])
+    assert client.get("/api/desk/investment-banker?ticker=ZZZ").status_code == 404
+    assert client.get("/api/desk/investment-banker?ticker=abc").status_code == 422
+    lawyer = client.get(f"/api/desk/lawyer?ticker={banker['ticker']}").json()
+    assert [r["rank"] for r in lawyer["ranking"]] == [1, 2, 3, 4, 5, 6] and lawyer["ranking"][-1]["who"] == "Shareholders"
+    assert lawyer["holders"] and "Others" not in {h["holder"] for h in lawyer["holders"]}
+    own = client.get("/api/desk/risk-manager").json()
+    assert own["book"] == "own" and own["in_empire"] is False and int(own["total_kobo"]) == naira(100_000)
+    assert len(own["scenarios"]) == 4 and own["exposures"] == []
+    # With a seat, the Risk Manager's screen shows the empire's book; their own is one click away.
+    league = client.get("/api/empires").json()["directory"]["league"]
+    client.post(f"/api/empires/{league[0]['id']}/applications")
+    book = client.get("/api/desk/risk-manager").json()
+    assert book["book"] == "empire" and book["book_name"] == league[0]["name"] and int(book["total_kobo"]) > naira(1_000_000_000)
+    assert client.get("/api/desk/risk-manager?book=own").json()["book"] == "own"
+    head = client.get("/api/desk/head").json()
+    assert int(head["worth_kobo"]) == int(book["total_kobo"]) and head["staff"] == 11 and head["players"] == 1
+    me = client.get("/api/me").json()
+    assert me["empire"]["name"] == league[0]["name"] and me["empire"]["is_head"] is False and me["empire"]["place"] in (1, 2, 3, 4, 5)
+    for seen in (banker, lawyer, own, book, head):
+        text = str(seen)
+        assert "fortune" not in text and "account_id" not in text and "genuine" not in text

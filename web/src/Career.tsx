@@ -221,7 +221,7 @@ function Retirement({ career, act }: { career: Career; act: ReturnType<typeof us
         <>
           <p className="small">
             At Level {savings.retirement_level}, or after ten game years of work (forty quarters), whichever comes first.
-            {savings.can_retire ? " You may begin your pension now." : savings.retires_label ? ` For you that is ${savings.retires_label}: ${savings.quarters_to_go} quarters to go.` : " The count begins with your first job."}
+            {savings.can_retire ? " You may begin your pension now." : savings.retires_label ? ` For you that is ${savings.retires_label}: ${savings.quarters_to_go} quarters to go.` : " Only quarters you were paid a salary for count."}
             {" "}From then a pension is paid to you every quarter, and you may keep working.
           </p>
           {savings.can_retire && <button className="button-outline" disabled={act.busy} onClick={() => act.run(api.beginPension)}>Begin my pension</button>}

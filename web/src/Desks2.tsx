@@ -118,7 +118,7 @@ export function InvestmentBankerWork({ player, onLoggedOut }: Props) {
         {low === null || high === null ? <p className="muted small">There is not enough to go on: it makes no profit, or there is no company like it to compare with.</p> : (
           <>
             <p className="small">
-              Priced like the companies in its industry, a {d.ticker} share would be worth between <span className="mono strong">{formatNaira(String(low))}</span> and{" "}
+              Priced like the companies in its industry, one {d.ticker} share would be worth between <span className="mono strong">{formatNaira(String(low))}</span> and{" "}
               <span className="mono strong">{formatNaira(String(high))}</span>. It trades at <span className="mono strong">{formatNaira(d.price_kobo)}</span>:{" "}
               {price < low ? <span className="change-up">▲ below the range. Either the market knows something the multiples do not, or it is cheap.</span>
                 : price > high ? <span className="change-down">▼ above the range. The market expects it to do better than companies like it.</span>

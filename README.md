@@ -18,7 +18,8 @@ The game is built in 16 stages. Each stage is finished only when its test passes
 | 4. The stock market, Part A: orders, the order-matching engine, computer-run investors, "Why?", the market screens, the Closing Rush and Closing Bell | **Done** |
 | 4. Part B: bonds and Government bills, share offers, splits, votes, takeovers and what follows them; the independent review | **Done** |
 | 5. Players and first screens: builds, employers, salary, levels, the player's bank, retirement savings, professional objectives, the Asset Manager and Accountant screens; the independent review | **Done** |
-| 6 to 16 | Not started |
+| 6. All builds and empires: the other four builds and their screens, empires with thirteen seats and computer-run staff, tasks that need every build, the shadow feature and audits, secret pacts, the War Room, retirement rewards, pension funds run by players; the independent review | **Done** |
+| 7 to 16 | Not started |
 
 Stage 1 test, from the design: *a player can sign up, log in and see Lagos
 time and whether the market is open.* It passes.
@@ -39,6 +40,9 @@ and for everything after those `docs/STAGE_04_REST_CLOSING_BELL_BONDS_AND_TAKEOV
 
 Stage 5 test, from the design: *a new player is hired, completes an objective and is paid by a
 named payer.* It passes. Report: `docs/STAGE_05_PLAYERS_AND_FIRST_SCREENS.md`.
+
+Stage 6 test, from the design: *an empire of three humans plus NPC staff completes a task that
+needs five builds.* It passes. Report: `docs/STAGE_06_EMPIRES_AND_ALL_BUILDS.md`.
 
 ## What is in each folder
 
