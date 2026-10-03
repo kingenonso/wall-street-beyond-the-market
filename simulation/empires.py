@@ -22,12 +22,13 @@ A thief takes from an empire and nobody else; what an audit proves is paid back 
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from psycopg import Connection, errors
 from psycopg.rows import dict_row
 
 from simulation import bonds, careers, clock, exchange, ledger, marketview, objectives
+from simulation import leagues
 from simulation import world_data as data
 from simulation.money import BPS, apply_bps, naira
 
@@ -152,7 +153,7 @@ def _head(conn: Connection, player_id, *, lock: bool = True) -> dict:
 
 
 def humans(conn: Connection, empire_id) -> list[dict]:
-    return _rows(conn, "SELECT s.player_id, s.build, s.slot, p.display_name, c.experience FROM empire_seats s"
+    return _rows(conn, "SELECT s.player_id, s.build, s.slot, p.display_name, p.ceo_since, c.experience, c.rank FROM empire_seats s"
                        " JOIN players p ON p.id = s.player_id LEFT JOIN careers c ON c.player_id = s.player_id AND c.build = s.build"
                        " WHERE s.empire_id = %s AND s.player_id IS NOT NULL ORDER BY s.build, s.slot", (empire_id,))
 
@@ -265,6 +266,10 @@ def _vacate(conn: Connection, seat: dict, now: datetime, period: int, reason: st
                             " WHERE o.player_id = %s AND o.state = 'active' AND s.status = 'current'", (seat["player_id"],)):
         objectives.withdraw(conn, seat["player_id"], step["objective_id"], now)
     conn.execute("UPDATE empire_seats SET player_id = NULL, since = NULL, signing_limit = NULL WHERE id = %s", (seat["id"],))
+    conn.execute("UPDATE empire_resignations SET status = CASE WHEN %s::text IN ('left', 'released') THEN %s::text ELSE 'overtaken' END, ended_at = %s"
+                 " WHERE player_id = %s AND status = 'waiting'", (reason, reason, now, seat["player_id"]))
+    conn.execute("DELETE FROM empire_head_votes WHERE empire_id = %s AND (voter_id = %s OR candidate_id = %s)",
+                 (seat["empire_id"], seat["player_id"], seat["player_id"]))
     conn.execute("UPDATE empire_members SET left_at = %s, left_period = %s, left_reason = %s WHERE player_id = %s AND left_at IS NULL",
                  (now, period, reason, seat["player_id"]))
 
@@ -287,8 +292,19 @@ def _succession(conn: Connection, empire_id, leaving_id, now: datetime) -> None:
         _punish(conn, empire, case, now)
 
 
+def _go(conn: Connection, seat: dict, now: datetime, period: int, reason: str = "left") -> None:
+    """A member leaves: the seat is given up, it is written down, and a head is followed by a successor."""
+    _vacate(conn, seat, now, period, reason)
+    name = _one(conn, "SELECT display_name FROM players WHERE id = %s", (seat["player_id"],))["display_name"]
+    _log(conn, seat["empire_id"], f"{name} left." if reason == "left" else f"{name} was released from their notice and left.", now)
+    careers._event(conn, seat["player_id"], seat["build"], "left_empire", f"Left {seat['empire_name']}.", now)
+    if seat["head_player_id"] == seat["player_id"]:
+        _succession(conn, seat["empire_id"], seat["player_id"], now)
+
+
 def leave(conn: Connection, player_id, now: datetime) -> None:
-    """Give up a seat. The head of an empire run by players cannot simply walk out while others remain."""
+    """Give up a seat at once. Players do not do this directly: they hand in a resignation letter
+    (see `resign`), and this is what happens when the notice has run."""
     with conn.transaction():
         state = _open(conn, now)
         seat = seat_of(conn, player_id, lock=True)
@@ -297,12 +313,216 @@ def leave(conn: Connection, player_id, now: datetime) -> None:
         conn.execute("SELECT 1 FROM empires WHERE id = %s FOR UPDATE", (seat["empire_id"],))
         if seat["head_player_id"] == player_id and seat["empire_status"] == "forming":
             raise EmpireError("Cancel the founding instead: everybody's money is then handed back.")
-        _vacate(conn, seat, now, state["period"], "left")
+        _go(conn, seat, now, state["period"])
+
+
+# ---------------------------------------------------------------------------
+# Leaving: a resignation letter, a counter-offer, and a notice period
+# ---------------------------------------------------------------------------
+
+def _resignation(conn: Connection, player_id, *, lock: bool = True) -> dict | None:
+    return _one(conn, "SELECT * FROM empire_resignations WHERE player_id = %s AND status = 'waiting'" + (" FOR UPDATE" if lock else ""),
+                (player_id,))
+
+
+def resign(conn: Connection, player_id, letter: str, now: datetime) -> dict:
+    """Hand in a resignation letter.
+
+    In an empire run by players the member works out a notice of fourteen real days, is paid as
+    usual, and may withdraw the letter; the head is told, and may make a counter-offer or let them
+    go early. In an empire run by the computer there is nobody to make an offer: the member leaves
+    as the quarter ends. A partner in an empire that is still being founded leaves at once, and
+    what they put in is handed back."""
+    with conn.transaction():
+        state = _open(conn, now)
+        seat = seat_of(conn, player_id, lock=True)
+        if seat is None:
+            raise EmpireError("You hold no seat in an empire.")
+        empire = _empire(conn, seat["empire_id"], lock=True)
+        if _resignation(conn, player_id):
+            raise EmpireError("You have already handed in a resignation letter.")
+        letter = _text(letter or "")[:600]
+        if empire["status"] == "forming":
+            if empire["head_player_id"] == player_id:
+                raise EmpireError("Cancel the founding instead: everybody's money is then handed back.")
+            _hand_back(conn, empire, player_id, now, state["period"], "a partner left before it opened")
+            _go(conn, seat, now, state["period"])
+            return {"left": True, "leaves_at": None, "leaves_period": None}
+        run_by_players = empire["head_player_id"] is not None
+        leaves_at = now + timedelta(days=data.NOTICE_DAYS) if run_by_players else None
+        leaves_period = None if run_by_players else state["period"]
+        conn.execute("INSERT INTO empire_resignations (empire_id, player_id, letter, given_at, given_period, leaves_at, leaves_period)"
+                     " VALUES (%s, %s, %s, %s, %s, %s, %s)", (empire["id"], player_id, letter, now, state["period"], leaves_at, leaves_period))
         name = _one(conn, "SELECT display_name FROM players WHERE id = %s", (player_id,))["display_name"]
-        _log(conn, seat["empire_id"], f"{name} left.", now)
-        careers._event(conn, player_id, seat["build"], "left_empire", f"Left {seat['empire_name']}.", now)
-        if seat["head_player_id"] == player_id:
-            _succession(conn, seat["empire_id"], player_id, now)
+        when = (f"on {clock.to_lagos(leaves_at):%d %B %Y}" if run_by_players else f"when {clock.period_label(state['period'])} ends")
+        _log(conn, empire["id"], f"{name} handed in a resignation letter and leaves {when} unless it is withdrawn.", now)
+        careers._event(conn, player_id, seat["build"], "resigned", f"Handed in a resignation letter to {empire['name']}: leaving {when}.", now)
+        return {"left": False, "leaves_at": leaves_at, "leaves_period": leaves_period}
+
+
+def withdraw_resignation(conn: Connection, player_id, now: datetime) -> None:
+    with conn.transaction():
+        _open(conn, now)
+        letter = _resignation(conn, player_id)
+        if letter is None:
+            raise EmpireError("You have no resignation letter waiting.")
+        conn.execute("UPDATE empire_resignations SET status = 'withdrawn', ended_at = %s WHERE id = %s", (now, letter["id"]))
+        name = _one(conn, "SELECT display_name FROM players WHERE id = %s", (player_id,))["display_name"]
+        _log(conn, letter["empire_id"], f"{name} withdrew their resignation letter.", now)
+
+
+def _letter_for_head(conn: Connection, head_id, resignation_id: int) -> tuple[dict, dict]:
+    empire = _head(conn, head_id)
+    letter = _one(conn, "SELECT * FROM empire_resignations WHERE id = %s AND empire_id = %s AND status = 'waiting' FOR UPDATE",
+                  (resignation_id, empire["id"]))
+    if letter is None:
+        raise EmpireError("There is no such resignation letter waiting.")
+    if letter["player_id"] == head_id:
+        raise EmpireError("That is your own letter.")
+    return empire, letter
+
+
+def counter_offer(conn: Connection, head_id, resignation_id: int, bonus: int, signing_limit_kobo: int | None, words: str, now: datetime) -> None:
+    """The head answers a resignation letter with an offer to stay: a bonus, a higher signing limit,
+    or both. Nothing is paid until the member accepts. A new offer replaces the last."""
+    with conn.transaction():
+        _open(conn, now)
+        empire, letter = _letter_for_head(conn, head_id, resignation_id)
+        whole = lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0          # noqa: E731
+        if not whole(bonus) or (signing_limit_kobo is not None and not whole(signing_limit_kobo)):
+            raise EmpireError("An offer is a bonus, a signing limit, or both: amounts of nought or more.")
+        if bonus == 0 and signing_limit_kobo is None:
+            raise EmpireError("An offer needs a bonus, a higher signing limit, or both.")
+        most = apply_bps(worth(conn, empire, now)["total"], data.COUNTER_OFFER_MOST_BPS)
+        if bonus > most:
+            raise EmpireError(f"A counter-offer's bonus may be up to {_money(most)}: {data.COUNTER_OFFER_MOST_BPS // 100}% of the empire's worth.")
+        if signing_limit_kobo is not None and signing_limit_kobo > naira(10_000_000_000):
+            raise EmpireError("That is not a sensible limit.")
+        conn.execute("UPDATE empire_resignations SET offer_bonus = %s, offer_limit = %s, offer_words = %s, offered_at = %s WHERE id = %s",
+                     (bonus, signing_limit_kobo, _text(words or "")[:400], now, letter["id"]))
+        member = _one(conn, "SELECT display_name, build FROM players WHERE id = %s", (letter["player_id"],))
+        _log(conn, empire["id"], f"The head made {member['display_name']} an offer to stay.", now)
+        careers._event(conn, letter["player_id"], member["build"], "counter_offer",
+                       f"{empire['name']} made you an offer to stay" + (f": a bonus of {_money(bonus)}" if bonus else "")
+                       + (f"{' and' if bonus else ':'} a signing limit of {_money(signing_limit_kobo)} a quarter" if signing_limit_kobo is not None else "")
+                       + ".", now)
+
+
+def accept_offer(conn: Connection, player_id, now: datetime) -> dict:
+    """The member accepts the counter-offer and stays. What was promised is paid, and set, at this
+    moment: if the empire cannot pay the bonus in full, the acceptance does not go through and
+    the letter stands."""
+    with conn.transaction():
+        state = _open(conn, now)
+        seat = seat_of(conn, player_id, lock=True)
+        letter = _resignation(conn, player_id)
+        if seat is None or letter is None or letter["offered_at"] is None:
+            raise EmpireError("There is no offer waiting for you.")
+        empire = _empire(conn, seat["empire_id"], lock=True)
+        if empire["head_player_id"] is None or empire["head_player_id"] == player_id:
+            raise EmpireError("The head who made that offer no longer leads the empire. The offer has lapsed.")
+        bonus = letter["offer_bonus"] or 0
+        if bonus:
+            most = bonus_limit(conn, empire, now)
+            paid = _one(conn, "SELECT coalesce(sum(amount), 0)::bigint AS total FROM empire_books WHERE empire_id = %s AND period = %s"
+                              " AND kind = 'bonus'", (empire["id"], state["period"]))["total"]
+            if paid + bonus > most:
+                raise EmpireError("The empire has reached the most it may pay in bonuses this quarter. Ask the head for a new offer, or accept next quarter.")
+            try:
+                ledger.transfer(conn, payer=empire["account_id"], receiver=ledger.player_account_id(conn, player_id), amount=bonus,
+                                kind="empire_bonus", memo=f"{empire['name']}: bonus for staying", period=state["period"])
+            except ledger.InsufficientFunds:
+                raise EmpireError("The empire has not the cash to pay the bonus it offered. Your letter stands.") from None
+            _book(conn, empire["id"], state["period"], "Bonuses", "Bonus to a member for staying", bonus, True, now,
+                  entered_by=empire["head_player_id"], kind="bonus")
+        if letter["offer_limit"] is not None:
+            conn.execute("UPDATE empire_seats SET signing_limit = %s WHERE id = %s", (letter["offer_limit"], seat["id"]))
+        conn.execute("UPDATE empire_resignations SET status = 'stayed', ended_at = %s WHERE id = %s", (now, letter["id"]))
+        name = _one(conn, "SELECT display_name FROM players WHERE id = %s", (player_id,))["display_name"]
+        _log(conn, empire["id"], f"{name} accepted the head's offer and stays.", now)
+        return {"bonus": bonus, "signing_limit": letter["offer_limit"]}
+
+
+def release(conn: Connection, head_id, resignation_id: int, now: datetime) -> None:
+    """The head lets a member who has resigned go at once, without waiting out the notice."""
+    with conn.transaction():
+        state = _open(conn, now)
+        _empire_, letter = _letter_for_head(conn, head_id, resignation_id)
+        seat = seat_of(conn, letter["player_id"], lock=True)
+        if seat is None or seat["empire_id"] != letter["empire_id"]:
+            conn.execute("UPDATE empire_resignations SET status = 'overtaken', ended_at = %s WHERE id = %s", (now, letter["id"]))
+            return
+        _go(conn, seat, now, state["period"], "released")
+
+
+def run_notices(conn: Connection, now: datetime, closed_period: int | None = None) -> int:
+    """Carry out the resignation letters whose notice has run: fourteen real days in an empire run
+    by players; the end of the quarter in one run by the computer. Returns how many left."""
+    period = careers.world_now(conn, now)["period"]
+    count = 0
+    for letter in _rows(conn, "SELECT id, player_id FROM empire_resignations WHERE status = 'waiting' AND ((leaves_at IS NOT NULL AND leaves_at <= %s)"
+                              " OR (leaves_period IS NOT NULL AND leaves_period <= %s)) ORDER BY id",
+                        (now, closed_period if closed_period is not None else period - 1)):
+        with conn.transaction():
+            seat = seat_of(conn, letter["player_id"], lock=True)
+            waiting = _one(conn, "SELECT * FROM empire_resignations WHERE id = %s AND status = 'waiting' FOR UPDATE", (letter["id"],))
+            if waiting is None:
+                continue
+            if seat is None or seat["empire_id"] != waiting["empire_id"]:
+                conn.execute("UPDATE empire_resignations SET status = 'overtaken', ended_at = %s WHERE id = %s", (now, waiting["id"]))
+                continue
+            conn.execute("SELECT 1 FROM empires WHERE id = %s FOR UPDATE", (seat["empire_id"],))
+            _go(conn, seat, now, period)
+            count += 1
+    return count
+
+
+# ---------------------------------------------------------------------------
+# Electing a head. Any member who has earned the CEO rank can be voted in by the empire.
+# ---------------------------------------------------------------------------
+
+def vote_head(conn: Connection, voter_id, candidate_id, now: datetime) -> dict:
+    """Vote for a member who holds the CEO rank to lead the empire. Each member has one vote and may
+    change it. When more than half of the empire's players have voted for the same member, that
+    member becomes head at once. Only an empire founded by players elects its head."""
+    with conn.transaction():
+        _open(conn, now)
+        seat = seat_of(conn, voter_id, lock=True)
+        if seat is None or seat["empire_status"] != "active" or seat["empire_kind"] != "player":
+            raise EmpireError("Only a member of an open empire founded by players can vote for its head.")
+        empire = _empire(conn, seat["empire_id"], lock=True)
+        other = seat_of(conn, candidate_id)
+        if other is None or other["empire_id"] != empire["id"]:
+            raise EmpireError("They are not a member of your empire.")
+        if not is_ceo(conn, candidate_id):
+            raise EmpireError("Only a member who has earned the CEO rank can be voted in as head.")
+        if empire["head_player_id"] == candidate_id:
+            raise EmpireError("They lead the empire already.")
+        if _one(conn, "SELECT 1 FROM empire_cases WHERE empire_id = %s AND player_id = %s AND status = 'open'", (empire["id"], candidate_id)):
+            raise EmpireError("A proved theft of theirs is waiting to be decided. They cannot be voted in until it is.")
+        conn.execute("INSERT INTO empire_head_votes (empire_id, voter_id, candidate_id, at) VALUES (%s, %s, %s, %s)"
+                     " ON CONFLICT (empire_id, voter_id) DO UPDATE SET candidate_id = EXCLUDED.candidate_id, at = EXCLUDED.at",
+                     (empire["id"], voter_id, candidate_id, now))
+        members = len(humans(conn, empire["id"]))
+        votes = _one(conn, "SELECT count(*) AS n FROM empire_head_votes WHERE empire_id = %s AND candidate_id = %s", (empire["id"], candidate_id))["n"]
+        elected = votes * 2 > members
+        if elected:
+            name = _one(conn, "SELECT display_name FROM players WHERE id = %s", (candidate_id,))["display_name"]
+            conn.execute("UPDATE empires SET head_player_id = %s WHERE id = %s", (candidate_id, empire["id"]))
+            conn.execute("DELETE FROM empire_head_votes WHERE empire_id = %s", (empire["id"],))
+            _log(conn, empire["id"], f"{name} was voted in as CEO by {votes} of the empire's {members} players.", now)
+        return {"votes": votes, "members": members, "needed": members // 2 + 1, "elected": elected}
+
+
+def vote_for_seat(conn: Connection, voter_id, build: str, slot: int, now: datetime) -> dict:
+    """Vote for whoever holds a seat in the voter's own empire. (A member is not given their
+    colleagues' identifiers, so the website names the seat.)"""
+    mine = seat_of(conn, voter_id)
+    held = _one(conn, "SELECT player_id FROM empire_seats WHERE empire_id = %s AND build = %s AND slot = %s",
+                (mine["empire_id"], build, slot)) if mine else None
+    if held is None or held["player_id"] is None:
+        raise EmpireError("Nobody holds that seat in your empire.")
+    return vote_head(conn, voter_id, held["player_id"], now)
 
 
 # ---------------------------------------------------------------------------
@@ -359,8 +579,8 @@ def _pledge(conn: Connection, empire: dict, player_id, amount: int, from_savings
                             kind="empire_capital", memo=f"{empire['name']}: capital put in", reference=f"empire:{empire['id']}")
         except ledger.InsufficientFunds:
             raise EmpireError("You do not have that much cash.") from None
-    conn.execute("INSERT INTO empire_capital (empire_id, player_id, amount, from_savings, at) VALUES (%s, %s, %s, %s, %s)",
-                 (empire["id"], player_id, amount + drawn, drawn, now))
+    conn.execute("INSERT INTO empire_capital (empire_id, player_id, amount, from_savings, at, period) VALUES (%s, %s, %s, %s, %s, %s)",
+                 (empire["id"], player_id, amount + drawn, drawn, now, careers.world_now(conn, now)["period"]))
 
 
 def put_in(conn: Connection, player_id, amount: int, from_savings: int, now: datetime) -> None:
@@ -396,9 +616,32 @@ def open_empire(conn: Connection, head_id, now: datetime) -> dict:
                         kind="empire_registration", memo=f"{empire['name']}: registration fee", reference=f"empire:{empire['id']}",
                         period=state["period"])
         conn.execute("UPDATE empires SET status = 'active', founded_period = %s WHERE id = %s", (state["period"], empire["id"]))
+        division = leagues.place_new(conn, empire["id"])
+        _log(conn, empire["id"], f"{empire['name']} entered the league in Division {division}.", now)
         _log(conn, empire["id"], f"{empire['name']} opened. The registration fee of {_money(fee)} was paid into the prize pool.", now)
         careers._event(conn, head_id, None, "founded_empire", f"Founded {empire['name']}.", now)
         return _empire(conn, empire["id"])
+
+
+def _hand_back(conn: Connection, empire: dict, player_id, now: datetime, period: int, why: str) -> None:
+    """Hand back what was pooled to found an empire that is not yet open: to one partner, or (with
+    no player named) to all of them. What was drawn early from retirement savings goes back to the
+    pension funds, and the withdrawal is as if never made."""
+    pension_funds = ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
+    for row in _rows(conn, "SELECT player_id, sum(amount)::bigint AS amount, sum(from_savings)::bigint AS from_savings FROM empire_capital"
+                           " WHERE empire_id = %s AND (player_id = %s OR %s) GROUP BY player_id HAVING sum(amount) > 0",
+                     (empire["id"], player_id, player_id is None)):
+        back = ledger.pay_up_to(conn, payer=empire["account_id"], receiver=pension_funds, wanted=row["from_savings"], kind="pension_withdrawal",
+                                memo=f"{empire['name']}: {why}, retirement savings handed back")
+        if row["from_savings"]:
+            conn.execute("UPDATE retirement_accounts SET value = value + %s, early_withdrawn_period = NULL WHERE player_id = %s",
+                         (back, row["player_id"]))
+        cash = ledger.pay_up_to(conn, payer=empire["account_id"], receiver=ledger.player_account_id(conn, row["player_id"]),
+                                wanted=row["amount"] - row["from_savings"], kind="empire_capital",
+                                memo=f"{empire['name']}: {why}, capital handed back")
+        conn.execute("INSERT INTO empire_capital (empire_id, player_id, amount, from_savings, at, period) VALUES (%s, %s, %s, %s, %s, %s)",
+                     (empire["id"], row["player_id"], -row["amount"], -row["from_savings"], now, period))
+        assert back + cash == row["amount"] or ledger.balance(conn, empire["account_id"]) == 0
 
 
 def cancel_founding(conn: Connection, head_id, now: datetime) -> None:
@@ -409,20 +652,7 @@ def cancel_founding(conn: Connection, head_id, now: datetime) -> None:
         empire = _head(conn, head_id)
         if empire["status"] != "forming":
             raise EmpireError("An open empire cannot be cancelled.")
-        pension_funds = ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
-        for row in _rows(conn, "SELECT player_id, sum(amount)::bigint AS amount, sum(from_savings)::bigint AS from_savings FROM empire_capital"
-                               " WHERE empire_id = %s GROUP BY player_id HAVING sum(amount) > 0", (empire["id"],)):
-            back = ledger.pay_up_to(conn, payer=empire["account_id"], receiver=pension_funds, wanted=row["from_savings"], kind="pension_withdrawal",
-                                    memo=f"{empire['name']}: founding cancelled, retirement savings handed back")
-            if row["from_savings"]:
-                conn.execute("UPDATE retirement_accounts SET value = value + %s, early_withdrawn_period = NULL WHERE player_id = %s",
-                             (back, row["player_id"]))
-            cash = ledger.pay_up_to(conn, payer=empire["account_id"], receiver=ledger.player_account_id(conn, row["player_id"]),
-                                    wanted=row["amount"] - row["from_savings"], kind="empire_capital",
-                                    memo=f"{empire['name']}: founding cancelled, capital handed back")
-            conn.execute("INSERT INTO empire_capital (empire_id, player_id, amount, from_savings, at) VALUES (%s, %s, %s, %s, %s)",
-                         (empire["id"], row["player_id"], -row["amount"], -row["from_savings"], now))
-            assert back + cash == row["amount"] or ledger.balance(conn, empire["account_id"]) == 0
+        _hand_back(conn, empire, None, now, state["period"], "founding cancelled")
         for seat in _rows(conn, "SELECT * FROM empire_seats WHERE empire_id = %s AND player_id IS NOT NULL", (empire["id"],)):
             _vacate(conn, seat, now, state["period"], "founding cancelled")
         conn.execute("UPDATE empires SET status = 'closed', head_player_id = NULL WHERE id = %s", (empire["id"],))
@@ -507,16 +737,31 @@ def _spent(conn: Connection, empire_id, player_id, period: int) -> int:
                       " AND (b.empire_id = %s OR NOT %s)", (player_id, period, fund, empire_id, fund))["total"]
 
 
+def is_ceo(conn: Connection, player_id) -> bool:
+    """Whether a player has earned the CEO rank (Level 60, the CEO rank case, reputation of 75)."""
+    row = _one(conn, "SELECT ceo_since FROM players WHERE id = %s", (player_id,)) if player_id else None
+    return bool(row and row["ceo_since"])
+
+
 def signing_limit(conn: Connection, seat: dict) -> int:
-    """What a member may spend of the empire's money in a quarter without anybody else."""
+    """What a member may spend of the empire's money in a quarter without anybody else.
+
+    A head: a share of the empire's cash (2% as Acting Head, 5% once CEO). Everybody else: the
+    same flat figure at every level, unless the head has set one for the empire or for them."""
     if seat["head_player_id"] == seat["player_id"]:
-        return apply_bps(max(ledger.balance(conn, seat["account_id"]), 0), data.HEAD_LIMIT_BPS)
+        share = data.CEO_LIMIT_BPS if is_ceo(conn, seat["player_id"]) else data.HEAD_LIMIT_BPS
+        return apply_bps(max(ledger.balance(conn, seat["account_id"]), 0), share)
     if seat["signing_limit"] is not None:
         return seat["signing_limit"]
     if seat["empire_kind"] == "computer" or seat["head_player_id"] is None:
-        mine = careers.career(conn, seat["player_id"], seat["build"])
-        return naira(data.COMPUTER_EMPIRE_LIMIT_NAIRA) * (mine["level"] if mine else 1)
+        return naira(data.SIGNING_LIMIT_NAIRA)
     return seat["expense_limit"]
+
+
+def bonus_limit(conn: Connection, empire: dict, now: datetime) -> int:
+    """What a head may pay out in bonuses in a quarter: a tenth of the empire's worth as Acting Head, a quarter once CEO."""
+    share = data.CEO_BONUS_BPS if is_ceo(conn, empire["head_player_id"]) else data.HEAD_BONUS_BPS
+    return apply_bps(worth(conn, empire, now)["total"], share)
 
 
 def _book(conn: Connection, empire_id, period: int, category: str, description: str, amount: int, genuine: bool, now: datetime,
@@ -541,11 +786,11 @@ def pay_bonus(conn: Connection, head_id, member_id, amount: int, why: str, now: 
             raise EmpireError("They are not a member of your empire.")
         if not isinstance(amount, int) or isinstance(amount, bool) or amount <= 0:
             raise EmpireError("A bonus is an amount above nought.")
-        most = apply_bps(worth(conn, empire, now)["total"], data.HEAD_BONUS_BPS)
+        most = bonus_limit(conn, empire, now)
         paid = _one(conn, "SELECT coalesce(sum(amount), 0)::bigint AS total FROM empire_books WHERE empire_id = %s AND period = %s AND kind = 'bonus'",
                     (empire["id"], state["period"]))["total"]
         if paid + amount > most:
-            raise EmpireError(f"A head may pay bonuses of up to a tenth of the empire's worth in a quarter: {_money(most)}, of which "
+            raise EmpireError(f"A head may pay bonuses of up to {_money(most)} in a quarter (a tenth of the empire's worth; a quarter for a CEO), of which "
                               f"{_money(paid)} is paid.")
         try:
             ledger.transfer(conn, payer=empire["account_id"], receiver=ledger.player_account_id(conn, member_id), amount=amount,
@@ -1060,7 +1305,8 @@ def _start_task(conn: Connection, empire: dict, period: int, now: datetime, star
     target = _target_for(conn, empire, period, now)
     if target is None:
         raise EmpireError("There is no company to look at this quarter.")
-    amount = min(apply_bps(ledger.balance(conn, empire["account_id"]), data.TASK_SHARE_OF_CASH_BPS), naira(data.TASK_MOST_NAIRA))
+    most = data.CEO_TASK_MOST_NAIRA if is_ceo(conn, empire["head_player_id"]) else data.TASK_MOST_NAIRA
+    amount = min(apply_bps(ledger.balance(conn, empire["account_id"]), data.TASK_SHARE_OF_CASH_BPS), naira(most))
     if amount < naira(100_000):
         raise EmpireError("The empire has too little cash to make an investment worth the work.")
     task = _one(conn, "INSERT INTO empire_tasks (empire_id, kind, company_id, period, amount, started_by, at)"
@@ -1152,6 +1398,8 @@ def _finish_step(conn: Connection, step: dict, now: datetime, done_by=None) -> N
     if following is None:
         conn.execute("UPDATE empire_tasks SET status = 'done', done_at = %s WHERE id = %s", (now, step["task_id"]))
         _log(conn, step["empire_id"], "The task is complete: all six builds each did their part.", now)
+        leagues.award(conn, step["empire_id"], data.LEAGUE_POINTS["task"], "A task finished: all six builds did their part",
+                      careers.world_now(conn, now)["period"], now, reference=f"task:{step['task_id']}")
         return
     conn.execute("UPDATE empire_task_steps SET status = 'current', ready_at = %s WHERE id = %s", (now, following["id"]))
     if following["template"] == "em_execute":
@@ -1354,9 +1602,9 @@ def _pact_close(ctx, objective, period):
 
 objectives.TEMPLATES.update({t.code: t for t in (
     objectives.Template("em_execute", "asset_manager", "Dealing for a client", "Buy for the empire", 1, 60_000, 100, "market",
-                        "Carrying out a decision made by others, at a fair price.", "empire", _execute_offer, bell=_execute_bell, listed=False),
+                        "Carrying out a decision made by others, at a fair price.", "empire", _execute_offer, bell=_execute_bell, listed=False, setting="empire"),
     objectives.Template("lw_pact", "lawyer", "Contracts", "Draft a pact and have it signed", 3, 100_000, 150, "market",
-                        "A contract is a promise the other side can rely on.", "empire", _pact_offer, close=_pact_close),
+                        "A contract is a promise the other side can rely on.", "empire", _pact_offer, close=_pact_close, setting="empire", base="lw_contract"),
 )})
 
 
@@ -1490,6 +1738,8 @@ def report_pact(conn: Connection, head_id, pact_id: int, now: datetime) -> None:
         _trust(conn, other, -data.PACT_EXPOSED_TRUST - 5)
         _log(conn, empire["id"], "The empire reported an unlawful pact it was party to. It is treated more lightly for coming forward.", now)
         _log(conn, other, f"{empire['name']} reported our unlawful pact. It is now public.", now)
+        leagues.award(conn, other, data.LEAGUE_POINTS["theft"], "An unlawful pact came to light", careers.world_now(conn, now)["period"],
+                      now, reference=f"pact:{pact_id}")
 
 
 def investigate(conn: Connection, player_id, empire_id: int, now: datetime) -> dict:
@@ -1526,6 +1776,9 @@ def investigate(conn: Connection, player_id, empire_id: int, now: datetime) -> d
         if not pact["legal"]:
             _trust(conn, pact["from_empire"], -data.PACT_EXPOSED_TRUST)
             _trust(conn, pact["to_empire"], -data.PACT_EXPOSED_TRUST)
+            for side in (pact["from_empire"], pact["to_empire"]):
+                leagues.award(conn, side, data.LEAGUE_POINTS["theft"], "An unlawful pact came to light", state["period"], now,
+                              reference=f"pact:{pact['id']}")
         if not pact["legal"]:
             # Uncovering an offence is a story. A lawful agreement coming to light is only news.
             careers.add_experience(conn, player_id, "journalist", 100, now)
@@ -1554,6 +1807,7 @@ def say(conn: Connection, player_id, body: str, now: datetime) -> None:
 # ---------------------------------------------------------------------------
 
 def at_bell(conn: Connection, now: datetime) -> None:
+    run_notices(conn, now)
     tick(conn, now)
     from simulation import pensionfunds
     pensionfunds.at_bell(conn, now)
@@ -1587,6 +1841,8 @@ def after_close(conn: Connection, period: int, now: datetime) -> None:
         have = worth(conn, empire, now)
         conn.execute("INSERT INTO empire_worth (empire_id, period, worth, cash) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
                      (empire["id"], period, have["total"], have["cash"]))
+    run_notices(conn, now, closed_period=period)
+    leagues.after_close(conn, period, now)
     from simulation import pensionfunds
     pensionfunds.after_close(conn, period, now)
 
@@ -1641,6 +1897,10 @@ def badge(conn: Connection, player_id, now: datetime) -> dict | None:
                               " + (SELECT count(*) FROM empire_cases WHERE empire_id = %s AND status = 'open')"
                               " + (SELECT count(*) FROM empire_pacts WHERE (to_empire = %s AND status = 'proposed')"
                               "    OR (from_empire = %s AND status = 'drafted')) AS n", (seat["empire_id"],) * 4)["n"]
+        waiting += _one(conn, "SELECT count(*) AS n FROM empire_resignations WHERE empire_id = %s AND status = 'waiting' AND player_id <> %s"
+                              " AND offered_at IS NULL", (seat["empire_id"], player_id))["n"]
+    waiting += _one(conn, "SELECT count(*) AS n FROM empire_resignations WHERE player_id = %s AND status = 'waiting' AND offered_at IS NOT NULL",
+                    (player_id,))["n"]
     place = next((e["place"] for e in league(conn, now) if e["id"] == seat["empire_id"]), None)
     return {"name": seat["empire_name"], "place": place, "is_head": is_head, "waiting": waiting, "forming": seat["empire_status"] == "forming"}
 
@@ -1664,10 +1924,32 @@ def directory(conn: Connection, player_id, now: datetime) -> dict:
                           " JOIN empires a ON a.id = p.from_empire JOIN empires b ON b.id = p.to_empire WHERE p.exposed_at IS NOT NULL"
                           " ORDER BY p.exposed_at DESC LIMIT 20")
     career = careers.career(conn, player_id)
-    return {"league": table, "forming": forming, "in_empire": mine is not None,
+    divisions = leagues.table(conn, now)
+    mine_id = mine["empire_id"] if mine else None
+    for division in divisions:
+        for row in division["empires"]:
+            row["yours"] = row["id"] == mine_id
+    return {"league": table, "forming": forming, "in_empire": mine is not None, "divisions": divisions,
+            "seasons": leagues.past_seasons(conn), "season": leagues.season_of(careers.world_now(conn, now)["period"]),
+            "division_size": data.DIVISION_SIZE, "league_points": data.LEAGUE_POINTS,
+            "build_table": leagues.build_table(conn, player["build"], player_id) if player["build"] else None,
             "exposed_pacts": [{**e, "kind": data.PACT_KINDS[e["kind"]][0]} for e in exposed],
             "can_found": bool(career and career["level"] >= data.EMPIRE_FOUNDING_LEVEL and mine is None),
             "founding_level": data.EMPIRE_FOUNDING_LEVEL, "registration_fee": naira(data.EMPIRE_REGISTRATION_NAIRA)}
+
+
+def _legal(conn: Connection, player_id) -> list[dict]:
+    """A player's legal record: thefts proved against them, wherever they happened."""
+    return _rows(conn, "SELECT words, at FROM legal_records WHERE player_id = %s ORDER BY id DESC LIMIT 5", (player_id,))
+
+
+def _letter_public(letter: dict, period: int) -> dict:
+    return {"letter": letter["letter"], "given_at": letter["given_at"], "leaves_at": letter["leaves_at"],
+            "leaves_when_quarter_ends": letter["leaves_period"] is not None,
+            "leaves_label": clock.period_label(letter["leaves_period"]) if letter["leaves_period"] is not None else None,
+            "offer": None if letter["offered_at"] is None else {
+                "bonus": letter["offer_bonus"] or 0, "signing_limit": letter["offer_limit"], "words": letter["offer_words"],
+                "at": letter["offered_at"]}}
 
 
 def war_room(conn: Connection, player_id, now: datetime) -> dict | None:
@@ -1682,17 +1964,27 @@ def war_room(conn: Connection, player_id, now: datetime) -> dict | None:
     have = worth(conn, empire, now)
     table = league(conn, now)
     place = next((e["place"] for e in table if e["id"] == empire["id"]), None)
+    letters = _rows(conn, "SELECT r.*, p.display_name FROM empire_resignations r JOIN players p ON p.id = r.player_id"
+                          " WHERE r.empire_id = %s AND r.status = 'waiting' ORDER BY r.id", (empire["id"],))
+    leaving = {r["player_id"] for r in letters}
+    own_letter = next((r for r in letters if r["player_id"] == player_id), None)
+    votes = _rows(conn, "SELECT v.candidate_id, v.voter_id, p.display_name FROM empire_head_votes v JOIN players p ON p.id = v.candidate_id"
+                        " WHERE v.empire_id = %s", (empire["id"],))
     seats = []
-    for s in _rows(conn, "SELECT s.*, p.display_name, c.experience FROM empire_seats s LEFT JOIN players p ON p.id = s.player_id"
+    for s in _rows(conn, "SELECT s.*, p.display_name, p.ceo_since, c.experience, c.rank FROM empire_seats s LEFT JOIN players p ON p.id = s.player_id"
                          " LEFT JOIN careers c ON c.player_id = s.player_id AND c.build = s.build WHERE s.empire_id = %s ORDER BY s.build, s.slot",
                    (empire["id"],)):
-        level = careers.level_for(s["experience"] or 0) if s["player_id"] else (data.STAFF_LEVEL if s["staffed"] else None)
+        level = careers.level_for(s["experience"] or 0, s["rank"] or 0) if s["player_id"] else (data.STAFF_LEVEL if s["staffed"] else None)
         seats.append({"build": s["build"], "build_name": BUILD_NAMES[s["build"]], "slot": s["slot"], "held": s["player_id"] is not None,
                       "player_id": str(s["player_id"]) if s["player_id"] and (is_head or s["player_id"] == player_id) else None,
                       "name": s["display_name"] if s["player_id"] else ("Computer-run staff" if s["staffed"] else "Empty"),
                       "level": level, "staffed": s["staffed"] and s["player_id"] is None, "you": s["player_id"] == player_id,
                       "head": s["player_id"] is not None and s["player_id"] == empire["head_player_id"],
-                      "signing_limit": s["signing_limit"] if is_head else None})
+                      "signing_limit": s["signing_limit"] if is_head else None,
+                      "ceo": bool(s["player_id"] and s["ceo_since"]),
+                      "resigning": bool(s["player_id"] and (is_head or s["player_id"] == player_id) and s["player_id"] in leaving),
+                      # What the head sees before deciding whether to keep somebody: their legal record.
+                      "legal": _legal(conn, s["player_id"]) if is_head and s["player_id"] and s["player_id"] != player_id else []})
     # The senior player in each build is its lead: the executive team.
     for build in data.EMPIRE_BUILDS:
         held = [s for s in seats if s["build"] == build and s["held"]]
@@ -1750,7 +2042,7 @@ def war_room(conn: Connection, player_id, now: datetime) -> dict | None:
         "orders": exchange.orders_of(conn, empire["account_id"], limit=10),
         "seats": seats, "humans": sum(1 for s in seats if s["held"]),
         "can_trade": seat["build"] == "asset_manager" or is_head, "trade_limit": may_trade, "fair_dealing": empire["head_player_id"] is None,
-        "bonus_limit": apply_bps(have["total"], data.HEAD_BONUS_BPS),
+        "bonus_limit": bonus_limit(conn, empire, now),
         "trade_used": _one(conn, "SELECT coalesce(sum(value), 0)::bigint AS total FROM empire_trades WHERE empire_id = %s AND player_id = %s"
                                  " AND period = %s", (empire["id"], player_id, state["period"]))["total"],
         "signing_limit": limit, "signing_used": _spent(conn, empire["id"], player_id, state["period"]),
@@ -1771,8 +2063,22 @@ def war_room(conn: Connection, player_id, now: datetime) -> dict | None:
         "pact_kinds": [{"code": code, "label": label, "legal": legal} for code, (label, legal) in data.PACT_KINDS.items()],
         "can_draft": seat["build"] == "lawyer" or is_head, "shared": shared,
         "others": [{"id": e["id"], "name": e["name"]} for e in table if e["id"] != empire["id"]],
-        "applications": _rows(conn, "SELECT a.id, p.display_name, a.build FROM empire_applications a JOIN players p ON p.id = a.player_id"
-                                    " WHERE a.empire_id = %s AND a.status = 'waiting' ORDER BY a.id", (empire["id"],)) if is_head else [],
+        "applications": [{"id": a["id"], "display_name": a["display_name"], "build": a["build"], "legal": _legal(conn, a["player_id"])}
+                         for a in _rows(conn, "SELECT a.id, a.player_id, p.display_name, a.build FROM empire_applications a"
+                                              " JOIN players p ON p.id = a.player_id WHERE a.empire_id = %s AND a.status = 'waiting' ORDER BY a.id",
+                                        (empire["id"],))] if is_head else [],
+        "head_is_ceo": is_ceo(conn, empire["head_player_id"]), "you_are_ceo": is_ceo(conn, player_id),
+        "notice_days": data.NOTICE_DAYS,
+        "resignation": own_letter and _letter_public(own_letter, state["period"]),
+        "resignations": [{**_letter_public(r, state["period"]), "id": r["id"], "name": r["display_name"]}
+                         for r in letters if r["player_id"] != player_id] if is_head else [],
+        "counter_offer_most": apply_bps(have["total"], data.COUNTER_OFFER_MOST_BPS),
+        "division": leagues.standing(conn, empire["id"], now), "league_points": leagues.history(conn, empire["id"], state["period"]),
+        "election": {"open": empire["kind"] == "player" and empire["status"] == "active",
+                     "needed": sum(1 for s in seats if s["held"]) // 2 + 1,
+                     "your_vote": next((v["display_name"] for v in votes if v["voter_id"] == player_id), None),
+                     "tally": sorted(({"name": name, "votes": sum(1 for v in votes if v["display_name"] == name)}
+                                      for name in {v["display_name"] for v in votes}), key=lambda t: -t["votes"])},
         "capital": _rows(conn, "SELECT p.display_name, sum(c.amount)::bigint AS amount FROM empire_capital c JOIN players p ON p.id = c.player_id"
                                " WHERE c.empire_id = %s GROUP BY p.display_name HAVING sum(c.amount) > 0 ORDER BY 2 DESC", (empire["id"],)),
         "expense_limit": empire["expense_limit"], "trade_limit_bps": empire["trade_limit_bps"],

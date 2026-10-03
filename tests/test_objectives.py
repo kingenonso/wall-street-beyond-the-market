@@ -654,7 +654,7 @@ def test_the_skill_tree_shows_what_has_been_learned_and_what_to_practise_again(d
 
 def test_the_library_has_six_pieces_of_work_for_each_build_and_every_module_has_one():
     for build in careers.BUILDS:
-        mine = [t for t in objectives.TEMPLATES.values() if t.build == build and t.listed and t.payer != "empire"]
+        mine = [t for t in objectives.TEMPLATES.values() if t.build == build and t.listed and t.setting == "solo"]
         assert len(mine) >= 5 and len({t.module for t in mine}) == len(mine)
         assert min(t.level for t in mine) == 1 and max(t.level for t in mine) <= 4
     names = " ".join(f"{t.module} {t.title} {t.idea}" for t in objectives.TEMPLATES.values()).upper()

@@ -130,13 +130,13 @@ def test_the_computer_pays_for_the_ai_audit_only_when_there_is_more_at_stake_tha
 # 4. The signing limit was multiplied by moving from empire to empire.
 def test_a_signing_limit_is_the_players_for_the_quarter_wherever_they_sit(db):
     thief, account = thief_in(db, computer_empire(db))
-    empires.divert(db, thief, naira(400_000), NOW9)
+    empires.divert(db, thief, naira(500_000), NOW9)
     for n in range(1, 5):
         empires.leave(db, thief, NOW9)
         empires.apply(db, thief, computer_empire(db, n)["id"], NOW9)
         with pytest.raises(empires.EmpireError, match="signing limit"):
             empires.divert(db, thief, naira(1), NOW9)
-    assert ledger.balance(db, account) == naira(400_000)
+    assert ledger.balance(db, account) == naira(500_000)
 
 
 # 5. Joining or leaving a player's fund on the last day picked the quarter's return after seeing it.

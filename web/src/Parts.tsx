@@ -8,7 +8,7 @@
 //   Wheel             the allocation wheel
 
 import type { ReactNode } from "react";
-import type { Career, Kobo, Objective, ObjectiveBoard, Skill, Slice } from "./api";
+import type { Career, Coverage, Kobo, Objective, ObjectiveBoard, Skill, Slice } from "./api";
 import { formatCompact, formatNaira, formatPercent } from "./format";
 import { Change, Panel } from "./Shell";
 
@@ -107,14 +107,16 @@ export function LevelPanel({ career }: { career: NonNullable<Career["career"]> }
     <Panel title="Level" aside={career.track}>
       <div className="headline">
         <span className="figure mono">{career.level}</span>
-        <span className="muted">{career.build_name} · {career.level_words}</span>
+        <span className="muted">{career.rank_name} {career.build_name} · {career.level_words}</span>
       </div>
       <div className="meter" role="img" aria-label={`${share}% of the way to the next level`}>
         <div className="meter-fill" style={{ width: `${share}%` }} />
       </div>
       <p className="muted small">
-        {career.at_cap
-          ? "Level 20 is as far as work alone goes. Moving past it needs a rank case, which arrives in a later stage."
+        {career.level >= career.top_level
+          ? "Level 100: the top of the game."
+          : career.at_cap
+          ? <>Level {career.gate} is a gate. To go past it you need mastery across your modules and then a <a href="#/rank">rank case</a>. Experience you earn meanwhile is kept ({career.experience.toLocaleString("en-NG")} so far).</>
           : `${career.experience.toLocaleString("en-NG")} experience. Level ${career.level + 1} at ${career.next_level_at?.toLocaleString("en-NG")}. Experience comes only from work you pass.`}
       </p>
       {career.review && (
@@ -163,26 +165,55 @@ export function PayPanel({ career }: { career: Career }) {
   );
 }
 
-export function SkillTree({ skills, coverage, track }: { skills: Skill[]; coverage: ObjectiveBoard["coverage"]; track: string }) {
+const STAGES: { key: "learned" | "practised" | "proven"; label: string; how: string }[] = [
+  { key: "learned", label: "Learned", how: "passed on your own" },
+  { key: "practised", label: "Practised", how: "passed with your empire" },
+  { key: "proven", label: "Proven", how: "passed in a weekend challenge" },
+];
+
+/** The syllabus map: every learning module of a track, and which of its three stages are reached.
+ *  With it, the coverage tracker: how much of the map has been worked through. */
+export function SkillTree({ skills, tracks }: { skills: Skill[]; tracks: Coverage[] }) {
   return (
-    <Panel title="Skill tree" aside={`${coverage.learned} of ${coverage.modules} modules learned`}>
-      <div className="meter" role="img" aria-label={`${coverage.learned} of ${coverage.modules} modules learned`}>
-        <div className="meter-fill" style={{ width: `${coverage.modules ? (coverage.learned / coverage.modules) * 100 : 0}%` }} />
-      </div>
-      <p className="muted small">{track}. A module is learned when you pass a piece of work in it.</p>
-      {skills.map((skill) => (
-        <div key={skill.module} className="definition">
-          <div className="row">
-            <span className="strong">{skill.passes > 0 ? "✓" : skill.open ? "○" : "🔒"} {skill.module}</span>
-            <span className={skill.passes > 0 ? "change-up small" : "muted small"}>
-              {skill.passes > 0 ? `Learned · passed ${skill.passes}` : skill.open ? "Not yet" : `Opens at Level ${skill.level}`}
-            </span>
+    <>
+      {tracks.map((track) => (
+        <Panel key={track.track} title={`${track.name}: syllabus map`} aside={`${track.mastered} of ${track.modules} modules proven`}>
+          <div className="coverage" role="group" aria-label={`How much of the ${track.name} map you have worked through`}>
+            {STAGES.map((stage) => (
+              <div key={stage.key} className="coverage-line">
+                <span className="small">{stage.label}</span>
+                <div className="meter" role="img" aria-label={`${track[`${stage.key}_pct`]}% of modules ${stage.label.toLowerCase()}`}>
+                  <div className={`meter-fill meter-${stage.key}`} style={{ width: `${track[`${stage.key}_pct`]}%` }} />
+                </div>
+                <span className="mono small">{track[`${stage.key}_pct`]}%</span>
+              </div>
+            ))}
           </div>
-          <div className="muted small">{skill.idea}</div>
-          {skill.practise_again && <div className="small change-down">▼ Last attempt was not passed. It is on offer again: practise it.</div>}
-        </div>
+          <p className="muted small">Each module has three stages: learned (alone), practised (with your empire), proven (in a weekend challenge).</p>
+          {skills.filter((skill) => skill.track === track.track).map((skill) => (
+            <div key={skill.module} className="definition">
+              <div className="row">
+                <span className="strong">{skill.open ? "" : "🔒 "}{skill.module}</span>
+                <span className="stage-pips" role="img" aria-label={STAGES.map((stage) => `${stage.label}: ${skill[stage.key] ? "yes" : "not yet"}`).join(", ")}>
+                  {STAGES.map((stage, index) => (
+                    <span key={stage.key} className={skill[stage.key] ? `pip pip-done pip-${stage.key}` : "pip"} title={`${stage.label}: ${stage.how}`}>
+                      {skill[stage.key] ? "✓" : index + 1}
+                    </span>
+                  ))}
+                </span>
+              </div>
+              <div className="muted small">{skill.idea}</div>
+              <div className="small">
+                {!skill.open ? <span className="muted">Opens at Level {skill.level}.</span>
+                  : skill.proven && skill.practised && skill.learned ? <span className="change-up">▲ Proven.</span>
+                  : <span className="muted">Next: {!skill.learned ? "pass it on your own" : !skill.practised ? "pass it with your empire" : "pass it in a weekend challenge"}.</span>}
+              </div>
+              {skill.practise_again && <div className="small change-down">▼ Last attempt was not passed. It is on offer again: practise it.</div>}
+            </div>
+          ))}
+        </Panel>
       ))}
-    </Panel>
+    </>
   );
 }
 

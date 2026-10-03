@@ -546,3 +546,23 @@ details.why p { margin-top: 8px; }
 
 .fund-card { padding: 12px 0; border-top: 1px solid var(--border); }
 .fund-card:first-of-type { border-top: 0; }
+
+/* Stage 7: the sum under a trading form, the syllabus map, rank cases. */
+.sum { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
+.sum .row { padding: 3px 0; }
+.sum-total { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 6px; }
+.trade-form select { width: 100%; }
+.coverage { display: grid; gap: 6px; margin-bottom: 8px; }
+.coverage-line { display: grid; grid-template-columns: 78px minmax(0, 1fr) 44px; gap: 8px; align-items: center; }
+.coverage-line .meter { margin: 0; }
+.stage-pips { display: inline-flex; gap: 4px; }
+.pip { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%;
+       border: 1px solid var(--border); font-size: 11px; color: var(--muted); }
+.pip-done { background: var(--up); border-color: var(--up); color: #06120c; font-weight: 700; }
+.case-part { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 12px; }
+.case-part h3 { margin: 0 0 6px; font-size: 15px; }
+.road { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 8px; }
+.road-step { display: flex; gap: 10px; align-items: center; }
+.road-step.current .tracker-mark { border-color: var(--gold); color: var(--gold); font-weight: 700; }
+.road-step.done .tracker-mark { background: var(--up); border-color: var(--up); color: #06120c; font-weight: 700; }
+.tag-setting-solo, .tag-setting-empire, .tag-setting-live { border: 1px solid var(--border); }

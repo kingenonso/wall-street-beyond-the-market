@@ -324,14 +324,14 @@ def test_a_member_can_take_the_empires_money_disguised_in_its_books_within_their
     empire = computer_empire(db)
     thief, account = thief_in(db, empire)
     before, empire_before = ledger.balance(db, account), ledger.balance(db, empire["account_id"])
-    limit = naira(data.COMPUTER_EMPIRE_LIMIT_NAIRA) * 4
+    limit = naira(data.SIGNING_LIMIT_NAIRA)
     assert empires.war_room(db, thief, NOW9)["signing_limit"] == limit
     taken = empires.divert(db, thief, naira(300_000), NOW9)
     assert taken["category"] == "Legal fees and filings"
     assert ledger.balance(db, account) == before + naira(300_000)
     assert ledger.balance(db, empire["account_id"]) == empire_before - naira(300_000)
     with pytest.raises(empires.EmpireError, match="signing limit"):
-        empires.divert(db, thief, naira(100_001), NOW9)
+        empires.divert(db, thief, naira(200_001), NOW9)
     for bad in (0, -5, 1.5, "9"):
         with pytest.raises(empires.EmpireError):
             empires.divert(db, thief, bad, NOW9)

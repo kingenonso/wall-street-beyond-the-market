@@ -72,6 +72,7 @@ function sectionsFor(player: Player) {
     { path: "", label: "My desk" },
     ...(player.build_name ? [{ path: "build", label: player.build_name }] : []),
     { path: "work", label: "Work" },
+    ...(player.build_name ? [{ path: "rank", label: "Rank" }] : []),
     ...(player.empire && !player.empire.forming ? [{ path: "head", label: player.empire.is_head ? "Head of empire" : "Empire overview" }] : []),
     { path: "empire", label: player.empire ? "War Room" : "Empires", count: player.empire?.waiting ?? 0 },
     { path: "market", label: "Market" },

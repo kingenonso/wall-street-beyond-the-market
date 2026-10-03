@@ -9,6 +9,7 @@ import { formatCompact, formatNaira, formatPercent } from "./format";
 import { useLoad } from "./hooks";
 import { NumberTile, ProgressTracker } from "./Parts";
 import { Failed, Loading, Panel } from "./Shell";
+import { BondOrderForm, ShareOrderForm } from "./TradeForm";
 
 type Props = { player: Player; onLoggedOut: () => void; onChanged: () => void };
 type Act = { busy: boolean; error: string | null; notice: string | null; run: (method: "POST" | "PUT" | "DELETE", path: string, body?: unknown) => Promise<boolean> };
@@ -91,37 +92,66 @@ function Directory({ view, player, act }: { view: EmpireView; player: Player; ac
   const amountKobo = asKobo(amount);
   return (
     <>
-      <Panel title="The league of empires" aside="Ranked by what each is worth">
+      <Panel title="The league of empires" aside={`Game year ${d.season} · divisions of ${d.division_size}`}>
         <p className="small">
           An empire is a team of thirteen: a head, and two seats for each of the six builds. Five empires run by the computer
           have existed since the first day, and take any player they have a seat for. A seat is in addition to your job: your
           employer still pays your salary, and the empire pays for the work you do for it.
         </p>
-        <div className="scroll">
-          <table>
-            <thead><tr><th scope="col" className="num">Place</th><th scope="col">Empire</th><th scope="col">Run by</th><th scope="col" className="num">Worth</th><th scope="col" className="num">Players</th><th scope="col" className="num">Trust</th><th scope="col"></th></tr></thead>
-            <tbody>
-              {d.league.map((row) => (
-                <tr key={row.id} className={row.yours ? "row-chosen" : undefined}>
-                  <td className="num mono">{row.place}</td>
-                  <th scope="row">{row.name}</th>
-                  <td>{row.run_by}</td>
-                  <td className="num mono">{formatCompact(row.worth_kobo)}</td>
-                  <td className="num mono">{row.members} of 12</td>
-                  <td className="num mono">{row.trust}</td>
-                  <td className="num">
-                    {row.yours ? <span className="saved small">✓ Yours</span>
-                      : row.applied ? <button className="button-quiet" disabled={act.busy} onClick={() => act.run("DELETE", "/empire/application")}>Withdraw application</button>
-                      : !view.room && <button className="button-quiet" disabled={act.busy || !player.build || row.seats_open === 0}
-                                 onClick={() => act.run("POST", `/empires/${row.id}/applications`)}>
-                          {row.seats_open === 0 ? "No seat for your build" : row.run_by === "the computer" ? "Take a seat" : "Apply"}
-                        </button>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <p className="small">
+          Empires compete in divisions. Points come from finishing tasks ({d.league_points.task} each), work passed for the empire
+          ({d.league_points.work}), weekend challenges passed by members ({d.league_points.challenge}), and how the empire's worth
+          grew over the game year (a point for each 1%, up to {d.league_points.growth_most}; money put in by members is left out,
+          so growth cannot be bought). An unlawful pact that comes to light costs {-d.league_points.theft}. As each game year ends, the
+          top of a division goes up and the bottom goes down.
+        </p>
+        {d.divisions.map((division) => (
+          <div key={division.division}>
+            <div className="why-title">DIVISION {division.division}</div>
+            <div className="scroll">
+              <table>
+                <thead><tr><th scope="col" className="num">Place</th><th scope="col">Empire</th><th scope="col">Run by</th><th scope="col" className="num">Points</th><th scope="col" className="num">Worth</th><th scope="col" className="num">Players</th><th scope="col" className="num">Trust</th><th scope="col"></th></tr></thead>
+                <tbody>
+                  {division.empires.map((row) => {
+                    const entry = d.league.find((e) => e.id === row.id);
+                    return (
+                      <tr key={row.id} className={row.yours ? "row-chosen" : undefined}>
+                        <td className="num mono">{row.place}{row.zone === "up" && <span className="change-up" title="Going up if the year ended today"> ▲</span>}{row.zone === "down" && <span className="change-down" title="Going down if the year ended today"> ▼</span>}</td>
+                        <th scope="row">{row.name}</th>
+                        <td>{row.run_by}</td>
+                        <td className="num mono strong">{row.points}</td>
+                        <td className="num mono">{formatCompact(row.worth_kobo)}</td>
+                        <td className="num mono">{row.members} of 12</td>
+                        <td className="num mono">{row.trust}</td>
+                        <td className="num">
+                          {row.yours ? <span className="saved small">✓ Yours</span>
+                            : entry?.applied ? <button className="button-quiet" disabled={act.busy} onClick={() => act.run("DELETE", "/empire/application")}>Withdraw application</button>
+                            : !view.room && entry && <button className="button-quiet" disabled={act.busy || !player.build || entry.seats_open === 0}
+                                       onClick={() => act.run("POST", `/empires/${row.id}/applications`)}>
+                                {entry.seats_open === 0 ? "No seat for your build" : row.run_by === "the computer" ? "Take a seat" : "Apply"}
+                              </button>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+        <p className="muted small">▲ would go up, ▼ would go down, if the game year ended today. A newly opened empire enters the bottom division.</p>
+        {d.seasons.length > 0 && (
+          <>
+            <div className="why-title">HOW PAST GAME YEARS ENDED</div>
+            {d.seasons.map((season) => (
+              <div key={season.season} className="small">
+                <span className="strong">Year {season.season}:</span>{" "}
+                {season.rows.filter((r) => r.moved !== "stayed").length === 0 ? "nobody moved between divisions."
+                  : season.rows.filter((r) => r.moved !== "stayed").map((r) => `${r.name} went ${r.moved} (${r.points} points)`).join("; ") + "."}
+              </div>
+            ))}
+          </>
+        )}
         {!player.build && <p className="muted small">Choose a build on the <a href="#/career">Career</a> page first: a seat in an empire is a seat for a build.</p>}
         {d.forming.length > 0 && !view.room && (
           <>
@@ -156,6 +186,18 @@ function Directory({ view, player, act }: { view: EmpireView; player: Player; ac
               <button className="button-primary" disabled={act.busy || name.trim().length < 3 || (amountKobo === null && asKobo(savings) === null)}>Begin founding</button>
             </form>
           ) : <p className="muted small">You {player.level ? `are Level ${player.level}` : "have no build yet"}. Founding opens at Level {d.founding_level}.</p>}
+        </Panel>
+      )}
+
+      {d.build_table && d.build_table.top.length > 0 && (
+        <Panel title={`${d.build_table.name}s, ranked`} aside={d.build_table.your_place ? `You are ${d.build_table.your_place} of ${d.build_table.players}` : `${d.build_table.players} players`}>
+          <p className="muted small">Every player is ranked within their build: by level, then by experience.</p>
+          {d.build_table.top.slice(0, 10).map((row) => (
+            <div key={row.place} className={row.you ? "row row-chosen" : "row"}>
+              <span><span className="mono">{row.place}.</span> {row.name}{row.you && <span className="muted small"> · you</span>}</span>
+              <span className="mono">Level {row.level} <span className="muted small">· {row.rank_name}</span></span>
+            </div>
+          ))}
         </Panel>
       )}
 
@@ -255,7 +297,7 @@ function Seats({ room, act }: { room: EmpireRoom; act: Act }) {
             {room.seats.map((seat) => (
               <tr key={`${seat.build}${seat.slot}`} className={seat.you ? "row-chosen" : undefined}>
                 <th scope="row">{seat.build_name} {seat.slot}</th>
-                <td>{seat.name}{seat.head && <span className="tag tag-active"> ★ {room.kind === "player" ? "Acting Head" : "Head"}</span>}{seat.lead && !seat.head && <span className="muted small"> · lead</span>}{seat.you && <span className="muted small"> · you</span>}</td>
+                <td>{seat.name}{seat.head && <span className="tag tag-active"> ★ {room.head_is_ceo ? "CEO" : "Acting Head"}</span>}{seat.ceo && !seat.head && <span className="muted small"> · holds the CEO rank</span>}{seat.resigning && <span className="small change-down"> · ▼ has resigned</span>}{seat.legal.length > 0 && <span className="small change-down"> · ✕ legal record</span>}{seat.lead && !seat.head && <span className="muted small"> · lead</span>}{seat.you && <span className="muted small"> · you</span>}</td>
                 <td className="num mono">{seat.level ?? "—"}</td>
                 {room.is_head && <td className="num mono">{seat.held ? (seat.signing_limit_kobo ? formatNaira(seat.signing_limit_kobo) : "the usual") : "—"}</td>}
                 <td className="num">
@@ -276,6 +318,18 @@ function Seats({ room, act }: { room: EmpireRoom; act: Act }) {
           </tbody>
         </table>
       </div>
+      {room.is_head && room.seats.some((seat) => seat.legal.length > 0) && (
+        <div className="definition">
+          <div className="why-title">LEGAL RECORDS OF YOUR MEMBERS</div>
+          <p className="muted small">A theft proved against a member, here or at an empire they have left, is on their legal record. They do not lose their seat with you for it: whether they stay is your decision.</p>
+          {room.seats.filter((seat) => seat.legal.length > 0).map((seat) => (
+            <div key={`${seat.build}${seat.slot}`}>
+              <div className="strong small">{seat.name}</div>
+              {seat.legal.map((line, index) => <div key={index} className="small"><span className="muted">{when(line.at)}:</span> {line.words}</div>)}
+            </div>
+          ))}
+        </div>
+      )}
       {room.is_head && bonus && (
         <div className="definition">
           <AmountForm label={`Pay this member a bonus from the empire's cash (bonuses of up to ${formatCompact(room.bonus_limit_kobo)} a quarter in all)`} button="Pay bonus" busy={act.busy}
@@ -306,7 +360,8 @@ function Seats({ room, act }: { room: EmpireRoom; act: Act }) {
           <div className="why-title">ASKING FOR A SEAT</div>
           {room.applications.map((asked) => (
             <div key={asked.id} className="row">
-              <span>{asked.display_name} <span className="muted small">· {asked.build.replace("_", " ")}</span></span>
+              <span>{asked.display_name} <span className="muted small">· {asked.build.replace("_", " ")}</span>
+                {asked.legal.length > 0 ? <span className="small change-down"> · ✕ legal record: {asked.legal[0].words}</span> : <span className="muted small"> · no legal record</span>}</span>
               <span>
                 <button className="button-outline" disabled={act.busy} onClick={() => act.run("PUT", `/empire/applications/${asked.id}`, { accept: true })}>Accept</button>
                 <button className="button-quiet" disabled={act.busy} onClick={() => act.run("PUT", `/empire/applications/${asked.id}`, { accept: false })}>Refuse</button>
@@ -319,17 +374,9 @@ function Seats({ room, act }: { room: EmpireRoom; act: Act }) {
   );
 }
 
-function Treasury({ room, act }: { room: EmpireRoom; act: Act }) {
-  const [ticker, setTicker] = useState("");
-  const [side, setSide] = useState<"buy" | "sell">("buy");
-  const [quantity, setQuantity] = useState("");
-  const [price, setPrice] = useState("");
-  const [code, setCode] = useState("");
-  const [units, setUnits] = useState("");
-  const count = Number(quantity);
-  const priceKobo = asKobo(price);
+function Treasury({ room, act, onLoggedOut }: { room: EmpireRoom; act: Act; onLoggedOut: () => void }) {
   return (
-    <Panel title="The empire's money" aside={room.place ? `Place ${room.place} of ${room.empires} in the league` : undefined}>
+    <Panel title="The empire's money" aside={room.place ? `${room.place} of ${room.empires} empires by worth` : undefined}>
       <div className="tiles">
         <NumberTile label="Worth" value={formatCompact(room.worth_kobo)} note={`trust ${room.trust} of 100`} />
         <NumberTile label="Cash" value={formatCompact(room.cash_kobo)} />
@@ -361,27 +408,12 @@ function Treasury({ room, act }: { room: EmpireRoom; act: Act }) {
             belongs to the empire, not to you. Buying what the empire's task calls for is outside your limit.
             {room.fair_dealing && " An empire run by the computer deals within 2% of the last session's price."} You cannot deal with the empire yourself.
           </p>
-          <form className="inline-form" onSubmit={(event) => {
-            event.preventDefault();
-            if (Number.isInteger(count) && count > 0 && priceKobo !== null) {
-              act.run("POST", "/empire/orders", { ticker, side, kind: "limit", quantity: count, limit_price_kobo: priceKobo }).then((ok) => ok && setQuantity(""));
-            }
-          }}>
-            <label className="answer"><span className="field-label">Share code</span><span className="answer-box"><input type="text" maxLength={3} value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} /></span></label>
-            <label className="answer"><span className="field-label">Buy or sell</span>
-              <select value={side} onChange={(event) => setSide(event.target.value as "buy" | "sell")}><option value="buy">Buy</option><option value="sell">Sell</option></select></label>
-            <label className="answer"><span className="field-label">Shares</span><span className="answer-box"><input type="text" inputMode="numeric" value={quantity} onChange={(event) => setQuantity(event.target.value.replace(/\D/g, ""))} /></span></label>
-            <label className="answer"><span className="field-label">Price each</span><span className="answer-box"><span className="muted small">₦</span><input type="text" inputMode="decimal" value={price} onChange={(event) => setPrice(event.target.value)} /></span></label>
-            <button className="button-outline" disabled={act.busy || ticker.length !== 3 || !(count > 0) || priceKobo === null}>Place the order</button>
-          </form>
-          <form className="inline-form" onSubmit={(event) => {
-            event.preventDefault();
-            if (Number(units) > 0) act.run("POST", "/empire/bonds", { code, side, units: Number(units) }).then((ok) => ok && setUnits(""));
-          }}>
-            <label className="answer"><span className="field-label">Bond or bill code (from the <a href="#/market/bonds">Bonds and bills</a> page)</span><span className="answer-box"><input type="text" maxLength={12} value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} /></span></label>
-            <label className="answer"><span className="field-label">Number</span><span className="answer-box"><input type="text" inputMode="numeric" value={units} onChange={(event) => setUnits(event.target.value.replace(/\D/g, ""))} /></span></label>
-            <button className="button-outline" disabled={act.busy || code.length < 3 || !(Number(units) > 0)}>{side === "buy" ? "Buy" : "Sell"} for the empire</button>
-          </form>
+          <div className="why-title">SHARES</div>
+          <ShareOrderForm whose="The empire" busy={act.busy} held={room.holdings} fairDealing={room.fair_dealing} onLoggedOut={onLoggedOut}
+                          onPlace={(order) => act.run("POST", "/empire/orders", { ...order, kind: "limit" })} />
+          <div className="why-title">BONDS AND BILLS</div>
+          <BondOrderForm whose="The empire" busy={act.busy} held={room.bond_holdings} onLoggedOut={onLoggedOut}
+                         onPlace={(order) => act.run("POST", "/empire/bonds", order)} />
         </>
       ) : <p className="muted small">Only the empire's Asset Managers, and its head, place its trades.</p>}
       {room.shared.map((other) => (
@@ -569,12 +601,126 @@ export function Chat({ room, act }: { room: EmpireRoom; act: Act }) {
   );
 }
 
+function Leaving({ room, act }: { room: EmpireRoom; act: Act }) {
+  const [letter, setLetter] = useState("");
+  const [writing, setWriting] = useState(false);
+  const mine = room.resignation;
+  const date = (iso: string) => new Date(iso).toLocaleString("en-NG", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+  return (
+    <Panel title="Leaving the empire" aside={mine ? "● Your letter is in" : "By resignation letter"}>
+      {!mine && (
+        <>
+          <p className="small">
+            {room.status === "forming" ? "The empire is not open yet. If you leave now you go at once, and what you put in is handed back."
+              : room.run_by_computer ? "Nobody leaves an empire overnight. Hand in a resignation letter and you leave when this quarter ends. Until then you are a member in full: you work, you are paid, and you may withdraw the letter."
+              : `Nobody leaves an empire overnight. Hand in a resignation letter and the head is told. You then work out a notice of ${room.notice_days} real days, as a member in full: you work, you are paid, and you may withdraw the letter. The head may make you an offer to stay, or let you go early. If nothing is agreed, you leave when the notice has run.`}
+            {room.is_head && room.humans > 1 && " When a head leaves, the most experienced member becomes Acting Head."}
+          </p>
+          {writing ? (
+            <form className="stack-form" onSubmit={(event) => { event.preventDefault(); act.run("POST", "/empire/resignation", { letter }).then((ok) => ok && setWriting(false)); }}>
+              <label className="answer"><span className="field-label">Your letter (the head reads it; it can be left empty)</span>
+                <textarea rows={3} maxLength={600} value={letter} onChange={(event) => setLetter(event.target.value)} /></label>
+              <div className="step-actions">
+                <button className="button-primary" disabled={act.busy}>Hand in the letter</button>
+                <button type="button" className="button-quiet" onClick={() => setWriting(false)}>Not now</button>
+              </div>
+            </form>
+          ) : <button className="button-quiet" disabled={act.busy} onClick={() => setWriting(true)}>Write a resignation letter</button>}
+          <p className="muted small">Leaving does not close the books behind you: an audit can still prove a theft after you have gone, and you answer for it wherever you are.</p>
+        </>
+      )}
+      {mine && (
+        <>
+          <p className="small">
+            You handed in your letter on {date(mine.given_at)}.{" "}
+            {mine.leaves_at ? <>You leave on <span className="strong">{date(mine.leaves_at)}</span> unless you withdraw it or accept an offer to stay.</>
+              : <>You leave when <span className="strong">{mine.leaves_label}</span> ends, unless you withdraw it.</>}
+          </p>
+          {mine.offer ? (
+            <div className="definition row-chosen">
+              <div className="strong">The head has made you an offer to stay</div>
+              {BigInt(mine.offer.bonus_kobo) > 0n && <div className="row"><span>A bonus, paid the moment you accept</span><span className="mono">{formatNaira(mine.offer.bonus_kobo)}</span></div>}
+              {mine.offer.signing_limit_kobo && <div className="row"><span>What you may sign for in a quarter</span><span className="mono">{formatNaira(mine.offer.signing_limit_kobo)}</span></div>}
+              {mine.offer.words && <p className="small">"{mine.offer.words}"</p>}
+              <div className="step-actions">
+                <button className="button-primary" disabled={act.busy} onClick={() => act.run("POST", "/empire/resignation/acceptance")}>Accept and stay</button>
+                <span className="muted small">If you do not accept, your letter stands.</span>
+              </div>
+            </div>
+          ) : !room.run_by_computer && !room.is_head && <p className="muted small">The head has not made an offer.</p>}
+          <button className="button-quiet" disabled={act.busy} onClick={() => act.run("DELETE", "/empire/resignation")}>Withdraw my letter and stay</button>
+        </>
+      )}
+    </Panel>
+  );
+}
+
+function Resignations({ room, act }: { room: EmpireRoom; act: Act }) {
+  const [open, setOpen] = useState<number | null>(null);
+  const [bonus, setBonus] = useState("");
+  const [limit, setLimit] = useState("");
+  const [words, setWords] = useState("");
+  if (!room.is_head || room.resignations.length === 0) return null;
+  const date = (iso: string) => new Date(iso).toLocaleString("en-NG", { weekday: "short", day: "numeric", month: "short" });
+  return (
+    <Panel title="Resignation letters" aside={`${room.resignations.length} waiting`}>
+      {room.resignations.map((letter) => (
+        <div key={letter.id} className="definition">
+          <div className="row"><span className="strong">{letter.name}</span><span className="small">{letter.leaves_at ? `leaves ${date(letter.leaves_at)}` : `leaves when ${letter.leaves_label} ends`}</span></div>
+          {letter.letter && <p className="small">"{letter.letter}"</p>}
+          {letter.offer && <div className="small saved">✓ You offered{BigInt(letter.offer.bonus_kobo) > 0n ? ` a bonus of ${formatNaira(letter.offer.bonus_kobo)}` : ""}{letter.offer.signing_limit_kobo ? `${BigInt(letter.offer.bonus_kobo) > 0n ? " and" : ""} a signing limit of ${formatNaira(letter.offer.signing_limit_kobo)}` : ""}. Nothing is paid until they accept.</div>}
+          <div className="step-actions">
+            <button className="button-outline" disabled={act.busy} onClick={() => setOpen(open === letter.id ? null : letter.id)}>{letter.offer ? "Change the offer" : "Make an offer to stay"}</button>
+            <button className="button-quiet" disabled={act.busy} onClick={() => act.run("DELETE", `/empire/resignations/${letter.id}`)}>Let them go now</button>
+          </div>
+          {open === letter.id && (
+            <form className="stack-form" onSubmit={(event) => {
+              event.preventDefault();
+              act.run("PUT", `/empire/resignations/${letter.id}/offer`, { bonus_kobo: asKobo(bonus) ?? 0, signing_limit_kobo: asKobo(limit), words }).then((ok) => ok && setOpen(null));
+            }}>
+              <label className="answer"><span className="field-label">A bonus from the empire's cash (up to {formatCompact(room.counter_offer_most_kobo)})</span><span className="answer-box"><span className="muted small">₦</span><input type="text" inputMode="decimal" value={bonus} onChange={(event) => setBonus(event.target.value)} /></span></label>
+              <label className="answer"><span className="field-label">And, or instead: what they may sign for in a quarter</span><span className="answer-box"><span className="muted small">₦</span><input type="text" inputMode="decimal" value={limit} onChange={(event) => setLimit(event.target.value)} /></span></label>
+              <label className="answer"><span className="field-label">A few words (optional)</span><textarea rows={2} maxLength={400} value={words} onChange={(event) => setWords(event.target.value)} /></label>
+              <button className="button-primary" disabled={act.busy || (asKobo(bonus) === null && asKobo(limit) === null)}>Send the offer</button>
+            </form>
+          )}
+        </div>
+      ))}
+    </Panel>
+  );
+}
+
+function Election({ room, act }: { room: EmpireRoom; act: Act }) {
+  const candidates = room.seats.filter((seat) => seat.held && seat.ceo && !seat.head);
+  if (!room.election.open) return null;
+  return (
+    <Panel title="Who leads" aside={room.head_is_ceo ? "Led by a CEO" : "Led by an Acting Head"}>
+      <p className="small">
+        A founder leads as Acting Head, with capped powers: signing for 2% of the empire's cash in a quarter, bonuses of a tenth
+        of its worth, and investments of up to ₦50 million. A head who has earned the <a href="#/rank">CEO rank</a> leads as CEO:
+        5% of cash, bonuses of a quarter of its worth, investments of up to ₦200 million. Any member who holds the CEO rank can
+        be voted in by the empire: it takes the votes of more than half its players ({room.election.needed} now).
+      </p>
+      {candidates.length === 0 && <p className="muted small">No member other than the head holds the CEO rank yet, so there is nobody to vote for.</p>}
+      {candidates.map((seat) => (
+        <div key={`${seat.build}${seat.slot}`} className="row">
+          <span>{seat.name} <span className="muted small">· {seat.build_name}, Level {seat.level} · {room.election.tally.find((t) => t.name === seat.name)?.votes ?? 0} votes</span></span>
+          <button className="button-outline" disabled={act.busy} onClick={() => act.run("POST", "/empire/head-votes", { build: seat.build, slot: seat.slot })}>Vote for them</button>
+        </div>
+      ))}
+      {room.election.your_vote && <p className="small saved">✓ Your vote is for {room.election.your_vote}.</p>}
+    </Panel>
+  );
+}
+
 function needs(room: EmpireRoom) {
   const cards: { tag: string; title: string; text: string }[] = [];
   for (const step of room.task?.steps ?? []) {
     if (step.yours_to_take) cards.push({ tag: "YOUR STEP", title: step.what, text: `The step before it is done. ${room.task?.company} is waiting on your build.` });
     if (step.yours_to_approve) cards.push({ tag: "APPROVAL", title: "Approve the investment", text: "Every build has reported. The decision is yours as head." });
   }
+  if (room.resignation?.offer) cards.push({ tag: "OFFER TO STAY", title: "The head has made you an offer", text: "Accept it and stay, or let your letter stand. See Leaving the empire, below." });
+  for (const letter of room.resignations.filter((r) => !r.offer)) cards.push({ tag: "RESIGNATION", title: `${letter.name} has handed in a letter`, text: "Make an offer to stay, let them go now, or let the notice run." });
   if (room.open_audit) cards.push({ tag: "AUDIT", title: "File your audit report", text: `${room.open_audit.findings.length} false entries found. Decide what goes in the report.` });
   if (room.is_head) {
     for (const item of room.cases.filter((c) => c.status === "open")) cards.push({ tag: "PROVED THEFT", title: `${item.who} took ${formatNaira(item.amount_kobo)}`, text: "An audit proved it. Decide what follows." });
@@ -594,7 +740,7 @@ export function EmpireWork({ player, onLoggedOut, onChanged }: Props) {
     <>
       <div className="work-head">
         <h1>{room ? room.name : "Empires"}</h1>
-        <span className="muted small">{room ? (room.status === "forming" ? "Being founded" : room.run_by_computer ? "Run by the computer until a player earns its head" : room.is_head ? "You are its Acting Head" : "War Room") : "Join one, or found your own"}</span>
+        <span className="muted small">{room ? (room.status === "forming" ? "Being founded" : room.run_by_computer ? "Run by the computer until a player earns its head" : room.is_head ? (room.head_is_ceo ? "You are its CEO" : "You are its Acting Head") : "War Room") : "Join one, or found your own"}</span>
       </div>
       {act.error && <p className="error" role="alert">{act.error}</p>}
       {act.notice && <p className="saved" role="status">{act.notice}</p>}
@@ -617,22 +763,19 @@ export function EmpireWork({ player, onLoggedOut, onChanged }: Props) {
         <>
           <Task room={room} act={act} />
           <Seats room={room} act={act} />
-          <Treasury room={room} act={act} />
+          <Resignations room={room} act={act} />
+          <Treasury room={room} act={act} onLoggedOut={onLoggedOut} />
           <Books room={room} act={act} />
           <Audits room={room} act={act} />
           <Pacts room={room} act={act} />
+          <Election room={room} act={act} />
         </>
       )}
       {!room && <Directory view={view} player={player} act={act} />}
       {room && (
         <>
           <Directory view={view} player={player} act={act} />
-          <Panel title="Leaving">
-            <div className="step-actions">
-              <span className="muted small">{room.is_head && room.humans > 1 ? "If you leave, the most experienced member becomes Acting Head." : "You can take a seat in another empire afterwards."}</span>
-              {room.status === "active" && <button className="button-quiet" disabled={act.busy} onClick={() => act.run("DELETE", "/empire/seat")}>Leave {room.name}</button>}
-            </div>
-          </Panel>
+          <Leaving room={room} act={act} />
         </>
       )}
     </>
@@ -659,12 +802,20 @@ export function EmpireRail({ player, onLoggedOut, onChanged }: Props) {
     <>
       <Chat room={room} act={act} />
       <Panel title="Your part">
-        <div className="row"><span>Your seat</span><span>{room.seats.find((s) => s.you)?.build_name}{room.is_head ? " · Acting Head" : ""}</span></div>
+        <div className="row"><span>Your seat</span><span>{room.seats.find((s) => s.you)?.build_name}{room.is_head ? (room.head_is_ceo ? " · CEO" : " · Acting Head") : ""}</span></div>
         <div className="row"><span>You may sign for, a quarter</span><span className="mono">{formatNaira(room.signing_limit_kobo)}</span></div>
         {room.can_trade && <div className="row"><span>You may trade, a quarter</span><span className="mono">{formatCompact(room.trade_limit_kobo)}</span></div>}
         <div className="row"><span>Head approves</span><span>investments, bonuses, recruits, pacts</span></div>
+        {room.division && <div className="row"><span>In the league</span><span>Division {room.division.division}, place {room.division.place} of {room.division.of} · <span className="mono">{room.division.points} points</span></span></div>}
         <div className="row"><span>Trust in the empire</span><span className="mono">{room.trust} of 100 <span className="muted">({formatPercent(room.trust * 100, 0)})</span></span></div>
       </Panel>
+      {room.league_points.length > 0 && (
+        <Panel title="League points this game year">
+          {room.league_points.slice(0, 8).map((line, index) => (
+            <div key={index} className="row"><span className="small">{line.why}</span><span className={line.points >= 0 ? "mono change-up" : "mono change-down"}>{line.points >= 0 ? "▲ +" : "▼ "}{line.points}</span></div>
+          ))}
+        </Panel>
+      )}
       <Panel title="Decision log" aside="Permanent">
         {room.events.slice(0, 12).map((event, index) => (
           <div key={index} className="news-line"><div className="small muted">{when(event.at)}</div><div className="small">{event.words}</div></div>

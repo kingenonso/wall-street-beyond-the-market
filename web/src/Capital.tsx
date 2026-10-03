@@ -300,7 +300,7 @@ export function CorporateWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
       </Panel>
 
       {c.integrations.length > 0 && (
-        <Panel title="After a takeover: joining the two businesses" aside="The planned savings can succeed or fail">
+        <Panel title="After a takeover: joining the two businesses" aside="▲ green: costs saved · ▼ red: extra costs">
           {c.integrations.map((i) => (
             <div key={i.ticker} className="bond">
               <div className="strong"><a href={`#/companies/${i.ticker}`}>{i.target}</a>, now controlled by {i.bidder}</div>
@@ -309,7 +309,7 @@ export function CorporateWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
                 <div key={q.label} className="row">
                   <span><span className="mono">{q.label}</span> {q.notes.join(" ")}</span>
                   <span className={q.cost_bps <= 0 ? "change-up mono" : "change-down mono"}>
-                    {q.cost_bps <= 0 ? "▼" : "▲"} {formatPercent(Math.abs(q.cost_bps))} costs
+                    {q.cost_bps <= 0 ? `▲ ${formatPercent(Math.abs(q.cost_bps))} of sales saved` : `▼ ${formatPercent(Math.abs(q.cost_bps))} of sales in extra costs`}
                   </span>
                 </div>
               ))}

@@ -33,6 +33,16 @@ export function urgent(board: ObjectiveBoard | null, career: Career | null, play
                  title: "Your work is under review", text: `${career.career.review.why} ${career.career.review.how_to_recover}`,
                  action: "See the work on offer", href: "#/work" });
   }
+  if (career.career && career.career.at_cap && career.career.level < career.career.top_level) {
+    cards.push({ tag: "RANK", when: `Level ${career.career.gate}`, title: `You are at the Level ${career.career.gate} gate`,
+                 text: "Work alone goes no further. Mastery across your modules and a rank case open the levels above. Experience you earn meanwhile is kept.",
+                 action: "See what the rank case needs", href: "#/rank" });
+  }
+  if (board.weekend.open && board.offers.some((offer) => offer.setting === "live" && offer.available)) {
+    cards.push({ tag: "WEEKEND CHALLENGE", when: "Open now", title: "The weekend challenge is open",
+                 text: "Work passed in it makes a module proven, and pays and teaches one and a half times as much. It closes on Sunday at 22:00, Lagos time.",
+                 action: "See the challenge", href: "#/work" });
+  }
   for (const objective of board.active) {
     const waiting = objective.can_hand_in && objective.terms.fields.length > 0;
     cards.push({
@@ -93,7 +103,7 @@ export function BuildRail({ player, onLoggedOut }: { player: Player; onLoggedOut
       {board.data && <ObjectivesPanel board={board.data} />}
       {career.data?.career && <LevelPanel career={career.data.career} />}
       {career.data && <PayPanel career={career.data} />}
-      {board.data && career.data?.career && <SkillTree skills={board.data.skills} coverage={board.data.coverage} track={`${career.data.career.track} track`} />}
+      {board.data && career.data?.career && <SkillTree skills={board.data.skills} tracks={board.data.tracks} />}
     </>
   );
 }

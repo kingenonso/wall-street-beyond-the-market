@@ -47,6 +47,7 @@ export type Career = {
   career: null | {
     build: BuildCode; build_name: string; accent: string; track: string; level: number; level_words: string;
     experience: number; level_floor: number; next_level_at: number | null; at_cap: boolean; review_open: boolean;
+    rank: number; rank_name: string; gate: number; top_level: number;
     review: null | { opened_at: string; finished: number; passes: number; why: string; how_to_recover: string };
     other_builds: { build: string; name: string; level: number }[];
   };
@@ -80,13 +81,16 @@ export type ObjectiveField =
   | { key: string; label: string; kind: "choice"; options: { code: string; label: string }[] }
   | { key: string; label: string; kind: "classify"; options: { code: string; label: string }[];
       items: { key: string; label: string; kobo: Kobo }[] };
+export type Setting = "solo" | "empire" | "live";
 export type Milestone = { label: string; points: number; earned: boolean };
 export type Objective = {
   id: number; template: string; module: string; title: string; kind: "hand_in" | "market"; idea: string;
   terms: {
     client?: { ticker: string; name: string }; situation: string; task: string[]; pass_when: string; deadline: string;
     given: { label: string; kobo?: Kobo; text?: string }[]; fields: ObjectiveField[]; notes?: string[];
+    setting_note?: string; hand_in_by?: string;
   };
+  setting: Setting; setting_name: string; track: string;
   reward_kobo: Kobo; experience: number; payer: string; accepted_at: string;
   state: "active" | "passed" | "failed" | "not_done" | "withdrawn";
   progress: Record<string, unknown>;
@@ -101,15 +105,58 @@ export type ObjectiveOffer = {
   template: string; module: string; title: string; idea: string; kind: "hand_in" | "market"; level: number; reward_kobo: Kobo;
   experience: number; available: boolean; why_not: string | null; payer: string | null;
   client: { ticker: string; name: string } | null; situation: string | null; pass_when: string | null; deadline: string | null;
-  practise_again: boolean;
+  practise_again: boolean; setting: Setting; setting_name: string; track: string;
 };
 export type Skill = {
   module: string; title: string; idea: string; level: number; open: boolean; stage: string; passes: number; finished: number;
-  practise_again: boolean;
+  practise_again: boolean; template: string; track: string; track_name: string; stage_number: 0 | 1 | 2 | 3;
+  learned: boolean; practised: boolean; proven: boolean;
+};
+export type Coverage = {
+  track: string; name: string; modules: number; learned: number; practised: number; proven: number; mastered: number;
+  learned_pct: number; practised_pct: number; proven_pct: number;
 };
 export type ObjectiveBoard = {
   ready: boolean; why: string | null; active: Objective[]; offers: ObjectiveOffer[]; finished: Objective[]; skills: Skill[];
-  coverage: { learned: number; modules: number }; limit: number;
+  coverage: { learned: number; modules: number }; limit: number; tracks: Coverage[];
+  weekend: { open: boolean; opens: string; closes: string; hours: number }; settings: Record<Setting, string>;
+  in_empire: boolean; empire_work: { done: number; most: number };
+};
+
+// Stage 7: rank cases and the CEO rank.
+export type CasePart = {
+  template: string; title: string; module: string; idea: string;
+  terms: { client?: { ticker: string; name: string }; situation: string; task: string[]; pass_when: string;
+           given: { label: string; kobo?: Kobo; text?: string }[]; fields: ObjectiveField[] };
+};
+export type RankCase = {
+  id: number; track: string; track_name: string; gate: number; title: string; fee_kobo: Kobo; state: "active" | "passed" | "failed" | "not_done";
+  started_at: string; due_at: string; judged_at: string | null; pass_mark: number; company: { ticker: string; name: string } | null;
+  parts: CasePart[]; submission: Record<string, Record<string, unknown>> | null;
+  result: null | { score: number; pass_mark: number; summary: string;
+                   parts: { template: string; title: string; module: string; score: number; summary: string; milestones: Milestone[];
+                            debrief: { plain: string; method: string; maths: string }; answers?: Record<string, unknown> }[] };
+};
+type Met = { need: number; have: number; met: boolean };
+export type RankTrack = {
+  track: string; name: string; title: string | null; gate: number | null; level: number; rank: number; rank_name: string; at_gate: boolean;
+  needs: { stage: "learned" | "practised" | "proven"; words: string; need: number; have: number; met: boolean; missing: string[] }[];
+  fee_kobo: Kobo | null; pass_mark: number | null; what: string; parts: string[]; retry_at: string | null; can_begin: boolean;
+  why_not: string | null;
+  ceo?: { earned: boolean; since: string | null; case_passed: boolean; level: Met; reputation: Met };
+};
+export type Ranks = { active: RankCase | null; past: RankCase[]; tracks: RankTrack[]; retry_days: number; hours: number; gates: number[] };
+export type BuildTable = {
+  build: string; name: string; players: number; your_place: number | null;
+  top: { place: number; name: string; level: number; rank_name: string; you: boolean }[];
+};
+export type DivisionRow = {
+  id: number; name: string; kind: string; division: number; run_by: string; members: number; trust: number; points: number;
+  worth_kobo: Kobo; place: number; zone: "up" | "down" | null; yours?: boolean; of?: number;
+};
+export type Resignation = {
+  letter: string; given_at: string; leaves_at: string | null; leaves_when_quarter_ends: boolean; leaves_label: string | null;
+  offer: null | { bonus_kobo: Kobo; signing_limit_kobo?: Kobo | null; words: string; at: string };
 };
 export type Slice = { label: string; group: "shares" | "bonds" | "cash"; value_kobo: Kobo; share_bps: number };
 export type AssetDesk = {
@@ -533,10 +580,15 @@ export type EmpireDirectory = {
   league: LeagueRow[]; forming: { id: number; name: string; founder: string }[]; in_empire: boolean;
   exposed_pacts: { kind: string; legal: boolean; one: string; other: string }[];
   can_found: boolean; founding_level: number; registration_fee_kobo: Kobo;
+  divisions: { division: number; empires: DivisionRow[] }[]; season: number; division_size: number;
+  seasons: { season: number; rows: { division: number; place: number; points: number; moved: "up" | "down" | "stayed"; name: string }[] }[];
+  league_points: { task: number; work: number; challenge: number; theft: number; growth_most: number };
+  build_table: BuildTable | null;
 };
 export type Seat = {
   build: BuildCode; build_name: string; slot: 1 | 2; held: boolean; player_id: string | null; name: string; level: number | null;
   staffed: boolean; you: boolean; head: boolean; signing_limit_kobo?: Kobo; lead?: boolean;
+  ceo: boolean; resigning: boolean; legal: { words: string; at: string }[];
 };
 export type TaskStep = {
   id: number; position: number; build: string; build_name: string; what: string; hands_on: string; status: "waiting" | "current" | "done";
@@ -566,7 +618,11 @@ export type EmpireRoom = {
   pact_kinds: { code: string; label: string; legal: boolean }[]; can_draft: boolean;
   shared: { name: string; cash_kobo: Kobo; shares_value_kobo: Kobo; bonds_value_kobo: Kobo; lines: { ticker: string; value_kobo: Kobo }[] }[];
   others: { id: number; name: string }[];
-  applications: { id: number; display_name: string; build: BuildCode }[];
+  applications: { id: number; display_name: string; build: BuildCode; legal: { words: string; at: string }[] }[];
+  head_is_ceo: boolean; you_are_ceo: boolean; notice_days: number; resignation: Resignation | null;
+  resignations: (Resignation & { id: number; name: string })[]; counter_offer_most_kobo: Kobo;
+  division: DivisionRow | null; league_points: { points: number; why: string; period: number; period_label: string; at: string }[];
+  election: { open: boolean; needed: number; your_vote: string | null; tally: { name: string; votes: number }[] };
   capital: { display_name: string; amount_kobo: Kobo }[];
   expense_limit_kobo: Kobo; trade_limit_bps: number; registration_fee_kobo: Kobo; least_humans: number;
   messages: { id: number; who: string; body: string; at: string; yours: boolean }[];
@@ -799,6 +855,13 @@ export const api = {
   lawyerDesk: (ticker?: string) => request<LawyerDesk>(`/desk/lawyer${ticker ? `?ticker=${encodeURIComponent(ticker)}` : ""}`),
   headDesk: () => request<HeadDesk>("/desk/head"),
   objectives: () => request<ObjectiveBoard>("/objectives"),
+  ranks: () => request<Ranks>("/ranks"),
+  beginCase: (track: string) => request<Ranks>("/ranks/cases", { method: "POST", body: JSON.stringify({ track }) }),
+  handInCase: (id: number, answers: Record<string, Record<string, unknown>>) =>
+    request<Ranks>(`/ranks/cases/${id}/hand-in`, { method: "POST", body: JSON.stringify({ answers }) }),
+  reportMarking: (what: { objective_id?: number; case_id?: number }, words: string) =>
+    request<{ words: string }>("/reports", { method: "POST", body: JSON.stringify({ ...what, words }) }),
+  buildTable: (build: string) => request<BuildTable>(`/league/builds/${build}`),
   takeWork: (template: string) => request<Objective>("/objectives", { method: "POST", body: JSON.stringify({ template }) }),
   handIn: (id: number, answers: Record<string, unknown>) =>
     request<Objective>(`/objectives/${id}/hand-in`, { method: "POST", body: JSON.stringify({ answers }) }),

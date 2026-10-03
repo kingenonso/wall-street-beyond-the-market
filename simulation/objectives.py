@@ -20,6 +20,8 @@ Two kinds of work:
 
 from __future__ import annotations
 
+import contextvars
+import dataclasses
 import hashlib
 import logging
 import math
@@ -89,6 +91,23 @@ class Template:
     bell: Callable | None = None        # (ctx, objective, day) -> verdict or None
     close: Callable | None = None       # (ctx, objective, period) -> verdict or None
     listed: bool = True                 # False: never on the board; it exists only as a step in an empire's task
+    setting: str = "solo"               # 'solo' (alone), 'empire' (with the empire) or 'live' (a weekend challenge)
+    base: str | None = None             # the solo piece of work this is another setting of
+    bonus_bps: int = BPS                # what it pays and teaches, against the solo piece
+
+    @property
+    def root(self) -> str:
+        return self.base or self.code
+
+    @property
+    def track(self) -> str:
+        """The syllabus map this work belongs to: one of the six builds, or 'ceo'."""
+        return self.build
+
+
+# Each setting of a piece of work draws its own client and its own numbers: the same player in the
+# same quarter is never handed the work they have just seen the answers to.
+SALT: contextvars.ContextVar[str] = contextvars.ContextVar("salt", default="")
 
 
 def _verdict(state: str, summary: str, milestones: list, plain: str, method: str, maths: str, **more) -> dict:
@@ -119,7 +138,7 @@ def _pick(player_id, template: str, period: int, candidates: list):
     quarter. The player cannot choose an easy one, or ask again for another."""
     if not candidates:
         return None
-    digest = hashlib.sha256(f"{player_id}:{template}:{period}".encode()).digest()
+    digest = hashlib.sha256(f"{player_id}:{template}:{period}{SALT.get()}".encode()).digest()
     return candidates[int.from_bytes(digest[:8], "big") % len(candidates)]
 
 
@@ -1224,11 +1243,144 @@ TEMPLATES: dict[str, Template] = {t.code: t for t in (
 
 from simulation import objectives_more  # noqa: E402,F401  (adds the work of the other four builds to the library)
 from simulation import empires  # noqa: E402,F401          (adds the work that exists only inside an empire)
+from simulation import objectives_ceo  # noqa: E402,F401   (adds the leadership work of the CEO track)
+from simulation import leagues, ranks  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# Three settings. Every module's work comes alone, with the empire, and as a weekend challenge
+# in the shared world (the stand-in for live events until they are built).
+# ---------------------------------------------------------------------------
+
+def weekend(now: datetime) -> dict:
+    """The weekend challenge window: Friday 18:00 to Sunday 22:00, Lagos time. Returns whether it
+    is open, and when it next opens and closes."""
+    local = clock.to_lagos(now)
+    (open_day, open_hour), (close_day, close_hour) = data.WEEKEND_OPENS, data.WEEKEND_CLOSES
+    monday = (local - timedelta(days=local.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    opens = monday + timedelta(days=open_day, hours=open_hour)
+    closes = monday + timedelta(days=close_day, hours=close_hour)
+    if local >= closes:
+        opens, closes = opens + timedelta(days=7), closes + timedelta(days=7)
+    return {"open": opens <= local < closes, "opens": opens, "closes": closes}
+
+
+def _salted(salt: str, handler: Callable | None) -> Callable | None:
+    if handler is None:
+        return None
+
+    def run(*args):
+        token = SALT.set(salt)
+        try:
+            return handler(*args)
+        finally:
+            SALT.reset(token)
+    return run
+
+
+def _for_empire(base: Template) -> Template:
+    def offer(ctx):
+        seat = empires.seat_of(ctx["conn"], ctx["player_id"])
+        if seat is None or seat["empire_status"] != "active":
+            return None
+        terms = base.offer(ctx)
+        if terms is None:
+            return None
+        terms["setting_note"] = (f"This is work for {seat['empire_name']}. The empire pays for it out of its own cash, and each piece "
+                                 f"passed adds to its points in the league.")
+        terms["empire_id"] = seat["empire_id"]
+        return terms
+    return dataclasses.replace(base, code=base.code + "_e", payer="empire", setting="empire", base=base.code, listed=True,
+                               offer=_salted(":empire", offer), submit=_salted(":empire", base.submit),
+                               bell=_salted(":empire", base.bell), close=_salted(":empire", base.close))
+
+
+def _late(objective: dict, now: datetime) -> bool:
+    by = objective["terms"].get("hand_in_by")
+    return by is not None and now > datetime.fromisoformat(by)
+
+
+def _for_weekend(base: Template) -> Template:
+    def offer(ctx):
+        window = weekend(ctx["now"])
+        if not window["open"]:
+            return None
+        terms = base.offer(ctx)
+        if terms is None:
+            return None
+        terms["setting_note"] = ("A weekend challenge, open to everybody of your build at the same moment in the shared world. "
+                                 "It pays and teaches one and a half times as much.")
+        if base.submit is not None:
+            by = min(ctx["now"] + timedelta(hours=data.WEEKEND_HOURS), window["closes"])
+            terms["hand_in_by"] = by.isoformat()
+            terms["deadline"] = (f"Hand it in within {data.WEEKEND_HOURS} hours of taking it on, and before the challenge closes on "
+                                 f"Sunday at 22:00 (Lagos time). It can be handed in once.")
+        return terms
+
+    def submit(ctx, objective, answers):
+        if _late(objective, ctx["now"]):
+            return _not_done("It was handed in after the time allowed for a weekend challenge.")
+        return base.submit(ctx, objective, answers)
+
+    return dataclasses.replace(base, code=base.code + "_w", setting="live", base=base.code, listed=True,
+                               bonus_bps=data.WEEKEND_BONUS_BPS,
+                               offer=_salted(":weekend", offer), submit=_salted(":weekend", submit if base.submit else None),
+                               bell=_salted(":weekend", base.bell), close=_salted(":weekend", base.close))
+
+
+def _grow_library() -> None:
+    for base in [t for t in TEMPLATES.values() if t.listed and t.setting == "solo"]:
+        for variant in (_for_empire(base), _for_weekend(base)):
+            TEMPLATES[variant.code] = variant
+
+
+_grow_library()
+TRACKS = (*careers.BUILDS, "ceo")
+
+
+def track_name(track: str) -> str:
+    return "Leadership" if track == "ceo" else careers.BUILDS[track]["name"]
 
 
 def modules(build: str) -> list[dict]:
     return [{"module": t.module, "template": t.code, "title": t.title, "idea": t.idea, "level": t.level}
-            for t in TEMPLATES.values() if t.build == build]
+            for t in TEMPLATES.values() if t.build == build and t.setting == "solo" and t.listed]
+
+
+def mastery(conn: Connection, player_id, track: str) -> list[dict]:
+    """A player's syllabus map for one track: every module, and which of its three stages are
+    reached. Learned: passed alone. Practised: passed with the empire. Proven: passed in a
+    weekend challenge."""
+    passed = {}
+    for row in _rows(conn, "SELECT template, setting, count(*) AS n FROM objectives WHERE player_id = %s AND track = %s AND state = 'passed'"
+                           " GROUP BY template, setting", (player_id, track)):
+        template = TEMPLATES.get(row["template"])
+        if template is not None:
+            key = (template.module, row["setting"])
+            passed[key] = passed.get(key, 0) + row["n"]
+    last = {r["module"]: r["state"] for r in _rows(
+        conn, "SELECT DISTINCT ON (module) module, state FROM objectives WHERE player_id = %s AND track = %s AND state <> 'active'"
+              " ORDER BY module, judged_seq DESC", (player_id, track))}
+    out = []
+    for m in modules(track):
+        learned, practised, proven = (passed.get((m["module"], setting), 0) for setting in ("solo", "empire", "live"))
+        stage = 3 if learned and practised and proven else 2 if learned and practised else 1 if learned else 0
+        out.append({**m, "learned": bool(learned), "practised": bool(practised), "proven": bool(proven), "stage": stage,
+                    "stage_name": ("Not yet", "Learned", "Practised", "Proven")[stage],
+                    "passes": learned + practised + proven, "practise_again": last.get(m["module"]) in FAILED_STATES})
+    return out
+
+
+def coverage(conn: Connection, player_id, track: str) -> dict:
+    """The coverage tracker: how much of a syllabus map the player has worked through."""
+    rows = mastery(conn, player_id, track)
+    total = len(rows)
+    count = {stage: sum(1 for r in rows if r[stage]) for stage in ("learned", "practised", "proven")}
+    return {"track": track, "name": track_name(track), "modules": total, **count,
+            "learned_pct": round(100 * count["learned"] / total) if total else 0,
+            "practised_pct": round(100 * count["practised"] / total) if total else 0,
+            "proven_pct": round(100 * count["proven"] / total) if total else 0,
+            "mastered": sum(1 for r in rows if r["stage"] == 3)}
 
 
 # ---------------------------------------------------------------------------
@@ -1244,7 +1396,13 @@ def _context(conn: Connection, player_id, now: datetime) -> dict:
 
 
 def _reward(template: Template, wage_index_bps: int) -> int:
-    return apply_bps(naira(template.reward_naira), wage_index_bps) // 100_000 * 100_000       # to the nearest ₦1,000
+    return apply_bps(apply_bps(naira(template.reward_naira), wage_index_bps), template.bonus_bps) // 100_000 * 100_000   # to the nearest ₦1,000
+
+
+def _experience(template: Template, career: dict | None) -> int:
+    """What a piece of work teaches. Work done after a rank case teaches more: it is multiplied by
+    one more than the number of rank cases passed."""
+    return apply_bps(template.experience, template.bonus_bps) * (1 + (career["rank"] if career else 0))
 
 
 def _payer(conn, ctx, template: Template, terms: dict) -> dict | None:
@@ -1275,7 +1433,7 @@ def _payer(conn, ctx, template: Template, terms: dict) -> dict | None:
 def _public(objective: dict) -> dict:
     """An objective as its own player may see it. Nothing here gives away an answer before it is judged."""
     template = TEMPLATES[objective["template"]]
-    terms = {k: objective["terms"].get(k) for k in ("client", "situation", "task", "pass_when", "deadline", "given", "fields", "notes")
+    terms = {k: objective["terms"].get(k) for k in ("client", "situation", "task", "pass_when", "deadline", "given", "fields", "notes", "setting_note", "hand_in_by")
              if objective["terms"].get(k) is not None}
     progress = {k: v for k, v in objective["progress"].items() if k in ("bells", "run", "last", "pick", "waited", "start", "named")}
     if "book" in objective["progress"]:
@@ -1283,6 +1441,7 @@ def _public(objective: dict) -> dict:
     return {
         "id": objective["id"], "template": objective["template"], "module": objective["module"], "title": objective["title"],
         "kind": template.kind, "idea": template.idea, "terms": terms, "reward": objective["reward"],
+        "setting": objective["setting"], "setting_name": data.SETTINGS[objective["setting"]], "track": objective["track"],
         "experience": objective["experience"], "payer": objective["payer_name"], "accepted_at": objective["accepted_at"],
         "state": objective["state"], "progress": progress, "submission": objective["submission"],
         "submitted_at": objective["submitted_at"], "result": objective["result"], "judged_at": objective["judged_at"],
@@ -1291,61 +1450,99 @@ def _public(objective: dict) -> dict:
     }
 
 
+def ceo_open(conn: Connection, player_id, career: dict | None) -> bool:
+    """The leadership work opens to the head of an empire at once, and to anybody at Level 40."""
+    if career is None:
+        return False
+    if career["level"] >= data.CEO_MEMBER_LEVEL:
+        return True
+    seat = empires.seat_of(conn, player_id)
+    return bool(seat and seat["head_player_id"] == player_id)
+
+
+def _open_to(conn: Connection, template: Template, player_id, career: dict | None) -> bool:
+    if career is None:
+        return False
+    return template.build == career["build"] or (template.build == "ceo" and ceo_open(conn, player_id, career))
+
+
+def _empire_work_done(conn: Connection, player_id, period: int) -> int:
+    return _one(conn, "SELECT count(*) AS n FROM objectives WHERE player_id = %s AND period = %s AND setting = 'empire'"
+                      " AND NOT terms ? 'step_id'", (player_id, period))["n"]
+
+
 def board(conn: Connection, player_id, now: datetime) -> dict:
-    """The player's work: what is in hand, what is on offer, what is finished, and the skill tree."""
+    """The player's work: what is in hand, what is on offer in each of the three settings, what is
+    finished, and the syllabus map."""
     ctx = _context(conn, player_id, now)
     mine = ctx["career"]
+    window = weekend(now)
+    challenge = {"open": window["open"], "opens": window["opens"], "closes": window["closes"], "hours": data.WEEKEND_HOURS}
     if mine is None:
         return {"ready": False, "why": "Choose a build to see the work on offer.", "active": [], "offers": [], "finished": [],
-                "skills": [], "coverage": {"learned": 0, "modules": 0}, "limit": data.MAX_ACTIVE_OBJECTIVES}
+                "skills": [], "coverage": {"learned": 0, "modules": 0}, "limit": data.MAX_ACTIVE_OBJECTIVES, "weekend": challenge,
+                "tracks": [], "settings": data.SETTINGS}
     build = mine["build"]
-    rows = _rows(conn, "SELECT * FROM objectives WHERE player_id = %s AND build = %s ORDER BY id DESC LIMIT 60", (player_id, build))
+    tracks = [build] + (["ceo"] if ceo_open(conn, player_id, mine) else [])
+    rows = _rows(conn, "SELECT * FROM objectives WHERE player_id = %s AND build = %s ORDER BY id DESC LIMIT 90", (player_id, build))
     active = [_public(o) for o in rows if o["state"] == "active"]
     finished = [_public(o) for o in rows if o["state"] != "active"][:12]
-    tally = {r["template"]: r for r in _rows(
-        conn, "SELECT template, count(*) FILTER (WHERE state = 'passed') AS passes, count(*) FILTER (WHERE state <> 'active') AS finished,"
-              " (array_agg(state ORDER BY id DESC) FILTER (WHERE state <> 'active'))[1] AS last"
-              " FROM objectives WHERE player_id = %s AND build = %s GROUP BY template", (player_id, build))}
+    maps = {track: mastery(conn, player_id, track) for track in tracks}
     skills = []
-    for template in (t for t in TEMPLATES.values() if t.build == build and t.listed):
-        seen = tally.get(template.code, {"passes": 0, "finished": 0, "last": None})
-        skills.append({"module": template.module, "title": template.title, "idea": template.idea, "level": template.level,
-                       "open": mine["level"] >= template.level, "stage": "learned" if seen["passes"] else "not yet",
-                       "passes": seen["passes"], "finished": seen["finished"],
-                       "practise_again": seen["last"] in FAILED_STATES})
+    for track in tracks:
+        for m in maps[track]:
+            template = TEMPLATES[m["template"]]
+            skills.append({**m, "track": track, "track_name": track_name(track), "open": mine["level"] >= template.level,
+                           "stage_number": m["stage"], "stage": m["stage_name"].lower(), "finished": m["passes"]})
+    again = {(k["track"], k["module"]): k["practise_again"] for k in skills}
+    seat = empires.seat_of(conn, player_id)
+    in_empire = bool(seat and seat["empire_status"] == "active")
+    empire_done = _empire_work_done(conn, player_id, ctx["period"])
     offers = []
     why = None
     if ctx["job"] is None:
         why = "Work comes through an employer. Find a job first."
-    else:
-        taken = {o["template"] for o in rows if o["period"] == ctx["period"] and "step_id" not in o["terms"]}
-        in_hand = {o["template"] for o in rows if o["state"] == "active"}
-        for template in (t for t in TEMPLATES.values() if t.build == build and t.listed):
-            offer = {"template": template.code, "module": template.module, "title": template.title, "idea": template.idea,
-                     "kind": template.kind, "level": template.level, "reward": _reward(template, ctx["wage_index_bps"]),
-                     "experience": template.experience, "available": False, "why_not": None, "payer": None, "client": None,
-                     "practise_again": next(s["practise_again"] for s in skills if s["title"] == template.title)}
-            if mine["level"] < template.level:
-                offer["why_not"] = f"Opens at Level {template.level}."
-            elif template.code in in_hand:
-                offer["why_not"] = "You have this work in hand already."
-            elif template.code in taken:
-                offer["why_not"] = "Already taken this quarter. Each piece of work can be taken once a quarter."
+    taken = {o["template"] for o in rows if o["period"] == ctx["period"] and "step_id" not in o["terms"]}
+    in_hand = {o["template"] for o in rows if o["state"] == "active"}
+    for template in (t for t in TEMPLATES.values() if t.build in tracks and t.listed):
+        offer = {"template": template.code, "module": template.module, "title": template.title, "idea": template.idea,
+                 "kind": template.kind, "level": template.level, "reward": _reward(template, ctx["wage_index_bps"]),
+                 "experience": _experience(template, mine), "available": False, "why_not": None, "payer": None, "client": None,
+                 "setting": template.setting, "setting_name": data.SETTINGS[template.setting], "track": template.build,
+                 "practise_again": again.get((template.build, template.module), False)}
+        if mine["level"] < template.level:
+            offer["why_not"] = f"Opens at Level {template.level}."
+        elif template.code in in_hand:
+            offer["why_not"] = "You have this work in hand already."
+        elif template.code in taken:
+            offer["why_not"] = "Already taken this quarter. Each piece of work can be taken once a quarter."
+        elif template.payer == "empire" and not in_empire:
+            offer["why_not"] = ("This work is for a Lawyer with a seat in an open empire." if template.code == "lw_pact"
+                                else "For members of an open empire. Take a seat in one to practise this with your empire.")
+        elif template.payer == "empire" and empire_done >= data.EMPIRE_WORK_A_QUARTER:
+            offer["why_not"] = (f"You have done {data.EMPIRE_WORK_A_QUARTER} pieces of work for your empire this quarter, "
+                                f"which is the most one member may.")
+        elif template.setting == "live" and not window["open"]:
+            offer["why_not"] = f"Weekend challenges open on {window['opens']:%A %d %B} at {window['opens']:%H:%M} (Lagos time)."
+        elif ctx["job"] is None and template.payer != "empire":
+            offer["why_not"] = "Work comes through an employer. Find a job first."
+        else:
+            terms = template.offer(ctx)
+            payer = terms and _payer(conn, ctx, template, terms)
+            if terms is None:
+                offer["why_not"] = "Not on offer at this point in the quarter."
+            elif payer is None:
+                offer["why_not"] = "Nobody with the cash to pay for it is asking for this work at the moment."
             else:
-                terms = template.offer(ctx)
-                payer = terms and _payer(conn, ctx, template, terms)
-                if terms is None:
-                    offer["why_not"] = ("This work is for a Lawyer with a seat in an open empire." if template.payer == "empire"
-                                        else "Not on offer at this point in the quarter.")
-                elif payer is None:
-                    offer["why_not"] = "Nobody with the cash to pay for it is asking for this work at the moment."
-                else:
-                    offer.update(available=True, payer=payer["name"], client=terms.get("client"), situation=terms["situation"],
-                                 pass_when=terms["pass_when"], deadline=terms["deadline"])
-            offers.append(offer)
-    learned = sum(1 for s in skills if s["passes"])
+                offer.update(available=True, payer=payer["name"], client=terms.get("client"), situation=terms["situation"],
+                             pass_when=terms["pass_when"], deadline=terms["deadline"])
+        offers.append(offer)
+    own = maps[build]
     return {"ready": ctx["job"] is not None, "why": why, "active": active, "offers": offers, "finished": finished, "skills": skills,
-            "coverage": {"learned": learned, "modules": len(skills)}, "limit": data.MAX_ACTIVE_OBJECTIVES}
+            "coverage": {"learned": sum(1 for s in own if s["learned"]), "modules": len(own)},
+            "tracks": [coverage(conn, player_id, track) for track in tracks],
+            "limit": data.MAX_ACTIVE_OBJECTIVES, "weekend": challenge, "settings": data.SETTINGS,
+            "in_empire": in_empire, "empire_work": {"done": empire_done, "most": data.EMPIRE_WORK_A_QUARTER}}
 
 
 def accept(conn: Connection, player_id, code: str, now: datetime, step: dict | None = None) -> dict:
@@ -1364,8 +1561,12 @@ def accept(conn: Connection, player_id, code: str, now: datetime, step: dict | N
         if step:
             ctx.update(step=step, target=step["target"])
         mine = ctx["career"]
-        if template is None or mine is None or template.build != mine["build"] or (not template.listed and not step):
+        if template is None or mine is None or not _open_to(conn, template, player_id, mine) or (not template.listed and not step):
             raise ObjectiveError("That work is not open to your build.")
+        if template.setting == "live" and not weekend(now)["open"]:
+            raise ObjectiveError("Weekend challenges are open from Friday 18:00 to Sunday 22:00 (Lagos time).")
+        if template.payer == "empire" and not step and _empire_work_done(conn, player_id, ctx["period"]) >= data.EMPIRE_WORK_A_QUARTER:
+            raise ObjectiveError(f"One member may do {data.EMPIRE_WORK_A_QUARTER} pieces of work for their empire in a quarter.")
         if ctx["job"] is None and not step and template.payer != "empire":
             raise ObjectiveError("Work comes through an employer. Find a job first.")
         if mine["level"] < template.level and not step:
@@ -1378,6 +1579,10 @@ def accept(conn: Connection, player_id, code: str, now: datetime, step: dict | N
         if not step and _one(conn, "SELECT 1 FROM objectives WHERE player_id = %s AND build = %s AND template = %s AND period = %s"
                                    " AND NOT terms ? 'step_id'", (player_id, mine["build"], code, ctx["period"])):
             raise ObjectiveError("You have already taken this work this quarter. Each piece can be taken once a quarter.")
+        if template.payer == "empire" and not step:
+            seat = empires.seat_of(conn, player_id)
+            if seat is None or seat["empire_status"] != "active":
+                raise ObjectiveError("That work is for members of an open empire. Take a seat in one first.")
         terms = template.offer(ctx)
         if terms is None:
             raise ObjectiveError("That work is not on offer at this point in the quarter.")
@@ -1391,9 +1596,11 @@ def accept(conn: Connection, player_id, code: str, now: datetime, step: dict | N
                 row = _one(
                     conn,
                     "INSERT INTO objectives (player_id, build, template, module, period, client_company_id, payer_account_id, payer_name,"
-                    " title, terms, reward, experience, accepted_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+                    " title, terms, reward, experience, accepted_at, setting, track)"
+                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
                     (player_id, mine["build"], code, template.module, ctx["period"], terms.get("company_id"), payer["account"],
-                     payer["name"], template.title, Jsonb(terms), _reward(template, ctx["wage_index_bps"]), template.experience, now))
+                     payer["name"], template.title, Jsonb(terms), _reward(template, ctx["wage_index_bps"]),
+                     _experience(template, mine), now, "empire" if step else template.setting, template.build))
         except errors.UniqueViolation:
             raise ObjectiveError("You have already taken this work this quarter.") from None
         return _public(row)
@@ -1466,6 +1673,10 @@ def _finish(conn: Connection, objective: dict, verdict: dict, now: datetime, jud
     _review(conn, objective, seq, now)
     if objective["terms"].get("step_id"):
         empires.step_result(conn, objective["terms"]["step_id"], state, objective["player_id"], now)
+    elif state == "passed" and objective["setting"] in ("empire", "live"):
+        leagues.work_passed(conn, objective, judged_period, now)
+    if state == "passed":
+        ranks.ceo_check(conn, objective["player_id"], now)
 
 
 def _review(conn: Connection, objective: dict, seq: int, now: datetime) -> None:

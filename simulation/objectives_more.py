@@ -19,7 +19,7 @@ BAND = (data.INFLATION_TARGET_BPS - data.INFLATION_BAND_BPS, data.INFLATION_TARG
 
 def _roll(*parts) -> int:
     """A number fixed by its inputs: the same player, work and quarter always draw the same."""
-    return int.from_bytes(hashlib.sha256(":".join(str(p) for p in parts).encode()).digest()[:8], "big")
+    return int.from_bytes(hashlib.sha256((":".join(str(p) for p in parts) + o.SALT.get()).encode()).digest()[:8], "big")
 
 
 def _marked(objective, answers, figures: list, need: int, *, must: tuple = (), plain: str, method: str, maths: str) -> dict:
@@ -1164,4 +1164,122 @@ o.TEMPLATES.update({t.code: t for t in (
     T("jr_scoop", "journalist", "Investigation", "Name the company in trouble before it files", 4, 150_000, 200, "hand_in",
       "The story that makes a name is the one printed before the filing.",
       "employer", _scoop_offer, submit=_scoop_submit, close=_scoop_close),
+)})
+
+
+# ===========================================================================
+# Stage 7. A sixth piece of work for the Lawyer to do alone (Contracts), and the portfolio review
+# that is part of the Asset Manager's rank case.
+# ===========================================================================
+
+def _covenant_offer(ctx):
+    candidates = [c for c in o._filed(ctx["conn"], ctx["period"] - 1)
+                  if c["sector"] not in ("banking", "insurance") and c["figures"]["income_statement"]["ebitda"] > 0
+                  and c["figures"]["income_statement"]["interest_expense"] > 0 and c["figures"]["balance_sheet"]["borrowings"] > 0]
+    company = o._choose(ctx, "lw_contract", candidates)
+    if company is None:
+        return None
+    income, sheet = company["figures"]["income_statement"], company["figures"]["balance_sheet"]
+    most = (30, 35, 40, 45, 50)[_roll(ctx["player_id"], "lw_contract", ctx["period"], company["company_id"], "d") % 5]
+    least = (15, 20, 25, 30)[_roll(ctx["player_id"], "lw_contract", ctx["period"], company["company_id"], "c") % 4]
+    return {
+        "client": o._client(company),
+        "situation": f"A lender to {company['name']} has asked your firm to read its loan agreement against the accounts for "
+                     f"{clock.period_label(company['period'])}. The agreement holds two promises (covenants) the company must keep.",
+        "task": [f"Promise one: debt must not be more than {most / 10:.1f} times a year's EBITDA (four times the quarter's).",
+                 f"Promise two: operating profit must cover the interest at least {least / 10:.1f} times.",
+                 "Work out both figures to one decimal place, and say whether either promise is broken. If one is, the lender "
+                 "may demand the whole loan back."],
+        "pass_when": "At least two of the three answers are right, and whether a promise is broken is one of them.",
+        "deadline": HAND_IN,
+        "given": [_given("EBITDA last quarter", income["ebitda"]), _given("Operating profit", income["operating_profit"]),
+                  _given("Interest paid", income["interest_expense"]), _given("Total borrowings", sheet["borrowings"])],
+        "fields": [{"key": "ratio", "label": "Debt ÷ a year's EBITDA", "kind": "times"},
+                   {"key": "cover", "label": "Interest cover", "kind": "times"},
+                   _yes_no("broken", "Is a promise broken?")],
+        "company_id": str(company["company_id"]), "ebitda": income["ebitda"], "operating": income["operating_profit"],
+        "interest": income["interest_expense"], "debt": sheet["borrowings"], "most": most, "least": least,
+    }
+
+
+def _covenant_submit(ctx, objective, answers):
+    t = objective["terms"]
+    ratio = t["debt"] / (4 * t["ebitda"])
+    cover = t["operating"] / t["interest"]
+    # The agreement is read to one decimal place, as the lender's own test is.
+    broken = round(ratio, 1) > t["most"] / 10 or round(cover, 1) < t["least"] / 10
+    return _marked(objective, answers, [("ratio", "Debt to EBITDA", ratio, 0.06), ("cover", "Interest cover", cover, 0.06),
+                                        ("broken", "Whether a promise is broken", "yes" if broken else "no", 0)], 2, must=("broken",),
+                   plain=f"A loan agreement is a contract with promises in it. Break one and the lender may ask for everything back "
+                         f"at once, even if every payment so far was made on time. Here debt is {ratio:.1f} times a year's EBITDA "
+                         f"(the limit is {t['most'] / 10:.1f}) and interest is covered {cover:.1f} times (the least allowed is "
+                         f"{t['least'] / 10:.1f}): " + ("a promise is broken." if broken else "both promises are kept."),
+                   method="Read the definitions before the numbers: a contract says exactly which profit and which debt are meant, "
+                          "and over what period. Test each promise on its own. When one is broken, the usual course is not to "
+                          "demand the money but to agree a waiver for a fee, on tighter terms; the lawyer's work is to protect "
+                          "the client's right to do either.",
+                   maths=f"Debt ÷ (4 × EBITDA) = {M(t['debt']):,.2f} ÷ {M(4 * t['ebitda']):,.2f} = {ratio:.1f}. "
+                         f"Cover = {M(t['operating']):,.2f} ÷ {M(t['interest']):,.2f} = {cover:.1f}.")
+
+
+REVIEW_LARGEST_BPS, REVIEW_CASH_BPS = 3000, 500
+
+
+def _review_offer(ctx):
+    """A client's portfolio, drawn from the live market, to be reviewed against a mandate."""
+    shares = sorted(_price_now(ctx["conn"], ctx["now"]).values(), key=lambda s: s["ticker"])
+    if len(shares) < 4:
+        return None
+    seed = (ctx["player_id"], "am_review", ctx["period"])
+    first = _roll(*seed) % len(shares)
+    lines = []
+    for n in range(4):
+        share = shares[(first + n * 7) % len(shares)]
+        if any(line["ticker"] == share["ticker"] for line in lines):
+            return None
+        target = naira((40_000, 25_000, 20_000, 60_000, 15_000, 35_000)[_roll(*seed, n) % 6])
+        lines.append({"ticker": share["ticker"], "name": share["name"], "shares": max(target // share["price"], 1), "price": share["price"]})
+    cash = naira((2_000, 5_000, 8_000, 12_000, 20_000)[_roll(*seed, "cash") % 5])
+    return {
+        "situation": "A client has brought your firm the portfolio below and asked for a review against their mandate: no single "
+                     f"holding above {REVIEW_LARGEST_BPS // 100}% of the whole, and at least {REVIEW_CASH_BPS // 100}% kept in cash.",
+        "task": ["Value each holding at today's price and add the cash.",
+                 "Give the portfolio's total value in naira, the largest holding as a percentage of the whole, the cash as a "
+                 "percentage of the whole, and whether the portfolio is inside the mandate."],
+        "pass_when": "At least three of the four answers are right.", "deadline": HAND_IN,
+        "given": [_text(f"{line['name']} ({line['ticker']})", f"{line['shares']:,} shares at ₦{line['price'] / 100:,.2f}") for line in lines]
+                 + [_given("Cash", cash)],
+        "fields": [{"key": "total", "label": "Total value", "kind": "naira"},
+                   {"key": "largest", "label": "Largest holding, share of the whole", "kind": "percent"},
+                   {"key": "cash", "label": "Cash, share of the whole", "kind": "percent"},
+                   _yes_no("inside", "Is it inside the mandate?")],
+        "lines": [[line["shares"], line["price"]] for line in lines], "cash": cash,
+    }
+
+
+def _review_submit(ctx, objective, answers):
+    t = objective["terms"]
+    values = [shares * price for shares, price in t["lines"]]
+    total = sum(values) + t["cash"]
+    largest, cash = max(values) / total * 100, t["cash"] / total * 100
+    inside = round(largest, 1) <= REVIEW_LARGEST_BPS / 100 and round(cash, 1) >= REVIEW_CASH_BPS / 100
+    return _marked(objective, answers, [("total", "Total value", total / 100, 5.0), ("largest", "Largest holding", largest, 0.1),
+                                        ("cash", "Cash", cash, 0.1), ("inside", "Inside the mandate", "yes" if inside else "no", 0)], 3,
+                   plain=f"A mandate is the client's instruction about risk, written as limits. This portfolio is worth "
+                         f"{o._money(total)}; its largest holding is {largest:.1f}% of it and {cash:.1f}% is in cash, so it is "
+                         f"{'inside' if inside else 'outside'} the mandate.",
+                   method="Value everything at today's price, not at what was paid. Measure each limit against the whole portfolio, "
+                          "cash included. A holding drifts over a limit simply by rising in price, which is why a portfolio is "
+                          "reviewed on a timetable and not only when something is bought.",
+                   maths="Holdings: " + " + ".join(f"{v / 100:,.0f}" for v in values) + f" + cash {t['cash'] / 100:,.0f} = ₦{total / 100:,.0f}. "
+                         f"Largest = {max(values) / 100:,.0f} ÷ {total / 100:,.0f} = {largest:.1f}%. Cash = {cash:.1f}%.")
+
+
+o.TEMPLATES.update({t.code: t for t in (
+    T("lw_contract", "lawyer", "Contracts", "Has the borrower broken its promises?", 3, 80_000, 120, "hand_in",
+      "A contract is a set of promises; what follows when one is broken is written in it before anything goes wrong.",
+      "client", _covenant_offer, submit=_covenant_submit),
+    T("am_review", "asset_manager", "Portfolio review", "Review a client's portfolio", 1, 0, 0, "hand_in",
+      "A portfolio is judged against the client's mandate, at today's prices.", "employer", _review_offer, submit=_review_submit,
+      listed=False),
 )})

@@ -497,7 +497,7 @@ SALARY_PER_MONTH_NAIRA = ((1, 300_000), (20, 750_000), (40, 2_000_000), (60, 6_0
 SALARY_TAX_BPS = 1200
 SALARY_LIVING_BPS = 2000
 LEVEL_EXPERIENCE = 30              # level n needs 30 x n x (n - 1) experience: 60 for level 2, 11,400 for level 20
-LEVEL_CAP = 20                     # moving past level 20 needs a rank case (Stage 7)
+LEVEL_CAP = 20                     # the level a career stops at until its first rank case is passed (see RANK_GATES)
 STAFF_PER_OPENING = 500            # a company has one opening for a player for every 500 people it employs
 BUILD_CHANGE_DAYS = 30             # a player may change build once in a real month
 MAX_BUILDS = 3
@@ -552,7 +552,8 @@ COMPUTER_EMPIRE_CASH_KEPT_BPS = 2000               # a computer-run empire keeps
 STAFF_LEVEL = 40                                   # computer-run staff work at a fixed Level 40
 JOIN_LEAST_REPUTATION = 40
 SACKED_BAN_QUARTERS = 4                            # a member sacked for theft cannot rejoin that empire for a game year
-COMPUTER_EMPIRE_LIMIT_NAIRA = 100_000              # what a member of a computer-run empire may spend in a quarter, for each level they hold
+SIGNING_LIMIT_NAIRA = 500_000                      # what a member may sign for in a quarter: the same for everybody, at every level.
+                                                   # It is also where a player-run empire starts, until its head sets another figure
 HEAD_LIMIT_BPS = 200                               # a head may spend up to 2% of the empire's cash in a quarter without anybody else
 THEFT_FINE_BPS = 10_000                            # a proved theft is repaid, with a fine of the same amount again
 THEFT_REPUTATION = 10
@@ -609,3 +610,49 @@ COMPUTER_EMPIRE_TRADE_NAIRA = 1_000_000            # what a player may trade for
 FAIR_DEALING_BPS = 200                             # other people's money is dealt within 2% of the last session's price
 FUND_TURNOVER_BPS = 10_000                         # a pension fund may trade once its own worth in a quarter
 FUND_LEAST_SAVINGS_NAIRA = 1_000                   # the least a saver may bring to a fund run by a player
+
+
+# ---------------------------------------------------------------------------
+# Stage 7: mastery, rank cases, leagues (sections 6, 9 and 13).
+# ---------------------------------------------------------------------------
+TOP_LEVEL = 100
+RANK_GATES = (20, 40, 60, 80)                      # a career stops at each of these levels until its rank case is passed
+# What must be mastered before the rank case at each gate can be sat: of a build's modules, how many
+# learned (alone), practised (with the empire) and proven (in a weekend challenge). "all" = every one.
+RANK_MASTERY = {20: {"learned": "all", "practised": 3, "proven": 1},
+                40: {"learned": "all", "practised": "all", "proven": 3},
+                60: {"learned": "all", "practised": "all", "proven": "all"},
+                80: {"learned": "all", "practised": "all", "proven": "all"}}
+RANK_CASE_FEE_NAIRA = {20: 200_000, 40: 500_000, 60: 1_000_000, 80: 2_000_000}      # paid into the prize pool at each attempt
+RANK_CASE_PASS = {20: 80, 40: 85, 60: 90, 80: 95}                                     # points out of 100
+RANK_CASE_RETRY_DAYS = 3                           # real days before a failed case can be sat again
+RANK_CASE_HOURS = 48                               # real hours to hand a case in, and never past the end of the quarter
+RANK_NAMES = ("Associate", "Professional", "Senior", "Principal", "Master")           # the rank held below Level 20, 40, 60, 80 and above
+# Work done after a rank case is harder to come by and teaches more: experience from one piece of
+# work is multiplied by one more than the number of rank cases passed.
+# The three settings a module's work comes in.
+SETTINGS = {"solo": "On your own", "empire": "With your empire", "live": "Weekend challenge"}
+WEEKEND_OPENS = (4, 18)                            # Friday (Monday = 0), 18:00 Lagos time...
+WEEKEND_CLOSES = (6, 22)                           # ...to Sunday, 22:00
+WEEKEND_BONUS_BPS = 15_000                         # a weekend challenge pays and teaches one and a half times as much
+WEEKEND_HOURS = 3                                  # real hours to hand a weekend challenge in, once it is taken
+EMPIRE_WORK_A_QUARTER = 8                          # pieces of work one member may do for their empire in a quarter, besides task steps
+
+# The CEO rank (section 6).
+CEO_LEVEL = 60
+CEO_REPUTATION = 75
+CEO_MEMBER_LEVEL = 40                              # the leadership work opens to a member at this level; to a head at once
+CEO_CASE_FEE_NAIRA = 1_000_000
+CEO_CASE_PASS = 90
+CEO_LIMIT_BPS = 500                                # a CEO may sign for 5% of the empire's cash in a quarter (an Acting Head: 2%)
+CEO_BONUS_BPS = 2500                               # ...and pay bonuses of up to a quarter of its worth (an Acting Head: a tenth)
+CEO_TASK_MOST_NAIRA = 200_000_000                  # ...and approve investments up to this size (an Acting Head: 50 million)
+
+# Leaving an empire (added by the owner, 3 October 2026).
+NOTICE_DAYS = 14                                   # real days between a resignation letter and leaving, in an empire run by players
+COUNTER_OFFER_MOST_BPS = 500                       # a counter-offer's bonus may be up to 5% of the empire's worth
+
+# Leagues: divisions of empires, with promotion and relegation as each game year ends.
+DIVISION_SIZE = 5
+DIVISION_MOVES = 1                                 # how many go up and down between two divisions each year
+LEAGUE_POINTS = {"task": 10, "work": 2, "challenge": 3, "theft": -5, "growth_most": 20}

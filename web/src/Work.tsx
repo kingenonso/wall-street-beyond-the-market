@@ -2,7 +2,7 @@
 // The website only shows and asks. The server sets the terms, judges and pays.
 
 import { useState } from "react";
-import { api, ApiError, type Kobo, type Objective, type ObjectiveField, type ObjectiveOffer, type Player } from "./api";
+import { api, ApiError, type Kobo, type Objective, type ObjectiveBoard, type ObjectiveField, type ObjectiveOffer, type Player, type Setting } from "./api";
 import { formatNaira } from "./format";
 import { useLoad } from "./hooks";
 import { ProgressTracker, SkillTree, StateTag, progressWords } from "./Parts";
@@ -15,7 +15,7 @@ export function inMillions(kobo: Kobo): string {
 
 const UNIT: Record<string, string> = { millions: "₦ million", percent: "%", times: "times", ticker: "", naira: "₦", number: "" };
 
-function Field({ field, value, onChange }: { field: ObjectiveField; value: any; onChange: (value: any) => void }) {
+export function AnswerField({ field, value, onChange }: { field: ObjectiveField; value: any; onChange: (value: any) => void }) {
   if (field.kind === "choice") {
     return (
       <fieldset className="choice">
@@ -66,7 +66,7 @@ function Field({ field, value, onChange }: { field: ObjectiveField; value: any; 
   );
 }
 
-function answersFrom(fields: ObjectiveField[], typed: Record<string, any>): Record<string, unknown> | string {
+export function answersFrom(fields: ObjectiveField[], typed: Record<string, any>): Record<string, unknown> | string {
   const out: Record<string, unknown> = {};
   for (const field of fields) {
     const value = typed[field.key];
@@ -84,6 +84,34 @@ function answersFrom(fields: ObjectiveField[], typed: Record<string, any>): Reco
   }
   return out;
 }
+
+/** A player who believes the marking is wrong can say so, once. It is kept for the people who run the game. */
+export function ReportMarking({ what }: { what: { objective_id?: number; case_id?: number } }) {
+  const [open, setOpen] = useState(false);
+  const [words, setWords] = useState("");
+  const [said, setSaid] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (said) return <p className="small muted">{said}</p>;
+  if (!open) return <button className="button-quiet" onClick={() => setOpen(true)}>I believe this marking is wrong</button>;
+  return (
+    <form className="stack-form" onSubmit={async (event) => {
+      event.preventDefault();
+      setBusy(true);
+      try { setSaid((await api.reportMarking(what, words)).words); }
+      catch (problem) { setSaid(problem instanceof ApiError ? problem.message : "Could not reach the server. Please try again."); }
+      finally { setBusy(false); }
+    }}>
+      <label className="answer"><span className="field-label">What do you believe is wrong, and what should it be?</span>
+        <textarea rows={3} maxLength={600} value={words} onChange={(event) => setWords(event.target.value)} /></label>
+      <div className="step-actions">
+        <button className="button-outline" disabled={busy || words.trim().length < 10}>Send the report</button>
+        <span className="muted small">Every model answer is checked twice before it is used. A report is read by the people who run the game; nothing changes at once.</span>
+      </div>
+    </form>
+  );
+}
+
+const SETTING_MARK: Record<Setting, string> = { solo: "①", empire: "②", live: "③" };
 
 function Debrief({ objective }: { objective: Objective }) {
   const result = objective.result;
@@ -107,6 +135,8 @@ function Debrief({ objective }: { objective: Objective }) {
       {result.debrief.plain && <><div className="why-title">IN PLAIN WORDS</div><p>{result.debrief.plain}</p></>}
       {result.debrief.method && <><div className="why-title">THE PROFESSIONAL METHOD</div><p>{result.debrief.method}</p></>}
       {result.debrief.maths && <><div className="why-title">THE ARITHMETIC</div><p className="mono small">{result.debrief.maths}</p></>}
+      <p className="muted small">Module: {objective.module} · {objective.setting_name.toLowerCase()}.</p>
+      <ReportMarking what={{ objective_id: objective.id }} />
     </div>
   );
 }
@@ -131,6 +161,8 @@ function ActiveCard({ objective, onChanged, onError }: { objective: Objective; o
 
   return (
     <Panel title={objective.title} aside={<>{objective.module} · {formatNaira(objective.reward_kobo)} from {objective.payer}</>} className="objective">
+      <div className="small"><span className={`tag tag-setting-${objective.setting}`}>{SETTING_MARK[objective.setting]} {objective.setting_name}</span>{terms.setting_note ? <span className="muted"> {terms.setting_note}</span> : null}</div>
+      {terms.hand_in_by && <p className="small change-down">▼ Hand in by {new Date(terms.hand_in_by).toLocaleString("en-NG", { weekday: "short", hour: "2-digit", minute: "2-digit" })}. A late paper does not pass.</p>}
       <p>{terms.situation}</p>
       <div className="why-title">WHAT TO DO</div>
       <ul className="reasons">{terms.task.map((line) => <li key={line}>{line}</li>)}</ul>
@@ -156,7 +188,7 @@ function ActiveCard({ objective, onChanged, onError }: { objective: Objective; o
           <div className="why-title">YOUR WORK</div>
           <div className="answers">
             {terms.fields.map((field) => (
-              <Field key={field.key} field={field} value={typed[field.key]} onChange={(value) => setTyped((was) => ({ ...was, [field.key]: value }))} />
+              <AnswerField key={field.key} field={field} value={typed[field.key]} onChange={(value) => setTyped((was) => ({ ...was, [field.key]: value }))} />
             ))}
           </div>
           <div className="step-actions">
@@ -186,7 +218,7 @@ function OfferRow({ offer, canTake, onTake, busy }: { offer: ObjectiveOffer; can
         <>
           <p className="small">{offer.situation}</p>
           <div className="small"><span className="muted">Passed when:</span> {offer.pass_when}</div>
-          <div className="small"><span className="muted">Paid by:</span> {offer.payer}{offer.client ? <> (the client, <a href={`#/companies/${offer.client.ticker}`}>{offer.client.ticker}</a>)</> : " (your employer, as performance pay)"}</div>
+          <div className="small"><span className="muted">Paid by:</span> {offer.payer}{offer.setting === "empire" ? " (your empire, out of its own cash)" : offer.client ? <> (the client, <a href={`#/companies/${offer.client.ticker}`}>{offer.client.ticker}</a>)</> : " (your employer, as performance pay)"}</div>
           {offer.practise_again && <div className="small change-down">▼ Your last attempt at this module was not passed. Practise it again.</div>}
           <div className="step-actions">
             <button className="button-outline" disabled={!canTake || busy} onClick={onTake}>Take this work on</button>
@@ -195,6 +227,51 @@ function OfferRow({ offer, canTake, onTake, busy }: { offer: ObjectiveOffer; can
         </>
       ) : <div className="small muted">○ {offer.why_not}</div>}
     </div>
+  );
+}
+
+const SETTING_WORDS: Record<Setting, string> = {
+  solo: "Work you do alone, for a client or your employer. Passing it makes the module learned.",
+  empire: "The same skill, done for your empire and paid by it. Passing it makes the module practised, and adds to the empire's league points.",
+  live: "The same skill against the clock, in a challenge open to everybody at once. It pays and teaches one and a half times as much. Passing it makes the module proven.",
+};
+
+function Offers({ data, busy, onTake }: { data: ObjectiveBoard; busy: boolean; onTake: (template: string) => void }) {
+  const [setting, setSetting] = useState<Setting>("solo");
+  const [track, setTrack] = useState(data.tracks[0]?.track ?? "");
+  const offers = data.offers.filter((offer) => offer.setting === setting && offer.track === track);
+  const weekend = data.weekend;
+  const day = (iso: string) => new Date(iso).toLocaleString("en-NG", { weekday: "long", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Lagos" });
+  return (
+    <Panel title="Work on offer" aside="Each piece can be taken once a quarter, in each setting">
+      <p className="muted small">
+        No question papers here. Each piece is practical work from one learning module, and each module's work comes in three
+        settings. The server judges the result against the game's own records, and the named payer pays out of its own cash.
+      </p>
+      {data.tracks.length > 1 && (
+        <div className="choice" role="group" aria-label="Which syllabus map">
+          {data.tracks.map((t) => <button key={t.track} type="button" aria-pressed={track === t.track} onClick={() => setTrack(t.track)}>{t.name}</button>)}
+        </div>
+      )}
+      <div className="choice" role="group" aria-label="Setting">
+        {(["solo", "empire", "live"] as Setting[]).map((code) => (
+          <button key={code} type="button" aria-pressed={setting === code} onClick={() => setSetting(code)}>
+            {SETTING_MARK[code]} {data.settings[code]}{code === "live" ? (weekend.open ? " · ● open now" : " · closed") : ""}
+          </button>
+        ))}
+      </div>
+      <p className="small">{SETTING_WORDS[setting]}</p>
+      {setting === "live" && (
+        <p className={weekend.open ? "saved" : "muted small"}>
+          {weekend.open ? `● The weekend challenge is open until ${day(weekend.closes)} (Lagos time). Each piece must be handed in within ${weekend.hours} hours of taking it on.`
+            : `○ The next weekend challenge opens on ${day(weekend.opens)} and closes on ${day(weekend.closes)} (Lagos time).`}
+        </p>
+      )}
+      {setting === "empire" && data.in_empire && <p className="muted small">{data.empire_work.done} of {data.empire_work.most} pieces of empire work used this quarter.</p>}
+      {offers.map((offer) => (
+        <OfferRow key={offer.template} offer={offer} canTake={data.active.length < data.limit} busy={busy} onTake={() => onTake(offer.template)} />
+      ))}
+    </Panel>
   );
 }
 
@@ -219,7 +296,7 @@ export function WorkWork({ player, onLoggedOut, onChanged }: { player: Player; o
     <>
       <div className="work-head">
         <h1>Your work</h1>
-        <span className="muted small">{data.active.length} of {data.limit} in hand · {data.coverage.learned} of {data.coverage.modules} modules learned</span>
+        <span className="muted small">{data.active.length} of {data.limit} in hand · {data.coverage.learned} of {data.coverage.modules} modules learned · <a href="#/rank">Rank</a></span>
       </div>
       {!player.build && (
         <Panel title="Choose a build first">
@@ -231,24 +308,14 @@ export function WorkWork({ player, onLoggedOut, onChanged }: { player: Player; o
 
       {data.active.map((objective) => <ActiveCard key={objective.id} objective={objective} onChanged={changed} onError={setError} />)}
 
-      {data.offers.length > 0 && (
-        <Panel title="Work on offer" aside="Each piece can be taken once a quarter">
-          <p className="muted small">
-            No question papers here. Each piece is practical work from one learning module. The server judges the result against
-            the game's own records, and the named payer pays out of its own cash.
-          </p>
-          {data.offers.map((offer) => (
-            <OfferRow key={offer.template} offer={offer} canTake={data.active.length < data.limit} busy={busy} onTake={() => take(offer.template)} />
-          ))}
-        </Panel>
-      )}
+      {data.offers.length > 0 && <Offers data={data} busy={busy} onTake={take} />}
 
       {data.finished.length > 0 && (
         <Panel title="Finished work" aside="Open one to see why">
           {data.finished.map((objective) => (
             <div key={objective.id} className="definition">
               <button className="row row-button" onClick={() => setOpen(open === objective.id ? null : objective.id)} aria-expanded={open === objective.id}>
-                <span><StateTag state={objective.state} /> <span className="strong">{objective.title}</span> <span className="muted small">{objective.module}</span></span>
+                <span><StateTag state={objective.state} /> <span className="strong">{objective.title}</span> <span className="muted small">{objective.module} · {SETTING_MARK[objective.setting]} {objective.setting_name.toLowerCase()}</span></span>
                 <span className="mono">{objective.state === "passed" ? `+ ${formatNaira(objective.paid_kobo)}` : "—"}</span>
               </button>
               {open === objective.id && <Debrief objective={objective} />}
@@ -265,11 +332,12 @@ export function WorkRail({ player, onLoggedOut }: { player: Player; onLoggedOut:
   return (
     <>
       {board.data && board.data.skills.length > 0 && (
-        <SkillTree skills={board.data.skills} coverage={board.data.coverage} track={player.build_name ? `${player.build_name} track` : ""} />
+        <SkillTree skills={board.data.skills} tracks={board.data.tracks} />
       )}
       <Panel title="How work is judged">
         <ul className="reasons">
           <li>The terms are fixed the moment you take a piece of work on.</li>
+          <li>Each setting draws its own client and its own numbers, so the same answers never fit twice.</li>
           <li>Work you prepare can be handed in once. Work in the market is judged on what you actually hold when the Closing Bell rings.</li>
           <li>A piece of work not passed costs its reward and nothing else.</li>
           <li>Five not passed in any ten opens a performance review. You are told why and how to recover.</li>

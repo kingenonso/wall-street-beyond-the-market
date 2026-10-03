@@ -69,10 +69,14 @@ def test_a_new_player_joins_an_empire_from_the_first_day_and_uses_the_war_room(d
     assert funds["funds"] == [] and funds["can_open"] is False and funds["managing"] is None
     assert client.post("/api/pension-funds", json={"name": "Quick Pensions", "fee_bps": 10}).status_code == 409
 
-    # Leaving.
-    left = client.delete("/api/empire/seat")
-    assert left.status_code == 200 and left.json()["room"] is None
-    assert client.post("/api/empire/messages", json={"body": "Still here?"}).status_code == 409
+    # Leaving is by resignation letter. In an empire the computer runs, the member leaves when the quarter ends.
+    assert client.delete("/api/empire/seat").status_code == 404
+    left = client.post("/api/empire/resignation", json={"letter": "Thank you. I am moving on."})
+    assert left.status_code == 201 and left.json()["room"]["resignation"]["leaves_when_quarter_ends"] is True
+    assert "still a member" in left.json()["notice"]
+    assert client.post("/api/empire/messages", json={"body": "Still here."}).status_code == 201
+    assert client.post("/api/empire/resignation", json={"letter": "Again."}).status_code == 409
+    assert client.delete("/api/empire/resignation").json()["room"]["resignation"] is None
 
 
 def test_one_players_requests_never_reach_another_empires_room(db, client):

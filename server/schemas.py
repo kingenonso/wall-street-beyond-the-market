@@ -951,6 +951,10 @@ class CareerInfo(BaseModel):
     level_floor: int
     next_level_at: int | None
     at_cap: bool
+    rank: int = 0
+    rank_name: str = ""
+    gate: int = 20
+    top_level: int = 100
     review_open: bool
     review: ReviewStanding | None
     other_builds: list[OtherBuild]
@@ -1144,6 +1148,9 @@ class ObjectiveRow(BaseModel):
     judged_at: datetime | None
     paid_kobo: Kobo
     can_hand_in: bool
+    setting: str = "solo"
+    setting_name: str = ""
+    track: str = ""
 
 
 class ObjectiveOffer(BaseModel):
@@ -1163,6 +1170,9 @@ class ObjectiveOffer(BaseModel):
     pass_when: str | None = None
     deadline: str | None = None
     practise_again: bool
+    setting: str = "solo"
+    setting_name: str = ""
+    track: str = ""
 
 
 class Skill(BaseModel):
@@ -1175,6 +1185,13 @@ class Skill(BaseModel):
     passes: int
     finished: int
     practise_again: bool
+    template: str = ""
+    track: str = ""
+    track_name: str = ""
+    stage_number: int = 0
+    learned: bool = False
+    practised: bool = False
+    proven: bool = False
 
 
 class ObjectivesResponse(BaseModel):
@@ -1186,6 +1203,11 @@ class ObjectivesResponse(BaseModel):
     skills: list[Skill]
     coverage: dict
     limit: int
+    tracks: list[dict] = []
+    weekend: dict = {}
+    settings: dict = {}
+    in_empire: bool = False
+    empire_work: dict = {}
 
 
 class StatementQuarter(BaseModel):

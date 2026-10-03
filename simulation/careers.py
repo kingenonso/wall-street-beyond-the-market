@@ -105,11 +105,23 @@ def experience_for(level: int) -> int:
     return data.LEVEL_EXPERIENCE * level * (level - 1)
 
 
-def level_for(experience: int) -> int:
-    level = 1
-    while level < data.LEVEL_CAP and experience >= experience_for(level + 1):
+def level_cap(rank: int = 0) -> int:
+    """The level a career stops at, for the number of rank cases passed."""
+    gates = data.RANK_GATES
+    return gates[rank] if 0 <= rank < len(gates) else data.TOP_LEVEL
+
+
+def level_for(experience: int, rank: int = 0) -> int:
+    """The level a career stands at. Experience alone carries it to the next gate (Level 20, 40,
+    60, 80); past a gate it needs that gate's rank case. Experience earned at a gate is kept."""
+    level, cap = 1, level_cap(rank)
+    while level < cap and experience >= experience_for(level + 1):
         level += 1
     return level
+
+
+def rank_name(rank: int) -> str:
+    return data.RANK_NAMES[min(max(rank, 0), len(data.RANK_NAMES) - 1)]
 
 
 def level_words(level: int) -> str:
@@ -193,7 +205,7 @@ def career(conn: Connection, player_id, build: str | None = None, *, lock: bool 
     row = _one(conn, "SELECT * FROM careers WHERE player_id = %s AND build = %s" + (" FOR UPDATE" if lock else ""),
                (player_id, build))
     if row:
-        row["level"] = level_for(row["experience"])
+        row["level"] = level_for(row["experience"], row["rank"])
     return row
 
 
@@ -233,7 +245,7 @@ def add_experience(conn: Connection, player_id, build: str, amount: int, now: da
     """Add experience from finished work. Returns the level before and after."""
     row = career(conn, player_id, build, lock=True)
     before = row["level"]
-    after = level_for(row["experience"] + amount)
+    after = level_for(row["experience"] + amount, row["rank"])
     conn.execute("UPDATE careers SET experience = experience + %s WHERE player_id = %s AND build = %s", (amount, player_id, build))
     for level in range(before + 1, after + 1):
         _event(conn, player_id, build, "level_up", f"Reached Level {level} as {_a(BUILDS[build]['name'])}.", now)
@@ -685,7 +697,7 @@ def sound_finances(conn: Connection, player_id, wage_index_bps: int = BPS) -> bo
 def retirement_opens(conn: Connection, player_id, period: int) -> dict:
     """When a player may retire: at Level 50, or after ten game years of work, whichever comes first.
     A quarter of work is a quarter the player was paid a salary for."""
-    top = max((level_for(r["experience"]) for r in _rows(conn, "SELECT experience FROM careers WHERE player_id = %s", (player_id,))), default=1)
+    top = max((level_for(r["experience"], r["rank"]) for r in _rows(conn, "SELECT experience, rank FROM careers WHERE player_id = %s", (player_id,))), default=1)
     worked = _one(conn, "SELECT count(*) AS n FROM payslips WHERE player_id = %s AND worked AND gross > 0", (player_id,))["n"]
     to_go = max(data.RETIREMENT_AFTER_QUARTERS - worked, 0)
     return {"eligible": top >= data.RETIREMENT_LEVEL or worked >= data.RETIREMENT_AFTER_QUARTERS, "level": top,
@@ -811,18 +823,20 @@ def profile(conn: Connection, player_id, now: datetime) -> dict:
     out["build"] = mine["build"]
     out["can_change_build_at"] = player["build_changed_at"] + timedelta(days=data.BUILD_CHANGE_DAYS)
     floor, ceiling = experience_for(level), experience_for(level + 1)
+    cap = level_cap(mine["rank"])
     out["career"] = {
         "build": mine["build"], "build_name": build["name"], "accent": build["accent"], "track": build["track"],
         "level": level, "level_words": level_words(level), "experience": mine["experience"],
-        "level_floor": floor, "next_level_at": None if level >= data.LEVEL_CAP else ceiling,
-        "at_cap": level >= data.LEVEL_CAP, "review_open": mine["review_open"], "review": review_standing(conn, player_id, mine),
-        "other_builds": [{"build": r["build"], "name": BUILDS[r["build"]]["name"], "level": level_for(r["experience"])}
-                         for r in _rows(conn, "SELECT build, experience FROM careers WHERE player_id = %s AND build <> %s",
+        "level_floor": floor, "next_level_at": None if level >= cap else ceiling,
+        "at_cap": level >= cap, "rank": mine["rank"], "rank_name": rank_name(mine["rank"]), "gate": cap,
+        "top_level": data.TOP_LEVEL, "review_open": mine["review_open"], "review": review_standing(conn, player_id, mine),
+        "other_builds": [{"build": r["build"], "name": BUILDS[r["build"]]["name"], "level": level_for(r["experience"], r["rank"])}
+                         for r in _rows(conn, "SELECT build, experience, rank FROM careers WHERE player_id = %s AND build <> %s",
                                         (player_id, mine["build"]))],
     }
     extra = savings["extra_bps"] if savings else 0
     pay = split_salary(salary_per_quarter(level, state["wage_index_bps"]), extra)
-    next_pay = split_salary(salary_per_quarter(min(level + 1, data.LEVEL_CAP), state["wage_index_bps"]), extra)
+    next_pay = split_salary(salary_per_quarter(min(level + 1, cap), state["wage_index_bps"]), extra)
     job = current_job(conn, player_id)
     worked = has_worked(conn, player_id, state["period"])
     out["pay"] = {**pay, "at_next_level": next_pay["gross"], "worked_this_quarter": worked}

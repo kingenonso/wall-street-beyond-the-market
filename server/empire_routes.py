@@ -37,7 +37,8 @@ router = app          # the routes are added to the one application, so that eve
 
 MONEY = {"worth", "cash", "shares_value", "bonds_value", "amount", "value", "fee", "repaid", "fine", "debt_left", "signing_limit",
          "signing_used", "trade_limit", "trade_used", "expense_limit", "registration_fee", "ai_audit_fee", "your_value",
-         "limit_price", "reserved", "value_filled", "fees_paid", "limit", "used", "moved", "reward"}
+         "limit_price", "reserved", "value_filled", "fees_paid", "limit", "used", "moved", "reward", "bonus_limit", "bonus",
+         "counter_offer_most"}
 PERIODS = {"period", "from_period", "to_period", "since"}
 
 
@@ -103,6 +104,21 @@ class FoundRequest(Request):
 class CapitalRequest(Request):
     amount_kobo: int = Field(default=0, ge=0, le=1_000_000_000_000_000, strict=True)
     from_savings_kobo: int = Field(default=0, ge=0, le=1_000_000_000_000_000, strict=True)
+
+
+class LetterRequest(Request):
+    letter: Words = Field(default="", max_length=600)
+
+
+class OfferRequest(Request):
+    bonus_kobo: int = Field(default=0, ge=0, le=1_000_000_000_000_000, strict=True)
+    signing_limit_kobo: int | None = Field(default=None, ge=0, le=1_000_000_000_000, strict=True)
+    words: Words = Field(default="", max_length=400)
+
+
+class VoteRequest(Request):
+    build: Literal["investment_banker", "asset_manager", "risk_manager", "accountant", "lawyer", "journalist"]
+    slot: Literal[1, 2]
 
 
 class DecideRequest(Request):
@@ -220,9 +236,47 @@ def withdraw_my_application(player: dict = Depends(current_player), conn: Connec
     return _do(conn, player, lambda now: empires.withdraw_application(conn, player["id"]))
 
 
-@router.delete("/api/empire/seat")
-def leave_my_empire(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _do(conn, player, lambda now: empires.leave(conn, player["id"], now))
+# Leaving is by resignation letter: a notice period, during which the head may make a counter-offer.
+
+@router.post("/api/empire/resignation", status_code=status.HTTP_201_CREATED)
+def hand_in_my_resignation(body: LetterRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    def act(now):
+        done = empires.resign(conn, player["id"], body.letter, now)
+        if done["left"]:
+            return {"words": "You have left, and what you put in has been handed back."}
+        return {"words": "Your letter has been handed in. You are still a member, and paid as usual, until the notice has run."}
+    return _do(conn, player, act, "empire-resign", 6)
+
+
+@router.delete("/api/empire/resignation")
+def withdraw_my_resignation(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _do(conn, player, lambda now: empires.withdraw_resignation(conn, player["id"], now), "empire-resign", 6)
+
+
+@router.post("/api/empire/resignation/acceptance")
+def accept_the_offer_to_stay(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _do(conn, player, lambda now: empires.accept_offer(conn, player["id"], now), "empire-resign", 6)
+
+
+@router.put("/api/empire/resignations/{resignation_id}/offer")
+def make_a_counter_offer(body: OfferRequest, resignation_id: int = _id(), player: dict = Depends(current_player),
+                         conn: Connection = Depends(get_connection)):
+    return _do(conn, player, lambda now: empires.counter_offer(conn, player["id"], resignation_id, body.bonus_kobo, body.signing_limit_kobo,
+                                                              body.words, now))
+
+
+@router.delete("/api/empire/resignations/{resignation_id}")
+def let_them_go_early(resignation_id: int = _id(), player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _do(conn, player, lambda now: empires.release(conn, player["id"], resignation_id, now))
+
+
+@router.post("/api/empire/head-votes", status_code=status.HTTP_201_CREATED)
+def vote_for_a_head(body: VoteRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    def act(now):
+        done = empires.vote_for_seat(conn, player["id"], body.build, body.slot, now)
+        return {"words": "They have been voted in and now lead the empire." if done["elected"]
+                else f"Your vote is in: {done['votes']} of the {done['needed']} needed."}
+    return _do(conn, player, act, "empire-vote", 10)
 
 
 @router.post("/api/empire/capital")

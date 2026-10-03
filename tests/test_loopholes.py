@@ -86,7 +86,9 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     build, a bank, an employer and a retirement fund (test_careers.py), and taking on, handing in
     and giving up professional work (test_objectives.py). Stage 6 added empires and pension funds run
     by players (test_empires.py, test_savings.py, test_empire_api.py): every one of those requests acts
-    on the empire or fund the server knows the player belongs to, and moves money only through the ledger."""
+    on the empire or fund the server knows the player belongs to, and moves money only through the ledger.
+    Stage 7 added resignation letters, counter-offers and the vote for a head (test_leaving.py), rank cases
+    and reports of marking (test_mastery.py, test_rank_api.py)."""
     from server.main import app
 
     writes = sorted(
@@ -100,7 +102,8 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("DELETE", "/api/empire/founding"),
         ("DELETE", "/api/empire/members/{member_id}"),
         ("DELETE", "/api/empire/orders/{order_id}"),
-        ("DELETE", "/api/empire/seat"),
+        ("DELETE", "/api/empire/resignation"),
+        ("DELETE", "/api/empire/resignations/{resignation_id}"),
         ("DELETE", "/api/market/orders/{order_id}"),
         ("DELETE", "/api/market/watchlist/{ticker}"),
         ("DELETE", "/api/objectives/{objective_id}"),
@@ -120,12 +123,15 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/empire/bonuses"),
         ("POST", "/api/empire/capital"),
         ("POST", "/api/empire/expenses"),
+        ("POST", "/api/empire/head-votes"),
         ("POST", "/api/empire/investigations"),
         ("POST", "/api/empire/messages"),
         ("POST", "/api/empire/opening"),
         ("POST", "/api/empire/orders"),
         ("POST", "/api/empire/pacts"),
         ("POST", "/api/empire/reports"),
+        ("POST", "/api/empire/resignation"),
+        ("POST", "/api/empire/resignation/acceptance"),
         ("POST", "/api/empire/steps/{step_id}/approve"),
         ("POST", "/api/empire/steps/{step_id}/take"),
         ("POST", "/api/empire/tasks"),
@@ -140,6 +146,9 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/pension-fund/costs"),
         ("POST", "/api/pension-fund/orders"),
         ("POST", "/api/pension-funds"),
+        ("POST", "/api/ranks/cases"),
+        ("POST", "/api/ranks/cases/{case_id}/hand-in"),
+        ("POST", "/api/reports"),
         ("PUT", "/api/career/bank"),
         ("PUT", "/api/career/build"),
         ("PUT", "/api/career/extra-saving"),
@@ -153,6 +162,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("PUT", "/api/empire/cases/{case_id}"),
         ("PUT", "/api/empire/limits"),
         ("PUT", "/api/empire/pacts/{pact_id}"),
+        ("PUT", "/api/empire/resignations/{resignation_id}/offer"),
         ("PUT", "/api/empire/staff"),
         ("PUT", "/api/market/watchlist/{ticker}"),
         ("PUT", "/api/pension-fund/fee"),

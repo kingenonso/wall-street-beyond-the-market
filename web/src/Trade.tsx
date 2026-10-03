@@ -7,14 +7,14 @@ import { Change, Panel } from "./Shell";
 const shares = (count: number) => count.toLocaleString("en-NG");
 
 /** "20.50" typed by a player, as whole kobo. Null if it is not a price. */
-function toKobo(text: string): number | null {
+export function toKobo(text: string): number | null {
   if (!/^\d{1,10}(\.\d{1,2})?$/.test(text.trim())) return null;
   const [naira, kobo = ""] = text.trim().split(".");
   const value = Number(naira) * 100 + Number(kobo.padEnd(2, "0"));
   return value > 0 ? value : null;
 }
 
-function Book({ quote }: { quote: Quote }) {
+export function Book({ quote }: { quote: Quote }) {
   const rows = Math.max(quote.bids.length, quote.offers.length, 1);
   return (
     <div className="scroll">

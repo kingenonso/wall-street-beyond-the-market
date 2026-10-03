@@ -1426,7 +1426,7 @@ def _objective(row: dict) -> ObjectiveRow:
         terms=_terms_as_text(row["terms"]), reward_kobo=row["reward"], experience=row["experience"], payer=row["payer"],
         accepted_at=row["accepted_at"], state=row["state"], progress=row["progress"], submission=row["submission"],
         submitted_at=row["submitted_at"], result=row["result"], judged_at=row["judged_at"], paid_kobo=row["paid"],
-        can_hand_in=row["can_hand_in"])
+        can_hand_in=row["can_hand_in"], setting=row["setting"], setting_name=row["setting_name"], track=row["track"])
 
 
 @app.get("/api/objectives", response_model=ObjectivesResponse)
@@ -1437,7 +1437,8 @@ def my_objectives(player: dict = Depends(current_player), conn: Connection = Dep
         ready=seen["ready"], why=seen["why"], active=[_objective(o) for o in seen["active"]],
         offers=[ObjectiveOffer(**{**{k: v for k, v in o.items() if k != "reward"}, "reward_kobo": o["reward"]}) for o in seen["offers"]],
         finished=[_objective(o) for o in seen["finished"]], skills=[Skill(**s) for s in seen["skills"]],
-        coverage=seen["coverage"], limit=seen["limit"])
+        coverage=seen["coverage"], limit=seen["limit"], tracks=seen["tracks"], weekend=seen["weekend"], settings=seen["settings"],
+        in_empire=seen.get("in_empire", False), empire_work=seen.get("empire_work", {}))
 
 
 def _objective_step(player: dict, action) -> ObjectiveRow:
@@ -1513,3 +1514,4 @@ def accountant_desk(
 
 # Stage 6: empires, the War Room and pension funds run by players.
 from server import empire_routes  # noqa: E402,F401  (importing it adds its routes to the application)
+from server import rank_routes  # noqa: E402,F401

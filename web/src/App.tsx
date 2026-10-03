@@ -17,6 +17,7 @@ import { PortfolioRail, PortfolioWork } from "./Portfolio";
 import { useRoute } from "./hooks";
 import { ProfileRail, ProfileWork } from "./Profile";
 import { Panel, Shell } from "./Shell";
+import { RankRail, RankWork } from "./Rank";
 import { WorkRail, WorkWork } from "./Work";
 import { useClock } from "./useClock";
 
@@ -111,6 +112,10 @@ export function App() {
     current = "work";
     work = <WorkWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <WorkRail player={player} onLoggedOut={loggedOut} />;
+  } else if (section === "rank") {
+    current = "rank";
+    work = <RankWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <RankRail player={player} onLoggedOut={loggedOut} />;
   } else if (section === "career" || (section === "build" && !player.build)) {
     current = "career";
     work = <CareerWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;

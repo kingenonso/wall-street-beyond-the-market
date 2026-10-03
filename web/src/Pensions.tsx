@@ -3,7 +3,8 @@
 
 import { useState } from "react";
 import { api, ApiError, type ManagedFund, type PensionFunds, type Player } from "./api";
-import { AmountForm, asKobo } from "./Empire";
+import { AmountForm } from "./Empire";
+import { BondOrderForm, ShareOrderForm } from "./TradeForm";
 import { formatCompact, formatNaira, formatPercent } from "./format";
 import { useLoad } from "./hooks";
 import { NumberTile } from "./Parts";
@@ -11,14 +12,7 @@ import { Change, Panel } from "./Shell";
 
 type Run = (method: "POST" | "PUT" | "DELETE", path: string, body?: unknown) => Promise<boolean>;
 
-function Managing({ fund, busy, run }: { fund: ManagedFund; busy: boolean; run: Run }) {
-  const [ticker, setTicker] = useState("");
-  const [side, setSide] = useState<"buy" | "sell">("buy");
-  const [quantity, setQuantity] = useState("");
-  const [price, setPrice] = useState("");
-  const [code, setCode] = useState("");
-  const [units, setUnits] = useState("");
-  const priceKobo = asKobo(price);
+function Managing({ fund, busy, run, onLoggedOut }: { fund: ManagedFund; busy: boolean; run: Run; onLoggedOut: () => void }) {
   return (
     <Panel title={`The fund you manage: ${fund.name}`} aside={`${fund.savers} savers · fee ${(fund.fee_bps / 100).toFixed(2)}% a quarter`}>
       <div className="tiles">
@@ -35,24 +29,12 @@ function Managing({ fund, busy, run }: { fund: ManagedFund; busy: boolean; run: 
           <button className="button-quiet" disabled={busy} onClick={() => run("DELETE", `/pension-fund/orders/${order.id}`)}>Cancel</button></div>
       ))}
       <div className="why-title">INVEST THE SAVERS' MONEY</div>
-      <form className="inline-form" onSubmit={(event) => {
-        event.preventDefault();
-        if (Number(quantity) > 0 && priceKobo !== null) run("POST", "/pension-fund/orders", { ticker, side, kind: "limit", quantity: Number(quantity), limit_price_kobo: priceKobo }).then((ok) => ok && setQuantity(""));
-      }}>
-        <label className="answer"><span className="field-label">Share code</span><span className="answer-box"><input type="text" maxLength={3} value={ticker} onChange={(event) => setTicker(event.target.value.toUpperCase())} /></span></label>
-        <label className="answer"><span className="field-label">Buy or sell</span><select value={side} onChange={(event) => setSide(event.target.value as "buy" | "sell")}><option value="buy">Buy</option><option value="sell">Sell</option></select></label>
-        <label className="answer"><span className="field-label">Shares</span><span className="answer-box"><input type="text" inputMode="numeric" value={quantity} onChange={(event) => setQuantity(event.target.value.replace(/\D/g, ""))} /></span></label>
-        <label className="answer"><span className="field-label">Price each</span><span className="answer-box"><span className="muted small">₦</span><input type="text" inputMode="decimal" value={price} onChange={(event) => setPrice(event.target.value)} /></span></label>
-        <button className="button-outline" disabled={busy || ticker.length !== 3 || !(Number(quantity) > 0) || priceKobo === null}>Place the order</button>
-      </form>
-      <form className="inline-form" onSubmit={(event) => {
-        event.preventDefault();
-        if (Number(units) > 0) run("POST", "/pension-fund/bonds", { code, side, units: Number(units) }).then((ok) => ok && setUnits(""));
-      }}>
-        <label className="answer"><span className="field-label">Bond or bill code</span><span className="answer-box"><input type="text" maxLength={12} value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} /></span></label>
-        <label className="answer"><span className="field-label">Number</span><span className="answer-box"><input type="text" inputMode="numeric" value={units} onChange={(event) => setUnits(event.target.value.replace(/\D/g, ""))} /></span></label>
-        <button className="button-outline" disabled={busy || code.length < 3 || !(Number(units) > 0)}>{side === "buy" ? "Buy" : "Sell"} for the fund</button>
-      </form>
+      <div className="why-title">SHARES</div>
+      <ShareOrderForm whose="The fund" busy={busy} held={fund.holdings} fairDealing onLoggedOut={onLoggedOut}
+                      onPlace={(order) => run("POST", "/pension-fund/orders", { ...order, kind: "limit" })} />
+      <div className="why-title">BONDS AND BILLS</div>
+      <BondOrderForm whose="The fund" busy={busy} held={fund.bond_holdings} onLoggedOut={onLoggedOut}
+                     onPlace={(order) => run("POST", "/pension-fund/bonds", order)} />
       <div className="definition shadow">
         <div className="why-title">THE SHADOW SIDE</div>
         <p className="small">
@@ -140,7 +122,7 @@ export function PensionFundsPanel({ player, onLoggedOut, onChanged }: { player: 
           </form>
         )}
       </Panel>
-      {data.managing && <Managing fund={data.managing} busy={busy} run={run} />}
+      {data.managing && <Managing fund={data.managing} busy={busy} run={run} onLoggedOut={onLoggedOut} />}
     </>
   );
 }
