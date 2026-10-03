@@ -640,7 +640,7 @@ function Leaving({ room, act }: { room: EmpireRoom; act: Act }) {
             <div className="definition row-chosen">
               <div className="strong">The head has made you an offer to stay</div>
               {BigInt(mine.offer.bonus_kobo) > 0n && <div className="row"><span>A bonus, paid the moment you accept</span><span className="mono">{formatNaira(mine.offer.bonus_kobo)}</span></div>}
-              {mine.offer.signing_limit_kobo && <div className="row"><span>What you may sign for in a quarter</span><span className="mono">{formatNaira(mine.offer.signing_limit_kobo)}</span></div>}
+              {mine.offer.signing_limit_kobo != null && <div className="row"><span>What you may sign for in a quarter</span><span className="mono">{formatNaira(mine.offer.signing_limit_kobo)}</span></div>}
               {mine.offer.words && <p className="small">"{mine.offer.words}"</p>}
               <div className="step-actions">
                 <button className="button-primary" disabled={act.busy} onClick={() => act.run("POST", "/empire/resignation/acceptance")}>Accept and stay</button>

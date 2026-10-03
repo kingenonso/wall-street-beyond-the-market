@@ -41,23 +41,28 @@ def do(db, player, code, now) -> dict:
     return objectives.submit(db, player, taken["id"], answers_for(db, taken["id"], now), now)
 
 
-def master(db, player, track, stages=("solo", "empire", "live"), modules=None, period=1) -> None:
-    """Write passed work straight into the record, so that a test about ranks need not do forty pieces of work."""
+def master(db, player, track, stages=("solo", "empire", "live"), modules=None, period=None) -> None:
+    """Write passed work straight into the record, so that a test about ranks need not do forty pieces of work.
+    (Each setting in a quarter of its own, as the rules require.)"""
     build = _dicts(db, "SELECT build FROM players WHERE id = %s", (player,))[0]["build"]
     account = ledger.player_account_id(db, player)
     for m in objectives.modules(track)[:modules]:
         for stage in stages:
             code = m["template"] + {"solo": "", "empire": "_e", "live": "_w"}[stage]
+            when = period if period is not None else {"solo": 1, "empire": 2, "live": 3}[stage]
             db.execute("INSERT INTO objectives (player_id, build, template, module, period, payer_account_id, payer_name, title, terms, reward,"
-                       " experience, accepted_at, state, judged_at, judged_period, judged_seq, setting, track) VALUES (%s, %s, %s, %s, %s, %s,"
-                       " 'Test', %s, %s, 0, 0, %s, 'passed', %s, %s, nextval('objectives_judged_seq'), %s, %s) ON CONFLICT DO NOTHING",
-                       (player, build, code, m["module"], period, account, m["title"], Jsonb({}), NOW9, NOW9, period, stage, track))
+                       " experience, accepted_at, state, judged_at, judged_period, judged_seq, setting, track, root) VALUES (%s, %s, %s, %s, %s, %s,"
+                       " 'Test', %s, %s, 0, 0, %s, 'passed', %s, %s, nextval('objectives_judged_seq'), %s, %s, %s) ON CONFLICT DO NOTHING",
+                       (player, build, code, m["module"], when, account, m["title"], Jsonb({}), NOW9, NOW9, when, stage, track, m["template"]))
 
 
 def right_case(db, player, case_id, now) -> dict:
+    """The right answers to a case, read from the server's own record of a blank paper (in a twin of the moment).
+    A player is never shown them while the quarter runs."""
     with db.transaction(force_rollback=True):
-        marked = ranks.hand_in(db, player, case_id, {}, now)
-    return {part["template"]: part["answers"] for part in marked["result"]["parts"]}
+        ranks.hand_in(db, player, case_id, {}, now)
+        marked = _dicts(db, "SELECT result FROM rank_cases WHERE id = %s", (case_id,))[0]["result"]
+    return {part["template"]: part["answers"] for part in marked["parts"]}
 
 
 # ---------------------------------------------------------------------------
@@ -126,38 +131,52 @@ def test_a_module_is_learned_alone_practised_with_the_empire_and_proven_in_a_wee
     player, account = pro(db, "accountant", level=6)
     empire = computer_empire(db)
 
-    def stage():
-        return next(s for s in objectives.board(db, player, FRIDAY9)["skills"] if s["module"] == "Reading financial statements")
+    def stage(now):
+        return next(s for s in objectives.board(db, player, now)["skills"] if s["module"] == "Reading financial statements")
 
-    assert stage()["stage"] == "not yet"
+    assert stage(NOW9)["stage"] == "not yet"
     # With the empire: needs a seat.
     with pytest.raises(objectives.ObjectiveError, match="members of an open empire"):
         objectives.accept(db, player, "ac_ratios_e", NOW9)
     assert do(db, player, "ac_ratios", NOW9)["state"] == "passed"
-    assert stage()["stage"] == "learned" and stage()["learned"] and not stage()["practised"]
+    assert stage(NOW9)["stage"] == "learned" and stage(NOW9)["learned"] and not stage(NOW9)["practised"]
     empires.apply(db, player, empire["id"], NOW9)
+    # One setting of each module a quarter: the same answers cannot be handed in three times.
+    for code in ("ac_ratios_e", "ac_ratios_w"):
+        with pytest.raises(objectives.ObjectiveError, match="another setting"):
+            objectives.accept(db, player, code, FRIDAY9)
+        offer = next(o for o in objectives.board(db, player, FRIDAY9)["offers"] if o["template"] == code)
+        assert not offer["available"] and "another setting" in offer["why_not"]
+    # The next quarter: with the empire.
+    quarters.close_due_quarters(db, after_quarters(9))
+    now10, friday10 = after_quarters(9) + timedelta(hours=12), after_quarters(9) + timedelta(days=4, hours=18)
     before, empire_before = ledger.balance(db, account), ledger.balance(db, empire["account_id"])
-    done = do(db, player, "ac_ratios_e", NOW9)
+    done = do(db, player, "ac_ratios_e", now10)
     assert done["state"] == "passed" and done["setting"] == "empire" and done["payer"] == empire["name"]
     # The empire paid, out of its own cash.
     assert ledger.balance(db, account) - before == done["reward"] == empire_before - ledger.balance(db, empire["account_id"])
-    assert stage()["stage"] == "practised"
+    assert stage(now10)["stage"] == "practised"
     # The weekend challenge is closed on a Monday, and open on Friday evening.
+    quarters.close_due_quarters(db, after_quarters(10))
+    now11, friday11 = after_quarters(10) + timedelta(hours=12), after_quarters(10) + timedelta(days=4, hours=18)
     with pytest.raises(objectives.ObjectiveError, match="Friday"):
-        objectives.accept(db, player, "ac_ratios_w", NOW9)
-    offer = next(o for o in objectives.board(db, player, NOW9)["offers"] if o["template"] == "ac_ratios_w")
+        objectives.accept(db, player, "ac_ratios_w", now11)
+    offer = next(o for o in objectives.board(db, player, now11)["offers"] if o["template"] == "ac_ratios_w")
     assert not offer["available"] and "Weekend challenges open on Friday" in offer["why_not"]
-    solo = next(o for o in objectives.board(db, player, FRIDAY9)["offers"] if o["template"] == "ac_ratios")
-    live = next(o for o in objectives.board(db, player, FRIDAY9)["offers"] if o["template"] == "ac_ratios_w")
+    solo = next(o for o in objectives.board(db, player, friday11)["offers"] if o["template"] == "ac_ratios")
+    live = next(o for o in objectives.board(db, player, friday11)["offers"] if o["template"] == "ac_ratios_w")
     assert live["available"] and live["reward"] == solo["reward"] * 3 // 2 and live["experience"] == solo["experience"] * 3 // 2
-    won = do(db, player, "ac_ratios_w", FRIDAY9)
+    # The clock starts when a challenge is taken on, so its client and figures are not shown before.
+    assert live["client"] is None and "the moment you take the challenge on" in live["situation"]
+    won = do(db, player, "ac_ratios_w", friday11)
     assert won["state"] == "passed" and won["setting"] == "live"
-    assert stage()["stage"] == "proven" and stage()["stage_number"] == 3
-    tracker = objectives.board(db, player, FRIDAY9)["tracks"][0]
+    assert stage(friday11)["stage"] == "proven" and stage(friday11)["stage_number"] == 3
+    tracker = objectives.board(db, player, friday11)["tracks"][0]
     assert (tracker["learned"], tracker["practised"], tracker["proven"], tracker["modules"]) == (1, 1, 1, 6)
     assert tracker["learned_pct"] == 17 and tracker["name"] == "Accountant"
     # The empire gained league points for both.
-    points = _dicts(db, "SELECT points, why FROM league_points WHERE empire_id = %s AND period = 9 ORDER BY id", (empire["id"],))
+    points = _dicts(db, "SELECT points, why FROM league_points WHERE empire_id = %s AND period IN (10, 11) AND reference LIKE 'objective:%%'"
+                        " ORDER BY id", (empire["id"],))
     assert [p["points"] for p in points] == [data.LEAGUE_POINTS["work"], data.LEAGUE_POINTS["challenge"]]
     sound(db)
 
@@ -275,13 +294,19 @@ def test_passing_the_case_opens_the_levels_above_and_work_then_teaches_more(db):
     case = ranks.begin(db, player, "accountant", NOW9)
     done = ranks.hand_in(db, player, case["id"], right_case(db, player, case["id"], NOW9), NOW9)
     assert done["state"] == "passed" and done["result"]["score"] == 100
-    assert all(part["debrief"]["plain"] and part["debrief"]["method"] for part in done["result"]["parts"])       # the debrief
+    # The debrief: every figure is marked and the method is given at once...
+    assert all(part["milestones"] and part["debrief"]["method"] for part in done["result"]["parts"])
+    # ...but the worked answers are held back until the quarter has closed, so that they cannot be carried into another case.
+    assert "held_back" in done["result"] and not any("answers" in part or part["debrief"]["maths"] for part in done["result"]["parts"])
     mine = careers.career(db, player)
     assert mine["rank"] == 1 and mine["level"] > 20                       # the experience held at the gate now counts
     events = [e["kind"] for e in _dicts(db, "SELECT kind FROM career_events WHERE player_id = %s ORDER BY id", (player,))]
     assert "rank_passed" in events and events.count("level_up") >= mine["level"] - 20
     profile = careers.profile(db, player, NOW9)["career"]
     assert profile["rank_name"] == "Professional" and profile["gate"] == 40 and not profile["at_cap"]
+    quarters.close_due_quarters(db, after_quarters(9))
+    later = ranks.standing(db, player, after_quarters(9) + timedelta(hours=12))["past"][0]
+    assert "held_back" not in later["result"] and all(p["answers"] and p["debrief"]["plain"] and p["debrief"]["maths"] for p in later["result"]["parts"])
     # The next gate is Level 40, and asks for more.
     nxt = ranks.standing(db, player, NOW9)["tracks"][0]
     assert nxt["gate"] == 40 and nxt["fee"] > case["fee"] and nxt["pass_mark"] == 85
@@ -458,3 +483,23 @@ def test_a_member_who_holds_the_ceo_rank_can_be_voted_in_by_the_empire(db):
     db.execute("UPDATE players SET ceo_since = %s WHERE id = %s", (NOW9, outsider))
     with pytest.raises(empires.EmpireError, match="founded by players"):
         empires.vote_head(db, outsider, outsider, NOW9)
+
+
+def test_stage_seven_every_module_has_three_kinds_of_work_and_level_twenty_is_a_gate(db):
+    """The stage test, from the design: every module on every syllabus map has a solo, an empire and a
+    live-event objective; a player at Level 20 cannot advance until the required modules are mastered
+    and the rank case is passed."""
+    for track in (*TRACKS, "ceo"):
+        for m in objectives.modules(track):
+            assert {t.setting for t in objectives.TEMPLATES.values() if t.build == track and t.module == m["module"] and t.listed} \
+                == {"solo", "empire", "live"}
+    player, _ = pro(db, "lawyer", level=20, cash_naira=2_000_000)
+    careers.add_experience(db, player, "lawyer", careers.experience_for(30), NOW9)
+    assert careers.career(db, player)["level"] == 20                           # any amount of experience: still Level 20
+    with pytest.raises(ranks.RankError, match="must be learned"):              # not mastered: the case cannot even be sat
+        ranks.begin(db, player, "lawyer", NOW9)
+    master(db, player, "lawyer")
+    assert careers.career(db, player)["level"] == 20                           # mastered, but the case not passed: still Level 20
+    case = ranks.begin(db, player, "lawyer", NOW9)
+    assert ranks.hand_in(db, player, case["id"], right_case(db, player, case["id"], NOW9), NOW9)["state"] == "passed"
+    assert careers.career(db, player)["level"] == 30

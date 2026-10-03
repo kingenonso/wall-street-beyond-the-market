@@ -39,8 +39,8 @@ CASES = {
                      (("rm_liquidity", True), ("rm_stress", True), ("rm_shock", False))),
     "lawyer": ("A contested transfer of a company: who controls it, what it owes, and whether its promises hold",
                (("lw_control", True), ("lw_debts", True), ("lw_contract", True), ("lw_rules", False))),
-    "journalist": ("A published investigation: the results, the claims made about them, and the economy around them",
-                   (("jr_results", True), ("jr_verify", True), ("jr_economy", False), ("jr_league", False))),
+    "journalist": ("A published investigation: the results, the claims made about them, and the industry around them",
+                   (("jr_results", True), ("jr_verify", True), ("jr_league", False))),
     "ceo": ("The board's review of a business: its return, its costs, its dividend and a takeover",
             (("ce_return", True), ("ce_breakeven", True), ("ce_payout", True), ("ce_buy", True))),
 }
@@ -84,16 +84,27 @@ def _fee(gate: int, track: str, wage_index_bps: int) -> int:
     return apply_bps(naira(start), wage_index_bps) // 100_000 * 100_000          # it keeps pace with wages; to the nearest ₦1,000
 
 
-def _public(case: dict) -> dict:
-    """A case as its own player may see it. Before it is judged, nothing here gives an answer away."""
+HELD_BACK = ("The worked answers and the arithmetic are shown when this quarter has closed, so that they cannot be carried "
+             "into another case.")
+
+
+def _public(case: dict, period: int) -> dict:
+    """A case as its own player may see it. Before it is judged, nothing here gives an answer away;
+    and after it, the worked answers are held back until the quarter the case was made from has
+    closed, so that they cannot be handed to somebody sitting a case from the same figures."""
     terms = case["terms"]
+    result = case["result"]
+    if result is not None and period <= case["period"]:
+        result = {**result, "held_back": HELD_BACK,
+                  "parts": [{**{k: v for k, v in part.items() if k != "answers"},
+                             "debrief": {"plain": "", "method": part["debrief"]["method"], "maths": ""}} for part in result["parts"]]}
     return {
         "id": case["id"], "track": case["track"], "track_name": o.track_name(case["track"]), "gate": case["gate"], "title": terms["title"],
         "fee": case["fee"], "state": case["state"], "started_at": case["started_at"], "due_at": case["due_at"],
         "judged_at": case["judged_at"], "pass_mark": terms["pass_mark"], "company": terms.get("company"),
         "parts": [{"template": part["template"], "title": part["title"], "module": part["module"], "idea": part["idea"],
                    "terms": {k: part["terms"][k] for k in PUBLIC_TERMS if part["terms"].get(k) is not None}} for part in terms["parts"]],
-        "submission": case["submission"], "result": case["result"],
+        "submission": case["submission"], "result": result,
     }
 
 
@@ -104,7 +115,7 @@ def standing(conn: Connection, player_id, now: datetime) -> dict:
     mine = careers.career(conn, player_id)
     active = _one(conn, "SELECT * FROM rank_cases WHERE player_id = %s AND state = 'active'", (player_id,))
     past = _rows(conn, "SELECT * FROM rank_cases WHERE player_id = %s AND state <> 'active' ORDER BY id DESC LIMIT 6", (player_id,))
-    out = {"active": active and _public(active), "past": [_public(c) for c in past], "tracks": [],
+    out = {"active": active and _public(active, state["period"]), "past": [_public(c, state["period"]) for c in past], "tracks": [],
            "retry_days": data.RANK_CASE_RETRY_DAYS, "hours": data.RANK_CASE_HOURS, "gates": list(data.RANK_GATES)}
     if mine is None:
         return out
@@ -178,8 +189,9 @@ def _compose(conn: Connection, ctx: dict, track: str, salt: str) -> tuple[dict |
     parts = CASES[track][1]
     used = {r["company"] for r in _rows(conn, "SELECT terms -> 'company' ->> 'ticker' AS company FROM rank_cases WHERE period = %s AND track = %s",
                                          (ctx["period"], track))}
+    # A case is set on a company that makes or sells things: a bank's or an insurer's accounts read differently.
     companies = _rows(conn, "SELECT DISTINCT c.id AS company_id, c.ticker, c.name FROM companies c JOIN company_reports r ON r.company_id = c.id"
-                            " WHERE r.period = %s", (ctx["period"] - 1,))
+                            " WHERE r.period = %s AND c.sector NOT IN ('banking', 'insurance')", (ctx["period"] - 1,))
     ordered = _order(salt + str(ctx["player_id"]), companies, lambda c: c["ticker"])
     ordered.sort(key=lambda c: c["ticker"] in used)             # a company not yet used for a case this quarter comes first
     token = o.SALT.set(salt)
@@ -255,7 +267,7 @@ def begin(conn: Connection, player_id, track: str, now: datetime) -> dict:
                     (player_id, track, gate, state["period"], fee, Jsonb(terms), now, due))
         careers._event(conn, player_id, mine["build"], "rank_case",
                        f"Began {where['title'].lower()} ({o.track_name(track)}). Fee paid: ₦{fee / 100:,.0f}.", now)
-        return _public(case)
+        return _public(case, state["period"])
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +292,7 @@ def hand_in(conn: Connection, player_id, case_id: int, answers: dict, now: datet
         if now > case["due_at"] or ctx["period"] > case["period"]:
             _close(conn, case, "not_done", {"score": 0, "pass_mark": case["terms"]["pass_mark"], "parts": [],
                                            "summary": "It was handed in after the time allowed."}, None, now)
-            return _public(_one(conn, "SELECT * FROM rank_cases WHERE id = %s", (case_id,)))
+            return _public(_one(conn, "SELECT * FROM rank_cases WHERE id = %s", (case_id,)), ctx["period"])
         token = o.SALT.set(case["terms"]["salt"])
         try:
             parts, earned, possible, kept = [], 0, 0, {}
@@ -313,7 +325,7 @@ def hand_in(conn: Connection, player_id, case_id: int, answers: dict, now: datet
             careers._event(conn, player_id, build, "rank_case",
                            f"Rank case not passed: {score} marks in the hundred, {case['terms']['pass_mark']} needed. It can be sat again "
                            f"after {data.RANK_CASE_RETRY_DAYS} real days.", now)
-        return _public(_one(conn, "SELECT * FROM rank_cases WHERE id = %s", (case_id,)))
+        return _public(_one(conn, "SELECT * FROM rank_cases WHERE id = %s", (case_id,)), ctx["period"])
 
 
 def _passed(conn: Connection, player_id, case: dict, build: str, now: datetime) -> None:

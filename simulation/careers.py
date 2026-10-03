@@ -229,6 +229,8 @@ def choose_build(conn: Connection, player_id, build: str, now: datetime) -> None
                 raise CareerError(f"A player may hold up to {data.MAX_BUILDS} builds.")
             if _one(conn, "SELECT 1 FROM objectives WHERE player_id = %s AND state = 'active'", (player_id,)):
                 raise CareerError("Finish or give up the work you have taken on before changing build.")
+            if _one(conn, "SELECT 1 FROM rank_cases WHERE player_id = %s AND state = 'active'", (player_id,)):
+                raise CareerError("You have a rank case in hand. Hand it in before changing build.")
             if _one(conn, "SELECT 1 FROM empire_seats WHERE player_id = %s", (player_id,)):
                 raise CareerError("Your seat in an empire is a seat for your present build. Leave the empire before changing build.")
             if _one(conn, "SELECT 1 FROM empires WHERE kind = 'pension' AND head_player_id = %s", (player_id,)):

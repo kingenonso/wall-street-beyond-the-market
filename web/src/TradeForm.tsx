@@ -122,12 +122,13 @@ export function ShareOrderForm({ whose, busy, held, fairDealing, onPlace, onLogg
         {value !== null && fee !== null && q && (
           <Sum
             lines={[[`${whole(n)} shares at ${formatNaira(String(priceKobo))}`, formatNaira(String(value))],
-                    [`Exchange fee (${(q.fee_bps / 100).toFixed(2)}%)`, formatNaira(String(fee))],
-                    ["Tax on this trade", "₦0.00"]]}
-            totalLabel={side === "buy" ? `${whose} pays, at most` : `${whose} receives, if it all sells`}
+                    [`Fees (${(q.fee_bps / 100).toFixed(2)}%): the exchange's fee and stamp duty`, formatNaira(String(fee))],
+                    ["Tax on any gain", "₦0.00"]]}
+            totalLabel={side === "buy" ? `${whose} pays, at most` : `${whose} receives, at least, if it all sells`}
             total={formatNaira(String(side === "buy" ? value + fee : value - fee))}
-            note={<>The exchange's fee is 0.50% of the value, paid by buyer and seller alike, and 0.25% in the Closing Rush (the last ten
-              minutes of the trading day). No tax is charged on a trade yet: tax on trading gains arrives with the Government stage.</>} />
+            note={<>Buyer and seller each pay 0.50% of the value: 0.30% to the exchange and 0.20% stamp duty to the Government. In the
+              Closing Rush (the last ten minutes of the trading day) the fees are halved, so the sum above is the most it can come to.
+              No tax is charged on a gain from trading yet: that arrives with the Government stage.</>} />
         )}
         <button className="button-primary" type="submit" disabled={busy || !ticker || n <= 0 || priceKobo === null || outside || unfair}>
           {side === "buy" ? "Place the buy order" : "Place the sell order"}
@@ -183,10 +184,10 @@ export function BondOrderForm({ whose, busy, held, onPlace, onLoggedOut }: {
       </div>
       {bond && n > 0 && (
         <Sum
-          lines={[[`${whole(n)} at ${formatNaira(String(each))}`, formatNaira(String(n * each))], ["Fee", "₦0.00"], ["Tax on this trade", "₦0.00"]]}
+          lines={[[`${whole(n)} at ${formatNaira(String(each))}`, formatNaira(String(n * each))], ["Fee", "₦0.00"], ["Tax on any gain", "₦0.00"]]}
           totalLabel={side === "buy" ? `${whose} pays` : `${whose} receives`} total={formatNaira(String(n * each))}
           note={<>Bonds and bills are dealt with the bond desk, not on the exchange. It charges no fee: its reward is the gap between
-            its buying and its selling price. No tax is charged on a trade yet.</>} />
+            its buying and its selling price. No tax is charged on a gain from trading yet.</>} />
       )}
       <button className="button-primary" type="submit" disabled={busy || !bond || n <= 0}>{side === "buy" ? "Buy" : "Sell"} for {whose.toLowerCase()}</button>
       {desk.data && !desk.data.desk_open && <p className="small muted">The bond desk is closed at this hour. It deals while the market is open.</p>}

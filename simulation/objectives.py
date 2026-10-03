@@ -415,6 +415,8 @@ def _income_offer(ctx):
         "situation": f"{company['name']}'s finance team has the quarter's totals for {clock.period_label(company['period'])} "
                      f"but its income statement is not finished, and the tax office wants its payment.",
         "task": ["Finish the income statement from the totals below and work out the company tax.",
+                 "Companies in this country count interest earned on money they have lent as part of operating profit; interest "
+                 "paid on their own debts comes after it.",
                  f"Company tax is {rate / 100:.0f}% of profit before tax. A company that made a loss pays none.",
                  "Give every figure in millions of naira. A loss is a minus figure."],
         "pass_when": "The tax is right, and at least two of the other three figures.",
@@ -1457,7 +1459,7 @@ def ceo_open(conn: Connection, player_id, career: dict | None) -> bool:
     if career["level"] >= data.CEO_MEMBER_LEVEL:
         return True
     seat = empires.seat_of(conn, player_id)
-    return bool(seat and seat["head_player_id"] == player_id)
+    return bool(seat and seat["head_player_id"] == player_id and seat["empire_status"] == "active" and seat["empire_kind"] != "pension")
 
 
 def _open_to(conn: Connection, template: Template, player_id, career: dict | None) -> bool:
@@ -1503,6 +1505,7 @@ def board(conn: Connection, player_id, now: datetime) -> dict:
     if ctx["job"] is None:
         why = "Work comes through an employer. Find a job first."
     taken = {o["template"] for o in rows if o["period"] == ctx["period"] and "step_id" not in o["terms"]}
+    taken_roots = {(o["track"], o["root"]) for o in rows if o["period"] == ctx["period"] and "step_id" not in o["terms"]}
     in_hand = {o["template"] for o in rows if o["state"] == "active"}
     for template in (t for t in TEMPLATES.values() if t.build in tracks and t.listed):
         offer = {"template": template.code, "module": template.module, "title": template.title, "idea": template.idea,
@@ -1516,6 +1519,9 @@ def board(conn: Connection, player_id, now: datetime) -> dict:
             offer["why_not"] = "You have this work in hand already."
         elif template.code in taken:
             offer["why_not"] = "Already taken this quarter. Each piece of work can be taken once a quarter."
+        elif (template.build, template.root) in taken_roots:
+            offer["why_not"] = ("You have worked this module in another setting this quarter. One setting of each module a quarter: "
+                                "it is on offer here again next quarter.")
         elif template.payer == "empire" and not in_empire:
             offer["why_not"] = ("This work is for a Lawyer with a seat in an open empire." if template.code == "lw_pact"
                                 else "For members of an open empire. Take a seat in one to practise this with your empire.")
@@ -1534,8 +1540,14 @@ def board(conn: Connection, player_id, now: datetime) -> dict:
             elif payer is None:
                 offer["why_not"] = "Nobody with the cash to pay for it is asking for this work at the moment."
             else:
-                offer.update(available=True, payer=payer["name"], client=terms.get("client"), situation=terms["situation"],
-                             pass_when=terms["pass_when"], deadline=terms["deadline"])
+                if template.setting == "live" and template.submit is not None:
+                    # The clock starts when the work is taken on, so the client and the figures are not shown before.
+                    offer.update(available=True, payer=None, client=None, pass_when=terms["pass_when"], deadline=terms["deadline"],
+                                 situation="The client and the figures are drawn and shown the moment you take the challenge on. "
+                                           "The clock starts then.")
+                else:
+                    offer.update(available=True, payer=payer["name"], client=terms.get("client"), situation=terms["situation"],
+                                 pass_when=terms["pass_when"], deadline=terms["deadline"])
         offers.append(offer)
     own = maps[build]
     return {"ready": ctx["job"] is not None, "why": why, "active": active, "offers": offers, "finished": finished, "skills": skills,
@@ -1576,9 +1588,14 @@ def accept(conn: Connection, player_id, code: str, now: datetime, step: dict | N
             raise ObjectiveError(f"You can have {data.MAX_ACTIVE_OBJECTIVES} pieces of work in hand at once. Finish one first.")
         if _one(conn, "SELECT 1 FROM objectives WHERE player_id = %s AND template = %s AND state = 'active'", (player_id, code)):
             raise ObjectiveError("You have this work in hand already. Finish it before taking it on again.")
-        if not step and _one(conn, "SELECT 1 FROM objectives WHERE player_id = %s AND build = %s AND template = %s AND period = %s"
-                                   " AND NOT terms ? 'step_id'", (player_id, mine["build"], code, ctx["period"])):
-            raise ObjectiveError("You have already taken this work this quarter. Each piece can be taken once a quarter.")
+        if not step:
+            before = _one(conn, "SELECT template FROM objectives WHERE player_id = %s AND track = %s AND root = %s AND period = %s"
+                                " AND NOT terms ? 'step_id'", (player_id, template.build, template.root, ctx["period"]))
+            if before and before["template"] == code:
+                raise ObjectiveError("You have already taken this work this quarter. Each piece can be taken once a quarter.")
+            if before:
+                raise ObjectiveError("You have already taken this module's work this quarter, in another setting. Each module can be "
+                                     "worked in one setting a quarter: alone, with your empire, or in the weekend challenge.")
         if template.payer == "empire" and not step:
             seat = empires.seat_of(conn, player_id)
             if seat is None or seat["empire_status"] != "active":
@@ -1596,11 +1613,11 @@ def accept(conn: Connection, player_id, code: str, now: datetime, step: dict | N
                 row = _one(
                     conn,
                     "INSERT INTO objectives (player_id, build, template, module, period, client_company_id, payer_account_id, payer_name,"
-                    " title, terms, reward, experience, accepted_at, setting, track)"
-                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+                    " title, terms, reward, experience, accepted_at, setting, track, root)"
+                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
                     (player_id, mine["build"], code, template.module, ctx["period"], terms.get("company_id"), payer["account"],
                      payer["name"], template.title, Jsonb(terms), _reward(template, ctx["wage_index_bps"]),
-                     _experience(template, mine), now, "empire" if step else template.setting, template.build))
+                     _experience(template, mine), now, "empire" if step else template.setting, template.build, template.root))
         except errors.UniqueViolation:
             raise ObjectiveError("You have already taken this work this quarter.") from None
         return _public(row)

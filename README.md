@@ -44,6 +44,10 @@ named payer.* It passes. Report: `docs/STAGE_05_PLAYERS_AND_FIRST_SCREENS.md`.
 Stage 6 test, from the design: *an empire of three humans plus NPC staff completes a task that
 needs five builds.* It passes. Report: `docs/STAGE_06_EMPIRES_AND_ALL_BUILDS.md`.
 
+Stage 7 test, from the design: *every module on every syllabus map has a solo, an empire and a
+live-event objective; a player at Level 20 cannot advance until the required modules are
+mastered and the rank case is passed.* It passes. Report: `docs/STAGE_07_MASTERY_RANKS_AND_LEAGUES.md`.
+
 ## What is in each folder
 
 | Folder | Holds | Language |

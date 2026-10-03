@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from simulation import clock
 from simulation import objectives as o
-from simulation.objectives_more import HAND_IN, M, _given, _marked, _price_now, _roll, _text, _year_profit, _yes_no
+from simulation.objectives_more import HAND_IN, M, _due_soon, _given, _marked, _price_now, _roll, _text, _year_profit, _yes_no
 
 _FINANCIAL = ("banking", "insurance")
 
@@ -28,7 +28,11 @@ def _return_offer(ctx):
     candidates = [c for c in _trading(ctx) if c["figures"]["balance_sheet"]["total_equity"] > 0
                   and c["figures"]["balance_sheet"]["borrowings"] > 0 and c["figures"]["income_statement"]["interest_expense"] > 0
                   and c["figures"]["income_statement"]["operating_profit"] > 0]
-    company = o._choose(ctx, "ce_return", candidates)
+    def clear(c):                # a business whose return and cost of debt are within a fifth of a point is too close to call
+        income, sheet = c["figures"]["income_statement"], c["figures"]["balance_sheet"]
+        earned = 4 * income["operating_profit"] / (sheet["total_equity"] + sheet["borrowings"]) * 100
+        return abs(earned - 4 * income["interest_expense"] / sheet["borrowings"] * 100) >= 0.2
+    company = o._choose(ctx, "ce_return", [c for c in candidates if clear(c)])
     if company is None:
         return None
     income, sheet = company["figures"]["income_statement"], company["figures"]["balance_sheet"]
@@ -36,8 +40,9 @@ def _return_offer(ctx):
             "debt": sheet["borrowings"]}
     return {
         "client": o._client(company),
-        "situation": f"The board of {company['name']} wants to know whether the business earns more on the money tied up in it "
-                     f"than that money costs. The figures are from its accounts for {clock.period_label(company['period'])}.",
+        "situation": f"The board of {company['name']} wants a first test of whether borrowing is paying its way: does the business "
+                     f"earn more on the money tied up in it than its borrowed money costs? The figures are from its accounts for "
+                     f"{clock.period_label(company['period'])}.",
         "task": ["Put the quarter's operating profit and interest on a yearly footing (four times the quarter's).",
                  "Return on capital = a year's operating profit ÷ (owners' funds + borrowings).",
                  "Cost of debt = a year's interest ÷ borrowings.",
@@ -56,15 +61,18 @@ def _return_submit(ctx, objective, answers):
     t = objective["terms"]
     earned = 4 * t["operating"] / (t["equity"] + t["debt"]) * 100
     cost = 4 * t["interest"] / t["debt"] * 100
-    earns = round(earned, 1) > round(cost, 1)
+    earns = earned > cost
     return _marked(objective, answers, [("return", "Return on capital", earned, 0.1), ("cost", "Cost of debt", cost, 0.1),
                                         ("earns", "Earns more than debt costs", "yes" if earns else "no", 0)], 2,
-                   plain=f"A business uses money from its owners and its lenders. It is worth growing only while it earns more on "
-                         f"that money than the money costs. This one earns {earned:.1f}% a year on its capital and pays "
-                         f"{cost:.1f}% on its debt.",
+                   plain=f"A business uses money from its owners and its lenders. This one earns {earned:.1f}% a year on all of it "
+                         f"and pays {cost:.1f}% on the borrowed part, so borrowing "
+                         + ("adds to what is left for the owners." if earns else "takes away from what is left for the owners.")
+                         + " That is the first test only: the owners' own money has a cost too, and a higher one, because they are paid last.",
                    method="Use profit before interest, because interest is the lenders' reward and both groups' money is in the "
-                          "bottom of the sum. Compare like with like: a year with a year. A leader who grows a business that "
-                          "earns less than its capital costs makes it bigger and its owners poorer.",
+                          "bottom of the sum. Compare like with like: a year with a year. The full test sets the return against "
+                          "the blended cost of the owners' and the lenders' money together. A leader who grows a business that "
+                          "earns less than its capital costs makes it bigger and its owners poorer. One quarter multiplied by four "
+                          "is a quick reading; a careful one uses the last four quarters.",
                    maths=f"Return = 4 × {M(t['operating']):,.2f} ÷ ({M(t['equity']):,.2f} + {M(t['debt']):,.2f}) = {earned:.1f}%. "
                          f"Cost of debt = 4 × {M(t['interest']):,.2f} ÷ {M(t['debt']):,.2f} = {cost:.1f}%.")
 
@@ -85,23 +93,27 @@ def _payout_offer(ctx):
     if company is None:
         return None
     sheet = company["figures"]["balance_sheet"]
-    share = (30, 40, 50, 60)[_roll(ctx["player_id"], "ce_payout", ctx["period"], company["company_id"]) % 4]
+    # An ordinary payout, or a special one: more than a year's profit, paid out of profits kept from earlier years.
+    share = (40, 60, 100, 200, 300)[_roll(ctx["player_id"], "ce_payout", ctx["period"], company["company_id"]) % 5]
     keep = {"profit": company["year_profit"], "cash": sheet["cash"], "bills": sheet["payables"],
+            "due": _due_soon(company["figures"], ctx["period"] - 1),
             "shares": prices[company["company_id"]]["shares"], "share": share}
     return {
         "client": o._client(company),
         "situation": f"The board of {company['name']} is considering paying out {share}% of the last year's profit to the owners "
-                     f"as a dividend, and wants to know what that comes to and whether the cash is there.",
+                     f"as a dividend" + (", a special payment out of profits kept from earlier years," if share > 100 else "")
+                     + " and wants to know what that comes to and whether the cash is there.",
         "task": [f"Work out the dividend in all ({share}% of the year's profit after tax) and for each share.",
-                 "Then take the dividend and the unpaid bills from the cash, and say whether the company can afford it: "
-                 "it can if what is left is nought or more.",
-                 "Money in millions of naira; the dividend for each share in naira."],
+                 "Then take from the cash the dividend, the unpaid bills, and the debt that reaches its end date within a year, "
+                 "and say whether the company can afford the dividend: it can if what is left is nought or more.",
+                 "Money in millions of naira, and the dividend for each share in naira, both to two decimal places."],
         "pass_when": "At least three of the four answers are right.", "deadline": HAND_IN,
         "given": [_given("Profit after tax, last four quarters", keep["profit"]), _given("Cash", keep["cash"]),
-                  _given("Bills unpaid", keep["bills"]), _text("Shares in issue", f"{keep['shares']:,}")],
+                  _given("Bills unpaid", keep["bills"]), _given("Debt reaching its end date within a year", keep["due"]),
+                  _text("Shares in issue", f"{keep['shares']:,}")],
         "fields": [{"key": "total", "label": "The dividend in all", "kind": "millions"},
                    {"key": "each", "label": "For each share", "kind": "naira"},
-                   {"key": "left", "label": "Cash left after the dividend and the bills", "kind": "millions"},
+                   {"key": "left", "label": "Cash left after the dividend, the bills and the debt falling due", "kind": "millions"},
                    _yes_no("afford", "Can it afford the dividend?")],
         "company_id": str(company["company_id"]), **keep,
     }
@@ -111,18 +123,22 @@ def _payout_submit(ctx, objective, answers):
     t = objective["terms"]
     total = t["profit"] * t["share"] / 100
     each = total / t["shares"] / 100
-    left = t["cash"] - total - t["bills"]
-    return _marked(objective, answers, [("total", "The dividend in all", M(total), 0.05), ("each", "For each share", each, 0.02),
+    left = t["cash"] - total - t["bills"] - t["due"]
+    return _marked(objective, answers, [("total", "The dividend in all", M(total), 0.05), ("each", "For each share", each, 0.005),
                                         ("left", "Cash left", M(left), 0.5), ("afford", "Whether it can afford it", "yes" if left >= 0 else "no", 0)], 3,
                    plain=f"A dividend is declared out of profit but paid out of cash, and the two are not the same thing. "
-                         f"{t['share']}% of the year's profit is {o._money(int(total))}, or ₦{each:,.2f} a share. After paying it "
-                         f"and the bills already due, the company would have {o._money(int(left))} "
-                         + ("left." if left >= 0 else "less than nothing: it cannot afford it without borrowing."),
+                         f"{t['share']}% of the year's profit is {o._money(int(total))}, or ₦{each:,.2f} a share. After paying it, "
+                         f"the bills already due and the debt that must be repaid within the year, the company would "
+                         + (f"have {o._money(int(left))} left." if left >= 0
+                            else f"be {o._money(int(-left))} short: it cannot afford it without borrowing again."),
                    method="Set a payout the business can keep up in a poor year, because owners punish a dividend that is cut far "
-                          "more than they reward one that is raised. Money the business can invest at a good return should stay "
-                          "in it; money it cannot should go back to the owners.",
+                          "more than they reward one that is raised. This test is the least a board should ask: a careful one "
+                          "also keeps a working balance of cash, allows for what it plans to spend, and checks that the law "
+                          "lets it pay (a dividend may only come out of profits kept from past years). Money the business can "
+                          "invest at a good return should stay in it; money it cannot should go back to the owners.",
                    maths=f"Dividend = {M(t['profit']):,.2f} × {t['share']}% = {M(total):,.2f} million. Each share = {M(total):,.2f} million ÷ "
-                         f"{t['shares']:,} = ₦{each:,.2f}. Left = {M(t['cash']):,.2f} − {M(total):,.2f} − {M(t['bills']):,.2f} = {M(left):,.2f} million.")
+                         f"{t['shares']:,} = ₦{each:,.2f}. Left = {M(t['cash']):,.2f} − {M(total):,.2f} − {M(t['bills']):,.2f} − "
+                         f"{M(t['due']):,.2f} = {M(left):,.2f} million.")
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +182,7 @@ def _breakeven_submit(ctx, objective, answers):
     return _marked(objective, answers, [("margin", "Margin on sales", margin * 100, 0.1),
                                         ("breakeven", "Break-even sales", M(level), max(M(level) * 0.005, 0.5)),
                                         ("safety", "Margin of safety", safety, 0.3)], 2,
-                   plain=f"Every naira of sales leaves {margin * 100:.1f} kobo in the hundred after the cost of what was sold. "
+                   plain=f"Every naira of sales leaves {margin * 100:.1f} kobo after the cost of what was sold. "
                          f"That has to pay the costs that do not move. The business breaks even at sales of {o._money(int(level))} "
                          f"a quarter, so sales could fall by {safety:.1f}% before it makes a loss."
                          if safety >= 0 else
@@ -251,21 +267,23 @@ def _buy_offer(ctx):
     premium = (20, 25, 30, 35, 40)[_roll(ctx["player_id"], "ce_buy", ctx["period"], company["company_id"]) % 5]
     saving = (2, 3, 4)[_roll(ctx["player_id"], "ce_buy", ctx["period"], company["company_id"], "s") % 3]
     keep = {"value": share["price"] * share["shares"], "profit": company["year_profit"], "premium": premium, "saving": saving,
-            "sales": 4 * company["figures"]["income_statement"]["revenue"]}
+            "sales": 4 * company["figures"]["income_statement"]["revenue"], "tax_bps": o._tax_rate(conn),
+            "debt": company["figures"]["balance_sheet"]["borrowings"]}
     return {
         "client": o._client(company),
         "situation": f"Your board is weighing an offer for the whole of {company['name']} at {premium}% above today's market value. "
                      f"Its advisers believe joining the two businesses would save {saving}% of the target's yearly sales in costs.",
         "task": ["Work out what the offer would cost.",
-                 "Payback = the cost ÷ a year's profit after tax: how many years of today's profit the price is.",
-                 "Then work out the payback again with the yearly saving added to the profit.",
-                 "The cost in millions of naira; both paybacks in years, to one decimal place."],
+                 "Years of profit = the cost ÷ a year's profit after tax: how many years of today's profit the price is.",
+                 f"Then work it out again with the yearly saving added to the profit. The saving is taxed like any other profit, at "
+                 f"{keep['tax_bps'] / 100:.0f}%: only what is left after tax is added.",
+                 "The cost in millions of naira; both answers in years, to one decimal place."],
         "pass_when": "At least two of the three figures are right.", "deadline": HAND_IN,
         "given": [_given("Market value today", keep["value"]), _given("Profit after tax, last four quarters", keep["profit"]),
                   _given("Sales, a year (four times the quarter's)", keep["sales"])],
         "fields": [{"key": "cost", "label": "Cost of the offer", "kind": "millions"},
-                   {"key": "payback", "label": "Payback on today's profit", "kind": "times"},
-                   {"key": "payback_with", "label": "Payback with the saving", "kind": "times"}],
+                   {"key": "payback", "label": "Years of today's profit", "kind": "times"},
+                   {"key": "payback_with", "label": "Years of profit, with the saving", "kind": "times"}],
         "company_id": str(company["company_id"]), **keep,
     }
 
@@ -274,18 +292,21 @@ def _buy_submit(ctx, objective, answers):
     t = objective["terms"]
     cost = t["value"] * (100 + t["premium"]) / 100
     saved = t["sales"] * t["saving"] / 100
-    plain, better = cost / t["profit"], cost / (t["profit"] + saved)
-    return _marked(objective, answers, [("cost", "Cost of the offer", M(cost), max(M(cost) * 0.001, 0.5)), ("payback", "Payback", plain, 0.06),
-                                        ("payback_with", "Payback with the saving", better, 0.06)], 2,
+    kept = saved * (10_000 - t["tax_bps"]) / 10_000
+    plain, better = cost / t["profit"], cost / (t["profit"] + kept)
+    return _marked(objective, answers, [("cost", "Cost of the offer", M(cost), 0.5), ("payback", "Years of today's profit", plain, 0.06),
+                                        ("payback_with", "Years of profit, with the saving", better, 0.06)], 2,
                    plain=f"The offer costs {o._money(int(cost))}: {plain:.1f} years of the target's present profit. If the promised "
-                         f"saving of {o._money(int(saved))} a year arrives, that falls to {better:.1f} years. The whole case for "
-                         f"paying {t['premium']}% over the market rests on that saving.",
+                         f"saving arrives, {o._money(int(kept))} a year is left of it after tax, and the price falls to {better:.1f} "
+                         f"years of profit. The whole case for paying {t['premium']}% over the market rests on that saving.",
                    method="The premium is paid on the day; the savings arrive later, cost money to get, and often come in below "
                           "plan. A careful leader asks what the deal is worth if only half the saving turns up, and walks away "
-                          "from a price that needs everything to go right.",
-                   maths=f"Cost = {M(t['value']):,.2f} × {1 + t['premium'] / 100:.2f} = {M(cost):,.2f} million. Payback = {M(cost):,.2f} ÷ "
-                         f"{M(t['profit']):,.2f} = {plain:.1f} years. Saving = {M(t['sales']):,.2f} × {t['saving']}% = {M(saved):,.2f}. "
-                         f"With it = {M(cost):,.2f} ÷ {M(t['profit'] + saved):,.2f} = {better:.1f} years.")
+                          "from a price that needs everything to go right. This is a first reading: the buyer also takes on the "
+                          f"target's debts ({o._money(t['debt'])} here), and a full valuation works from the cash the business "
+                          "will throw off, not from one year's profit.",
+                   maths=f"Cost = {M(t['value']):,.2f} × {1 + t['premium'] / 100:.2f} = {M(cost):,.2f} million. Years = {M(cost):,.2f} ÷ "
+                         f"{M(t['profit']):,.2f} = {plain:.1f}. Saving = {M(t['sales']):,.2f} × {t['saving']}% = {M(saved):,.2f}; after tax at "
+                         f"{t['tax_bps'] / 100:.0f}% = {M(kept):,.2f}. With it = {M(cost):,.2f} ÷ {M(t['profit'] + kept):,.2f} = {better:.1f} years.")
 
 
 # ---------------------------------------------------------------------------
@@ -304,7 +325,7 @@ def _people_offer(ctx):
         "client": o._client(company),
         "situation": f"{company['name']} employs {keep['staff']:,} people. Its board wants to see, on one line, what they cost "
                      f"and what they bring in.",
-        "task": ["Work out the sales for each person employed and the wages for each, for the quarter, in naira.",
+        "task": ["Work out the sales for each person employed and the wages for each, for the quarter, in whole naira.",
                  "Then wages as a percentage of sales, to one decimal place."],
         "pass_when": "At least two of the three figures are right.", "deadline": HAND_IN,
         "given": [_text("People employed", f"{keep['staff']:,}"), _given("Wages, the quarter", keep["wages"]),

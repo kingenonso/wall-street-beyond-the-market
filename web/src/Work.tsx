@@ -218,7 +218,7 @@ function OfferRow({ offer, canTake, onTake, busy }: { offer: ObjectiveOffer; can
         <>
           <p className="small">{offer.situation}</p>
           <div className="small"><span className="muted">Passed when:</span> {offer.pass_when}</div>
-          <div className="small"><span className="muted">Paid by:</span> {offer.payer}{offer.setting === "empire" ? " (your empire, out of its own cash)" : offer.client ? <> (the client, <a href={`#/companies/${offer.client.ticker}`}>{offer.client.ticker}</a>)</> : " (your employer, as performance pay)"}</div>
+          {offer.payer && <div className="small"><span className="muted">Paid by:</span> {offer.payer}{offer.setting === "empire" ? " (your empire, out of its own cash)" : offer.client ? <> (the client, <a href={`#/companies/${offer.client.ticker}`}>{offer.client.ticker}</a>)</> : " (your employer, as performance pay)"}</div>}
           {offer.practise_again && <div className="small change-down">▼ Your last attempt at this module was not passed. Practise it again.</div>}
           <div className="step-actions">
             <button className="button-outline" disabled={!canTake || busy} onClick={onTake}>Take this work on</button>
@@ -231,8 +231,8 @@ function OfferRow({ offer, canTake, onTake, busy }: { offer: ObjectiveOffer; can
 }
 
 const SETTING_WORDS: Record<Setting, string> = {
-  solo: "Work you do alone, for a client or your employer. Passing it makes the module learned.",
-  empire: "The same skill, done for your empire and paid by it. Passing it makes the module practised, and adds to the empire's league points.",
+  solo: "Work you do alone, for a client or your employer. Passing it makes the module learned. Each module can be worked in one setting a quarter: alone, with your empire, or in the weekend challenge.",
+  empire: "The same skill, done for your empire and paid by it. Passing it makes the module practised, and adds to the empire's league points. Each module can be worked in one setting a quarter.",
   live: "The same skill against the clock, in a challenge open to everybody at once. It pays and teaches one and a half times as much. Passing it makes the module proven.",
 };
 
@@ -243,7 +243,7 @@ function Offers({ data, busy, onTake }: { data: ObjectiveBoard; busy: boolean; o
   const weekend = data.weekend;
   const day = (iso: string) => new Date(iso).toLocaleString("en-NG", { weekday: "long", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Lagos" });
   return (
-    <Panel title="Work on offer" aside="Each piece can be taken once a quarter, in each setting">
+    <Panel title="Work on offer" aside="One setting of each module a quarter">
       <p className="muted small">
         No question papers here. Each piece is practical work from one learning module, and each module's work comes in three
         settings. The server judges the result against the game's own records, and the named payer pays out of its own cash.

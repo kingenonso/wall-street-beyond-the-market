@@ -128,6 +128,13 @@ def _growth_points(conn: Connection, empire: dict, period: int) -> tuple[int, st
         return None
     put_in = _one(conn, "SELECT coalesce(sum(amount), 0)::bigint AS total FROM empire_capital WHERE empire_id = %s AND period > %s"
                         " AND period <= %s", (empire["id"], start["period"], period))["total"]
+    # Money taken from the empire and then paid back with a fine is not growth either: it is left out both ways, so that a
+    # staged theft and its fine cannot buy a place in the league.
+    fines = _one(conn, "SELECT coalesce(sum(repaid), 0)::bigint AS total FROM empire_cases WHERE empire_id = %s AND decided_period > %s"
+                       " AND decided_period <= %s", (empire["id"], start["period"], period))["total"]
+    taken = _one(conn, "SELECT coalesce(sum(amount), 0)::bigint AS total FROM empire_books WHERE empire_id = %s AND kind = 'taken'"
+                       " AND period > %s AND period <= %s", (empire["id"], start["period"], period))["total"]
+    put_in += max(fines - taken, 0)
     grew = (end["worth"] - put_in - start["worth"]) / start["worth"] * 100
     most = data.LEAGUE_POINTS["growth_most"]
     points = max(-most, min(most, round(grew)))

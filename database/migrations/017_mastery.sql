@@ -131,3 +131,51 @@ BEGIN
     RETURN NEW;
 END $$;
 CREATE TRIGGER objectives_track_default BEFORE INSERT ON objectives FOR EACH ROW EXECUTE FUNCTION objectives_track_default();
+
+-- One setting of each module's work in a quarter: alone, with the empire, or in the weekend
+-- challenge. Otherwise the same answers could be handed in three times. `root` is the solo
+-- piece of work that the work taken is a setting of.
+ALTER TABLE objectives ADD COLUMN root text;
+UPDATE objectives SET root = template;
+ALTER TABLE objectives ALTER COLUMN root SET NOT NULL;
+CREATE OR REPLACE FUNCTION objectives_track_default() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.track IS NULL THEN
+        NEW.track := NEW.build;
+    END IF;
+    IF NEW.root IS NULL THEN
+        NEW.root := NEW.template;
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE UNIQUE INDEX objectives_one_setting_a_quarter ON objectives (player_id, track, root, period) WHERE NOT (terms ? 'step_id');
+
+-- A counter-offer is the offer of the head who made it, and lapses when they no longer lead.
+ALTER TABLE empire_resignations ADD COLUMN offered_by uuid REFERENCES players (id);
+
+-- ---------------------------------------------------------------------------
+-- Permanent records. League points, how each game year ended, and reports of marking are only
+-- ever added to. A rank case that has been judged, and a resignation letter that has run its
+-- course, cannot be changed afterwards.
+-- ---------------------------------------------------------------------------
+CREATE TRIGGER league_points_permanent BEFORE UPDATE OR DELETE ON league_points FOR EACH ROW EXECUTE FUNCTION records_forbid_change();
+CREATE TRIGGER league_seasons_permanent BEFORE UPDATE OR DELETE ON league_seasons FOR EACH ROW EXECUTE FUNCTION records_forbid_change();
+CREATE TRIGGER work_reports_permanent BEFORE UPDATE OR DELETE ON work_reports FOR EACH ROW EXECUTE FUNCTION records_forbid_change();
+
+CREATE FUNCTION rank_cases_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' OR OLD.state <> 'active' THEN
+        RAISE EXCEPTION 'This rank case has been judged. Its record cannot be changed.' USING ERRCODE = 'restrict_violation';
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER rank_cases_guard BEFORE UPDATE OR DELETE ON rank_cases FOR EACH ROW EXECUTE FUNCTION rank_cases_guard();
+
+CREATE FUNCTION empire_resignations_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' OR OLD.status <> 'waiting' THEN
+        RAISE EXCEPTION 'This resignation letter has run its course. Its record cannot be changed.' USING ERRCODE = 'restrict_violation';
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER empire_resignations_guard BEFORE UPDATE OR DELETE ON empire_resignations FOR EACH ROW EXECUTE FUNCTION empire_resignations_guard();

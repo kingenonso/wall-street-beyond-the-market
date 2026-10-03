@@ -28,7 +28,7 @@ function Requirements({ track }: { track: RankTrack }) {
   return <ProgressTracker steps={steps} />;
 }
 
-function TrackPanel({ track, busy, onBegin }: { track: RankTrack; busy: boolean; onBegin: () => void }) {
+function TrackPanel({ track, busy, onBegin, hours, retryDays }: { track: RankTrack; busy: boolean; onBegin: () => void; hours: number; retryDays: number }) {
   const [sure, setSure] = useState(false);
   const ceo = track.track === "ceo";
   if (track.gate === null) {
@@ -48,8 +48,8 @@ function TrackPanel({ track, busy, onBegin }: { track: RankTrack; busy: boolean;
           <p className="small">{track.what}. It has {track.parts.length} parts ({track.parts.join(", ").toLowerCase()}), all made from the world as it stands at the moment you begin, so no two cases are alike.</p>
           <div className="row"><span className="muted">Fee, paid when you begin</span><span className="mono">{track.fee_kobo ? formatNaira(track.fee_kobo) : "—"}</span></div>
           <div className="row"><span className="muted">To pass</span><span>{track.pass_mark} marks in the hundred, across the result and the working</span></div>
-          <div className="row"><span className="muted">Time allowed</span><span>48 real hours, and never past the end of the quarter</span></div>
-          <p className="muted small">The fee is paid into the prize pool: it leaves your pocket and the economy, and is not returned. A case that is not passed can be sat again after three real days, on a fresh case.</p>
+          <div className="row"><span className="muted">Time allowed</span><span>{hours} real hours, and never past the end of the quarter</span></div>
+          <p className="muted small">The fee is paid into the prize pool: it leaves your pocket and the economy, and is not returned. A case that is not passed can be sat again after {retryDays} real days, on a fresh case.</p>
           {track.can_begin ? (
             <div className="step-actions">
               {sure
@@ -128,6 +128,7 @@ function PastCase({ rankCase }: { rankCase: RankCase }) {
       {open && result && (
         <div className="debrief">
           <p className="strong">{result.summary}</p>
+          {result.held_back && <p className="muted small">○ {result.held_back}</p>}
           {result.parts.map((part) => (
             <div key={part.template} className="case-part">
               <h3>{part.title} <span className="muted small">· {part.module} · {part.score} of 100</span></h3>
@@ -172,7 +173,7 @@ export function RankWork({ player, onLoggedOut, onChanged }: { player: Player; o
       {!player.build && <Panel title="Choose a build first"><p>A rank belongs to a build. <a href="#/career">Choose yours on the Career page</a>.</p></Panel>}
       {error && <p className="error" role="alert">{error}</p>}
       {data.active && <CaseInHand rankCase={data.active} busy={busy} onError={setError} onHandIn={(answers) => run(() => api.handInCase(data.active!.id, answers))} />}
-      {data.tracks.map((track) => <TrackPanel key={track.track} track={track} busy={busy} onBegin={() => run(() => api.beginCase(track.track))} />)}
+      {data.tracks.map((track) => <TrackPanel key={track.track} track={track} busy={busy} hours={data.hours} retryDays={data.retry_days} onBegin={() => run(() => api.beginCase(track.track))} />)}
       {data.past.length > 0 && (
         <Panel title="Past cases" aside="Open one to see why">
           {data.past.map((past) => <PastCase key={past.id} rankCase={past} />)}

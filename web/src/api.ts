@@ -133,7 +133,7 @@ export type RankCase = {
   id: number; track: string; track_name: string; gate: number; title: string; fee_kobo: Kobo; state: "active" | "passed" | "failed" | "not_done";
   started_at: string; due_at: string; judged_at: string | null; pass_mark: number; company: { ticker: string; name: string } | null;
   parts: CasePart[]; submission: Record<string, Record<string, unknown>> | null;
-  result: null | { score: number; pass_mark: number; summary: string;
+  result: null | { score: number; pass_mark: number; summary: string; held_back?: string;
                    parts: { template: string; title: string; module: string; score: number; summary: string; milestones: Milestone[];
                             debrief: { plain: string; method: string; maths: string }; answers?: Record<string, unknown> }[] };
 };

@@ -265,6 +265,11 @@ def _vacate(conn: Connection, seat: dict, now: datetime, period: int, reason: st
     for step in _rows(conn, "SELECT s.id, s.objective_id FROM empire_task_steps s JOIN objectives o ON o.id = s.objective_id"
                             " WHERE o.player_id = %s AND o.state = 'active' AND s.status = 'current'", (seat["player_id"],)):
         objectives.withdraw(conn, seat["player_id"], step["objective_id"], now)
+    # Work in hand for the empire, paid by it, ends with the seat: somebody who has gone is not paid by the empire they left.
+    for work in _rows(conn, "SELECT id FROM objectives WHERE player_id = %s AND state = 'active' AND setting = 'empire'"
+                            " AND payer_account_id = (SELECT account_id FROM empires WHERE id = %s) AND NOT terms ? 'step_id'",
+                      (seat["player_id"], seat["empire_id"])):
+        objectives.withdraw(conn, seat["player_id"], work["id"], now)
     conn.execute("UPDATE empire_seats SET player_id = NULL, since = NULL, signing_limit = NULL WHERE id = %s", (seat["id"],))
     conn.execute("UPDATE empire_resignations SET status = CASE WHEN %s::text IN ('left', 'released') THEN %s::text ELSE 'overtaken' END, ended_at = %s"
                  " WHERE player_id = %s AND status = 'waiting'", (reason, reason, now, seat["player_id"]))
@@ -355,7 +360,7 @@ def resign(conn: Connection, player_id, letter: str, now: datetime) -> dict:
                      " VALUES (%s, %s, %s, %s, %s, %s, %s)", (empire["id"], player_id, letter, now, state["period"], leaves_at, leaves_period))
         name = _one(conn, "SELECT display_name FROM players WHERE id = %s", (player_id,))["display_name"]
         when = (f"on {clock.to_lagos(leaves_at):%d %B %Y}" if run_by_players else f"when {clock.period_label(state['period'])} ends")
-        _log(conn, empire["id"], f"{name} handed in a resignation letter and leaves {when} unless it is withdrawn.", now)
+        # The letter is between the member and the head: it is not written in the log every member reads.
         careers._event(conn, player_id, seat["build"], "resigned", f"Handed in a resignation letter to {empire['name']}: leaving {when}.", now)
         return {"left": False, "leaves_at": leaves_at, "leaves_period": leaves_period}
 
@@ -367,8 +372,6 @@ def withdraw_resignation(conn: Connection, player_id, now: datetime) -> None:
         if letter is None:
             raise EmpireError("You have no resignation letter waiting.")
         conn.execute("UPDATE empire_resignations SET status = 'withdrawn', ended_at = %s WHERE id = %s", (now, letter["id"]))
-        name = _one(conn, "SELECT display_name FROM players WHERE id = %s", (player_id,))["display_name"]
-        _log(conn, letter["empire_id"], f"{name} withdrew their resignation letter.", now)
 
 
 def _letter_for_head(conn: Connection, head_id, resignation_id: int) -> tuple[dict, dict]:
@@ -398,10 +401,9 @@ def counter_offer(conn: Connection, head_id, resignation_id: int, bonus: int, si
             raise EmpireError(f"A counter-offer's bonus may be up to {_money(most)}: {data.COUNTER_OFFER_MOST_BPS // 100}% of the empire's worth.")
         if signing_limit_kobo is not None and signing_limit_kobo > naira(10_000_000_000):
             raise EmpireError("That is not a sensible limit.")
-        conn.execute("UPDATE empire_resignations SET offer_bonus = %s, offer_limit = %s, offer_words = %s, offered_at = %s WHERE id = %s",
-                     (bonus, signing_limit_kobo, _text(words or "")[:400], now, letter["id"]))
+        conn.execute("UPDATE empire_resignations SET offer_bonus = %s, offer_limit = %s, offer_words = %s, offered_at = %s, offered_by = %s"
+                     " WHERE id = %s", (bonus, signing_limit_kobo, _text(words or "")[:400], now, head_id, letter["id"]))
         member = _one(conn, "SELECT display_name, build FROM players WHERE id = %s", (letter["player_id"],))
-        _log(conn, empire["id"], f"The head made {member['display_name']} an offer to stay.", now)
         careers._event(conn, letter["player_id"], member["build"], "counter_offer",
                        f"{empire['name']} made you an offer to stay" + (f": a bonus of {_money(bonus)}" if bonus else "")
                        + (f"{' and' if bonus else ':'} a signing limit of {_money(signing_limit_kobo)} a quarter" if signing_limit_kobo is not None else "")
@@ -419,8 +421,10 @@ def accept_offer(conn: Connection, player_id, now: datetime) -> dict:
         if seat is None or letter is None or letter["offered_at"] is None:
             raise EmpireError("There is no offer waiting for you.")
         empire = _empire(conn, seat["empire_id"], lock=True)
-        if empire["head_player_id"] is None or empire["head_player_id"] == player_id:
-            raise EmpireError("The head who made that offer no longer leads the empire. The offer has lapsed.")
+        if empire["head_player_id"] is None or empire["head_player_id"] == player_id or empire["head_player_id"] != letter["offered_by"]:
+            conn.execute("UPDATE empire_resignations SET offer_bonus = NULL, offer_limit = NULL, offer_words = NULL, offered_at = NULL,"
+                         " offered_by = NULL WHERE id = %s", (letter["id"],))
+            return {"lapsed": True, "words": "The head who made that offer no longer leads the empire. The offer has lapsed, and your letter stands."}
         bonus = letter["offer_bonus"] or 0
         if bonus:
             most = bonus_limit(conn, empire, now)
@@ -438,8 +442,6 @@ def accept_offer(conn: Connection, player_id, now: datetime) -> dict:
         if letter["offer_limit"] is not None:
             conn.execute("UPDATE empire_seats SET signing_limit = %s WHERE id = %s", (letter["offer_limit"], seat["id"]))
         conn.execute("UPDATE empire_resignations SET status = 'stayed', ended_at = %s WHERE id = %s", (now, letter["id"]))
-        name = _one(conn, "SELECT display_name FROM players WHERE id = %s", (player_id,))["display_name"]
-        _log(conn, empire["id"], f"{name} accepted the head's offer and stays.", now)
         return {"bonus": bonus, "signing_limit": letter["offer_limit"]}
 
 
@@ -498,8 +500,10 @@ def vote_head(conn: Connection, voter_id, candidate_id, now: datetime) -> dict:
             raise EmpireError("Only a member who has earned the CEO rank can be voted in as head.")
         if empire["head_player_id"] == candidate_id:
             raise EmpireError("They lead the empire already.")
-        if _one(conn, "SELECT 1 FROM empire_cases WHERE empire_id = %s AND player_id = %s AND status = 'open'", (empire["id"], candidate_id)):
+        if _one(conn, "SELECT 1 FROM empire_cases WHERE player_id = %s AND status = 'open'", (candidate_id,)):
             raise EmpireError("A proved theft of theirs is waiting to be decided. They cannot be voted in until it is.")
+        if _resignation(conn, candidate_id, lock=False):
+            raise EmpireError("They have handed in a resignation letter. Somebody who is leaving cannot be voted in to lead.")
         conn.execute("INSERT INTO empire_head_votes (empire_id, voter_id, candidate_id, at) VALUES (%s, %s, %s, %s)"
                      " ON CONFLICT (empire_id, voter_id) DO UPDATE SET candidate_id = EXCLUDED.candidate_id, at = EXCLUDED.at",
                      (empire["id"], voter_id, candidate_id, now))
@@ -1738,8 +1742,9 @@ def report_pact(conn: Connection, head_id, pact_id: int, now: datetime) -> None:
         _trust(conn, other, -data.PACT_EXPOSED_TRUST - 5)
         _log(conn, empire["id"], "The empire reported an unlawful pact it was party to. It is treated more lightly for coming forward.", now)
         _log(conn, other, f"{empire['name']} reported our unlawful pact. It is now public.", now)
-        leagues.award(conn, other, data.LEAGUE_POINTS["theft"], "An unlawful pact came to light", careers.world_now(conn, now)["period"],
-                      now, reference=f"pact:{pact_id}")
+        for side in (empire["id"], other):                 # both signed it: both pay for it in the league, whoever came forward
+            leagues.award(conn, side, data.LEAGUE_POINTS["theft"], "An unlawful pact came to light", careers.world_now(conn, now)["period"],
+                          now, reference=f"pact:{pact_id}")
 
 
 def investigate(conn: Connection, player_id, empire_id: int, now: datetime) -> dict:
@@ -1943,7 +1948,9 @@ def _legal(conn: Connection, player_id) -> list[dict]:
     return _rows(conn, "SELECT words, at FROM legal_records WHERE player_id = %s ORDER BY id DESC LIMIT 5", (player_id,))
 
 
-def _letter_public(letter: dict, period: int) -> dict:
+def _letter_public(letter: dict, period: int, head_id=None) -> dict:
+    if letter["offered_at"] is not None and letter.get("offered_by") != head_id:
+        letter = {**letter, "offered_at": None}             # an offer made by a head who no longer leads has lapsed
     return {"letter": letter["letter"], "given_at": letter["given_at"], "leaves_at": letter["leaves_at"],
             "leaves_when_quarter_ends": letter["leaves_period"] is not None,
             "leaves_label": clock.period_label(letter["leaves_period"]) if letter["leaves_period"] is not None else None,
@@ -2069,8 +2076,8 @@ def war_room(conn: Connection, player_id, now: datetime) -> dict | None:
                                         (empire["id"],))] if is_head else [],
         "head_is_ceo": is_ceo(conn, empire["head_player_id"]), "you_are_ceo": is_ceo(conn, player_id),
         "notice_days": data.NOTICE_DAYS,
-        "resignation": own_letter and _letter_public(own_letter, state["period"]),
-        "resignations": [{**_letter_public(r, state["period"]), "id": r["id"], "name": r["display_name"]}
+        "resignation": own_letter and _letter_public(own_letter, state["period"], empire["head_player_id"]),
+        "resignations": [{**_letter_public(r, state["period"], empire["head_player_id"]), "id": r["id"], "name": r["display_name"]}
                          for r in letters if r["player_id"] != player_id] if is_head else [],
         "counter_offer_most": apply_bps(have["total"], data.COUNTER_OFFER_MOST_BPS),
         "division": leagues.standing(conn, empire["id"], now), "league_points": leagues.history(conn, empire["id"], state["period"]),

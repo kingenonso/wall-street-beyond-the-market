@@ -1121,6 +1121,9 @@ class HandInRequest(Request):
         for key, answer in value.items():
             if len(key) > 30 or (isinstance(answer, str) and len(answer) > 30):
                 raise ValueError("That answer is too long.")
+            texts = [key, answer] if isinstance(answer, str) else [key, *answer, *answer.values()] if isinstance(answer, dict) else [key]
+            if any(ord(ch) < 32 or ord(ch) == 127 for text in texts for ch in text):
+                raise ValueError("That answer has characters in it that cannot be kept.")
             if isinstance(answer, float) and not math.isfinite(answer):
                 raise ValueError("Give an ordinary number.")
             if isinstance(answer, dict) and (len(answer) > 20 or any(len(k) > 30 or len(v) > 30 for k, v in answer.items())):
