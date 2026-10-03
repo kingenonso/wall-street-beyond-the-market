@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import unicodedata
 from datetime import date, datetime
 from typing import Annotated, Literal
@@ -1080,6 +1081,8 @@ class HandInRequest(Request):
         for key, answer in value.items():
             if len(key) > 30 or (isinstance(answer, str) and len(answer) > 30):
                 raise ValueError("That answer is too long.")
+            if isinstance(answer, float) and not math.isfinite(answer):
+                raise ValueError("Give an ordinary number.")
             if isinstance(answer, dict) and (len(answer) > 20 or any(len(k) > 30 or len(v) > 30 for k, v in answer.items())):
                 raise ValueError("That answer is too long.")
         return value

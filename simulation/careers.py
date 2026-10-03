@@ -132,6 +132,14 @@ def world_now(conn: Connection, now: datetime) -> dict:
     }
 
 
+def books_open(conn: Connection, now: datetime) -> None:
+    """Refuse a change in the moments after a quarter has ended and before its books are closed.
+    Otherwise somebody could act knowing how the quarter ended, or lose pay they had earned."""
+    world = _one(conn, "SELECT world_start, weeks_ahead, last_closed_period FROM world_state FOR SHARE")
+    if world and clock.periods_completed(now, clock.effective_start(world["world_start"], world["weeks_ahead"])) > world["last_closed_period"]:
+        raise CareerError("The quarter has just ended and its books are being closed. Try again in a minute.")
+
+
 # ---------------------------------------------------------------------------
 # The build
 # ---------------------------------------------------------------------------
@@ -156,6 +164,7 @@ def choose_build(conn: Connection, player_id, build: str, now: datetime) -> None
     if build not in BUILDS:
         raise CareerError("That build does not open until a later stage of the game.")
     with conn.transaction():
+        books_open(conn, now)
         player = _one(conn, "SELECT id, build, build_changed_at FROM players WHERE id = %s FOR UPDATE", (player_id,))
         if player["build"] == build:
             return
@@ -246,6 +255,7 @@ def take_job(conn: Connection, player_id, ticker: str, now: datetime) -> dict:
     """Be hired by a company. A computer-run employer takes anybody of the right build while it
     has a place. The player must have chosen a bank first: the employer needs to know where to pay."""
     with conn.transaction():
+        books_open(conn, now)
         player = _one(conn, "SELECT id, build FROM players WHERE id = %s FOR UPDATE", (player_id,))
         if player["build"] is None:
             raise CareerError("Choose a build first.")
@@ -265,6 +275,8 @@ def take_job(conn: Connection, player_id, ticker: str, now: datetime) -> dict:
         if job:
             if job["started_period"] == state["period"]:
                 raise CareerError("You started your present job this quarter. You can move after the quarter ends.")
+            if _one(conn, "SELECT 1 FROM objectives WHERE player_id = %s AND state = 'active'", (player_id,)):
+                raise CareerError("Finish or give up the work you have taken on before moving to another employer.")
             _leave(conn, player_id, now, "moved to another employer")
         elif _one(conn, "SELECT 1 FROM employments WHERE player_id = %s AND ended_period = %s", (player_id, state["period"])):
             raise CareerError("You left a job this quarter. You can start another after the quarter ends.")
@@ -290,6 +302,7 @@ def _leave(conn: Connection, player_id, now: datetime, reason: str) -> None:
 def leave_job(conn: Connection, player_id, now: datetime) -> None:
     """Resign. Pay for the quarter in hand is lost: an employer pays whoever is on its staff on pay day."""
     with conn.transaction():
+        books_open(conn, now)
         _one(conn, "SELECT id FROM players WHERE id = %s FOR UPDATE", (player_id,))
         if _one(conn, "SELECT 1 FROM objectives WHERE player_id = %s AND state = 'active'", (player_id,)):
             raise CareerError("Finish or give up the work you have taken on before leaving your job.")
@@ -300,12 +313,20 @@ def leave_job(conn: Connection, player_id, now: datetime) -> None:
 # Pay day. Called by the company engine while a company closes its quarter.
 # ---------------------------------------------------------------------------
 
+def has_worked(conn: Connection, player_id, period: int) -> bool:
+    """Did the player finish a real piece of work that counts in this quarter? Work passed counts.
+    So does work that was not passed but earned at least one of its milestones: an honest attempt.
+    A blank sheet, work given up and work never done do not."""
+    return _one(conn, "SELECT 1 FROM objectives WHERE player_id = %s AND judged_period = %s AND (state = 'passed'"
+                      " OR (state = 'failed' AND coalesce((result->>'score')::int, 0) > 0)) LIMIT 1", (player_id, period)) is not None
+
+
 def salaries_due(conn: Connection, company: dict, period: int, wage_index_bps: int, budget: int) -> list[dict]:
     """What a company owes the players on its staff for the quarter being closed.
 
-    No work, no pay: a player who finished no piece of work since the last pay day is paid
-    nothing for the quarter. A player who started part-way through is paid for the days worked.
-    Players' pay can never be more than `budget`, a part of the company's wage bill: if it
+    No work, no pay: a player who finished no real piece of work since the last pay day is paid
+    nothing for the quarter (see has_worked). A player who started part-way through is paid for
+    the days worked. Players' pay can never be more than `budget`, a part of the company's wage bill: if it
     would be, everybody's is cut by the same proportion. (The number of places a company has
     keeps it far below that; this is the backstop.)
     """
@@ -318,8 +339,7 @@ def salaries_due(conn: Connection, company: dict, period: int, wage_index_bps: i
                            " ORDER BY e.id", (company["id"], period, period)):
         mine = career(conn, job["player_id"], job["build"])
         days = clock.GAME_DAYS_PER_QUARTER - job["started_day"] + 1 if job["started_period"] == period else clock.GAME_DAYS_PER_QUARTER
-        worked = _one(conn, "SELECT 1 FROM objectives WHERE player_id = %s AND state IN ('passed', 'failed')"
-                            " AND judged_period = %s LIMIT 1", (job["player_id"], period)) is not None
+        worked = has_worked(conn, job["player_id"], period)
         gross = salary_per_quarter(mine["level"], wage_index_bps) * days // clock.GAME_DAYS_PER_QUARTER if worked else 0
         grosses.append(gross)
         packets.append({"player_id": job["player_id"], "account": job["player_account"],
@@ -406,6 +426,7 @@ def choose_bank(conn: Connection, player_id, ticker: str, now: datetime) -> dict
     if ticker not in data.PLAYER_BANKS:
         raise CareerError("Choose one of the six banks.")
     with conn.transaction():
+        books_open(conn, now)
         _one(conn, "SELECT id FROM players WHERE id = %s FOR UPDATE", (player_id,))
         state = world_now(conn, now)
         bank = _one(conn, "SELECT id, name FROM companies WHERE ticker = %s", (ticker,))
@@ -447,12 +468,14 @@ def pay_deposit_interest(conn: Connection, bank: dict, period: int, policy_rate_
     rate = savings_rate_bps(policy_rate_bps, rating)
     last_close = _one(conn, "SELECT closed_at FROM money_watch_results WHERE period = %s", (period - 1,))
     paid_total = 0
-    for customer in _rows(conn, "SELECT b.player_id, b.recorded_at AS since, a.id AS account FROM bank_customers b"
+    # Only a customer who was with the bank for the whole quarter is paid: one who joined or moved
+    # during it starts earning from the next. So nothing is gained by moving bank on the last day.
+    for customer in _rows(conn, "SELECT b.player_id, a.id AS account FROM bank_customers b"
                                 " JOIN ledger_accounts a ON a.player_id = b.player_id"
-                                " WHERE b.company_id = %s AND b.ended_at IS NULL AND b.since_period <= %s"
+                                " WHERE b.company_id = %s AND b.ended_at IS NULL AND b.since_period < %s"
                                 " AND NOT EXISTS (SELECT 1 FROM deposit_interest d WHERE d.player_id = b.player_id AND d.period = %s)"
                                 " ORDER BY b.id", (bank["id"], period, period)):
-        since = max(filter(None, [customer["since"], last_close and last_close["closed_at"]]), default=None)
+        since = last_close["closed_at"] if last_close else None
         lowest = lowest_balance(conn, customer["account"], since)
         amount = (lowest * rate + 2 * BPS) // (4 * BPS)
         paid = ledger.pay_up_to(
@@ -474,6 +497,7 @@ def choose_fund(conn: Connection, player_id, fund: str, now: datetime) -> None:
     if fund not in data.PENSION_FUNDS:
         raise CareerError("Choose one of the four funds.")
     with conn.transaction():
+        books_open(conn, now)
         state = world_now(conn, now)
         conn.execute("INSERT INTO retirement_accounts (player_id) VALUES (%s) ON CONFLICT DO NOTHING", (player_id,))
         account = _one(conn, "SELECT * FROM retirement_accounts WHERE player_id = %s FOR UPDATE", (player_id,))
@@ -483,8 +507,10 @@ def choose_fund(conn: Connection, player_id, fund: str, now: datetime) -> None:
         if chosen is not None and state["period"] - chosen < clock.QUARTERS_PER_YEAR:
             raise CareerError(f"A fund can be changed once in a game year. You can change again in "
                               f"{clock.period_label(chosen + clock.QUARTERS_PER_YEAR)}.")
-        conn.execute("UPDATE retirement_accounts SET fund = %s, fund_chosen_period = %s WHERE player_id = %s",
-                     (fund, state["period"], player_id))
+        # The savings stay with the old fund until the quarter ends: nobody can pick a fund
+        # for the quarter after seeing how the quarter went.
+        conn.execute("UPDATE retirement_accounts SET fund = %s, fund_chosen_period = %s, previous_fund = %s WHERE player_id = %s",
+                     (fund, state["period"], account["fund"], player_id))
         build = _one(conn, "SELECT build FROM players WHERE id = %s", (player_id,))["build"]
         _event(conn, player_id, build, "fund_chosen", f"Moved retirement savings to the {data.PENSION_FUNDS[fund]['name']} fund.", now)
 
@@ -510,18 +536,18 @@ def close_retirement(conn: Connection, period: int, index_level: int, policy_rat
     for account in _rows(conn, "SELECT * FROM retirement_accounts ORDER BY player_id FOR UPDATE"):
         slip = _one(conn, "SELECT pension_yours, pension_employer, take_home, paid FROM payslips WHERE player_id = %s AND period = %s",
                     (account["player_id"], period))
-        yours = employer = 0
-        if slip and slip["take_home"] > 0:
-            # If the employer could pay only part of the salary, only that part of the saving was paid in.
-            yours = slip["pension_yours"] * slip["paid"] // slip["take_home"]
-            employer = slip["pension_employer"] * slip["paid"] // slip["take_home"]
-        growth = max(apply_bps(account["value"], returns[account["fund"]]), -account["value"])
+        # The saving is credited in full for the quarter it was earned in. If the employer was short
+        # of cash, what it could not pay to the pension funds stays owed to them, like any other bill.
+        yours = slip["pension_yours"] if slip else 0
+        employer = slip["pension_employer"] if slip else 0
+        fund = account["previous_fund"] if account["fund_chosen_period"] == period and account["previous_fund"] else account["fund"]
+        growth = max(apply_bps(account["value"], returns[fund]), -account["value"])
         closing = account["value"] + growth + yours + employer
         if closing == account["value"] and not slip:
             continue
         conn.execute("INSERT INTO retirement_entries (player_id, period, fund, opening, growth, paid_in_by_you, paid_in_by_employer, closing)"
                      " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                     (account["player_id"], period, account["fund"], account["value"], growth, yours, employer, closing))
+                     (account["player_id"], period, fund, account["value"], growth, yours, employer, closing))
         conn.execute("UPDATE retirement_accounts SET value = %s WHERE player_id = %s", (closing, account["player_id"]))
 
 
@@ -587,8 +613,7 @@ def profile(conn: Connection, player_id, now: datetime) -> dict:
     pay = split_salary(salary_per_quarter(level, state["wage_index_bps"]))
     next_pay = split_salary(salary_per_quarter(min(level + 1, data.LEVEL_CAP), state["wage_index_bps"]))
     job = current_job(conn, player_id)
-    worked = _one(conn, "SELECT 1 FROM objectives WHERE player_id = %s AND state IN ('passed', 'failed') AND judged_period = %s LIMIT 1",
-                  (player_id, state["period"])) is not None
+    worked = has_worked(conn, player_id, state["period"])
     out["pay"] = {**pay, "at_next_level": next_pay["gross"], "worked_this_quarter": worked}
     if job:
         out["job"] = {"ticker": job["ticker"], "name": job["name"], "headquarters": job["headquarters"],

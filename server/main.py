@@ -1397,6 +1397,7 @@ def _objective(row: dict) -> ObjectiveRow:
 
 @app.get("/api/objectives", response_model=ObjectivesResponse)
 def my_objectives(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    limits.allow("objective-read", str(player["id"]), attempts=90, per_seconds=60)
     seen = objectives.board(conn, player["id"], _exchange_time(conn))
     return ObjectivesResponse(
         ready=seen["ready"], why=seen["why"], active=[_objective(o) for o in seen["active"]],
@@ -1443,6 +1444,7 @@ def give_work_up(
 
 @app.get("/api/desk/asset-manager", response_model=AssetDeskResponse)
 def asset_manager_desk(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    limits.allow("desk-read", str(player["id"]), attempts=90, per_seconds=60)
     seen = desks.asset_desk(conn, player["id"], _trading_account(conn, player), _exchange_time(conn))
     piece = lambda a: AllocationSlice(label=a["label"], group=a["group"], value_kobo=a["value"], share_bps=a["share_bps"])   # noqa: E731
     return AssetDeskResponse(
@@ -1459,6 +1461,7 @@ def accountant_desk(
     player: dict = Depends(current_player),
     conn: Connection = Depends(get_connection),
 ):
+    limits.allow("desk-read", str(player["id"]), attempts=90, per_seconds=60)
     seen = desks.accountant_desk(conn, player["id"], ticker, _exchange_time(conn))
     if seen is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no company with that code.")

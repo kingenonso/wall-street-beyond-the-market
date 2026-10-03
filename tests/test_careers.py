@@ -107,12 +107,15 @@ def test_only_the_two_builds_of_this_stage_can_be_chosen(db):
 
 def test_a_build_can_be_changed_once_in_a_real_month_and_each_keeps_its_own_level(db):
     player, _ = professional(db)
+    quarters.close_due_quarters(db, OPEN + timedelta(days=29))
     with pytest.raises(careers.CareerError, match="once in a real month"):
         careers.choose_build(db, player, "asset_manager", OPEN + timedelta(days=29))
     careers.add_experience(db, player, "accountant", 200, OPEN)
     later = OPEN + timedelta(days=31)
+    quarters.close_due_quarters(db, later)
     careers.choose_build(db, player, "asset_manager", later)
     assert careers.career(db, player)["level"] == 1 and careers.current_job(db, player) is None      # changing build leaves the job
+    quarters.close_due_quarters(db, later + timedelta(days=31))
     careers.choose_build(db, player, "accountant", later + timedelta(days=31))
     assert careers.career(db, player)["level"] == careers.level_for(200) > 1
 
@@ -221,7 +224,11 @@ def test_a_players_salary_comes_out_of_the_wage_bill_the_company_already_pays(db
             player, _ = professional(with_player, now=NOW9)
             # Work that was tried and failed is still work, and carries no fee to disturb the comparison.
             taken = objectives.accept(with_player, player, "ac_ratios", NOW9)
-            assert objectives.submit(with_player, player, taken["id"], {"ebitda": 1}, NOW9)["state"] == "failed"
+            terms = _dicts(with_player, "SELECT terms FROM objectives WHERE id = %s", (taken["id"],))[0]["terms"]
+            income = _dicts(with_player, "SELECT figures FROM company_reports WHERE company_id = %s AND period = %s ORDER BY version DESC LIMIT 1",
+                            (terms["company_id"], terms["filed_period"]))[0]["figures"]["income_statement"]
+            one_right = {"ebitda": (income["operating_profit"] + income["depreciation"]) / 1e8}
+            assert objectives.submit(with_player, player, taken["id"], one_right, NOW9)["state"] == "failed"
             for conn in (with_player, without):
                 quarters.close_due_quarters(conn, after_quarters(9))
             sql = ("SELECT r.operating_expenses, r.cost_of_sales, r.staff, r.wages, r.net_profit, r.cash FROM company_results r"
@@ -274,13 +281,12 @@ def test_someone_who_starts_late_in_the_quarter_is_paid_for_the_days_worked(db):
 
 @pytest.mark.world("eight")
 def test_nobody_is_paid_for_a_quarter_that_ended_before_they_were_hired(db):
-    # The quarter has ended by the clock but has not been closed yet: a moment later a player is hired.
-    after = after_quarters(9) + timedelta(minutes=1)
-    player, _ = professional(db, now=after)
-    quarters.close_due_quarters(db, after + timedelta(minutes=1))
-    # They joined in the quarter that was still being counted as running, on its last day: at most one day's pay, and only for work.
-    slips = _dicts(db, "SELECT * FROM payslips WHERE player_id = %s", (player,))
-    assert all(s["gross"] == 0 for s in slips)
+    # The quarter has ended by the clock but has not been closed yet: nobody can be hired in that moment.
+    after = after_quarters(9) - timedelta(minutes=30)
+    with pytest.raises(careers.CareerError, match="books are being closed"):
+        professional(db, now=after)
+    quarters.close_due_quarters(db, after_quarters(9))
+    assert not _dicts(db, "SELECT 1 FROM payslips") and not _dicts(db, "SELECT 1 FROM employments")
 
 
 @pytest.mark.world("eight")
@@ -329,12 +335,15 @@ def test_a_weaker_bank_pays_more_on_savings():
     assert rates == sorted(rates) and rates[0] < rates[-1] < 1300 and careers.savings_rate_bps(1300, "D") == 0
 
 
-def test_the_bank_pays_interest_on_the_least_cash_kept_through_the_quarter(db):
+def test_the_bank_pays_interest_on_the_least_cash_kept_through_a_whole_quarter(db):
     player, account = professional(db, employer=None, cash_naira=400_000)
     bank = _dicts(db, "SELECT id, account_id FROM companies WHERE ticker = 'IKB'")[0]
     quarters.close_due_quarters(db, after_quarters(1))
+    # The quarter they joined in earns nothing: interest is for a whole quarter with the bank.
+    assert not _dicts(db, "SELECT 1 FROM deposit_interest WHERE player_id = %s", (player,))
+    quarters.close_due_quarters(db, after_quarters(2))
     paid = _dicts(db, "SELECT * FROM deposit_interest WHERE player_id = %s", (player,))[0]
-    assert paid["lowest_balance"] == naira(400_000) and paid["company_id"] == bank["id"]
+    assert paid["period"] == 2 and paid["lowest_balance"] == naira(400_000) and paid["company_id"] == bank["id"]
     assert paid["amount"] == (paid["lowest_balance"] * paid["rate_bps"] + 2 * BPS) // (4 * BPS) > 0
     leg = _dicts(db, "SELECT e.account_id, e.amount FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
                      " WHERE t.kind = 'deposit_interest' AND e.amount < 0")
@@ -344,10 +353,11 @@ def test_the_bank_pays_interest_on_the_least_cash_kept_through_the_quarter(db):
 
 
 def test_money_put_in_just_before_pay_day_earns_nothing(db):
-    player, account = professional(db, employer=None)                     # no cash at all through the quarter
+    player, account = professional(db, employer=None)                     # no cash at all
+    quarters.close_due_quarters(db, after_quarters(1))
     ledger.transfer(db, payer=ledger.account_id(db, ledger.TREASURY), receiver=account, amount=naira(50_000_000),
                     kind="test_cash", memo="Test: a large sum arrives on the last day")
-    quarters.close_due_quarters(db, after_quarters(1))
+    quarters.close_due_quarters(db, after_quarters(2))
     paid = _dicts(db, "SELECT lowest_balance, amount FROM deposit_interest WHERE player_id = %s", (player,))[0]
     assert paid == {"lowest_balance": 0, "amount": 0}
 
@@ -416,5 +426,4 @@ def test_the_money_watch_records_what_players_were_paid_and_why(db):
     slip = _dicts(db, "SELECT take_home FROM payslips WHERE player_id = %s", (player,))[0]
     assert seen["salary"] == {"total": slip["take_home"], "players": 1}
     assert seen["professional_fee"] == {"total": done["paid"], "players": 1}
-    assert seen["deposit_interest"]["total"] > 0
     assert clock.period_label(9)

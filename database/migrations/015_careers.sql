@@ -58,6 +58,10 @@ CREATE TABLE employments (
     ended_period   integer,
     ended_reason   text
 );
+CREATE TRIGGER employments_no_delete BEFORE DELETE ON employments
+    FOR EACH ROW EXECUTE FUNCTION records_forbid_change();
+CREATE TRIGGER employments_no_truncate BEFORE TRUNCATE ON employments
+    FOR EACH STATEMENT EXECUTE FUNCTION records_forbid_change();
 CREATE UNIQUE INDEX employments_one_job ON employments (player_id) WHERE ended_at IS NULL;
 CREATE INDEX employments_by_company ON employments (company_id) WHERE ended_at IS NULL;
 
@@ -102,6 +106,10 @@ CREATE TABLE bank_customers (
     recorded_at  timestamptz NOT NULL DEFAULT now(),   -- the database's own clock, to set beside the ledger's
     ended_at     timestamptz
 );
+CREATE TRIGGER bank_customers_no_delete BEFORE DELETE ON bank_customers
+    FOR EACH ROW EXECUTE FUNCTION records_forbid_change();
+CREATE TRIGGER bank_customers_no_truncate BEFORE TRUNCATE ON bank_customers
+    FOR EACH STATEMENT EXECUTE FUNCTION records_forbid_change();
 CREATE UNIQUE INDEX bank_customers_one_bank ON bank_customers (player_id) WHERE ended_at IS NULL;
 
 CREATE TABLE deposit_interest (
@@ -126,7 +134,8 @@ CREATE TABLE retirement_accounts (
     player_id       uuid PRIMARY KEY REFERENCES players (id),
     fund            text NOT NULL DEFAULT 'balanced' CHECK (fund IN ('growth', 'balanced', 'cautious', 'income')),
     value           bigint NOT NULL DEFAULT 0 CHECK (value >= 0),
-    fund_chosen_period integer                  -- a player may change fund once in a game year
+    fund_chosen_period integer,                 -- a player may change fund once in a game year
+    previous_fund   text                        -- the fund held before the last change: it earns for the quarter of the change
 );
 
 CREATE TABLE retirement_entries (
@@ -206,7 +215,9 @@ BEGIN
     END IF;
     IF NEW.player_id <> OLD.player_id OR NEW.template <> OLD.template OR NEW.terms <> OLD.terms OR NEW.reward <> OLD.reward
        OR NEW.experience <> OLD.experience OR NEW.payer_account_id <> OLD.payer_account_id OR NEW.period <> OLD.period
-       OR NEW.accepted_at <> OLD.accepted_at OR NEW.build <> OLD.build THEN
+       OR NEW.accepted_at <> OLD.accepted_at OR NEW.build <> OLD.build OR NEW.payer_name <> OLD.payer_name
+       OR NEW.title <> OLD.title OR NEW.module <> OLD.module
+       OR NEW.client_company_id IS DISTINCT FROM OLD.client_company_id THEN
         RAISE EXCEPTION 'The terms of an objective are fixed when it is taken on.' USING ERRCODE = 'restrict_violation';
     END IF;
     IF OLD.submission IS NOT NULL AND NEW.submission IS DISTINCT FROM OLD.submission THEN

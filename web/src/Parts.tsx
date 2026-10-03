@@ -148,7 +148,7 @@ export function PayPanel({ career }: { career: Career }) {
       <p className="small">
         {!career.job ? "You are paid once you have an employer."
           : pay.worked_this_quarter ? "✓ You have finished work this quarter, so you will be paid on pay day."
-          : "● No work finished yet this quarter. An employer pays a quarter's salary only to staff who finished at least one piece of work in it."}
+          : "● No work finished yet this quarter. An employer pays a quarter's salary only to staff who finished at least one real piece of work in it: passed, or honestly attempted."}
       </p>
       {payDay && career.job && (
         <p className="muted small">

@@ -55,8 +55,9 @@ function BankChoice({ career, act, onLoggedOut }: { career: Career; act: ReturnT
   return (
     <Panel title={career.bank ? "Your bank" : "Step 2 · Choose your bank"} aside="Where your salary is paid">
       <p className="small">
-        Your bank pays interest each quarter on the least cash you kept with it during the quarter. A weaker bank pays more to
-        keep its customers. You can move once a quarter.
+        Your bank pays interest each quarter on the least cash you kept with it through the whole quarter, so money put in
+        for a day earns nothing, and the quarter you join in is not counted. A weaker bank pays more to keep its customers.
+        You can move once a quarter.
       </p>
       <div className="scroll">
         <table>
@@ -162,7 +163,8 @@ function Retirement({ career, act }: { career: Career; act: ReturnType<typeof us
       <div className="headline"><span className="figure-small mono">{formatNaira(savings.value_kobo)}</span><span className="muted small">with the pension funds, in your name</span></div>
       <p className="small">
         Part of every salary is saved for you and your employer adds more. You choose the kind of fund that looks after it.
-        It can be changed once in a game year. It is not cash: it cannot be spent or traded.
+        It can be changed once in a game year, and a change takes effect from the next quarter. It is not cash: it cannot be
+        spent or traded.
       </p>
       {savings.funds.map((fund) => (
         <div key={fund.code} className={fund.code === savings.fund ? "definition row-chosen" : "definition"}>

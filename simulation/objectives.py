@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -220,6 +221,8 @@ def _close_enough(given, truth: float, *, relative: float = 0.005, absolute: flo
     try:
         value = float(given)
     except (TypeError, ValueError):
+        return False
+    if not math.isfinite(value):
         return False
     return abs(value - truth) <= max(abs(truth) * relative, absolute)
 
@@ -473,8 +476,9 @@ def _forecast_submit(ctx, objective, answers):
         value = float(answers.get("revenue"))
     except (TypeError, ValueError):
         raise ObjectiveError("Give your forecast as a number, in millions of naira.") from None
-    if value <= 0 or value > 1e9:
+    if not math.isfinite(value) or value <= 0 or value > 1e9:
         raise ObjectiveError("Give your forecast as a number above nought, in millions of naira.")
+    answers["revenue"] = value            # kept as the number it is
     return None                           # judged when the company files
 
 
@@ -1290,6 +1294,7 @@ def board(conn: Connection, player_id, now: datetime) -> dict:
         why = "Work comes through an employer. Find a job first."
     else:
         taken = {o["template"] for o in rows if o["period"] == ctx["period"]}
+        in_hand = {o["template"] for o in rows if o["state"] == "active"}
         for template in (t for t in TEMPLATES.values() if t.build == build):
             offer = {"template": template.code, "module": template.module, "title": template.title, "idea": template.idea,
                      "kind": template.kind, "level": template.level, "reward": _reward(template, ctx["wage_index_bps"]),
@@ -1297,6 +1302,8 @@ def board(conn: Connection, player_id, now: datetime) -> dict:
                      "practise_again": next(s["practise_again"] for s in skills if s["title"] == template.title)}
             if mine["level"] < template.level:
                 offer["why_not"] = f"Opens at Level {template.level}."
+            elif template.code in in_hand:
+                offer["why_not"] = "You have this work in hand already."
             elif template.code in taken:
                 offer["why_not"] = "Already taken this quarter. Each piece of work can be taken once a quarter."
             else:
@@ -1319,6 +1326,10 @@ def accept(conn: Connection, player_id, code: str, now: datetime) -> dict:
     """Take on a piece of work. Its terms are fixed at this moment."""
     template = TEMPLATES.get(code)
     with conn.transaction():
+        try:
+            careers.books_open(conn, now)
+        except careers.CareerError as closing:
+            raise ObjectiveError(str(closing)) from None
         _one(conn, "SELECT id FROM players WHERE id = %s FOR UPDATE", (player_id,))
         ctx = _context(conn, player_id, now)
         mine = ctx["career"]
@@ -1331,6 +1342,8 @@ def accept(conn: Connection, player_id, code: str, now: datetime) -> dict:
         if _one(conn, "SELECT count(*) AS n FROM objectives WHERE player_id = %s AND state = 'active'", (player_id,))["n"] \
                 >= data.MAX_ACTIVE_OBJECTIVES:
             raise ObjectiveError(f"You can have {data.MAX_ACTIVE_OBJECTIVES} pieces of work in hand at once. Finish one first.")
+        if _one(conn, "SELECT 1 FROM objectives WHERE player_id = %s AND template = %s AND state = 'active'", (player_id, code)):
+            raise ObjectiveError("You have this work in hand already. Finish it before taking it on again.")
         if _one(conn, "SELECT 1 FROM objectives WHERE player_id = %s AND build = %s AND template = %s AND period = %s",
                 (player_id, mine["build"], code, ctx["period"])):
             raise ObjectiveError("You have already taken this work this quarter. Each piece can be taken once a quarter.")
@@ -1456,35 +1469,41 @@ def _review(conn: Connection, objective: dict, seq: int, now: datetime) -> None:
                        f"Pass {data.REVIEW_PASSES_NEEDED} of your next {data.REVIEW_LENGTH} to close it.", now)
 
 
-def _judge(conn: Connection, objective: dict, now: datetime, judged_period: int, step: str, arg) -> None:
-    """Run one objective's bell or close step, and finish it if that produced a verdict."""
+def _judge(conn: Connection, objective: dict, now: datetime, judged_period: int, step: str, arg) -> bool:
+    """Run one objective's bell or close step, and finish it if that produced a verdict.
+    The row is locked first and read again, so work handed in a moment ago is never overwritten."""
     template = TEMPLATES[objective["template"]]
     handler = getattr(template, step)
     if handler is None:
-        return
+        return False
     with conn.transaction():
         locked = _one(conn, "SELECT * FROM objectives WHERE id = %s AND state = 'active' FOR UPDATE", (objective["id"],))
         if locked is None:
-            return
+            return False
+        if step == "bell":
+            # Each objective sees each bell once, and only bells that rang after it was taken on.
+            if locked["progress"].get("bell_day") == str(arg) or clock.to_lagos(locked["accepted_at"]) >= _bell_moment(arg):
+                return False
+            locked["progress"]["bell_day"] = str(arg)
         ctx = _context(conn, locked["player_id"], now)
         verdict = handler(ctx, locked, arg)
         if verdict is not None:
             _finish(conn, locked, verdict, now, judged_period)
         else:
             conn.execute("UPDATE objectives SET progress = %s WHERE id = %s", (Jsonb(locked["progress"]), locked["id"]))
+    return True
 
 
-def _safely(conn: Connection, objective: dict, now: datetime, judged_period: int, step: str, arg) -> None:
+def _safely(conn: Connection, objective: dict, now: datetime, judged_period: int, step: str, arg) -> bool:
     """One objective that cannot be judged must never stop the Closing Bell or the quarter for
     everybody else. It is left as it was, and the fault is written down for the operators."""
     try:
-        _judge(conn, objective, now, judged_period, step, arg)
-    except ObjectiveError:
-        raise
+        return _judge(conn, objective, now, judged_period, step, arg)
     except Exception:                                              # noqa: BLE001
         if STRICT:
             raise
         log.exception("Objective %s could not be judged at its %s step.", objective["id"], step)
+        return False
 
 
 def at_bell(conn: Connection, now: datetime, day) -> int:
@@ -1492,15 +1511,9 @@ def at_bell(conn: Connection, now: datetime, day) -> int:
     Each objective sees each bell once. Returns how many objectives were looked at."""
     period = careers.world_now(conn, now)["period"]
     count = 0
-    for objective in _rows(conn, "SELECT * FROM objectives WHERE state = 'active' ORDER BY id"):
-        if TEMPLATES[objective["template"]].bell is None or objective["progress"].get("bell_day") == str(day):
-            continue
-        if clock.to_lagos(objective["accepted_at"]) >= _bell_moment(day):
-            continue                                   # taken on after this bell rang
-        objective["progress"]["bell_day"] = str(day)
-        conn.execute("UPDATE objectives SET progress = %s WHERE id = %s AND state = 'active'", (Jsonb(objective["progress"]), objective["id"]))
-        _safely(conn, objective, now, period, "bell", day)
-        count += 1
+    for objective in _rows(conn, "SELECT id, template FROM objectives WHERE state = 'active' ORDER BY id"):
+        if TEMPLATES[objective["template"]].bell is not None and _safely(conn, objective, now, period, "bell", day):
+            count += 1
     return count
 
 

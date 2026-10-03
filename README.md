@@ -17,7 +17,8 @@ The game is built in 16 stages. Each stage is finished only when its test passes
 | 3. Part B: banks, the Central Bank, inflation, events, the Money Watch, the news wire | **Done** |
 | 4. The stock market, Part A: orders, the order-matching engine, computer-run investors, "Why?", the market screens, the Closing Rush and Closing Bell | **Done** |
 | 4. Part B: bonds and Government bills, share offers, splits, votes, takeovers and what follows them; the independent review | **Done** |
-| 5 to 16 | Not started |
+| 5. Players and first screens: builds, employers, salary, levels, the player's bank, retirement savings, professional objectives, the Asset Manager and Accountant screens; the independent review | **Done** |
+| 6 to 16 | Not started |
 
 Stage 1 test, from the design: *a player can sign up, log in and see Lagos
 time and whether the market is open.* It passes.
@@ -35,6 +36,9 @@ Stage 4 Part A test, from the design: *two test players trade a share, buying pr
 raises the price, and "Why?" shows the cause.* It passes.
 Reports: `docs/STAGE_04A_SLICE_1_ORDERS.md`, `docs/STAGE_04A_SLICE_2_INVESTORS.md`, `docs/STAGE_04A_SLICE_3_SCREENS.md`,
 and for everything after those `docs/STAGE_04_REST_CLOSING_BELL_BONDS_AND_TAKEOVERS.md`.
+
+Stage 5 test, from the design: *a new player is hired, completes an objective and is paid by a
+named payer.* It passes. Report: `docs/STAGE_05_PLAYERS_AND_FIRST_SCREENS.md`.
 
 ## What is in each folder
 
