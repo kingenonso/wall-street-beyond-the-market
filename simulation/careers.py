@@ -217,6 +217,10 @@ def choose_build(conn: Connection, player_id, build: str, now: datetime) -> None
                 raise CareerError(f"A player may hold up to {data.MAX_BUILDS} builds.")
             if _one(conn, "SELECT 1 FROM objectives WHERE player_id = %s AND state = 'active'", (player_id,)):
                 raise CareerError("Finish or give up the work you have taken on before changing build.")
+            if _one(conn, "SELECT 1 FROM empire_seats WHERE player_id = %s", (player_id,)):
+                raise CareerError("Your seat in an empire is a seat for your present build. Leave the empire before changing build.")
+            if _one(conn, "SELECT 1 FROM empires WHERE kind = 'pension' AND head_player_id = %s", (player_id,)):
+                raise CareerError("You manage a pension fund. Its savers chose an Asset Manager: you cannot change build while you run it.")
             _leave(conn, player_id, now, "changed build")
         conn.execute("INSERT INTO careers (player_id, build, started_at) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                      (player_id, build, now))
@@ -560,6 +564,8 @@ def choose_fund(conn: Connection, player_id, fund: str, now: datetime) -> None:
         state = world_now(conn, now)
         conn.execute("INSERT INTO retirement_accounts (player_id) VALUES (%s) ON CONFLICT DO NOTHING", (player_id,))
         account = _one(conn, "SELECT * FROM retirement_accounts WHERE player_id = %s FOR UPDATE", (player_id,))
+        if account["managed_fund_id"] is not None or account["joining_fund_id"] is not None:
+            raise CareerError("Your savings are with a fund run by a player, or on their way to one. Ask for them back first.")
         if account["fund"] == fund:
             return
         chosen = account["fund_chosen_period"]
@@ -632,7 +638,7 @@ def close_retirement(conn: Connection, period: int, index_level: int, policy_rat
             # A pension is paid by the pension funds, out of the money they hold, to the player's own account.
             wanted = closing if closing < naira(10_000) else apply_bps(closing, data.PENSION_PAID_BPS)
             paid_out = ledger.pay_up_to(conn, payer=pension_funds, receiver=ledger.player_account_id(conn, account["player_id"]),
-                                        wanted=wanted, kind="pension_payment", period=period,
+                                        wanted=wanted, kind="pension_to_player", period=period,
                                         memo=f"Pension for {clock.period_label(period)}", reference=f"pension:{account['player_id']}:{period}")
             closing -= paid_out
         if closing == account["value"] and not slip and not paid_out:
@@ -677,13 +683,13 @@ def sound_finances(conn: Connection, player_id, wage_index_bps: int = BPS) -> bo
 
 
 def retirement_opens(conn: Connection, player_id, period: int) -> dict:
-    """When a player may retire: at Level 50, or after ten game years of work, whichever comes first."""
+    """When a player may retire: at Level 50, or after ten game years of work, whichever comes first.
+    A quarter of work is a quarter the player was paid a salary for."""
     top = max((level_for(r["experience"]) for r in _rows(conn, "SELECT experience FROM careers WHERE player_id = %s", (player_id,))), default=1)
-    first = _one(conn, "SELECT min(started_period) AS period FROM employments WHERE player_id = %s", (player_id,))["period"]
-    worked = period - first if first is not None else 0
+    worked = _one(conn, "SELECT count(*) AS n FROM payslips WHERE player_id = %s AND worked AND gross > 0", (player_id,))["n"]
+    to_go = max(data.RETIREMENT_AFTER_QUARTERS - worked, 0)
     return {"eligible": top >= data.RETIREMENT_LEVEL or worked >= data.RETIREMENT_AFTER_QUARTERS, "level": top,
-            "quarters_worked": max(worked, 0), "quarters_to_go": max(data.RETIREMENT_AFTER_QUARTERS - worked, 0),
-            "at_period": first + data.RETIREMENT_AFTER_QUARTERS if first is not None else None}
+            "quarters_worked": worked, "quarters_to_go": to_go, "at_period": period + to_go if worked else None}
 
 
 def retire(conn: Connection, player_id, now: datetime) -> None:
@@ -703,22 +709,22 @@ def retire(conn: Connection, player_id, now: datetime) -> None:
         _event(conn, player_id, build, "retired", "Began drawing a pension.", now)
 
 
-def early_withdrawal(conn: Connection, player_id, amount: int, now: datetime, why: str) -> int:
-    """The one early withdrawal a player may make, for a big step such as founding an empire: up to
-    half of the savings, paid by the pension funds. Returns what was paid."""
+def early_withdrawal(conn: Connection, player_id, amount: int, now: datetime, why: str, receiver=None) -> int:
+    """The one early withdrawal a player may make, to found an empire: up to half of the savings,
+    paid by the pension funds straight into the empire being founded. Returns what was paid."""
     account = _one(conn, "SELECT * FROM retirement_accounts WHERE player_id = %s FOR UPDATE", (player_id,))
     if account is None or account["value"] <= 0:
         raise CareerError("You have no retirement savings to draw on.")
     if account["early_withdrawn_period"] is not None:
         raise CareerError("The one early withdrawal has already been made.")
-    if account.get("managed_fund_id"):
+    if account["managed_fund_id"] is not None or account["joining_fund_id"] is not None:
         raise CareerError("Move your savings back to an ordinary fund before withdrawing.")
     most = apply_bps(account["value"], data.EARLY_WITHDRAWAL_MOST_BPS)
-    if amount <= 0 or amount > most:
+    if not isinstance(amount, int) or isinstance(amount, bool) or amount <= 0 or amount > most:
         raise CareerError(f"An early withdrawal may take up to half of the savings: ₦{most / 100:,.0f}.")
     state = world_now(conn, now)
     paid = ledger.pay_up_to(conn, payer=ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS),
-                            receiver=ledger.player_account_id(conn, player_id), wanted=amount, kind="pension_withdrawal",
+                            receiver=receiver or ledger.player_account_id(conn, player_id), wanted=amount, kind="pension_withdrawal",
                             memo=f"Early withdrawal from retirement savings: {why}", reference=f"early:{player_id}")
     conn.execute("UPDATE retirement_accounts SET value = value - %s, early_withdrawn_period = %s WHERE player_id = %s",
                  (paid, state["period"], player_id))

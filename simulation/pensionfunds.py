@@ -80,7 +80,7 @@ def unit_price(fund: dict, total: int, *, buying: bool = False) -> int:
     rounded up, so that rounding never takes anything from the savers already in the fund."""
     if fund["units"] <= 0 or total <= 0:
         return FIRST_PRICE
-    return -(-total * UNIT // fund["units"]) if buying else total * UNIT // fund["units"]
+    return max(-(-total * UNIT // fund["units"]) if buying else total * UNIT // fund["units"], 1)
 
 
 def _value(units: int, price: int) -> int:
@@ -129,8 +129,9 @@ def open_fund(conn: Connection, player_id, name: str, fee_bps: int, now: datetim
 def set_fee(conn: Connection, manager_id, fee_bps: int, now: datetime) -> None:
     """A manager may lower the fee at any time. It cannot be raised: savers joined at the fee they saw."""
     with conn.transaction():
+        _open(conn, now)
         fund = _managed(conn, manager_id)
-        if not isinstance(fee_bps, int) or not 0 <= fee_bps <= fund["fee_bps"]:
+        if not isinstance(fee_bps, int) or isinstance(fee_bps, bool) or not 0 <= fee_bps <= fund["fee_bps"]:
             raise FundError("The fee can be lowered, never raised.")
         conn.execute("UPDATE empires SET fee_bps = %s WHERE id = %s", (fee_bps, fund["id"]))
         empires._log(conn, fund["id"], f"The fee was lowered to {fee_bps / 100:.2f}% a quarter.", now)
@@ -141,9 +142,9 @@ def set_fee(conn: Connection, manager_id, fee_bps: int, now: datetime) -> None:
 # ---------------------------------------------------------------------------
 
 def join(conn: Connection, player_id, fund_id: int, now: datetime) -> dict:
-    """Move retirement savings into a fund run by a player. The money is paid over by the pension
-    funds that held it, and buys units at the fund's value at this moment. Like any change of fund,
-    it can be done once in a game year."""
+    """Ask to move retirement savings into a fund run by a player. Like any change of fund it can
+    be done once in a game year, and it is carried out as the quarter closes: the savings earn the
+    quarter with the fund they were in, so nobody can choose after seeing how the quarter went."""
     with conn.transaction():
         state = _open(conn, now)
         fund = _fund(conn, fund_id, lock=True)
@@ -153,47 +154,61 @@ def join(conn: Connection, player_id, fund_id: int, now: datetime) -> dict:
             raise FundError("A manager's own pension is not kept in the fund they run.")
         conn.execute("INSERT INTO retirement_accounts (player_id) VALUES (%s) ON CONFLICT DO NOTHING", (player_id,))
         account = _one(conn, "SELECT * FROM retirement_accounts WHERE player_id = %s FOR UPDATE", (player_id,))
-        if account["managed_fund_id"] is not None:
-            raise FundError("Your savings are already with a fund run by a player. Leave it first.")
+        if account["managed_fund_id"] is not None or account["joining_fund_id"] is not None:
+            raise FundError("Your savings are already with a fund run by a player, or on their way to one. Leave it first.")
         chosen = account["fund_chosen_period"]
         if chosen is not None and state["period"] - chosen < clock.QUARTERS_PER_YEAR:
             raise FundError(f"A fund can be changed once in a game year. You can change again in "
                             f"{clock.period_label(chosen + clock.QUARTERS_PER_YEAR)}.")
-        if account["value"] <= 0:
-            raise FundError("You have no retirement savings to move yet.")
-        pension_funds = ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
-        if ledger.balance(conn, pension_funds) < account["value"]:
-            raise FundError("The pension funds cannot release that much cash today. Try again after the quarter closes.")
-        price = unit_price(fund, worth(conn, fund, now)["total"], buying=True)
-        ledger.transfer(conn, payer=pension_funds, receiver=fund["account_id"], amount=account["value"], kind="pension_transfer",
-                        memo=f"{fund['name']}: a saver's retirement savings moved in", period=state["period"])
-        units = account["value"] * UNIT // price
-        conn.execute("UPDATE empires SET units = units + %s WHERE id = %s", (units, fund["id"]))
-        conn.execute("UPDATE retirement_accounts SET managed_fund_id = %s, units = %s, fund_chosen_period = %s, leaving = false,"
-                     " value = 0 WHERE player_id = %s", (fund["id"], units, state["period"], player_id))
+        if account["value"] < naira(data.FUND_LEAST_SAVINGS_NAIRA):
+            raise FundError(f"You need at least {_money(naira(data.FUND_LEAST_SAVINGS_NAIRA))} of retirement savings to move.")
+        conn.execute("UPDATE retirement_accounts SET joining_fund_id = %s, fund_chosen_period = %s WHERE player_id = %s",
+                     (fund["id"], state["period"], player_id))
         build = _one(conn, "SELECT build FROM players WHERE id = %s", (player_id,))["build"]
-        careers._event(conn, player_id, build, "fund_chosen", f"Moved retirement savings to {fund['name']}, a fund run by a player.", now)
-        return {"units": units, "unit_price": price, "moved": account["value"]}
+        careers._event(conn, player_id, build, "fund_chosen",
+                       f"Asked to move retirement savings to {fund['name']}, a fund run by a player, when the quarter closes.", now)
+        return {"when": clock.period_label(state["period"])}
+
+
+def _carry_out_joins(conn: Connection, fund: dict, period: int, now: datetime) -> None:
+    """As the quarter closes: the savers who asked to join bring their savings in. The money is paid
+    over by the pension funds that held it, and buys units at the fund's value at this moment."""
+    pension_funds = ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
+    for account in _rows(conn, "SELECT * FROM retirement_accounts WHERE joining_fund_id = %s ORDER BY player_id FOR UPDATE", (fund["id"],)):
+        fund = _fund(conn, fund["id"])
+        taking = fund["status"] == "active" and not fund["struck_off"] and fund["head_player_id"] is not None
+        moved = 0
+        if taking and account["value"] > 0:
+            price = unit_price(fund, worth(conn, fund, now)["total"], buying=True)
+            moved = ledger.pay_up_to(conn, payer=pension_funds, receiver=fund["account_id"], wanted=account["value"], kind="pension_transfer",
+                                     memo=f"{fund['name']}: a saver's retirement savings moved in", period=period)
+            units = moved * UNIT // price
+            conn.execute("UPDATE empires SET units = units + %s WHERE id = %s", (units, fund["id"]))
+            conn.execute("UPDATE retirement_accounts SET managed_fund_id = %s, units = %s, value = value - %s, leaving = false,"
+                         " joining_fund_id = NULL WHERE player_id = %s", (fund["id"], units, moved, account["player_id"]))
+        if not moved:
+            # The fund stopped taking savers, or there was nothing to move: the savings stay where they were.
+            conn.execute("UPDATE retirement_accounts SET joining_fund_id = NULL, fund_chosen_period = NULL WHERE player_id = %s",
+                         (account["player_id"],))
 
 
 def leave(conn: Connection, player_id, now: datetime) -> dict:
-    """Ask for the savings back. They are paid at once as far as the fund has cash; the rest follows
-    as it sells. Until then the manager can buy nothing more."""
+    """Ask for the savings back. They are paid as the quarter closes, as far as the fund has cash;
+    the regulator sells what the fund holds if it must. Until then the manager can buy nothing."""
     with conn.transaction():
         _open(conn, now)
         account = _one(conn, "SELECT * FROM retirement_accounts WHERE player_id = %s FOR UPDATE", (player_id,))
+        if account is not None and account["joining_fund_id"] is not None and account["managed_fund_id"] is None:
+            conn.execute("UPDATE retirement_accounts SET joining_fund_id = NULL, fund_chosen_period = NULL WHERE player_id = %s", (player_id,))
+            return {"done": True, "value": account["value"], "units_left": 0}
         if account is None or account["managed_fund_id"] is None:
             raise FundError("Your savings are not with a fund run by a player.")
         conn.execute("UPDATE retirement_accounts SET leaving = true WHERE player_id = %s", (player_id,))
-        fund = _fund(conn, account["managed_fund_id"], lock=True)
-        _settle(conn, fund, now)
-        after = _one(conn, "SELECT managed_fund_id, value, units FROM retirement_accounts WHERE player_id = %s", (player_id,))
-        return {"done": after["managed_fund_id"] is None, "value": after["value"], "units_left": after["units"]}
+        return {"done": False, "value": account["value"], "units_left": account["units"]}
 
 
 def _settle(conn: Connection, fund: dict, now: datetime) -> int:
-    """Pay savers who have asked to leave, oldest request first, as far as the fund's cash goes.
-    Returns what is still owed to them."""
+    """Pay savers who have asked to leave, as far as the fund's cash goes. Returns what is still owed to them."""
     period = careers.world_now(conn, now)["period"]
     pension_funds = ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
     owed = 0
@@ -233,13 +248,35 @@ def _buying_allowed(conn: Connection, fund: dict) -> None:
         raise FundError("A saver is waiting for their savings back. The fund can sell, and can buy nothing until they are paid.")
 
 
+def _turnover(conn: Connection, fund: dict, manager_id, period: int, value: int, now: datetime) -> None:
+    most = apply_bps(worth(conn, fund, now)["total"], data.FUND_TURNOVER_BPS)
+    used = _one(conn, "SELECT coalesce(sum(value), 0)::bigint AS total FROM empire_trades WHERE empire_id = %s AND period = %s",
+                (fund["id"], period))["total"]
+    if used + value > most:
+        raise FundError(f"A pension fund may trade its own worth once in a quarter: {_money(most)}, of which {_money(used)} is used.")
+    conn.execute("INSERT INTO empire_trades (empire_id, player_id, period, what, value, at) VALUES (%s, %s, %s, %s, %s, %s)",
+                 (fund["id"], manager_id, period, "trade", value, now))
+
+
 def trade_shares(conn: Connection, manager_id, *, ticker: str, side: str, kind: str, quantity: int, limit_price: int | None,
                  now: datetime) -> dict:
     with conn.transaction():
-        _open(conn, now)
+        state = _open(conn, now)
         fund = _managed(conn, manager_id)
         if side == "buy":
             _buying_allowed(conn, fund)
+        share = next((s for s in marketview._shares(conn, exchange.session_of(now)[0]) if s["ticker"] == ticker), None)
+        if share is None:
+            raise FundError("There is no share with that code.")
+        if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity <= 0:
+            raise FundError("The number of shares must be a whole number above zero.")
+        try:
+            empires.fair_dealing(share, side, kind, limit_price, "A pension fund")
+            empires.no_dealing_with_yourself(conn, fund["account_id"], share["id"], side,
+                                             [ledger.player_account_id(conn, manager_id)], "the fund")
+        except empires.EmpireError as refused:
+            raise FundError(str(refused)) from None
+        _turnover(conn, fund, manager_id, state["period"], limit_price * quantity, now)
         try:
             return exchange.place_order(conn, account=fund["account_id"], ticker=ticker, side=side, kind=kind, quantity=quantity,
                                         limit_price=limit_price, now=now)
@@ -258,14 +295,16 @@ def cancel_order(conn: Connection, manager_id, order_id: int, now: datetime) -> 
 
 def trade_bonds(conn: Connection, manager_id, *, code: str, side: str, units: int, now: datetime) -> dict:
     with conn.transaction():
-        _open(conn, now)
+        state = _open(conn, now)
         fund = _managed(conn, manager_id)
         if side == "buy":
             _buying_allowed(conn, fund)
         try:
-            return bonds.trade(conn, account=fund["account_id"], code=code, side=side, units=units, now=now)
+            done = bonds.trade(conn, account=fund["account_id"], code=code, side=side, units=units, now=now)
         except bonds.BondError as refused:
             raise FundError(str(refused)) from None
+        _turnover(conn, fund, manager_id, state["period"], done["value"], now)
+        return done
 
 
 def signing_limit(conn: Connection, fund: dict, now: datetime) -> int:
@@ -299,6 +338,8 @@ def strike_off(conn: Connection, fund: dict, now: datetime) -> None:
     """A manager proved to have taken savers' money is removed. The regulator runs the fund from
     then on: it charges no fee, buys nothing, and pays every saver who asks to leave."""
     manager = fund["head_player_id"]
+    if manager is None or fund["struck_off"]:
+        return
     conn.execute("UPDATE empires SET head_player_id = NULL, struck_off = true, fee_bps = 0 WHERE id = %s", (fund["id"],))
     empires._log(conn, fund["id"], "The manager was struck off by the regulator, which now runs the fund. It charges no fee. "
                                    "Savers may stay, or ask for their savings back.", now)
@@ -325,9 +366,7 @@ def ai_audit(conn: Connection, player_id, now: datetime) -> dict:
 # ---------------------------------------------------------------------------
 
 def at_bell(conn: Connection, now: datetime) -> None:
-    for fund in _rows(conn, "SELECT id FROM empires WHERE kind = 'pension' AND status = 'active' ORDER BY id"):
-        with conn.transaction():
-            _settle(conn, _fund(conn, fund["id"], lock=True), now)
+    """Nothing is settled at a Closing Bell: savers join and leave as the quarter closes."""
 
 
 def after_close(conn: Connection, period: int, now: datetime) -> None:
@@ -347,7 +386,7 @@ def after_close(conn: Connection, period: int, now: datetime) -> None:
                                         wanted=apply_bps(total, fund["fee_bps"]), kind="fund_fee", period=period,
                                         memo=f"{fund['name']}: manager's fee, {clock.period_label(period)}")
                 if paid:
-                    empires._book(conn, fund["id"], period, "Manager's fee", f"The manager's fee of {fund['fee_bps'] / 100:.2f}%", paid, True, now)
+                    empires._book(conn, fund["id"], period, "Manager's fee", f"The manager's fee of {fund['fee_bps'] / 100:.2f}%", paid, True, now, kind="fee")
             for account in _rows(conn, "SELECT * FROM retirement_accounts WHERE managed_fund_id = %s ORDER BY player_id FOR UPDATE", (fund["id"],)):
                 fund = _fund(conn, row["id"])
                 price = unit_price(fund, worth(conn, fund, now)["total"])
@@ -368,7 +407,7 @@ def after_close(conn: Connection, period: int, now: datetime) -> None:
                     value = _value(units, price)
                     wanted = value if value < naira(10_000) else apply_bps(value, data.PENSION_PAID_BPS)
                     paid_out = ledger.pay_up_to(conn, payer=fund["account_id"], receiver=ledger.player_account_id(conn, account["player_id"]),
-                                                wanted=wanted, kind="pension_payment", period=period,
+                                                wanted=wanted, kind="pension_to_player", period=period,
                                                 memo=f"Pension for {clock.period_label(period)}", reference=f"pension:{account['player_id']}:{period}")
                     sold = min(units, paid_out * UNIT // price)
                     units -= sold
@@ -383,13 +422,20 @@ def after_close(conn: Connection, period: int, now: datetime) -> None:
                              (account["player_id"], period, "managed", shown_opening,
                               closing + paid_out - yours - employer - shown_opening, yours, employer, closing, paid_out))
             fund = _fund(conn, row["id"], lock=True)
+            _carry_out_joins(conn, fund, period, now)
+            fund = _fund(conn, row["id"])
             owed = _settle(conn, fund, now)
             if owed > 0:
                 _regulator_sells(conn, fund, owed, now)
                 _settle(conn, _fund(conn, row["id"]), now)
             fund = _fund(conn, row["id"])
-            total = worth(conn, fund, now)["total"]
             savers = _one(conn, "SELECT count(*) AS n FROM retirement_accounts WHERE managed_fund_id = %s", (fund["id"],))["n"]
+            if fund["struck_off"] and savers == 0 and fund["units"] == 0:
+                # Nobody is left in a fund whose manager was struck off. What it holds in cash (a late repayment,
+                # a fine) goes to the ordinary pension funds, which look after every saver who left it.
+                ledger.pay_up_to(conn, payer=fund["account_id"], receiver=pension_funds, wanted=max(ledger.balance(conn, fund["account_id"]), 0),
+                                 kind="pension_transfer", period=period, memo=f"{fund['name']}: closed fund's cash handed to the pension funds")
+            total = worth(conn, fund, now)["total"]
             conn.execute("INSERT INTO fund_prices (fund_id, period, unit_price, worth, units, savers) VALUES (%s, %s, %s, %s, %s, %s)"
                          " ON CONFLICT DO NOTHING", (fund["id"], period, unit_price(fund, total), total, fund["units"], savers))
 
@@ -407,9 +453,8 @@ def _regulator_audit(conn: Connection, fund: dict, period: int, now: datetime) -
         conn.execute("UPDATE empire_audits SET findings = %s, reported = %s WHERE id = %s", ([e["id"] for e in found], [e["id"] for e in found], audit))
         for entry in found:
             empires._prove(conn, _fund(conn, fund["id"]), entry, audit, now)
-    if empires.audit_season(period) and empires._roll(conn, "season", fund["id"], period) < 5000 and _one(
-            conn, "SELECT 1 FROM empire_books WHERE empire_id = %s AND entered_by IS NOT NULL AND category <> 'Manager''s fee' AND period > %s LIMIT 1",
-            (fund["id"], period - data.AI_AUDIT_LOOKS_BACK)):
+    if empires.audit_season(period) and empires._roll(conn, "season", fund["id"], period) < 5000 \
+            and empires.worth_auditing(conn, _fund(conn, fund["id"]), period, now):
         try:
             with conn.transaction():
                 empires._ai_audit(conn, _fund(conn, fund["id"]), period, now, payer=fund["account_id"], hired_by=None)
@@ -460,7 +505,7 @@ def _history(conn: Connection, fund_id) -> list[dict]:
 def listing(conn: Connection, player_id, now: datetime) -> dict:
     """Every pension fund run by a player, as a saver choosing one sees it; and the player's own."""
     state = careers.world_now(conn, now)
-    mine = _one(conn, "SELECT managed_fund_id, units, leaving, value FROM retirement_accounts WHERE player_id = %s", (player_id,))
+    mine = _one(conn, "SELECT managed_fund_id, joining_fund_id, units, leaving, value FROM retirement_accounts WHERE player_id = %s", (player_id,))
     funds = []
     for fund in _rows(conn, "SELECT e.*, p.display_name AS manager FROM empires e LEFT JOIN players p ON p.id = e.manager_id"
                             " WHERE e.kind = 'pension' AND e.status = 'active' ORDER BY e.id"):
@@ -480,6 +525,7 @@ def listing(conn: Connection, player_id, now: datetime) -> dict:
             "yours": bool(mine and mine["managed_fund_id"] == fund["id"]),
             "your_value": _value(mine["units"], price) if mine and mine["managed_fund_id"] == fund["id"] else 0,
             "leaving": bool(mine and mine["managed_fund_id"] == fund["id"] and mine["leaving"]),
+            "joining": bool(mine and mine["joining_fund_id"] == fund["id"]),
         })
     career = careers.career(conn, player_id)
     build = _one(conn, "SELECT build FROM players WHERE id = %s", (player_id,))["build"]

@@ -142,17 +142,18 @@ function Directory({ view, player, act }: { view: EmpireView; player: Player; ac
             The founder must be Level {d.founding_level}. Registration costs {formatNaira(d.registration_fee_kobo)}, paid from what the
             founder and their partners pool together, and it needs at least three players before it can open. Until a player has
             earned the rank of CEO, the founder leads as Acting Head, with capped powers. The one early withdrawal from your
-            retirement savings (up to half) may be used here.
+            retirement savings (up to half) may be used here: it is paid straight into the empire, and goes back to your savings if
+            the founding is cancelled.
           </p>
           {d.can_found ? (
             <form className="stack-form" onSubmit={(event) => {
               event.preventDefault();
-              if (amountKobo !== null) act.run("POST", "/empires", { name, amount_kobo: amountKobo, from_savings_kobo: asKobo(savings) ?? 0 });
+              if (amountKobo !== null || asKobo(savings) !== null) act.run("POST", "/empires", { name, amount_kobo: amountKobo ?? 0, from_savings_kobo: asKobo(savings) ?? 0 });
             }}>
               <label className="answer"><span className="field-label">Name of the empire</span><span className="answer-box"><input type="text" maxLength={40} value={name} onChange={(event) => setName(event.target.value)} /></span></label>
-              <label className="answer"><span className="field-label">Cash you put in now</span><span className="answer-box"><span className="muted small">₦</span><input type="text" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /></span></label>
-              <label className="answer"><span className="field-label">Of which, drawn early from your retirement savings (optional)</span><span className="answer-box"><span className="muted small">₦</span><input type="text" inputMode="decimal" value={savings} onChange={(event) => setSavings(event.target.value)} /></span></label>
-              <button className="button-primary" disabled={act.busy || name.trim().length < 3 || amountKobo === null}>Begin founding</button>
+              <label className="answer"><span className="field-label">Your own cash, put in now</span><span className="answer-box"><span className="muted small">₦</span><input type="text" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /></span></label>
+              <label className="answer"><span className="field-label">And, drawn early from your retirement savings, paid straight into the empire (optional)</span><span className="answer-box"><span className="muted small">₦</span><input type="text" inputMode="decimal" value={savings} onChange={(event) => setSavings(event.target.value)} /></span></label>
+              <button className="button-primary" disabled={act.busy || name.trim().length < 3 || (amountKobo === null && asKobo(savings) === null)}>Begin founding</button>
             </form>
           ) : <p className="muted small">You {player.level ? `are Level ${player.level}` : "have no build yet"}. Founding opens at Level {d.founding_level}.</p>}
         </Panel>
@@ -256,14 +257,14 @@ function Seats({ room, act }: { room: EmpireRoom; act: Act }) {
                 <th scope="row">{seat.build_name} {seat.slot}</th>
                 <td>{seat.name}{seat.head && <span className="tag tag-active"> ★ {room.kind === "player" ? "Acting Head" : "Head"}</span>}{seat.lead && !seat.head && <span className="muted small"> · lead</span>}{seat.you && <span className="muted small"> · you</span>}</td>
                 <td className="num mono">{seat.level ?? "—"}</td>
-                {room.is_head && <td className="num mono">{seat.player_id ? (seat.signing_limit_kobo ? formatNaira(seat.signing_limit_kobo) : "the usual") : "—"}</td>}
+                {room.is_head && <td className="num mono">{seat.held ? (seat.signing_limit_kobo ? formatNaira(seat.signing_limit_kobo) : "the usual") : "—"}</td>}
                 <td className="num">
-                  {room.is_head && !seat.player_id && (
+                  {room.is_head && room.status === "active" && !seat.held && (
                     <button className="button-quiet" disabled={act.busy} onClick={() => act.run("PUT", "/empire/staff", { build: seat.build, slot: seat.slot, staffed: !seat.staffed })}>
                       {seat.staffed ? "Let the staff go" : "Hire staff"}
                     </button>
                   )}
-                  {room.is_head && seat.player_id && !seat.you && (
+                  {room.is_head && room.status === "active" && seat.held && seat.player_id && !seat.you && (
                     <>
                       <button className="button-quiet" disabled={act.busy} onClick={() => setBonus(bonus === seat.player_id ? null : seat.player_id)}>Bonus or limit</button>
                       <button className="button-quiet" disabled={act.busy} onClick={() => act.run("DELETE", `/empire/members/${seat.player_id}`)}>Remove</button>
@@ -277,7 +278,7 @@ function Seats({ room, act }: { room: EmpireRoom; act: Act }) {
       </div>
       {room.is_head && bonus && (
         <div className="definition">
-          <AmountForm label="Pay this member a bonus from the empire's cash" button="Pay bonus" busy={act.busy}
+          <AmountForm label={`Pay this member a bonus from the empire's cash (bonuses of up to ${formatCompact(room.bonus_limit_kobo)} a quarter in all)`} button="Pay bonus" busy={act.busy}
                       onSubmit={(kobo) => act.run("POST", "/empire/bonuses", { member_id: bonus, amount_kobo: kobo, why: "Bonus" })} />
           <AmountForm label="What this member may sign for in a quarter" button="Set limit" busy={act.busy}
                       onSubmit={(kobo) => act.run("PUT", "/empire/limits", { member_id: bonus, signing_limit_kobo: kobo })} />
@@ -297,7 +298,7 @@ function Seats({ room, act }: { room: EmpireRoom; act: Act }) {
               ))}
             </span>
           </div>
-          <p className="muted small">Staff work at a fixed Level 40, reliably and slowly, and are paid by the empire each quarter. An empty seat with no staff does no work.</p>
+          <p className="muted small">Staff work at a fixed Level 40, reliably and slowly, and are paid by the empire each quarter. Staff who are let go are paid for the quarter. An empty seat with no staff does no work.</p>
         </div>
       )}
       {room.applications.length > 0 && (
@@ -356,8 +357,9 @@ function Treasury({ room, act }: { room: EmpireRoom; act: Act }) {
         <>
           <div className="why-title">TRADE FOR THE EMPIRE, WITH THE EMPIRE'S MONEY</div>
           <p className="muted small">
-            Your limit for the quarter is {formatNaira(room.trade_limit_kobo)}; {formatNaira(room.trade_used_kobo)} is used. What you buy
-            belongs to the empire, not to you.
+            {room.is_head ? "As head you trade without a limit." : `Your limit for the quarter is ${formatNaira(room.trade_limit_kobo)}; ${formatNaira(room.trade_used_kobo)} is used.`} What you buy
+            belongs to the empire, not to you. Buying what the empire's task calls for is outside your limit.
+            {room.fair_dealing && " An empire run by the computer deals within 2% of the last session's price."} You cannot deal with the empire yourself.
           </p>
           <form className="inline-form" onSubmit={(event) => {
             event.preventDefault();

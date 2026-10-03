@@ -13,7 +13,9 @@ from uuid import UUID
 from fastapi import Depends, HTTPException, Query, status
 from fastapi import Path as FastPath
 from psycopg import Connection
-from pydantic import Field
+from psycopg.errors import DeadlockDetected
+from pydantic import AfterValidator, Field
+from typing import Annotated
 
 from server import limits
 from server.db import get_connection
@@ -21,6 +23,16 @@ from server.main import _exchange_time, app, current_player
 from server.schemas import Request
 from simulation import careers, clock, desks_more, empires, exchange, pensionfunds
 
+
+
+def _plain(words: str) -> str:
+    """Text a player typed is kept as one plain line: characters that cannot be shown are refused."""
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in words):
+        raise ValueError("That text has characters in it that cannot be kept.")
+    return words
+
+
+Words = Annotated[str, AfterValidator(_plain)]
 router = app          # the routes are added to the one application, so that every route is in one list
 
 MONEY = {"worth", "cash", "shares_value", "bonds_value", "amount", "value", "fee", "repaid", "fine", "debt_left", "signing_limit",
@@ -70,6 +82,8 @@ def _do(conn: Connection, player: dict, action, bucket: str = "empire", attempts
     except exchange.EngineFailure:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
                             "The exchange cannot take orders at this moment. Nothing was changed. Please try again.") from None
+    except DeadlockDetected:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Somebody else changed this at the same moment. Nothing was changed. Please try again.") from None
     view = _view(conn, player)
     if isinstance(result, dict) and "words" in result:
         view["notice"] = result["words"]
@@ -81,13 +95,13 @@ def _do(conn: Connection, player: dict, action, bucket: str = "empire", attempts
 # ---------------------------------------------------------------------------
 
 class FoundRequest(Request):
-    name: str = Field(min_length=3, max_length=40)
-    amount_kobo: int = Amount
+    name: Words = Field(min_length=3, max_length=40)
+    amount_kobo: int = Field(default=0, ge=0, le=1_000_000_000_000_000, strict=True)
     from_savings_kobo: int = Field(default=0, ge=0, le=1_000_000_000_000_000, strict=True)
 
 
 class CapitalRequest(Request):
-    amount_kobo: int = Amount
+    amount_kobo: int = Field(default=0, ge=0, le=1_000_000_000_000_000, strict=True)
     from_savings_kobo: int = Field(default=0, ge=0, le=1_000_000_000_000_000, strict=True)
 
 
@@ -111,7 +125,7 @@ class StaffRequest(Request):
 class BonusRequest(Request):
     member_id: UUID
     amount_kobo: int = Amount
-    why: str = Field(default="", max_length=120)
+    why: Words = Field(default="", max_length=120)
 
 
 class AmountRequest(Request):
@@ -147,7 +161,7 @@ class CaseRequest(Request):
 class PactRequest(Request):
     to_empire: int = Field(ge=1, le=9_000_000_000_000_000_000, strict=True)
     kind: Literal["alliance", "joint_bid", "share_information", "same_candidate", "stay_out", "divide_market", "fix_prices", "rig_bids"]
-    terms: str = Field(min_length=10, max_length=400)
+    terms: Words = Field(min_length=10, max_length=400)
 
 
 class PactAnswerRequest(Request):
@@ -159,11 +173,11 @@ class InvestigateRequest(Request):
 
 
 class MessageRequest(Request):
-    body: str = Field(min_length=1, max_length=500)
+    body: Words = Field(min_length=1, max_length=500)
 
 
 class OpenFundRequest(Request):
-    name: str = Field(min_length=3, max_length=40)
+    name: Words = Field(min_length=3, max_length=40)
     fee_bps: int = Field(ge=0, le=50, strict=True)
 
 
@@ -236,7 +250,7 @@ def decide_an_application(body: DecideRequest, application_id: int = _id(), play
 def set_the_limits(body: LimitsRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     return _do(conn, player, lambda now: empires.set_limits(
         conn, player["id"], expense_limit=body.expense_limit_kobo, trade_limit_bps=body.trade_limit_bps,
-        member_id=body.member_id, signing_limit=body.signing_limit_kobo))
+        member_id=body.member_id, signing_limit=body.signing_limit_kobo, now=now))
 
 
 @router.put("/api/empire/staff")
@@ -360,6 +374,8 @@ def _fund_do(conn: Connection, player: dict, action, bucket: str = "fund", attem
         action(_exchange_time(conn))
     except (pensionfunds.FundError, empires.EmpireError, careers.CareerError) as refused:
         raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
+    except DeadlockDetected:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Somebody else changed this at the same moment. Nothing was changed. Please try again.") from None
     except exchange.EngineFailure:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
                             "The exchange cannot take orders at this moment. Nothing was changed. Please try again.") from None

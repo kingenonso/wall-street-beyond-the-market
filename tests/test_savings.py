@@ -3,6 +3,8 @@ retirement, and pension funds run by players."""
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 from psycopg.rows import dict_row
 
@@ -114,20 +116,25 @@ def test_the_sound_finances_mark_comes_from_savings_worth_two_quarters_of_salary
     assert careers.profile(db, player, NOW9)["retirement"]["sound_finances"] is True
 
 
-def test_the_one_early_withdrawal_is_for_founding_an_empire_takes_at_most_half_and_is_paid_by_the_pension_funds(db):
+def test_the_one_early_withdrawal_is_for_founding_an_empire_takes_at_most_half_and_goes_straight_into_the_empire(db):
     head, account = pro(db, "asset_manager", "chief", level=20, cash_naira=30_000_000)
     savings(db, head, 10_000_000)
     with pytest.raises(empires.EmpireError, match="up to half"):
         empires.found(db, head, "Lagoon House", naira(1_000_000), naira(5_000_001), NOW9)
     assert empires.seat_of(db, head) is None                                   # the refused founding left nothing behind
     before = ledger.balance(db, account)
-    empire = empires.found(db, head, "Lagoon House", naira(34_000_000), naira(5_000_000), NOW9)
-    assert ledger.balance(db, account) == before + naira(5_000_000) - naira(34_000_000)
+    empire = empires.found(db, head, "Lagoon House", naira(29_000_000), naira(5_000_000), NOW9)
+    assert ledger.balance(db, account) == before - naira(29_000_000)           # the withdrawal never passes through the player's hands
+    assert ledger.balance(db, empire["account_id"]) == naira(34_000_000)
     assert _dicts(db, "SELECT value FROM retirement_accounts WHERE player_id = %s", (head,))[0]["value"] == naira(5_000_000)
     with pytest.raises(empires.EmpireError, match="already been made"):
         empires.put_in(db, head, naira(1_000), naira(1_000), NOW9)
-    assert ledger.balance(db, empire["account_id"]) == naira(34_000_000)
     assert careers.profile(db, head, NOW9)["retirement"]["early_withdrawal_used"] is True
+    # If the founding is cancelled, the savings go back where they came from: the withdrawal cannot be used to get at the cash.
+    empires.cancel_founding(db, head, NOW9)
+    assert ledger.balance(db, account) == before
+    after = _dicts(db, "SELECT value, early_withdrawn_period FROM retirement_accounts WHERE player_id = %s", (head,))[0]
+    assert after == {"value": naira(10_000_000), "early_withdrawn_period": None}
     sound(db)
 
 
@@ -135,27 +142,32 @@ def test_the_one_early_withdrawal_is_for_founding_an_empire_takes_at_most_half_a
 # Retirement
 # ---------------------------------------------------------------------------
 
-def test_retirement_opens_after_ten_game_years_of_work_and_a_pension_is_then_paid_every_quarter(db):
+def test_retirement_opens_after_ten_game_years_of_work_and_a_pension_is_then_paid_every_quarter(db, monkeypatch):
     player, account = professional(db, now=NOW9)
     savings(db, player, 4_000_000)
-    assert careers.retirement_opens(db, player, 9)["quarters_to_go"] == data.RETIREMENT_AFTER_QUARTERS == 40
+    assert data.RETIREMENT_AFTER_QUARTERS == 40 and data.RETIREMENT_LEVEL == 50
+    assert careers.retirement_opens(db, player, 9)["quarters_to_go"] == 40
     with pytest.raises(careers.CareerError, match="40 quarters to go"):
         careers.retire(db, player, NOW9)
-    db.execute("UPDATE employments SET started_period = %s WHERE player_id = %s", (9 - 40, player))
-    assert careers.profile(db, player, NOW9)["retirement"]["can_retire"] is True
-    careers.retire(db, player, NOW9)
-    with pytest.raises(careers.CareerError, match="already being paid"):
-        careers.retire(db, player, NOW9)
-    before = ledger.balance(db, account)
-    funds = ledger.balance(db, ledger.account_id(db, ledger.INVESTORS_INSTITUTIONS))
+    # Only quarters the player was paid for count: holding a job without working does not.
+    pass_one(db, player, NOW9)
     assert quarters.close_due_quarters(db, after_quarters(9)) == [9]
-    entry = _dicts(db, "SELECT * FROM retirement_entries WHERE player_id = %s AND period = 9", (player,))[0]
-    assert entry["paid_out"] == apply_bps(entry["opening"] + entry["growth"], data.PENSION_PAID_BPS) > 0
-    assert entry["closing"] == entry["opening"] + entry["growth"] - entry["paid_out"]
+    now = after_quarters(9) + timedelta(hours=12)
+    assert careers.retirement_opens(db, player, 10)["quarters_worked"] == 1
+    monkeypatch.setattr(data, "RETIREMENT_AFTER_QUARTERS", 1)                  # as if the ten years had passed
+    assert careers.profile(db, player, now)["retirement"]["can_retire"] is True
+    careers.retire(db, player, now)
+    with pytest.raises(careers.CareerError, match="already being paid"):
+        careers.retire(db, player, now)
+    before = ledger.balance(db, account)
+    assert quarters.close_due_quarters(db, after_quarters(10)) == [10]
+    entry = _dicts(db, "SELECT * FROM retirement_entries WHERE player_id = %s AND period = 10", (player,))[0]
+    assert entry["paid_out"] == apply_bps(entry["opening"] + entry["growth"] + entry["paid_in_by_you"] + entry["paid_in_by_employer"],
+                                          data.PENSION_PAID_BPS) > 0
+    assert entry["closing"] == entry["opening"] + entry["growth"] + entry["paid_in_by_you"] + entry["paid_in_by_employer"] - entry["paid_out"]
     got = _dicts(db, "SELECT sum(l.amount)::bigint AS amount FROM ledger_entries l JOIN ledger_transactions t ON t.id = l.transaction_id"
-                     " WHERE t.kind = 'pension_payment' AND l.account_id = %s", (account,))[0]["amount"]
-    assert got == entry["paid_out"] and ledger.balance(db, account) >= before + got and funds > 0
-    assert data.RETIREMENT_LEVEL == 50
+                     " WHERE t.kind = 'pension_to_player' AND l.account_id = %s", (account,))[0]["amount"]
+    assert got == entry["paid_out"] and ledger.balance(db, account) >= before + got
     sound(db)
 
 
@@ -196,26 +208,39 @@ def test_only_a_level_twenty_asset_manager_may_open_a_pension_fund_once_for_a_fe
     sound(db)
 
 
+def joined(db, saver, fund) -> None:
+    """A saver asks to join, and the quarter's close carries it out."""
+    pensionfunds.join(db, saver, fund["id"], NOW9)
+    pensionfunds._carry_out_joins(db, pensionfunds._fund(db, fund["id"]), 9, NOW9)
+
+
 def test_a_saver_moves_real_money_into_a_fund_owns_units_and_can_always_get_out(db):
     fund, manager, _ = a_fund(db)
     saver, _ = professional(db, "saver", now=NOW9)
-    with pytest.raises(pensionfunds.FundError, match="no retirement savings"):
+    db.execute("UPDATE retirement_accounts SET value = 0 WHERE player_id = %s", (saver,))
+    with pytest.raises(pensionfunds.FundError, match="at least"):
         pensionfunds.join(db, saver, fund["id"], NOW9)
     savings(db, saver, 2_000_000)
     with pytest.raises(pensionfunds.FundError, match="own pension"):
         pensionfunds.join(db, manager, fund["id"], NOW9)
-    moved = pensionfunds.join(db, saver, fund["id"], NOW9)
-    assert moved["moved"] == naira(2_000_000) == ledger.balance(db, fund["account_id"])
-    assert careers.profile(db, saver, NOW9)["retirement"]["value"] == naira(2_000_000)
-    with pytest.raises(pensionfunds.FundError, match="already with a fund"):
+    # Asking to join moves nothing yet: it is carried out as the quarter closes, like any change of fund.
+    pensionfunds.join(db, saver, fund["id"], NOW9)
+    assert ledger.balance(db, fund["account_id"]) == 0
+    assert {f["id"]: f for f in pensionfunds.listing(db, saver, NOW9)["funds"]}[fund["id"]]["joining"] is True
+    with pytest.raises(pensionfunds.FundError, match="on their way"):
         pensionfunds.join(db, saver, fund["id"], NOW9)
-    # The manager invests it. A second saver joins at the value of a unit now, and takes nothing from the first.
+    with pytest.raises(careers.CareerError, match="on their way"):
+        careers.choose_fund(db, saver, "growth", NOW9)
+    pensionfunds._carry_out_joins(db, fund, 9, NOW9)
+    assert ledger.balance(db, fund["account_id"]) == naira(2_000_000)
+    assert careers.profile(db, saver, NOW9)["retirement"]["value"] == naira(2_000_000)
+    # The manager invests it. A second saver joins at the value of a unit then, and takes nothing from the first.
     bill = next(b for b in bonds.listing(db, NOW9) if b["kind"] == "bill")
     pensionfunds.trade_bonds(db, manager, code=bill["code"], side="buy", units=1500, now=NOW9)
     worth = pensionfunds.worth(db, pensionfunds._fund(db, fund["id"]), NOW9)["total"]
     second, _ = professional(db, "second", now=NOW9)
     savings(db, second, 1_000_000)
-    pensionfunds.join(db, second, fund["id"], NOW9)
+    joined(db, second, fund)
     shown = {f["id"]: f for f in pensionfunds.listing(db, saver, NOW9)["funds"]}[fund["id"]]
     assert shown["savers"] == 2 and worth - 2 <= shown["your_value"] <= worth + 100
     # Somebody who is not the manager cannot touch the fund.
@@ -223,10 +248,9 @@ def test_a_saver_moves_real_money_into_a_fund_owns_units_and_can_always_get_out(
                     lambda: pensionfunds.divert(db, saver, naira(1), NOW9)):
         with pytest.raises(pensionfunds.FundError, match="manage no pension fund"):
             attempt()
-    # The first saver asks for the savings back. The fund has too little cash: they are paid what there is,
-    # the manager can buy nothing more, and the regulator sells bonds when the quarter closes.
-    out = pensionfunds.leave(db, saver, NOW9)
-    assert out["done"] is False and out["value"] > 0 and out["units_left"] > 0
+    # The first saver asks for the savings back. They are paid as the quarter closes; until then the manager can
+    # buy nothing more, and the regulator sells bonds if the fund has too little cash.
+    assert pensionfunds.leave(db, saver, NOW9)["done"] is False
     with pytest.raises(pensionfunds.FundError, match="can buy nothing"):
         pensionfunds.trade_bonds(db, manager, code=bill["code"], side="buy", units=1, now=NOW9)
     assert quarters.close_due_quarters(db, after_quarters(9)) == [9]
@@ -241,13 +265,13 @@ def test_a_manager_who_takes_savers_money_is_found_repays_with_a_fine_and_is_str
     fund, manager, account = a_fund(db)
     saver, _ = professional(db, "saver", now=NOW9)
     savings(db, saver, 10_000_000)
-    pensionfunds.join(db, saver, fund["id"], NOW9)
+    joined(db, saver, fund)
     with pytest.raises(pensionfunds.FundError, match="can sign for"):
         pensionfunds.divert(db, manager, naira(100_001), NOW9)                 # 1% of the fund in a quarter
     pensionfunds.divert(db, manager, naira(100_000), NOW9)
     assert ledger.balance(db, fund["account_id"]) == naira(9_900_000)
     books = pensionfunds.manager_view(db, manager, NOW9)["books"]
-    assert books[0]["category"] == "Custody and dealing costs" and "genuine" not in books[0]
+    assert books[0]["category"] == "Custody and dealing costs" and "genuine" not in books[0] and "kind" not in books[0]
     always(monkeypatch, True)
     before = ledger.balance(db, account)
     pensionfunds.after_close(db, 9, NOW9)                                      # the regulator's audit, as the quarter closes
@@ -255,6 +279,7 @@ def test_a_manager_who_takes_savers_money_is_found_repays_with_a_fine_and_is_str
     after = pensionfunds._fund(db, fund["id"])
     assert after["struck_off"] and after["head_player_id"] is None and after["fee_bps"] == 0
     assert pensionfunds.worth(db, after, NOW9)["total"] == naira(10_100_000)   # the savers got it back, and the fine with it
+    assert len(_dicts(db, "SELECT 1 FROM career_events WHERE kind = 'struck_off'")) == 1
     with pytest.raises(pensionfunds.FundError, match="manage no pension fund"):
         pensionfunds.divert(db, manager, naira(1), NOW9)
     with pytest.raises(pensionfunds.FundError):
@@ -263,16 +288,17 @@ def test_a_manager_who_takes_savers_money_is_found_repays_with_a_fine_and_is_str
     savings(db, newcomer, 1_000_000)
     with pytest.raises(pensionfunds.FundError, match="not taking savers"):
         pensionfunds.join(db, newcomer, fund["id"], NOW9)
-    assert pensionfunds.leave(db, saver, NOW9)["done"] is True
+    pensionfunds.leave(db, saver, NOW9)
+    pensionfunds._settle(db, pensionfunds._fund(db, fund["id"]), NOW9)         # as the next close would
     assert _dicts(db, "SELECT value FROM retirement_accounts WHERE player_id = %s", (saver,))[0]["value"] == naira(10_100_000)
     sound(db)
 
 
-def test_a_saver_can_hire_the_ai_audit_of_their_fund_in_an_audit_season_and_the_fee_is_paid_each_quarter(db, monkeypatch):
+def test_a_saver_can_hire_the_ai_audit_of_their_fund_in_an_audit_season(db, monkeypatch):
     fund, manager, account = a_fund(db, fee_bps=50)
     saver, saver_account = professional(db, "saver", now=NOW9, cash_naira=2_000_000)
     savings(db, saver, 10_000_000)
-    pensionfunds.join(db, saver, fund["id"], NOW9)
+    joined(db, saver, fund)
     pensionfunds.divert(db, manager, naira(50_000), NOW9)
     with pytest.raises(pensionfunds.FundError, match="only in an audit season"):
         pensionfunds.ai_audit(db, saver, NOW9)
@@ -289,7 +315,7 @@ def test_the_managers_fee_is_paid_from_the_fund_each_quarter_and_contributions_b
     fund, manager, account = a_fund(db, fee_bps=50)
     saver, _ = professional(db, "saver", now=NOW9)
     savings(db, saver, 10_000_000)
-    pensionfunds.join(db, saver, fund["id"], NOW9)
+    joined(db, saver, fund)
     pass_one(db, saver, NOW9)
     before = ledger.balance(db, account)
     always(monkeypatch, False)

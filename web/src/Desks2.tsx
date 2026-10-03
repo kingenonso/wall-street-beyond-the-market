@@ -612,7 +612,7 @@ export function HeadWork({ player, onLoggedOut }: Props) {
       </Panel>
 
       <Panel title="Staff activity" aside={`${d.players} players · ${d.staff} staff`}>
-        {room.seats.filter((seat) => seat.player_id || seat.staffed).map((seat) => {
+        {room.seats.filter((seat) => seat.held || seat.staffed).map((seat) => {
           const step = room.task?.steps.find((s) => s.build === seat.build && s.status !== "waiting");
           return (
             <div key={`${seat.build}${seat.slot}`} className="row">

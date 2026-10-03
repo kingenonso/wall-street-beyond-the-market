@@ -271,6 +271,9 @@ def shareholders(conn: Connection, company_id, asset: str) -> list[dict]:
             # While players are few, their shares are counted with the small investors, so that
             # no line shows one player's holding.
             groups["Players" if enough_players else "Small investors"] += owner["shares"]
+        elif owner["kind"] in ("empire", "fund"):
+            # What one empire or one pension fund holds is its own business: it is counted with the small investors.
+            groups["Small investors"] += owner["shares"]
         elif owner["kind"] == "company":
             # Another company that owns shares here (after a takeover) is named: that is public.
             groups[owner["name"]] = groups.get(owner["name"], 0) + owner["shares"]

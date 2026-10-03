@@ -602,3 +602,10 @@ FUND_REGISTRATION_NAIRA = 5_000_000                # paid into the prize pool
 FUND_FEE_MOST_BPS = 50                             # the most a manager may charge: half of one percent of the fund each quarter
 FUND_SIGNING_BPS = 100                             # a manager can sign for costs of up to 1% of the fund in a quarter
 FUND_AI_AUDIT_LEAST_NAIRA = 1_000_000              # the least an AI audit of a pension fund costs
+
+# After the independent review of Stage 6.
+HEAD_BONUS_BPS = 1000                              # a head may pay out bonuses of up to a tenth of the empire's worth in a quarter
+COMPUTER_EMPIRE_TRADE_NAIRA = 1_000_000            # what a player may trade for a computer-run empire in a quarter, for each level
+FAIR_DEALING_BPS = 200                             # other people's money is dealt within 2% of the last session's price
+FUND_TURNOVER_BPS = 10_000                         # a pension fund may trade once its own worth in a quarter
+FUND_LEAST_SAVINGS_NAIRA = 1_000                   # the least a saver may bring to a fund run by a player

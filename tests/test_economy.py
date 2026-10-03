@@ -30,7 +30,10 @@ def test_each_of_the_five_locations_has_its_households_with_their_own_savings(db
     savings = million_naira(data.HOUSEHOLDS_OPENING_M)
     for r in rows:
         assert r["name"] == f"Households of {r['location']}"
-        assert ledger.balance(db, r["id"]) == apply_bps(savings, r["population_bps"])     # shared out by population
+        # Shared out by population. Each city's households then put up the founding capital of the empire that has its home there.
+        put_up = db.execute("SELECT coalesce(sum(e.amount), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
+                            " WHERE t.kind = 'empire_capital' AND e.account_id = %s", (r["id"],)).fetchone()[0]
+        assert ledger.balance(db, r["id"]) == apply_bps(savings, r["population_bps"]) + put_up and put_up == -naira(data.COMPUTER_EMPIRE_CAPITAL_NAIRA)
 
 
 def test_the_single_stand_in_account_for_the_public_is_gone(db):

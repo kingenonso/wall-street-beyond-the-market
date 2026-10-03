@@ -535,7 +535,7 @@ export type EmpireDirectory = {
   can_found: boolean; founding_level: number; registration_fee_kobo: Kobo;
 };
 export type Seat = {
-  build: BuildCode; build_name: string; slot: 1 | 2; player_id: string | null; name: string; level: number | null;
+  build: BuildCode; build_name: string; slot: 1 | 2; held: boolean; player_id: string | null; name: string; level: number | null;
   staffed: boolean; you: boolean; head: boolean; signing_limit_kobo?: Kobo; lead?: boolean;
 };
 export type TaskStep = {
@@ -552,6 +552,7 @@ export type EmpireRoom = {
   holdings: { ticker: string; shares: number; value_kobo: Kobo }[];
   bond_holdings: { code: string; name: string; units: number; value_kobo: Kobo }[];
   orders: EmpireOrder[]; seats: Seat[]; humans: number; can_trade: boolean; trade_limit_kobo: Kobo; trade_used_kobo: Kobo;
+  fair_dealing: boolean; bonus_limit_kobo: Kobo;
   signing_limit_kobo: Kobo; signing_used_kobo: Kobo; disguise: string;
   task: null | { id: number; company: string; ticker: string; amount_kobo: Kobo; status: "open" | "done" | "failed"; steps: TaskStep[] };
   books: BookEntry[]; your_entries: BookEntry[];
@@ -577,7 +578,7 @@ export type PlayerFund = {
   id: number; name: string; manager: string | null; struck_off: boolean; run_by_regulator: boolean; fee_bps: number; worth_kobo: Kobo;
   cash_kobo: Kobo; shares_value_kobo: Kobo; bonds_value_kobo: Kobo; unit_price: number; savers: number; since_label?: string;
   over_year_bps: number | null; history: { period_label: string; unit_price: number }[]; proved_thefts: number;
-  yours: boolean; your_value_kobo: Kobo; leaving: boolean;
+  yours: boolean; your_value_kobo: Kobo; leaving: boolean; joining: boolean;
 };
 export type ManagedFund = {
   id: number; name: string; fee_bps: number; worth_kobo: Kobo; cash_kobo: Kobo; shares_value_kobo: Kobo; bonds_value_kobo: Kobo; unit_price: number;

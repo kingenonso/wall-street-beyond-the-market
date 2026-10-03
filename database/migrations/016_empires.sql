@@ -310,3 +310,57 @@ CREATE TABLE empire_worth (                -- what each empire was worth as each
     PRIMARY KEY (empire_id, period)
 );
 CREATE TRIGGER empire_worth_permanent BEFORE UPDATE OR DELETE ON empire_worth FOR EACH ROW EXECUTE FUNCTION records_forbid_change();
+
+-- ---------------------------------------------------------------------------
+-- After the independent review of Stage 6.
+-- ---------------------------------------------------------------------------
+-- What kind of payment an entry in the books really is. Known only to the server: members see
+-- the category and description, which genuine costs and false ones share.
+ALTER TABLE empire_books ADD COLUMN kind text NOT NULL DEFAULT 'cost' CHECK (kind IN ('cost', 'staff_pay', 'bonus', 'step', 'fee', 'taken'));
+ALTER TABLE empire_cases ADD COLUMN decided_period integer;
+ALTER TABLE empire_seats ADD COLUMN staffed_in_period integer;          -- the last quarter in which staff held the seat
+-- Money drawn early from retirement savings to found an empire goes straight into the empire, and
+-- back to the pension funds if the founding is cancelled.
+ALTER TABLE empire_capital ADD COLUMN from_savings bigint NOT NULL DEFAULT 0;
+-- A move into a fund run by a player is carried out as the quarter closes, like any change of fund.
+ALTER TABLE retirement_accounts ADD COLUMN joining_fund_id bigint REFERENCES empires (id);
+
+-- A membership that has ended, an entry in the books and a decided case are permanent records.
+CREATE FUNCTION empire_members_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.left_at IS NOT NULL OR NEW.empire_id <> OLD.empire_id OR NEW.player_id <> OLD.player_id OR NEW.build <> OLD.build
+       OR NEW.joined_at <> OLD.joined_at OR NEW.joined_period <> OLD.joined_period THEN
+        RAISE EXCEPTION 'A membership that has ended is a permanent record.' USING ERRCODE = 'restrict_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER empire_members_guarded BEFORE UPDATE ON empire_members FOR EACH ROW EXECUTE FUNCTION empire_members_guard();
+
+CREATE FUNCTION empire_books_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF (to_jsonb(NEW) - 'found') <> (to_jsonb(OLD) - 'found') OR (OLD.found AND NOT NEW.found) THEN
+        RAISE EXCEPTION 'An entry in the books is a permanent record.' USING ERRCODE = 'restrict_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER empire_books_guarded BEFORE UPDATE ON empire_books FOR EACH ROW EXECUTE FUNCTION empire_books_guard();
+
+CREATE FUNCTION empire_cases_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'A case is a permanent record.' USING ERRCODE = 'restrict_violation';
+    END IF;
+    IF OLD.status <> 'open' AND ((to_jsonb(NEW) - 'debt_left' - 'repaid') <> (to_jsonb(OLD) - 'debt_left' - 'repaid')
+                                 OR NEW.debt_left > OLD.debt_left OR NEW.repaid < OLD.repaid) THEN
+        RAISE EXCEPTION 'A case that has been decided is a permanent record.' USING ERRCODE = 'restrict_violation';
+    END IF;
+    IF NEW.empire_id <> OLD.empire_id OR NEW.book_id <> OLD.book_id OR NEW.player_id <> OLD.player_id OR NEW.amount <> OLD.amount THEN
+        RAISE EXCEPTION 'A case is a permanent record.' USING ERRCODE = 'restrict_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER empire_cases_guarded BEFORE UPDATE OR DELETE ON empire_cases FOR EACH ROW EXECUTE FUNCTION empire_cases_guard();
+CREATE TRIGGER empire_audits_no_delete BEFORE DELETE ON empire_audits FOR EACH ROW EXECUTE FUNCTION records_forbid_change();

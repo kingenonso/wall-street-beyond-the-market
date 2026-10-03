@@ -812,6 +812,14 @@ def place_order(body: OrderRequest, player: dict = Depends(current_player), conn
                             "Give a price for an order at your own price, and none for an order at the best price available.")
     account = _trading_account(conn, player)
     try:
+        # A player may not deal with the empire they sit in, or the pension fund they manage.
+        from simulation import empires
+        company = conn.execute("SELECT id FROM companies WHERE ticker = %s", (body.ticker,)).fetchone()
+        if company:
+            try:
+                empires.own_order_allowed(conn, account, company["id"], body.side)
+            except empires.EmpireError as refused:
+                raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
         result = exchange.place_order(
             conn, account=account, ticker=body.ticker, side=body.side, kind=body.kind, quantity=body.quantity,
             limit_price=body.limit_price_kobo, now=_exchange_time(conn),

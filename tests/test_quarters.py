@@ -98,6 +98,8 @@ class TestStageTwo:
         # Stage 4 added: bonds issued, their interest and repayment, and what companies do on the market.
         market = {"bond_issue", "bond_coupon", "bond_redemption", "takeover_reserve", "takeover_payment", "takeover_refund",
                   "exchange_surplus", "share_split", "bond_trade"}
+        # Stage 6 added: the computer-run empires' founding capital, their staff's pay, and their orders on the exchange.
+        market |= {"empire_capital", "empire_staff_pay", "order_reserve", "order_release", "trade", "trade_fee"}
         assert kinds - market == {
             "opening_balance", "share_issue", "customer_revenue", "business_purchase", "cost_of_sales", "wages",
             "debt_interest", "company_tax", "debt_repayment", "capital_spending", "dividend",

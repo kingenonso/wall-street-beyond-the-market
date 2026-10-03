@@ -80,8 +80,12 @@ def test_five_empires_exist_from_the_first_day_with_thirteen_places_and_money_th
 
 def test_staff_are_paid_by_the_empire_each_quarter_and_the_computer_puts_idle_cash_to_work(db):
     empire = computer_empire(db)
-    paid = _dicts(db, "SELECT period, amount FROM empire_books WHERE empire_id = %s AND category = 'Staff pay' ORDER BY period", (empire["id"],))
-    assert len(paid) >= 7
+    # Staff pay is entered build by build, under each build's ordinary heading (the same headings a false entry would use).
+    paid = _dicts(db, "SELECT period, sum(amount)::bigint AS amount, count(*) AS lines FROM empire_books WHERE empire_id = %s"
+                      " AND kind = 'staff_pay' GROUP BY period ORDER BY period", (empire["id"],))
+    assert len(paid) >= 7 and paid[-1]["lines"] == 6
+    headings = {r["category"] for r in _dicts(db, "SELECT DISTINCT category FROM empire_books WHERE empire_id = %s AND kind = 'staff_pay'", (empire["id"],))}
+    assert headings == {v[0] for k, v in data.DISGUISES.items() if k != "head"}
     wage = _dicts(db, "SELECT wage_index_bps FROM economy_results WHERE period = 8")[0]["wage_index_bps"]
     assert paid[-1]["amount"] == 12 * careers.salary_per_quarter(data.STAFF_LEVEL, wage)
     have = empires.worth(db, empire, NOW9)
@@ -500,7 +504,8 @@ def test_reporting_a_theft_that_is_proved_is_rewarded_and_a_groundless_report_co
     empires.divert(db, thief, naira(200_000), NOW9)
     room = empires.war_room(db, watcher, NOW9)
     false = next(b["id"] for b in room["books"] if b["amount"] == naira(200_000))
-    genuine = next(b["id"] for b in room["books"] if b["category"] == "Staff pay")
+    honest = [r["id"] for r in _dicts(db, "SELECT id FROM empire_books WHERE empire_id = %s AND genuine ORDER BY id DESC", (empire["id"],))]
+    genuine = honest[0]
     reputation = _dicts(db, "SELECT reputation FROM players WHERE id = %s", (watcher,))[0]["reputation"]
     always(monkeypatch, True)
     assert empires.report_entry(db, watcher, genuine, NOW9) == {"proved": False}
@@ -514,7 +519,7 @@ def test_reporting_a_theft_that_is_proved_is_rewarded_and_a_groundless_report_co
     other_entry = _dicts(db, "SELECT id FROM empire_books WHERE empire_id <> %s LIMIT 1", (empire["id"],))[0]["id"]
     with pytest.raises(empires.EmpireError, match="no such entry"):
         empires.report_entry(db, watcher, other_entry, NOW9)
-    more = [b["id"] for b in empires.war_room(db, watcher, NOW9)["books"] if b["category"] == "Staff pay" and b["id"] != genuine]
+    more = honest[1:]
     empires.report_entry(db, watcher, more[0], NOW9)
     with pytest.raises(empires.EmpireError, match="3 entries a quarter"):
         empires.report_entry(db, watcher, more[1], NOW9)

@@ -143,7 +143,9 @@ def test_investors_keep_orders_waiting_in_every_share_on_both_sides(db):
             assert share["reference_price"] == value
         assert abs(quote["bids"][0]["price"] - value) <= value * 15 // 100
     # Only the three investors' own shares and cash are behind those orders.
-    owners = {a for (a,) in db.execute("SELECT DISTINCT account_id FROM market_orders").fetchall()}
+    # (Since Stage 6 the five computer-run empires also have an order each waiting: the purchase their task ends with.)
+    owners = {a for (a,) in db.execute("SELECT DISTINCT o.account_id FROM market_orders o JOIN ledger_accounts a ON a.id = o.account_id"
+                                       " WHERE a.kind <> 'empire'").fetchall()}
     assert owners == set(investors.accounts(db).values())
     assert db.execute("SELECT count(*) FROM market_trades").fetchone()[0] > 0     # where their views overlapped, they traded
     sound(db)
@@ -156,7 +158,11 @@ def test_investors_look_again_only_every_five_minutes_and_once_before_the_open(d
     assert db.execute("SELECT count(*) FROM market_trades").fetchone()[0] == 0     # the market is closed: nothing trades
     investors.act(db, OPEN)                                                        # the open: the auction runs
     auction = db.execute("SELECT count(*), count(*) FILTER (WHERE in_auction) FROM market_trades").fetchone()
-    assert auction[0] > 0 and auction[0] == auction[1]
+    # Everything the investors trade with each other at the open trades in the auction. (The computer-run empires'
+    # waiting purchases are then met by the investors' new orders, in ordinary trading.)
+    outside = db.execute("SELECT count(*) FROM market_trades t JOIN ledger_accounts a ON a.id = t.buyer_account_id"
+                         " WHERE NOT t.in_auction AND a.kind <> 'empire'").fetchone()[0]
+    assert auction[1] > 0 and outside == 0
     assert investors.act(db, OPEN + timedelta(minutes=2)) == 0                     # too soon to look again
     orders = db.execute("SELECT count(*) FROM market_orders").fetchone()[0]
     investors.act(db, OPEN + timedelta(minutes=6))

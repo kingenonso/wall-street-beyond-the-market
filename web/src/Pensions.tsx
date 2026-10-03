@@ -92,7 +92,9 @@ export function PensionFundsPanel({ player, onLoggedOut, onChanged }: { player: 
           An Asset Manager of Level {data.manager_level} may open a pension fund, and you may move your retirement savings into
           it instead of one of the four ordinary funds. The manager invests your money on the market and takes a fee. A good
           manager may do better than the ordinary funds; a bad one may lose your money, and a dishonest one may take it. The
-          regulator audits every fund each quarter. You can always ask for your savings back.
+          regulator audits every fund each quarter. A fund must deal within 2% of the market price, cannot deal with its own
+          manager, and can trade its own worth once a quarter. You can always ask for your savings back; moves in and out are
+          carried out as the quarter closes.
         </p>
         {error && <p className="error" role="alert">{error}</p>}
         {data.funds.length === 0 && <p className="muted small">No player has opened a pension fund yet.</p>}
@@ -110,14 +112,19 @@ export function PensionFundsPanel({ player, onLoggedOut, onChanged }: { player: 
             <div className="step-actions">
               {fund.yours ? (
                 <>
-                  <span className="small">Your savings here: <span className="mono strong">{formatNaira(fund.your_value_kobo)}</span>{fund.leaving && " · you have asked for them back; you are paid as the fund has cash"}</span>
+                  <span className="small">Your savings here: <span className="mono strong">{formatNaira(fund.your_value_kobo)}</span>{fund.leaving && " · you have asked for them back; you are paid when the quarter closes, as far as the fund has cash"}</span>
                   <span>
                     <button className="button-quiet" disabled={busy || !data.audit_season} title={data.audit_season ? undefined : "Only in an audit season"} onClick={() => run("POST", "/pension-fund/ai-audit")}>Hire the AI audit</button>
                     {!fund.leaving && <button className="button-quiet" disabled={busy} onClick={() => run("DELETE", "/pension-fund/savings")}>Ask for my savings back</button>}
                   </span>
                 </>
+              ) : fund.joining ? (
+                <>
+                  <span className="small">✓ Your savings move here when the quarter closes.</span>
+                  <button className="button-quiet" disabled={busy} onClick={() => run("DELETE", "/pension-fund/savings")}>Change my mind</button>
+                </>
               ) : !fund.struck_off && fund.manager !== player.display_name && (
-                <button className="button-outline" disabled={busy} onClick={() => run("PUT", `/pension-funds/${fund.id}/savings`)}>Move my savings here</button>
+                <button className="button-outline" disabled={busy} onClick={() => run("PUT", `/pension-funds/${fund.id}/savings`)}>Move my savings here when the quarter closes</button>
               )}
             </div>
           </div>
