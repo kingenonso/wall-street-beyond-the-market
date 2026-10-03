@@ -10,7 +10,7 @@ from psycopg.rows import dict_row
 
 from simulation import careers, empires, leagues, ledger, quarters
 from simulation import world_data as data
-from simulation.money import naira
+from simulation.money import apply_bps, naira
 from tests.conftest import after_quarters
 from tests.test_builds import pro
 from tests.test_careers import NOW9, sound
@@ -330,3 +330,40 @@ def test_every_player_is_ranked_within_their_build(db):
     table = leagues.build_table(db, "lawyer", low)
     assert [(p["name"], p["place"]) for p in table["top"]] == [("top", 1), ("low", 2)] and table["your_place"] == 2
     assert table["top"][1]["you"] and "id" not in table["top"][0]
+
+
+# ---------------------------------------------------------------------------
+# Trading for a computer-run empire: a share of the empire that grows with rank (the owner, 3 October 2026)
+# ---------------------------------------------------------------------------
+
+def test_what_an_asset_manager_may_trade_for_a_computer_run_empire_grows_with_rank(db):
+    from simulation import bonds
+    assert data.COMPUTER_EMPIRE_TRADE_BPS == (50, 200, 500, 1000, 2000)
+    empire = computer_empire(db)
+    manager, _ = pro(db, "asset_manager", "dealer", level=4)
+    empires.apply(db, manager, empire["id"], NOW9)
+    worth = empires.war_room(db, manager, NOW9)["worth"]
+    for rank, share in enumerate(data.COMPUTER_EMPIRE_TRADE_BPS):
+        db.execute("UPDATE careers SET rank = %s WHERE player_id = %s", (rank, manager))
+        assert empires.war_room(db, manager, NOW9)["trade_limit"] == apply_bps(worth, share)
+    # Level alone changes nothing: it is the rank that counts.
+    db.execute("UPDATE careers SET rank = 0, experience = %s WHERE player_id = %s", (careers.experience_for(20), manager))
+    limit = empires.war_room(db, manager, NOW9)["trade_limit"]
+    assert limit == apply_bps(worth, 50)
+    # The limit holds, and it is the player's for the quarter wherever they sit.
+    bill = next(b for b in bonds.listing(db, NOW9) if b["kind"] == "bill")
+    units = limit // bill["ask"]
+    empires.trade_bonds(db, manager, code=bill["code"], side="buy", units=units, now=NOW9)
+    with pytest.raises(empires.EmpireError, match="trading limit"):
+        empires.trade_bonds(db, manager, code=bill["code"], side="buy", units=units, now=NOW9)
+    empires.leave(db, manager, NOW9)
+    other = computer_empire(db, 1)
+    empires.apply(db, manager, other["id"], NOW9)
+    assert empires.war_room(db, manager, NOW9)["trade_used"] >= units * bill["bid"]
+    with pytest.raises(empires.EmpireError, match="trading limit"):
+        empires.trade_bonds(db, manager, code=bill["code"], side="buy", units=units, now=NOW9)
+    # In an empire run by players the head still sets it.
+    house, (head, _), _ = founded(db)
+    empires.set_limits(db, head, trade_limit_bps=1000)
+    assert empires.war_room(db, head, NOW9)["trade_limit"] == empires.war_room(db, head, NOW9)["worth"] // 10
+    sound(db)

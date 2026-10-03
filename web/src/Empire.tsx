@@ -404,7 +404,7 @@ function Treasury({ room, act, onLoggedOut }: { room: EmpireRoom; act: Act; onLo
         <>
           <div className="why-title">TRADE FOR THE EMPIRE, WITH THE EMPIRE'S MONEY</div>
           <p className="muted small">
-            {room.is_head ? "As head you trade without a limit." : `Your limit for the quarter is ${formatNaira(room.trade_limit_kobo)}; ${formatNaira(room.trade_used_kobo)} is used.`} What you buy
+            {room.is_head ? "As head you trade without a limit." : `Your limit for the quarter is ${formatNaira(room.trade_limit_kobo)}; ${formatNaira(room.trade_used_kobo)} is used.${room.run_by_computer ? " In an empire the computer runs, the limit is a share of the empire that grows with your rank: 0.5% as an Associate, 2% as a Professional, 5% as a Senior, 10% as a Principal, 20% as a Master." : ""}`} What you buy
             belongs to the empire, not to you. Buying what the empire's task calls for is outside your limit.
             {room.fair_dealing && " An empire run by the computer deals within 2% of the last session's price."} You cannot deal with the empire yourself.
           </p>

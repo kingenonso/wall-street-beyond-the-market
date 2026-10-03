@@ -606,7 +606,9 @@ FUND_AI_AUDIT_LEAST_NAIRA = 1_000_000              # the least an AI audit of a 
 
 # After the independent review of Stage 6.
 HEAD_BONUS_BPS = 1000                              # a head may pay out bonuses of up to a tenth of the empire's worth in a quarter
-COMPUTER_EMPIRE_TRADE_NAIRA = 1_000_000            # what a player may trade for a computer-run empire in a quarter, for each level
+# What a player may trade for a computer-run empire in a quarter: a share of what the empire is worth, growing with rank
+# (Associate, Professional, Senior, Principal, Master). Decided by the owner on 3 October 2026; it was ₦1 million for each level.
+COMPUTER_EMPIRE_TRADE_BPS = (50, 200, 500, 1000, 2000)
 FAIR_DEALING_BPS = 200                             # other people's money is dealt within 2% of the last session's price
 FUND_TURNOVER_BPS = 10_000                         # a pension fund may trade once its own worth in a quarter
 FUND_LEAST_SAVINGS_NAIRA = 1_000                   # the least a saver may bring to a fund run by a player

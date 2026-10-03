@@ -5,7 +5,7 @@ and a live-event objective; a player at Level 20 cannot advance until the requir
 mastered and the rank case is passed."** It passes:
 `tests/test_mastery.py::test_stage_seven_every_module_has_three_kinds_of_work_and_level_twenty_is_a_gate`.
 
-Tests at the end of the stage: **798 on the server**, 13 on the order-matching engine,
+Tests at the end of the stage: **799 on the server**, 13 on the order-matching engine,
 12 on the website. All pass.
 
 ## Checklist
@@ -183,6 +183,18 @@ order outside them. Bonds and bills have the same form, choosing by name.
 One correction to what I told you when you first asked: the 0.50% is not all the exchange's
 fee. It is 0.30% to the exchange and 0.20% stamp duty to the Government, and it was so since
 Stage 4. The form now says so. There is still no tax on a gain from trading.
+
+### Two changes the owner asked for after trying the stage (3 October 2026)
+
+- **What an Asset Manager may trade for a computer-run empire** is now a share of what the
+  empire is worth, growing with rank: 0.5% a quarter as an Associate, 2% as a Professional,
+  5% as a Senior, 10% as a Principal and 20% as a Master. It was ₦1 million for each level.
+  Like the signing limit, it is the player's for the quarter wherever they sit, so moving from
+  one empire to the next does not start it again. The 2% dealing rule is unchanged, and in an
+  empire run by players the head still sets the limit. Test:
+  `test_what_an_asset_manager_may_trade_for_a_computer_run_empire_grows_with_rank`.
+- **The bond form's button is greyed out when the bond desk is closed**, and reads "The bond
+  desk is closed". The desk deals from 12:00 to 22:00, Lagos time.
 
 ## The syllabus maps against the real syllabuses
 

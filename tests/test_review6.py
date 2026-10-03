@@ -45,8 +45,9 @@ def test_a_member_cannot_deal_with_their_own_empire_and_a_computer_run_empire_de
     share = _share(db, ticker)
     low, high = exchange.price_limits(share["reference"])
     empires.apply(db, am, empire["id"], NOW9)
-    # What a player may trade for an empire the computer runs is small, and goes by their level.
-    assert empires.war_room(db, am, NOW9)["trade_limit"] == naira(data.COMPUTER_EMPIRE_TRADE_NAIRA)
+    # What a player may trade for an empire the computer runs is a small share of it, and goes by their rank.
+    room = empires.war_room(db, am, NOW9)
+    assert abs(room["trade_limit"] - room["worth"] * data.COMPUTER_EMPIRE_TRADE_BPS[0] // 10_000) <= 1
     # The staff's own purchase is waiting in this share: the member cannot sell into it themselves.
     with pytest.raises(empires.EmpireError, match="cannot deal with it yourself"):
         empires.own_order_allowed(db, account, share["id"], "sell")

@@ -833,11 +833,14 @@ def _trader(conn: Connection, player_id, now: datetime) -> tuple[dict, dict]:
 
 def trade_limit(conn: Connection, seat: dict, now: datetime) -> int:
     """What a member may trade for the empire in a quarter. In an empire the computer runs it is a
-    small sum for each level the player holds; in an empire run by players the head sets it."""
+    share of what the empire is worth that grows with the member's rank (0.5% as an Associate, up
+    to 20% as a Master); in an empire run by players the head sets it."""
+    total = worth(conn, _empire(conn, seat["empire_id"]), now)["total"]
     if seat["head_player_id"] is None:
         mine = careers.career(conn, seat["player_id"], seat["build"])
-        return naira(data.COMPUTER_EMPIRE_TRADE_NAIRA) * (mine["level"] if mine else 1)
-    return apply_bps(worth(conn, _empire(conn, seat["empire_id"]), now)["total"], seat["trade_limit_bps"])
+        shares = data.COMPUTER_EMPIRE_TRADE_BPS
+        return apply_bps(total, shares[min(mine["rank"] if mine else 0, len(shares) - 1)])
+    return apply_bps(total, seat["trade_limit_bps"])
 
 
 def _task_purchase(conn: Connection, seat: dict, company_id) -> int:
@@ -852,12 +855,20 @@ def _task_purchase(conn: Connection, seat: dict, company_id) -> int:
     return max(step["terms"]["need"] - _bought(conn, step) - waiting, 0)
 
 
+def _traded(conn: Connection, empire_id, player_id, period: int) -> int:
+    """What a member has traded for empires this quarter. Like the signing limit, it is the player's
+    for the quarter wherever they sit: moving from one empire to the next does not start it again.
+    (A pension fund is counted on its own.)"""
+    return _one(conn, "SELECT coalesce(sum(t.value), 0)::bigint AS total FROM empire_trades t JOIN empires e ON e.id = t.empire_id"
+                      " WHERE t.player_id = %s AND t.period = %s AND (t.empire_id = %s OR e.kind <> 'pension')"
+                      " AND (SELECT kind FROM empires WHERE id = %s) <> 'pension'", (player_id, period, empire_id, empire_id))["total"]
+
+
 def _within_trade_limit(conn: Connection, seat: dict, state: dict, value: int, now: datetime) -> None:
     if seat["head_player_id"] == seat["player_id"]:
         return
     limit = trade_limit(conn, seat, now)
-    used = _one(conn, "SELECT coalesce(sum(value), 0)::bigint AS total FROM empire_trades WHERE empire_id = %s AND player_id = %s AND period = %s",
-                (seat["empire_id"], seat["player_id"], state["period"]))["total"]
+    used = _traded(conn, seat["empire_id"], seat["player_id"], state["period"])
     if used + value > limit:
         raise EmpireError(f"That would pass your trading limit for the quarter: {_money(limit)}, of which {_money(used)} is used.")
 
@@ -2050,8 +2061,7 @@ def war_room(conn: Connection, player_id, now: datetime) -> dict | None:
         "seats": seats, "humans": sum(1 for s in seats if s["held"]),
         "can_trade": seat["build"] == "asset_manager" or is_head, "trade_limit": may_trade, "fair_dealing": empire["head_player_id"] is None,
         "bonus_limit": bonus_limit(conn, empire, now),
-        "trade_used": _one(conn, "SELECT coalesce(sum(value), 0)::bigint AS total FROM empire_trades WHERE empire_id = %s AND player_id = %s"
-                                 " AND period = %s", (empire["id"], player_id, state["period"]))["total"],
+        "trade_used": _traded(conn, empire["id"], player_id, state["period"]),
         "signing_limit": limit, "signing_used": _spent(conn, empire["id"], player_id, state["period"]),
         "disguise": data.DISGUISES["head" if is_head else seat["build"]][0],
         "task": task and {"id": task["id"], "company": task["name"], "ticker": task["ticker"], "amount": task["amount"],

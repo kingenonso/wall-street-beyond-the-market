@@ -156,10 +156,11 @@ export function BondOrderForm({ whose, busy, held, onPlace, onLoggedOut }: {
   const n = count(units);
   const each = bond ? Number(side === "buy" ? bond.ask_kobo : bond.bid_kobo) : 0;
   const own = held.find((h) => h.code === code)?.units ?? 0;
+  const closed = desk.data !== null && !desk.data.desk_open;
   return (
     <form className="trade-form" onSubmit={(event) => {
       event.preventDefault();
-      if (bond && n > 0) void onPlace({ code, side, units: n }).then((ok) => { if (ok) { setUnits(""); desk.reload(); } });
+      if (bond && n > 0 && !closed) void onPlace({ code, side, units: n }).then((ok) => { if (ok) { setUnits(""); desk.reload(); } });
     }}>
       <label>
         <span className="field-label">Bond or bill</span>
@@ -189,8 +190,10 @@ export function BondOrderForm({ whose, busy, held, onPlace, onLoggedOut }: {
           note={<>Bonds and bills are dealt with the bond desk, not on the exchange. It charges no fee: its reward is the gap between
             its buying and its selling price. No tax is charged on a gain from trading yet.</>} />
       )}
-      <button className="button-primary" type="submit" disabled={busy || !bond || n <= 0}>{side === "buy" ? "Buy" : "Sell"} for {whose.toLowerCase()}</button>
-      {desk.data && !desk.data.desk_open && <p className="small muted">The bond desk is closed at this hour. It deals while the market is open.</p>}
+      {closed && <p className="small change-down">▼ The bond desk is closed now. It deals while the market is open: 12:00 to 22:00, Lagos time.</p>}
+      <button className="button-primary" type="submit" disabled={busy || closed || !bond || n <= 0}>
+        {closed ? "The bond desk is closed" : `${side === "buy" ? "Buy" : "Sell"} for ${whose.toLowerCase()}`}
+      </button>
     </form>
   );
 }
