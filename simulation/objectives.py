@@ -1128,7 +1128,9 @@ def _beat_bell(ctx, objective, day):
     if "start" not in progress:
         progress["waited"] = progress.get("waited", 0) + 1
         if have["total"] >= naira(BEAT["total"]) and invested_bps >= BEAT["invested_bps"]:
-            progress["start"] = {"total": have["total"], "index": index_now(conn, now), "at": now.isoformat(), "bells": 0}
+            # The moment is taken from the database's own clock, the one the ledger is stamped with.
+            recorded = _one(conn, "SELECT clock_timestamp() AS at")["at"]
+            progress["start"] = {"total": have["total"], "index": index_now(conn, now), "at": recorded.isoformat(), "bells": 0}
             return None
         if progress["waited"] >= BEAT["start_within"]:
             return _not_done(f"The measurement never started: at the first {BEAT['start_within']} Closing Bells you did not have "

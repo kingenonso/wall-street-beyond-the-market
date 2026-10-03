@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Player } from "./api";
 import { Auth } from "./Auth";
+import { AccountantRail, AccountantWork, AssetManagerRail, AssetManagerWork } from "./BuildDesk";
+import { CareerRail, CareerWork } from "./Career";
 import { CompaniesRail, CompaniesWork } from "./Companies";
 import { CompanyRail, CompanyWork } from "./Company";
 import { DeskRail, DeskWork } from "./Desk";
@@ -11,6 +13,7 @@ import { PortfolioRail, PortfolioWork } from "./Portfolio";
 import { useRoute } from "./hooks";
 import { ProfileRail, ProfileWork } from "./Profile";
 import { Panel, Shell } from "./Shell";
+import { WorkRail, WorkWork } from "./Work";
 import { useClock } from "./useClock";
 
 export function App() {
@@ -65,6 +68,22 @@ export function App() {
     current = "economy";
     work = <EconomyWork onLoggedOut={loggedOut} />;
     rail = <EconomyRail onLoggedOut={loggedOut} />;
+  } else if (section === "build" && player.build === "asset_manager") {
+    current = "build";
+    work = <AssetManagerWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <AssetManagerRail player={player} onLoggedOut={loggedOut} />;
+  } else if (section === "build" && player.build === "accountant") {
+    current = "build";
+    work = <AccountantWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <AccountantRail player={player} onLoggedOut={loggedOut} />;
+  } else if (section === "work") {
+    current = "work";
+    work = <WorkWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <WorkRail player={player} onLoggedOut={loggedOut} />;
+  } else if (section === "career" || (section === "build" && !player.build)) {
+    current = "career";
+    work = <CareerWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <CareerRail player={player} onLoggedOut={loggedOut} />;
   } else if (section === "profile") {
     current = "profile";
     work = <ProfileWork player={player} onChanged={setPlayer} />;

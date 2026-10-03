@@ -1377,19 +1377,19 @@ def choose_my_fund(body: FundRequest, player: dict = Depends(current_player), co
 # A player sees only their own work, and never an answer before it has been judged.
 # ---------------------------------------------------------------------------
 
-def _amounts_as_text(value):
+def _terms_as_text(value):
     """Amounts of money inside an objective's terms travel as text, like every other amount."""
     if isinstance(value, dict):
-        return {k: (str(v) if k == "kobo" and isinstance(v, int) else _amounts_as_text(v)) for k, v in value.items()}
+        return {k: (str(v) if k == "kobo" and isinstance(v, int) else _terms_as_text(v)) for k, v in value.items()}
     if isinstance(value, list):
-        return [_amounts_as_text(v) for v in value]
+        return [_terms_as_text(v) for v in value]
     return value
 
 
 def _objective(row: dict) -> ObjectiveRow:
     return ObjectiveRow(
         id=row["id"], template=row["template"], module=row["module"], title=row["title"], kind=row["kind"], idea=row["idea"],
-        terms=_amounts_as_text(row["terms"]), reward_kobo=row["reward"], experience=row["experience"], payer=row["payer"],
+        terms=_terms_as_text(row["terms"]), reward_kobo=row["reward"], experience=row["experience"], payer=row["payer"],
         accepted_at=row["accepted_at"], state=row["state"], progress=row["progress"], submission=row["submission"],
         submitted_at=row["submitted_at"], result=row["result"], judged_at=row["judged_at"], paid_kobo=row["paid"],
         can_hand_in=row["can_hand_in"])

@@ -13,6 +13,113 @@ export type Player = {
   reputation: number;
   profile_icon: ProfileIcon | null;
   cash: Money;
+  /** Stage 5. All null until a build is chosen. */
+  build: BuildCode | null;
+  build_name: string | null;
+  accent: string | null;
+  level: number | null;
+  employer: string | null;
+};
+
+export type BuildCode = "asset_manager" | "accountant";
+export type BuildInfo = {
+  code: BuildCode; name: string; accent: string; track: string; work: string; earns: string; cannot: string; employer_words: string;
+};
+export type Payslip = {
+  period_label: string; employer: string; level: number; days_worked: number; worked: boolean;
+  gross_kobo: Kobo; pension_yours_kobo: Kobo; pension_employer_kobo: Kobo; tax_kobo: Kobo; living_costs_kobo: Kobo;
+  take_home_kobo: Kobo; paid_kobo: Kobo; owed_kobo: Kobo; note: string;
+};
+export type PensionFund = {
+  code: "growth" | "balanced" | "cautious" | "income"; name: string; who_for: string;
+  shares_bps: number; bonds_bps: number; cash_bps: number; last_return_bps: number | null;
+};
+export type Career = {
+  build: BuildCode | null;
+  builds: BuildInfo[];
+  later_builds: string[];
+  reputation: number;
+  can_change_build_at: string | null;
+  career: null | {
+    build: BuildCode; build_name: string; accent: string; track: string; level: number; level_words: string;
+    experience: number; level_floor: number; next_level_at: number | null; at_cap: boolean; review_open: boolean;
+    review: null | { opened_at: string; finished: number; passes: number; why: string; how_to_recover: string };
+    other_builds: { build: string; name: string; level: number }[];
+  };
+  job: null | { ticker: string; name: string; headquarters: string; since: string; can_move: boolean; owed_kobo: Kobo };
+  bank: null | { ticker: string; name: string; since: string; savings_rate_bps: number; can_move: boolean };
+  pay: null | {
+    gross_kobo: Kobo; pension_yours_kobo: Kobo; pension_employer_kobo: Kobo; tax_kobo: Kobo; living_costs_kobo: Kobo;
+    take_home_kobo: Kobo; at_next_level_kobo: Kobo; worked_this_quarter: boolean;
+  };
+  payslips: Payslip[];
+  interest: { period_label: string; bank: string; lowest_balance_kobo: Kobo; rate_bps: number; amount_kobo: Kobo }[];
+  retirement: null | {
+    fund: PensionFund["code"]; value_kobo: Kobo; can_change: boolean; funds: PensionFund[];
+    entries: { period_label: string; fund: string; opening_kobo: Kobo; growth_kobo: Kobo; paid_in_by_you_kobo: Kobo;
+               paid_in_by_employer_kobo: Kobo; closing_kobo: Kobo }[];
+  };
+  events: { kind: string; words: string; at: string }[];
+  next_pay_day: string | null;
+};
+export type Opening = {
+  ticker: string; name: string; sector: string; headquarters: string; rating: string | null; places_left: number;
+  behind_on_bills: boolean; gross_kobo: Kobo; take_home_kobo: Kobo; yours: boolean;
+};
+export type PlayerBank = { ticker: string; name: string; headquarters: string; rating: string | null; savings_rate_bps: number; yours: boolean };
+
+export type ObjectiveField =
+  | { key: string; label: string; kind: "millions" | "percent" | "times" | "ticker" }
+  | { key: string; label: string; kind: "choice"; options: { code: string; label: string }[] }
+  | { key: string; label: string; kind: "classify"; options: { code: string; label: string }[];
+      items: { key: string; label: string; kobo: Kobo }[] };
+export type Milestone = { label: string; points: number; earned: boolean };
+export type Objective = {
+  id: number; template: string; module: string; title: string; kind: "hand_in" | "market"; idea: string;
+  terms: {
+    client?: { ticker: string; name: string }; situation: string; task: string[]; pass_when: string; deadline: string;
+    given: { label: string; kobo?: Kobo; text?: string }[]; fields: ObjectiveField[]; notes?: string[];
+  };
+  reward_kobo: Kobo; experience: number; payer: string; accepted_at: string;
+  state: "active" | "passed" | "failed" | "not_done" | "withdrawn";
+  progress: Record<string, unknown>;
+  submission: Record<string, unknown> | null; submitted_at: string | null;
+  result: null | {
+    summary: string; score: number; milestones: Milestone[]; debrief: { plain: string; method: string; maths: string };
+    answers?: Record<string, unknown>; payment_note?: string;
+  };
+  judged_at: string | null; paid_kobo: Kobo; can_hand_in: boolean;
+};
+export type ObjectiveOffer = {
+  template: string; module: string; title: string; idea: string; kind: "hand_in" | "market"; level: number; reward_kobo: Kobo;
+  experience: number; available: boolean; why_not: string | null; payer: string | null;
+  client: { ticker: string; name: string } | null; situation: string | null; pass_when: string | null; deadline: string | null;
+  practise_again: boolean;
+};
+export type Skill = {
+  module: string; title: string; idea: string; level: number; open: boolean; stage: string; passes: number; finished: number;
+  practise_again: boolean;
+};
+export type ObjectiveBoard = {
+  ready: boolean; why: string | null; active: Objective[]; offers: ObjectiveOffer[]; finished: Objective[]; skills: Skill[];
+  coverage: { learned: number; modules: number }; limit: number;
+};
+export type Slice = { label: string; group: "shares" | "bonds" | "cash"; value_kobo: Kobo; share_bps: number };
+export type AssetDesk = {
+  total_kobo: Kobo; cash_kobo: Kobo; shares_kobo: Kobo; bonds_kobo: Kobo; change_today_bps: number | null;
+  change_year_bps: number | null; index_change_year_bps: number | null; allocation: Slice[]; sectors: Slice[];
+  largest_bps: number; companies_held: number; industries_held: number; retirement_kobo: Kobo;
+};
+export type StatementQuarter = {
+  period: number; period_label: string; credit_rating: string; income_statement: Record<string, Kobo>;
+  cash_flow: Record<string, Kobo>; balance_sheet: Record<string, Kobo>; notes: string[];
+  ratios: Record<string, number | null>; tax_owed_kobo: Kobo; staff: number | null;
+};
+export type AccountantDesk = {
+  ticker: string; name: string; sector: string; is_employer: boolean; quarters: StatementQuarter[];
+  companies: { ticker: string; name: string; sector: string }[];
+  watch: { ticker: string; name: string; credit_rating: string; unpaid_bills_kobo: Kobo; overdue_debt_kobo: Kobo; cash_kobo: Kobo }[];
+  tax_rate_bps: number;
 };
 
 export type Movement = {
@@ -559,6 +666,21 @@ export const api = {
     request<Corporate>(`/corporate/takeovers/${id}`, { method: "PUT", body: JSON.stringify({ shares }) }),
   ownership: () => request<Ownership[]>("/corporate/ownership"),
   grant: () => request<Grant>("/me/grant", { method: "POST", body: "{}" }),
+  career: () => request<Career>("/career"),
+  chooseBuild: (build: BuildCode) => request<Career>("/career/build", { method: "PUT", body: JSON.stringify({ build }) }),
+  employers: () => request<Opening[]>("/career/employers"),
+  takeJob: (ticker: string) => request<Career>("/career/job", { method: "PUT", body: JSON.stringify({ ticker }) }),
+  leaveJob: () => request<Career>("/career/job", { method: "DELETE" }),
+  banks: () => request<PlayerBank[]>("/career/banks"),
+  chooseBank: (ticker: string) => request<Career>("/career/bank", { method: "PUT", body: JSON.stringify({ ticker }) }),
+  chooseFund: (fund: string) => request<Career>("/career/retirement", { method: "PUT", body: JSON.stringify({ fund }) }),
+  objectives: () => request<ObjectiveBoard>("/objectives"),
+  takeWork: (template: string) => request<Objective>("/objectives", { method: "POST", body: JSON.stringify({ template }) }),
+  handIn: (id: number, answers: Record<string, unknown>) =>
+    request<Objective>(`/objectives/${id}/hand-in`, { method: "POST", body: JSON.stringify({ answers }) }),
+  giveUp: (id: number) => request<Objective>(`/objectives/${id}`, { method: "DELETE" }),
+  assetDesk: () => request<AssetDesk>("/desk/asset-manager"),
+  accountantDesk: (ticker?: string) => request<AccountantDesk>(`/desk/accountant${ticker ? `?ticker=${encodeURIComponent(ticker)}` : ""}`),
   company: (ticker: string) => request<Company>(`/companies/${encodeURIComponent(ticker)}?periods=8`),
   logout: () => request<void>("/auth/logout", { method: "POST" }),
   login: (email: string, password: string) =>

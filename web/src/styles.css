@@ -427,3 +427,63 @@ a.tab:hover { text-decoration: none; }
   .share-bar, .share-growth { display: none; }
   .bond-prices { text-align: left; }
 }
+
+
+/* ------------------------------------------------------------------
+   Stage 5: builds, careers and professional objectives.
+   Each build's screen uses the same layout in its own accent colour.
+   ------------------------------------------------------------------ */
+.app[data-accent="violet"] { --gold: #a996ff; --gold-soft: rgba(169, 150, 255, 0.13); }
+.app[data-accent="green"] { --gold: #4fc38a; --gold-soft: rgba(79, 195, 138, 0.13); }
+.wordmark-main { color: #d9ae55; }                      /* the game's own name keeps its gold on every screen */
+.build-badge { color: var(--gold); font-weight: 600; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.tracker { list-style: none; margin: 0 0 4px; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+.tracker-step { display: flex; align-items: flex-start; gap: 8px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 9px; color: var(--muted); font-size: 13px; }
+.tracker-step .strong { color: var(--text); }
+.tracker-mark { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); display: grid; place-items: center; font-family: var(--mono); font-size: 12px; }
+.tracker-step.done .tracker-mark { background: var(--up); border-color: var(--up); color: #06120c; font-weight: 700; }
+.tracker-step.current { border-color: var(--gold); background: var(--gold-soft); }
+.tracker-step.current .tracker-mark { border-color: var(--gold); color: var(--gold); font-weight: 700; }
+
+.tag { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
+.tag-passed { color: var(--up); border-color: rgba(91, 227, 164, 0.45); }
+.tag-active { color: var(--gold); border-color: var(--gold); }
+.tag-failed, .tag-not_done, .tag-withdrawn { color: var(--down); border-color: rgba(255, 177, 153, 0.5); border-style: dashed; }
+
+.builds { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.build-card { display: flex; flex-direction: column; gap: 6px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--raised); border-top: 3px solid var(--card-accent, var(--gold)); }
+.build-card.accent-violet { --card-accent: #a996ff; }
+.build-card.accent-green { --card-accent: #4fc38a; }
+.build-card h3 { color: var(--card-accent, var(--gold)); }
+.build-card.chosen { background: var(--gold-soft); }
+.build-card button { margin-top: auto; }
+tr.row-chosen > *, .definition.row-chosen { background: var(--gold-soft); }
+.definition.row-chosen { padding-left: 10px; padding-right: 8px; box-shadow: inset 3px 0 0 var(--gold); }
+
+.objective .row > .align-right { max-width: 62%; }
+.hand-in { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.answers { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 6px; }
+.answers .scroll, .answers .choice { grid-column: 1 / -1; }
+.answer { display: block; }
+.answer-box { display: flex; align-items: center; gap: 8px; }
+.answer-box input { flex: 1; min-width: 0; }
+.answer select, td select { width: 100%; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; }
+.choice { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.choice legend { padding: 0; }
+.choice-option { padding: 7px 12px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.choice-option.chosen { border-color: var(--gold); background: var(--gold-soft); color: var(--gold); font-weight: 600; }
+.debrief { margin: 6px 0 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--raised); }
+.debrief .why-title { margin-top: 10px; }
+.row-button { width: 100%; background: transparent; border: 0; border-top: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; padding: 2px 0; }
+.row-button:hover .strong { color: var(--gold); }
+
+.two-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+.wheel { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.wheel svg { width: 150px; height: 150px; flex: none; }
+.wheel path { stroke: var(--panel); stroke-width: 1.5; }
+.wheel-total { fill: var(--text); font-family: var(--mono); font-size: 11px; font-weight: 600; }
+.wheel-caption { fill: var(--muted); font-size: 8px; }
+.wheel-list { flex: 1; min-width: 190px; }
+.wheel-list .row:first-child { border-top: 0; }

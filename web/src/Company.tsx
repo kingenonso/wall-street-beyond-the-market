@@ -19,7 +19,7 @@ type Line = {
   heading?: string;      // a sub-heading above this line
 };
 
-const STATEMENTS: Record<string, { title: string; section: "income_statement" | "cash_flow" | "balance_sheet"; lines: Line[] }> = {
+export const STATEMENTS: Record<string, { title: string; section: "income_statement" | "cash_flow" | "balance_sheet"; lines: Line[] }> = {
   income: {
     title: "Income statement",
     section: "income_statement",
@@ -72,7 +72,7 @@ const STATEMENTS: Record<string, { title: string; section: "income_statement" | 
   },
 };
 
-function StatementTable({ name, reports }: { name: keyof typeof STATEMENTS; reports: FiledReport[] }) {
+export function StatementTable({ name, reports }: { name: keyof typeof STATEMENTS; reports: FiledReport[] }) {
   const statement = STATEMENTS[name];
   const value = (report: FiledReport, key: string): Kobo => report.figures[statement.section][key] ?? "0";
   const lines = statement.lines.filter((line) => !line.optional || reports.some((r) => value(r, line.key) !== "0"));

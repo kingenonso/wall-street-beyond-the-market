@@ -565,10 +565,10 @@ def test_beating_the_index_leaves_out_money_paid_in(db):
     # The second manager sells most of their shares: too little is left invested.
     ledger.transfer(db, payer=heavy_account, receiver=ledger.account_id(db, ledger.INVESTORS_PUBLIC),
                     amount=ledger.balance(db, heavy_account, "SHR-IDC") * 9 // 10, asset="SHR-IDC", kind="test_shares", memo="Test")
+    give_shares(db, account, "IDC", 200_000)                          # the payment is invested, so 60% stays invested
     bell(db, 2)
     assert state_of(db, taken[cash_heavy]["id"])["state"] == "failed"
     assert state_of(db, taken[poor]["id"])["state"] == "not_done"     # never had the money to start
-    give_shares(db, account, "IDC", 80_000)                           # the payment is invested, so 60% stays invested
     for n in range(3, 9):
         bell(db, n)
     row = state_of(db, taken[player]["id"])

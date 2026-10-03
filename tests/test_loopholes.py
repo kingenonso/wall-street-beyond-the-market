@@ -82,7 +82,9 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     directly, edits a company or closes a quarter. Since Stage 4 a player can place and cancel
     orders on the exchange; those are attacked in test_market.py. Stage 4 Part B added the bond
     desk, share offers, votes and takeover offers (attacked in test_bonds.py and test_corporate.py)
-    and collecting the starting grant's later parts (test_grants.py)."""
+    and collecting the starting grant's later parts (test_grants.py). Stage 5 added choosing a
+    build, a bank, an employer and a retirement fund (test_careers.py), and taking on, handing in
+    and giving up professional work (test_objectives.py)."""
     from server.main import app
 
     writes = sorted(
@@ -91,8 +93,10 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     )
     assert writes == [
         ("DELETE", "/api/bonds/swaps/{swap_id}"),
+        ("DELETE", "/api/career/job"),
         ("DELETE", "/api/market/orders/{order_id}"),
         ("DELETE", "/api/market/watchlist/{ticker}"),
+        ("DELETE", "/api/objectives/{objective_id}"),
         ("PATCH", "/api/me/profile-icon"),
         ("POST", "/api/auth/confirm-email"),
         ("POST", "/api/auth/login"),
@@ -102,6 +106,12 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/bonds/trade"),
         ("POST", "/api/market/orders"),
         ("POST", "/api/me/grant"),
+        ("POST", "/api/objectives"),
+        ("POST", "/api/objectives/{objective_id}/hand-in"),
+        ("PUT", "/api/career/bank"),
+        ("PUT", "/api/career/build"),
+        ("PUT", "/api/career/job"),
+        ("PUT", "/api/career/retirement"),
         ("PUT", "/api/corporate/offers/{offer_id}"),
         ("PUT", "/api/corporate/takeovers/{takeover_id}"),
         ("PUT", "/api/corporate/votes/{vote_id}"),

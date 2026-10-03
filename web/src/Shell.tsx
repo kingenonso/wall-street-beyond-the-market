@@ -53,7 +53,10 @@ function TopBar({ player, live }: { player: Player; live: LiveClock | null }) {
       <div className="topbar-player">
         <div className="align-right">
           <div className="mono cash" title="Your cash">{formatCompact(player.cash.amount_kobo)}</div>
-          <div className="muted small">{player.display_name}</div>
+          <div className="muted small">
+            {player.display_name}
+            {player.build_name && <> · <a href="#/career" className="build-badge">{player.build_name} · Level {player.level}</a></>}
+          </div>
         </div>
         <a href="#/profile" aria-label="Your profile picture" className="plain-link">
           <ProfilePicture icon={player.profile_icon} name={player.display_name} />
@@ -63,21 +66,27 @@ function TopBar({ player, live }: { player: Player; live: LiveClock | null }) {
   );
 }
 
-const SECTIONS = [
-  { path: "", label: "My desk" },
-  { path: "market", label: "Market" },
-  { path: "portfolio", label: "Portfolio" },
-  { path: "news", label: "News" },
-  { path: "companies", label: "Companies" },
-  { path: "economy", label: "Economy" },
-  { path: "profile", label: "Profile" },
-];
+/** The sections of the player's screen. The build's own screen comes straight after the desk. */
+function sectionsFor(player: Player) {
+  return [
+    { path: "", label: "My desk" },
+    ...(player.build_name ? [{ path: "build", label: player.build_name }] : []),
+    { path: "work", label: "Work" },
+    { path: "market", label: "Market" },
+    { path: "portfolio", label: "Portfolio" },
+    { path: "news", label: "News" },
+    { path: "companies", label: "Companies" },
+    { path: "economy", label: "Economy" },
+    { path: "career", label: "Career" },
+    { path: "profile", label: "Profile" },
+  ];
+}
 
 /** Zone 2: the sections menu. Only sections that exist are listed. */
-function SectionsMenu({ current, onLogout }: { current: string; onLogout: () => void }) {
+function SectionsMenu({ player, current, onLogout }: { player: Player; current: string; onLogout: () => void }) {
   return (
     <nav className="sections" aria-label="Sections">
-      {SECTIONS.map((section) => (
+      {sectionsFor(player).map((section) => (
         <a
           key={section.path}
           href={`#/${section.path}`}
@@ -105,11 +114,11 @@ export function Shell({ player, live, current, onLogout, work, rail }: {
   rail: ReactNode;
 }) {
   return (
-    <div className="app">
+    <div className="app" data-accent={player.accent ?? undefined}>
       <TopBar player={player} live={live} />
       <PriceTicker />
       <div className="shell">
-        <SectionsMenu current={current} onLogout={onLogout} />
+        <SectionsMenu player={player} current={current} onLogout={onLogout} />
         <main className="work">{work}</main>
         <aside className="rail" aria-label="Context">{rail}</aside>
       </div>

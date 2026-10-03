@@ -17,6 +17,22 @@ function cardsFor(player: Player, latestQuarter: string | null, live: LiveClock 
   const all = count ? `All ${count}` : "All the";
   // A decision only this player can make comes before anything else.
   const cards: Card[] = [...decisions];
+  // A professional's first need is a build, a bank and an employer: nothing else can be earned without them.
+  if (!player.build) {
+    cards.unshift({
+      tag: "START HERE", when: "Three steps",
+      title: "Choose your build",
+      text: "Asset Manager or Accountant. Then choose your bank and an employer, and you are on salary with work to do.",
+      action: "Start your career", href: "#/career",
+    });
+  } else if (!player.employer) {
+    cards.unshift({
+      tag: "CAREER", when: player.build_name ?? "",
+      title: "Find an employer",
+      text: "Work and salary come through an employer. Choose your bank first, so the employer knows where to pay you.",
+      action: "Go to your career", href: "#/career",
+    });
+  }
   // A price you asked to be told about comes first: it is the one thing here you set yourself.
   for (const alert of alerts) {
     const target = alert.reached === "above" ? alert.alert_above_kobo : alert.alert_below_kobo;

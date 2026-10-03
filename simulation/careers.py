@@ -111,14 +111,20 @@ def split_salary(gross: int) -> dict:
 
 
 def world_now(conn: Connection, now: datetime) -> dict:
-    """The running quarter, the game day in it, and what a worker is paid against the start of the game."""
+    """The running quarter, the game day in it, and what a worker is paid against the start of the game.
+
+    The quarter is the one the clock says is running. In the moments after a quarter has ended and
+    before it has been closed, that is already the next one: nobody can join, move bank or hand
+    work in "for" a quarter that is over.
+    """
     world = _one(conn, "SELECT world_start, weeks_ahead, last_closed_period FROM world_state")
     if world is None:
         raise CareerError("The world has not been created yet.")
-    date = clock.game_date(now, clock.effective_start(world["world_start"], world["weeks_ahead"]))
+    start = clock.effective_start(world["world_start"], world["weeks_ahead"])
+    date = clock.game_date(now, start)
     economy = _one(conn, "SELECT wage_index_bps, next_policy_rate_bps FROM economy_results ORDER BY period DESC LIMIT 1")
     return {
-        "period": world["last_closed_period"] + 1,
+        "period": max(world["last_closed_period"], clock.periods_completed(now, start)) + 1,
         "day": date.day_of_quarter if date else 1,
         "started": date is not None,
         "wage_index_bps": economy["wage_index_bps"] if economy else BPS,
@@ -191,15 +197,20 @@ def _a(name: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _employers(conn: Connection, build: str) -> list[dict]:
+    """The companies that hire a build, as their latest filed accounts show them. (Only what is
+    filed is used: what a player sees of an employer is what anybody can see.)"""
     sectors = BUILDS[build]["employers"]
     return _rows(
         conn,
-        "SELECT c.id, c.ticker, c.name, c.headquarters, c.account_id, s.name AS sector, r.staff, r.payables, r.principal_overdue,"
-        "   r.cash, r.period,"
-        "   (SELECT p.credit_rating FROM company_reports p WHERE p.company_id = c.id ORDER BY p.period DESC, p.version DESC LIMIT 1) AS rating,"
+        "SELECT c.id, c.ticker, c.name, c.headquarters, c.account_id, s.name AS sector, r.credit_rating AS rating,"
+        "   coalesce((r.figures->'notes'->>'staff')::bigint, 0) AS staff,"
+        "   (r.figures->'balance_sheet'->>'payables')::bigint AS payables,"
+        "   coalesce((r.figures->'notes'->>'principal_overdue')::bigint, 0) AS principal_overdue,"
+        "   (r.figures->'balance_sheet'->>'cash')::bigint AS cash,"
         "   (SELECT count(*) FROM employments e WHERE e.company_id = c.id AND e.ended_at IS NULL) AS players"
         " FROM companies c JOIN sectors s ON s.code = c.sector"
-        " JOIN company_results r ON r.company_id = c.id AND r.period = (SELECT max(period) FROM company_results WHERE company_id = c.id)"
+        " JOIN LATERAL (SELECT figures, credit_rating FROM company_reports p WHERE p.company_id = c.id"
+        "               ORDER BY p.period DESC, p.version DESC LIMIT 1) r ON true"
         " WHERE (%s::text[] IS NULL OR c.sector = ANY(%s)) ORDER BY c.name",
         (list(sectors) if sectors else None, list(sectors) if sectors else None))
 
@@ -289,13 +300,17 @@ def leave_job(conn: Connection, player_id, now: datetime) -> None:
 # Pay day. Called by the company engine while a company closes its quarter.
 # ---------------------------------------------------------------------------
 
-def salaries_due(conn: Connection, company: dict, period: int, wage_index_bps: int) -> list[dict]:
+def salaries_due(conn: Connection, company: dict, period: int, wage_index_bps: int, budget: int) -> list[dict]:
     """What a company owes the players on its staff for the quarter being closed.
 
     No work, no pay: a player who finished no piece of work since the last pay day is paid
     nothing for the quarter. A player who started part-way through is paid for the days worked.
+    Players' pay can never be more than `budget`, a part of the company's wage bill: if it
+    would be, everybody's is cut by the same proportion. (The number of places a company has
+    keeps it far below that; this is the backstop.)
     """
     packets = []
+    grosses = []
     for job in _rows(conn, "SELECT e.*, a.id AS player_account FROM employments e"
                            " JOIN ledger_accounts a ON a.player_id = e.player_id"
                            " WHERE e.company_id = %s AND e.ended_at IS NULL AND e.started_period <= %s"
@@ -306,10 +321,16 @@ def salaries_due(conn: Connection, company: dict, period: int, wage_index_bps: i
         worked = _one(conn, "SELECT 1 FROM objectives WHERE player_id = %s AND state IN ('passed', 'failed')"
                             " AND judged_period = %s LIMIT 1", (job["player_id"], period)) is not None
         gross = salary_per_quarter(mine["level"], wage_index_bps) * days // clock.GAME_DAYS_PER_QUARTER if worked else 0
-        packets.append({**split_salary(gross), "player_id": job["player_id"], "account": job["player_account"],
+        grosses.append(gross)
+        packets.append({"player_id": job["player_id"], "account": job["player_account"],
                         "employment_id": job["id"], "build": job["build"], "level": mine["level"],
                         "days_worked": days, "worked": worked})
-    return packets
+    total = sum(grosses)
+    if total > budget > 0:
+        grosses = [gross * budget // total for gross in grosses]
+    elif total > budget:
+        grosses = [0 for _ in grosses]
+    return [{**split_salary(gross), **packet} for gross, packet in zip(grosses, packets)]
 
 
 def pay_salaries(conn: Connection, company: dict, households, treasury, packets: list[dict], period: int, owe) -> int:

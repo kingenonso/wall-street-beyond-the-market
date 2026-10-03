@@ -320,10 +320,8 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     # unshared; the cost recorded is exactly what was due.)
     # Players on its staff are paid out of this same wage bill: each takes the place of one
     # computer-run member of staff, so the company's costs are what they would have been.
-    packets = _careers().salaries_due(conn, company, period, ctx.wage_index_bps)
+    packets = _careers().salaries_due(conn, company, period, ctx.wage_index_bps, budget=(operating_expenses - pension) // 10)
     to_players = sum(p["gross"] - p["pension_yours"] for p in packets)
-    if to_players > (operating_expenses - pension) // 2:
-        raise BooksDoNotBalance(f"{name}: its players' salaries are more than half its wage bill for {label}.")
     operating_expenses = _pay_people(
         conn, company, ctx, operating_expenses - to_players, kind="wages", pension=pension,
         memo=f"{name}: wages and pension contributions, {label}", period=period,
