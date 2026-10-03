@@ -39,9 +39,42 @@ BUILDS = {
         "employers": None,                                   # every company keeps accounts
         "employer_words": "every company: each one keeps accounts",
     },
+    "investment_banker": {
+        "name": "Investment Banker", "accent": "purple", "track": "Investment banking",
+        "work": "Takeovers, share and bond issues, valuation, restructuring and negotiation.",
+        "earns": "Salary, deal fees and financing bonuses.",
+        "cannot": "Verify the accounts or sign off the risk.",
+        "employers": ("banking",),
+        "employer_words": "the banks, which arrange deals and raise money for companies",
+    },
+    "risk_manager": {
+        "name": "Risk Manager", "accent": "orange", "track": "Risk management",
+        "work": "Market, credit, liquidity and operational risk; stress tests; exposure limits.",
+        "earns": "Salary, and bonuses for risk performance and crisis work.",
+        "cannot": "Carry out the legal or financial action that fixes a risk.",
+        "employers": ("banking", "insurance"),
+        "employer_words": "the banks and the insurers, whose business is carrying risk",
+    },
+    "lawyer": {
+        "name": "Lawyer", "accent": "red", "track": "Law",
+        "work": "Contracts, due diligence, title checks, litigation and regulatory filings.",
+        "earns": "Salary, legal fees, and case and transaction bonuses.",
+        "cannot": "Change the financial terms of a deal.",
+        "employers": None,
+        "employer_words": "every company: each one keeps lawyers",
+    },
+    "journalist": {
+        "name": "Journalist", "accent": "blue", "track": "Journalism and research",
+        "work": "Reporting, investigation, source work, and economic and company research.",
+        "earns": "Salary from a media house, and bonuses for publication and investigation.",
+        "cannot": "Declare someone guilty or change market data.",
+        "employers": ("media",),
+        "employer_words": "the media houses",
+        "staff_per_opening": 100,
+    },
 }
-# The five builds that open in Stage 6. A new player cannot choose CEO: it is earned.
-LATER_BUILDS = ("Investment Banker", "Risk Manager", "Lawyer", "Journalist")
+# A new player cannot choose CEO: it is earned by rising through one of the six.
+LATER_BUILDS: tuple = ()
 
 
 class CareerError(Exception):
@@ -224,6 +257,11 @@ def _employers(conn: Connection, build: str) -> list[dict]:
         (list(sectors) if sectors else None, list(sectors) if sectors else None))
 
 
+def _places(employer: dict, build: str) -> int:
+    """How many players a company will take. The media houses are small, so they take one for every 100 staff."""
+    return max(employer["staff"] // BUILDS[build].get("staff_per_opening", data.STAFF_PER_OPENING), 1)
+
+
 def openings(conn: Connection, player_id, now: datetime) -> list[dict]:
     """Every employer that hires the player's build, and whether it has a place."""
     mine = career(conn, player_id)
@@ -234,7 +272,7 @@ def openings(conn: Connection, player_id, now: datetime) -> list[dict]:
     job = current_job(conn, player_id)
     out = []
     for employer in _employers(conn, mine["build"]):
-        places = max(employer["staff"] // data.STAFF_PER_OPENING, 1)
+        places = _places(employer, mine["build"])
         out.append({
             "ticker": employer["ticker"], "name": employer["name"], "sector": employer["sector"],
             "headquarters": employer["headquarters"], "rating": employer["rating"],
@@ -270,7 +308,7 @@ def take_job(conn: Connection, player_id, ticker: str, now: datetime) -> dict:
         job = current_job(conn, player_id)
         if job and job["company_id"] == company["id"]:
             return job
-        if employer["players"] >= max(employer["staff"] // data.STAFF_PER_OPENING, 1):
+        if employer["players"] >= _places(employer, player["build"]):
             raise CareerError(f"{company['name']} has no place open at the moment.")
         if job:
             if job["started_period"] == state["period"]:

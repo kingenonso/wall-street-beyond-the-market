@@ -21,7 +21,7 @@ export type Player = {
   employer: string | null;
 };
 
-export type BuildCode = "asset_manager" | "accountant";
+export type BuildCode = "asset_manager" | "accountant" | "investment_banker" | "risk_manager" | "lawyer" | "journalist";
 export type BuildInfo = {
   code: BuildCode; name: string; accent: string; track: string; work: string; earns: string; cannot: string; employer_words: string;
 };

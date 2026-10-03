@@ -885,7 +885,7 @@ class GrantResponse(BaseModel):
 # Stage 5: careers and professional objectives.
 # ---------------------------------------------------------------------------
 
-BuildCode = Literal["asset_manager", "accountant"]
+BuildCode = Literal["asset_manager", "accountant", "investment_banker", "risk_manager", "lawyer", "journalist"]
 
 
 class BuildRequest(Request):

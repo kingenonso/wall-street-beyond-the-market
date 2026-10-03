@@ -104,6 +104,15 @@ def _milestone(label: str, points: int, earned: bool) -> dict:
 # Reading the world
 # ---------------------------------------------------------------------------
 
+def _choose(ctx, template: str, candidates: list):
+    """The client for a piece of work. Ordinarily the server draws it. When the work is a step
+    in an empire's task, it is the company the task is about (if this work can be done on it)."""
+    target = ctx.get("target")
+    if target is not None:
+        return next((c for c in candidates if str(c["company_id"]) == str(target)), None)
+    return _pick(ctx["player_id"], template, ctx["period"], candidates)
+
+
 def _pick(player_id, template: str, period: int, candidates: list):
     """The server chooses the client, the same way every time for one player, piece of work and
     quarter. The player cannot choose an easy one, or ask again for another."""
@@ -185,7 +194,7 @@ def _ratios_offer(ctx):
         if income["revenue"] > 0 and income["ebitda"] > 0 and income["interest_expense"] > 0 and sheet["borrowings"] > 0 \
                 and income["operating_profit"] > 0:
             candidates.append(company)
-    company = _pick(ctx["player_id"], "ac_ratios", ctx["period"], candidates)
+    company = _choose(ctx, "ac_ratios", candidates)
     if company is None:
         return None
     income, sheet = company["figures"]["income_statement"], company["figures"]["balance_sheet"]
@@ -289,7 +298,7 @@ def _cash_items(figures: dict) -> list[dict]:
 def _cash_offer(ctx):
     candidates = [c for c in _filed(ctx["conn"], ctx["period"] - 1)
                   if len(_cash_items(c["figures"])) >= 6 and c["figures"]["cash_flow"]["cash_closing"] > 0]
-    company = _pick(ctx["player_id"], "ac_cash_flow", ctx["period"], candidates)
+    company = _choose(ctx, "ac_cash_flow", candidates)
     if company is None:
         return None
     items = _cash_items(company["figures"])
@@ -377,7 +386,7 @@ def _income_offer(ctx):
         # Only companies whose filed accounts follow the plain arithmetic (a bank's loan losses do not).
         if operating == income["operating_profit"] and before_tax == income["profit_before_tax"] and tax == income["tax"]:
             candidates.append(company)
-    company = _pick(ctx["player_id"], "ac_income", ctx["period"], candidates)
+    company = _choose(ctx, "ac_income", candidates)
     if company is None:
         return None
     income = company["figures"]["income_statement"]
@@ -452,7 +461,7 @@ def _forecast_offer(ctx):
     if ctx["period"] < 3:
         return None                       # there is no history to forecast from yet
     candidates = [c for c in _filed(ctx["conn"], ctx["period"] - 1) if c["sector"] not in ("banking", "insurance")]
-    company = _pick(ctx["player_id"], "ac_forecast", ctx["period"], candidates)
+    company = _choose(ctx, "ac_forecast", candidates)
     if company is None:
         return None
     past = _history(ctx["conn"], company["company_id"], ctx["period"] - 1)
@@ -1212,6 +1221,9 @@ TEMPLATES: dict[str, Template] = {t.code: t for t in (
 )}
 
 
+from simulation import objectives_more  # noqa: E402,F401  (adds the work of the other four builds to the library)
+
+
 def modules(build: str) -> list[dict]:
     return [{"module": t.module, "template": t.code, "title": t.title, "idea": t.idea, "level": t.level}
             for t in TEMPLATES.values() if t.build == build]
@@ -1252,7 +1264,7 @@ def _public(objective: dict) -> dict:
     template = TEMPLATES[objective["template"]]
     terms = {k: objective["terms"].get(k) for k in ("client", "situation", "task", "pass_when", "deadline", "given", "fields", "notes")
              if objective["terms"].get(k) is not None}
-    progress = {k: v for k, v in objective["progress"].items() if k in ("bells", "run", "last", "pick", "waited", "start")}
+    progress = {k: v for k, v in objective["progress"].items() if k in ("bells", "run", "last", "pick", "waited", "start", "named")}
     if "book" in objective["progress"]:
         progress["book_value"] = objective["progress"]["book"]["value"]
     return {
