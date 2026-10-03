@@ -5,7 +5,7 @@ and a live-event objective; a player at Level 20 cannot advance until the requir
 mastered and the rank case is passed."** It passes:
 `tests/test_mastery.py::test_stage_seven_every_module_has_three_kinds_of_work_and_level_twenty_is_a_gate`.
 
-Tests at the end of the stage: **TESTCOUNT on the server**, 13 on the order-matching engine,
+Tests at the end of the stage: **798 on the server**, 13 on the order-matching engine,
 12 on the website. All pass.
 
 ## Checklist

@@ -502,4 +502,4 @@ def test_stage_seven_every_module_has_three_kinds_of_work_and_level_twenty_is_a_
     assert careers.career(db, player)["level"] == 20                           # mastered, but the case not passed: still Level 20
     case = ranks.begin(db, player, "lawyer", NOW9)
     assert ranks.hand_in(db, player, case["id"], right_case(db, player, case["id"], NOW9), NOW9)["state"] == "passed"
-    assert careers.career(db, player)["level"] == 30
+    assert careers.career(db, player)["level"] == 35                           # the experience held at the gate now counts
