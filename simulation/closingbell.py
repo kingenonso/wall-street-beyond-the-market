@@ -201,6 +201,8 @@ def ring(conn: Connection, now: datetime) -> bool:
         # Professional work that is judged on what a player holds is looked at as the bell rings.
         from simulation import objectives
         objectives.at_bell(conn, now, ended)
+        from simulation import empires
+        empires.at_bell(conn, now)
         return True
 
 

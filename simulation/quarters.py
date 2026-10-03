@@ -19,6 +19,7 @@ from psycopg.rows import dict_row
 
 from simulation import (banking, bonds, careers, clock, companies, corporate, economy, events, exchange, grants, investors, ledger,
                         macro, marketview, mindsets, moneywatch, news, objectives, valuation)
+from simulation import empires
 from simulation.money import BPS
 from simulation.ledger import NGN
 
@@ -50,6 +51,8 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
             # With every company's accounts filed and the new interest rate set, the professional
             # work that was waiting for them is judged, and the payers pay.
             objectives.at_close(conn, period, now)
+            # Empires pay their staff, their books are audited, and their staff do their work.
+            empires.after_close(conn, period, now)
         closed.append(period)
         log.info("Closed %s", clock.period_label(period))
 

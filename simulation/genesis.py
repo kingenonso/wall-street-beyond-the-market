@@ -105,6 +105,9 @@ def create_world(conn: Connection, world_start: datetime, fortune_seed: str | No
         if created:
             _create(conn, world_start, fortune_seed or secrets.token_hex(16), test_world)
         _give_accounts_to_early_players(conn)
+        # The five empires the computer runs. A world from before empires existed gets them now.
+        from simulation import empires
+        empires.setup(conn, datetime.now(timezone.utc))
     return created
 
 

@@ -92,10 +92,10 @@ def test_levels_come_from_experience_and_stop_at_twenty_until_rank_cases_exist()
 # The build
 # ---------------------------------------------------------------------------
 
-def test_only_the_two_builds_of_this_stage_can_be_chosen(db):
+def test_only_the_six_starting_builds_can_be_chosen(db):
     account = trader(db, "ada")
     player = _dicts(db, "SELECT player_id FROM ledger_accounts WHERE id = %s", (account,))[0]["player_id"]
-    for build in ("ceo", "lawyer", "investment_banker", "", "Accountant"):
+    for build in ("ceo", "head", "", "Accountant"):
         with pytest.raises(careers.CareerError):
             careers.choose_build(db, player, build, OPEN)
     careers.choose_build(db, player, "accountant", OPEN)

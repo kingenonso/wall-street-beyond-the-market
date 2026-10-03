@@ -36,6 +36,7 @@ HOLDERS = (
     ("Government", "a.kind IN ('government', 'prize_pool')"),
     ("The exchange", "a.kind = 'exchange'"),
     ("Players", "a.kind = 'player'"),
+    ("Empires and funds", "a.kind IN ('empire', 'fund')"),
 )
 # What each reading asks for.
 RATE_EXTRA_BPS = {"green": 0, "amber": 50, "red": 100}

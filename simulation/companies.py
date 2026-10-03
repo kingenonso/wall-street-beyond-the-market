@@ -321,13 +321,14 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     # Players on its staff are paid out of this same wage bill: each takes the place of one
     # computer-run member of staff, so the company's costs are what they would have been.
     packets = _careers().salaries_due(conn, company, period, ctx.wage_index_bps, budget=(operating_expenses - pension) // 10)
-    to_players = sum(p["gross"] - p["pension_yours"] for p in packets)
+    to_players = sum(p["cash_due"] for p in packets)
     operating_expenses = _pay_people(
         conn, company, ctx, operating_expenses - to_players, kind="wages", pension=pension,
         memo=f"{name}: wages and pension contributions, {label}", period=period,
     )
     home = world.households.get(company["headquarters"]) or next(iter(world.households.values()))
-    operating_expenses += _careers().pay_salaries(conn, company, home["account_id"], world.treasury, packets, period, _owe)
+    operating_expenses += _careers().pay_salaries(conn, company, home["account_id"], world.treasury, world.institutions,
+                                                         packets, period, _owe)
     # Fees it paid to professionals during the quarter (audit and other work done for it by players).
     professional_fees = moves.get("professional_fee", {}).get("paid", 0)
     if professional_fees:

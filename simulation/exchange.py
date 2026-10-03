@@ -38,7 +38,7 @@ from simulation.money import BPS, MAX_AMOUNT
 
 ESCROW = "exchange:held"          # cash and shares held for open orders
 FEES = "exchange:fees"            # the exchange's own income
-TRADER_KINDS = ("player", "npc_investors")
+TRADER_KINDS = ("player", "npc_investors", "empire", "fund")
 
 
 class ExchangeError(Exception):

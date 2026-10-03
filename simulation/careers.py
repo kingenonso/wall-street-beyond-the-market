@@ -134,13 +134,19 @@ def salary_per_quarter(level: int, wage_index_bps: int = BPS) -> int:
     return apply_bps(naira(monthly * 3), wage_index_bps)
 
 
-def split_salary(gross: int) -> dict:
-    """What is taken from a salary, and what is left."""
-    pension = apply_bps(gross, data.PENSION_EMPLOYEE_BPS)
-    tax = apply_bps(gross, data.SALARY_TAX_BPS)
+def split_salary(gross: int, extra_bps: int = 0) -> dict:
+    """What is taken from a salary, and what is left.
+
+    A player may save extra for retirement. The extra is taken before income tax, so the tax is
+    worked out on a smaller figure; and the employer matches it, naira for naira, up to a limit."""
+    extra = apply_bps(gross, min(max(extra_bps, 0), data.EXTRA_SAVING_MOST_BPS))
+    pension = apply_bps(gross, data.PENSION_EMPLOYEE_BPS) + extra
+    tax = apply_bps(gross - extra, data.SALARY_TAX_BPS)
     living = apply_bps(gross, data.SALARY_LIVING_BPS)
+    match = min(extra, apply_bps(gross, data.EMPLOYER_MATCH_MOST_BPS))
     return {"gross": gross, "pension_yours": pension, "tax": tax, "living_costs": living,
-            "take_home": gross - pension - tax - living, "pension_employer": apply_bps(gross, data.PENSION_EMPLOYER_BPS)}
+            "take_home": gross - pension - tax - living, "pension_employer": apply_bps(gross, data.PENSION_EMPLOYER_BPS) + match,
+            "extra_saving": extra, "employer_match": match}
 
 
 def world_now(conn: Connection, now: datetime) -> dict:
@@ -308,7 +314,9 @@ def take_job(conn: Connection, player_id, ticker: str, now: datetime) -> dict:
         job = current_job(conn, player_id)
         if job and job["company_id"] == company["id"]:
             return job
-        if employer["players"] >= _places(employer, player["build"]):
+        # A company keeps one more place for somebody whose finances are sound.
+        extra_place = 1 if sound_finances(conn, player_id, state["wage_index_bps"]) else 0
+        if employer["players"] >= _places(employer, player["build"]) + extra_place:
             raise CareerError(f"{company['name']} has no place open at the moment.")
         if job:
             if job["started_period"] == state["period"]:
@@ -380,7 +388,9 @@ def salaries_due(conn: Connection, company: dict, period: int, wage_index_bps: i
         worked = has_worked(conn, job["player_id"], period)
         gross = salary_per_quarter(mine["level"], wage_index_bps) * days // clock.GAME_DAYS_PER_QUARTER if worked else 0
         grosses.append(gross)
-        packets.append({"player_id": job["player_id"], "account": job["player_account"],
+        saving = _one(conn, "SELECT extra_bps FROM retirement_accounts WHERE player_id = %s", (job["player_id"],))
+        packets.append({"extra_bps": saving["extra_bps"] if saving else 0,
+                        "player_id": job["player_id"], "account": job["player_account"],
                         "employment_id": job["id"], "build": job["build"], "level": mine["level"],
                         "days_worked": days, "worked": worked})
     total = sum(grosses)
@@ -388,10 +398,17 @@ def salaries_due(conn: Connection, company: dict, period: int, wage_index_bps: i
         grosses = [gross * budget // total for gross in grosses]
     elif total > budget:
         grosses = [0 for _ in grosses]
-    return [{**split_salary(gross), **packet} for gross, packet in zip(grosses, packets)]
+    out = []
+    for gross, packet in zip(grosses, packets):
+        pay = split_salary(gross, packet["extra_bps"])
+        # What the company pays out in cash for this player: everything but the usual 8% saving, which is
+        # already inside the pension payment the company makes for all its staff.
+        cash_due = pay["take_home"] + pay["tax"] + pay["living_costs"] + pay["extra_saving"] + pay["employer_match"]
+        out.append({**pay, **packet, "cash_due": cash_due})
+    return out
 
 
-def pay_salaries(conn: Connection, company: dict, households, treasury, packets: list[dict], period: int, owe) -> int:
+def pay_salaries(conn: Connection, company: dict, households, treasury, pension_funds, packets: list[dict], period: int, owe) -> int:
     """Pay the players on a company's staff, and write their payslips. Returns what was due in cash
     (everything but the retirement saving, which goes to the pension funds with everybody else's).
 
@@ -401,7 +418,8 @@ def pay_salaries(conn: Connection, company: dict, households, treasury, packets:
     """
     total = 0
     for packet in packets:
-        amounts = {packet["account"]: packet["take_home"], treasury: packet["tax"], households: packet["living_costs"]}
+        amounts = {packet["account"]: packet["take_home"], treasury: packet["tax"], households: packet["living_costs"],
+                   pension_funds: packet["extra_saving"] + packet["employer_match"]}
         got: dict = {}
         ledger.pay_split_up_to(
             conn, payer=company["account_id"], amounts=amounts, kind="salary", period=period, paid_to=got,
@@ -420,11 +438,14 @@ def pay_salaries(conn: Connection, company: dict, households, treasury, packets:
             note = f"You started part-way through the quarter: paid for {packet['days_worked']} of 90 days."
         conn.execute(
             "INSERT INTO payslips (player_id, period, employment_id, company_id, build, level, days_worked, worked, gross,"
-            " pension_yours, pension_employer, tax, living_costs, take_home, paid, owed, note)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            " pension_yours, pension_employer, tax, living_costs, take_home, paid, owed, note, extra_saving, employer_match)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (packet["player_id"], period, packet["employment_id"], company["id"], packet["build"], packet["level"],
              packet["days_worked"], packet["worked"], packet["gross"], packet["pension_yours"], packet["pension_employer"],
-             packet["tax"], packet["living_costs"], packet["take_home"], paid, packet["take_home"] - paid, note))
+             packet["tax"], packet["living_costs"], packet["take_home"], paid, packet["take_home"] - paid, note,
+             packet["extra_saving"], packet["employer_match"]))
+        if paid > 0:
+            _empires().collect_debts(conn, packet["player_id"], packet["account"], paid, period)
         total += sum(amounts.values())
     return total
 
@@ -553,25 +574,50 @@ def choose_fund(conn: Connection, player_id, fund: str, now: datetime) -> None:
         _event(conn, player_id, build, "fund_chosen", f"Moved retirement savings to the {data.PENSION_FUNDS[fund]['name']} fund.", now)
 
 
-def close_retirement(conn: Connection, period: int, index_level: int, policy_rate_bps: int) -> None:
-    """As a quarter closes: work out what each kind of fund earned, grow every player's savings by
-    it, and add what they and their employer paid in this quarter.
+def fund_returns(conn: Connection, period: int, index_level: int, policy_rate_bps: int) -> dict:
+    """What each kind of fund earned in the quarter just closed, and what it was made of.
 
-    Shares earn what the BSX 50 did over the quarter; bonds earn a quarter of the Government's
-    five-year rate; cash earns a quarter of its three-month rate. The manager's fee comes off.
+    Shares earn what the BSX 50 did. Bonds earn a quarter of a year's interest, and then gain or
+    lose as interest rates move: when the Central Bank raises its rate, bonds already held are
+    worth less. The part of a fund's bonds lent to companies loses when a company defaults.
+    Cash earns the three-month rate. The manager's fee comes off. Any fund can have a bad quarter.
     """
     from simulation import bonds
     before = _one(conn, "SELECT index_level FROM pension_fund_results WHERE period = %s LIMIT 1", (period - 1,))
     shares_bps = (index_level - before["index_level"]) * BPS // before["index_level"] if before and before["index_level"] else 0
-    bonds_bps = bonds.government_yield_bps(policy_rate_bps, 20) // 4
-    cash_bps = bonds.government_yield_bps(policy_rate_bps, 1) // 4
-    returns = {}
+    economy = _one(conn, "SELECT policy_rate_bps, price_index_bps FROM economy_results WHERE period = %s", (period,))
+    earlier = _one(conn, "SELECT price_index_bps FROM economy_results WHERE period = %s", (period - 1,))
+    was = economy["policy_rate_bps"] if economy else policy_rate_bps          # the rate through the quarter
+    moved = bonds.government_yield_bps(policy_rate_bps, 20) - bonds.government_yield_bps(was, 20)
+    bonds_bps = bonds.government_yield_bps(was, 20) // 4 - int(data.BOND_FUND_YEARS * moved)
+    cash_bps = bonds.government_yield_bps(was, 1) // 4
+    prices_bps = (economy["price_index_bps"] - earlier["price_index_bps"]) * BPS // earlier["price_index_bps"] if economy and earlier else 0
+    defaults = _one(conn, "SELECT count(*) AS n FROM (SELECT DISTINCT ON (company_id) company_id, credit_rating FROM company_reports"
+                          " WHERE period = %s ORDER BY company_id, version DESC) now JOIN (SELECT DISTINCT ON (company_id) company_id,"
+                          " credit_rating FROM company_reports WHERE period = %s ORDER BY company_id, version DESC) was USING (company_id)"
+                          " WHERE now.credit_rating = 'D' AND was.credit_rating <> 'D'", (period, period - 1))["n"]
+    out = {}
     for fund, mix in data.PENSION_FUNDS.items():
-        earned = (mix["shares"] * shares_bps + mix["bonds"] * bonds_bps + mix["cash"] * cash_bps) // BPS - data.PENSION_MANAGER_FEE_BPS
-        returns[fund] = earned
-        conn.execute("INSERT INTO pension_fund_results (period, fund, return_bps, index_level) VALUES (%s, %s, %s, %s)",
-                     (period, fund, earned, index_level))
+        credit = defaults * data.DEFAULT_LOSS_BPS * data.COMPANY_BOND_SHARE_BPS[fund] // BPS
+        bonds_part = bonds_bps - credit
+        earned = (mix["shares"] * shares_bps + mix["bonds"] * bonds_part + mix["cash"] * cash_bps) // BPS - data.PENSION_MANAGER_FEE_BPS
+        out[fund] = {"return_bps": earned, "shares_part_bps": shares_bps, "bonds_part_bps": bonds_part, "credit_loss_bps": credit,
+                     "prices_bps": prices_bps}
+    return out
+
+
+def close_retirement(conn: Connection, period: int, index_level: int, policy_rate_bps: int) -> None:
+    """As a quarter closes: work out what each kind of fund earned, grow (or shrink) every player's
+    savings by it, add what they and their employer paid in, and pay the pensions of the retired."""
+    returns = fund_returns(conn, period, index_level, policy_rate_bps)
+    for fund, r in returns.items():
+        conn.execute("INSERT INTO pension_fund_results (period, fund, return_bps, index_level, shares_part_bps, bonds_part_bps,"
+                     " credit_loss_bps, prices_bps) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                     (period, fund, r["return_bps"], index_level, r["shares_part_bps"], r["bonds_part_bps"], r["credit_loss_bps"], r["prices_bps"]))
+    pension_funds = ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
     for account in _rows(conn, "SELECT * FROM retirement_accounts ORDER BY player_id FOR UPDATE"):
+        if account.get("managed_fund_id"):
+            continue                                   # looked after by a player's fund: see simulation/pensionfunds.py
         slip = _one(conn, "SELECT pension_yours, pension_employer, take_home, paid FROM payslips WHERE player_id = %s AND period = %s",
                     (account["player_id"], period))
         # The saving is credited in full for the quarter it was earned in. If the employer was short
@@ -579,14 +625,112 @@ def close_retirement(conn: Connection, period: int, index_level: int, policy_rat
         yours = slip["pension_yours"] if slip else 0
         employer = slip["pension_employer"] if slip else 0
         fund = account["previous_fund"] if account["fund_chosen_period"] == period and account["previous_fund"] else account["fund"]
-        growth = max(apply_bps(account["value"], returns[fund]), -account["value"])
+        growth = max(apply_bps(account["value"], returns[fund]["return_bps"]), -account["value"])
         closing = account["value"] + growth + yours + employer
-        if closing == account["value"] and not slip:
+        paid_out = 0
+        if account["retired_period"] is not None and closing > 0:
+            # A pension is paid by the pension funds, out of the money they hold, to the player's own account.
+            wanted = closing if closing < naira(10_000) else apply_bps(closing, data.PENSION_PAID_BPS)
+            paid_out = ledger.pay_up_to(conn, payer=pension_funds, receiver=ledger.player_account_id(conn, account["player_id"]),
+                                        wanted=wanted, kind="pension_payment", period=period,
+                                        memo=f"Pension for {clock.period_label(period)}", reference=f"pension:{account['player_id']}:{period}")
+            closing -= paid_out
+        if closing == account["value"] and not slip and not paid_out:
             continue
-        conn.execute("INSERT INTO retirement_entries (player_id, period, fund, opening, growth, paid_in_by_you, paid_in_by_employer, closing)"
-                     " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                     (account["player_id"], period, fund, account["value"], growth, yours, employer, closing))
+        conn.execute("INSERT INTO retirement_entries (player_id, period, fund, opening, growth, paid_in_by_you, paid_in_by_employer,"
+                     " closing, paid_out) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                     (account["player_id"], period, fund, account["value"], growth, yours, employer, closing, paid_out))
         conn.execute("UPDATE retirement_accounts SET value = %s WHERE player_id = %s", (closing, account["player_id"]))
+
+
+def set_extra_saving(conn: Connection, player_id, extra_bps: int, now: datetime) -> None:
+    """Choose how much extra to save from each salary, from nothing up to 20%."""
+    if not 0 <= extra_bps <= data.EXTRA_SAVING_MOST_BPS or extra_bps % 100:
+        raise CareerError(f"Extra saving is a whole percentage from 0 to {data.EXTRA_SAVING_MOST_BPS // 100}.")
+    with conn.transaction():
+        books_open(conn, now)
+        conn.execute("INSERT INTO retirement_accounts (player_id) VALUES (%s) ON CONFLICT DO NOTHING", (player_id,))
+        conn.execute("UPDATE retirement_accounts SET extra_bps = %s WHERE player_id = %s", (extra_bps, player_id))
+        build = _one(conn, "SELECT build FROM players WHERE id = %s", (player_id,))["build"]
+        _event(conn, player_id, build, "saving_changed", f"Set extra retirement saving to {extra_bps // 100}% of salary.", now)
+
+
+def savings_value(conn: Connection, player_id) -> int:
+    """What a player's retirement savings are worth: what is in an ordinary fund, and the units held
+    in a fund run by a player, at the price of a unit when the last quarter closed."""
+    account = _one(conn, "SELECT * FROM retirement_accounts WHERE player_id = %s", (player_id,))
+    if account is None:
+        return 0
+    value = account["value"]
+    if account["managed_fund_id"] is not None and account["units"]:
+        price = _one(conn, "SELECT unit_price FROM fund_prices WHERE fund_id = %s ORDER BY period DESC LIMIT 1", (account["managed_fund_id"],))
+        value += account["units"] * (price["unit_price"] if price else 100_000_000) // 1_000_000
+    return value
+
+
+def sound_finances(conn: Connection, player_id, wage_index_bps: int = BPS) -> bool:
+    """The mark banks and employers look for: savings worth at least two quarters of the player's salary."""
+    mine = career(conn, player_id)
+    if mine is None:
+        return False
+    return savings_value(conn, player_id) >= data.SOUND_FINANCES_QUARTERS * salary_per_quarter(mine["level"], wage_index_bps) > 0
+
+
+def retirement_opens(conn: Connection, player_id, period: int) -> dict:
+    """When a player may retire: at Level 50, or after ten game years of work, whichever comes first."""
+    top = max((level_for(r["experience"]) for r in _rows(conn, "SELECT experience FROM careers WHERE player_id = %s", (player_id,))), default=1)
+    first = _one(conn, "SELECT min(started_period) AS period FROM employments WHERE player_id = %s", (player_id,))["period"]
+    worked = period - first if first is not None else 0
+    return {"eligible": top >= data.RETIREMENT_LEVEL or worked >= data.RETIREMENT_AFTER_QUARTERS, "level": top,
+            "quarters_worked": max(worked, 0), "quarters_to_go": max(data.RETIREMENT_AFTER_QUARTERS - worked, 0),
+            "at_period": first + data.RETIREMENT_AFTER_QUARTERS if first is not None else None}
+
+
+def retire(conn: Connection, player_id, now: datetime) -> None:
+    """Start drawing the pension. It is paid every quarter from then on. The player may keep working."""
+    with conn.transaction():
+        books_open(conn, now)
+        state = world_now(conn, now)
+        account = _one(conn, "SELECT * FROM retirement_accounts WHERE player_id = %s FOR UPDATE", (player_id,))
+        if account is None or account["retired_period"] is not None:
+            raise CareerError("Your pension is already being paid." if account else "You have no retirement savings yet.")
+        opens = retirement_opens(conn, player_id, state["period"])
+        if not opens["eligible"]:
+            raise CareerError(f"Retirement opens at Level {data.RETIREMENT_LEVEL}, or after ten game years of work. "
+                              f"You have {opens['quarters_to_go']} quarters to go.")
+        conn.execute("UPDATE retirement_accounts SET retired_period = %s WHERE player_id = %s", (state["period"], player_id))
+        build = _one(conn, "SELECT build FROM players WHERE id = %s", (player_id,))["build"]
+        _event(conn, player_id, build, "retired", "Began drawing a pension.", now)
+
+
+def early_withdrawal(conn: Connection, player_id, amount: int, now: datetime, why: str) -> int:
+    """The one early withdrawal a player may make, for a big step such as founding an empire: up to
+    half of the savings, paid by the pension funds. Returns what was paid."""
+    account = _one(conn, "SELECT * FROM retirement_accounts WHERE player_id = %s FOR UPDATE", (player_id,))
+    if account is None or account["value"] <= 0:
+        raise CareerError("You have no retirement savings to draw on.")
+    if account["early_withdrawn_period"] is not None:
+        raise CareerError("The one early withdrawal has already been made.")
+    if account.get("managed_fund_id"):
+        raise CareerError("Move your savings back to an ordinary fund before withdrawing.")
+    most = apply_bps(account["value"], data.EARLY_WITHDRAWAL_MOST_BPS)
+    if amount <= 0 or amount > most:
+        raise CareerError(f"An early withdrawal may take up to half of the savings: ₦{most / 100:,.0f}.")
+    state = world_now(conn, now)
+    paid = ledger.pay_up_to(conn, payer=ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS),
+                            receiver=ledger.player_account_id(conn, player_id), wanted=amount, kind="pension_withdrawal",
+                            memo=f"Early withdrawal from retirement savings: {why}", reference=f"early:{player_id}")
+    conn.execute("UPDATE retirement_accounts SET value = value - %s, early_withdrawn_period = %s WHERE player_id = %s",
+                 (paid, state["period"], player_id))
+    build = _one(conn, "SELECT build FROM players WHERE id = %s", (player_id,))["build"]
+    _event(conn, player_id, build, "early_withdrawal", f"Withdrew ₦{paid / 100:,.0f} from retirement savings early: {why}.", now)
+    return paid
+
+
+def _empires():
+    """The empires module, loaded when first needed."""
+    from simulation import empires
+    return empires
 
 
 # ---------------------------------------------------------------------------
@@ -621,16 +765,38 @@ def profile(conn: Connection, player_id, now: datetime) -> dict:
     savings = _one(conn, "SELECT * FROM retirement_accounts WHERE player_id = %s", (player_id,))
     if savings:
         chosen = savings["fund_chosen_period"]
+        funds = []
+        for code, f in data.PENSION_FUNDS.items():
+            past = _rows(conn, "SELECT return_bps, prices_bps FROM pension_fund_results WHERE fund = %s ORDER BY period DESC LIMIT 8", (code,))
+            year = past[:4]
+            grew = 1.0
+            prices = 1.0
+            for q in year:
+                grew *= 1 + q["return_bps"] / BPS
+                prices *= 1 + q["prices_bps"] / BPS
+            funds.append({"code": code, "name": f["name"], "for": f["for"], "good": f["good"], "bad": f["bad"],
+                          "shares_bps": f["shares"], "bonds_bps": f["bonds"], "cash_bps": f["cash"],
+                          "last_return_bps": past[0]["return_bps"] if past else None,
+                          "best_bps": max((q["return_bps"] for q in past), default=None),
+                          "worst_bps": min((q["return_bps"] for q in past), default=None),
+                          "year_bps": round((grew - 1) * BPS) if len(year) == 4 else None,
+                          "year_after_prices_bps": round((grew / prices - 1) * BPS) if len(year) == 4 else None})
+        opens = retirement_opens(conn, player_id, state["period"])
         out["retirement"] = {
-            "fund": savings["fund"], "value": savings["value"],
+            "fund": savings["fund"], "value": savings_value(conn, player_id),
             "can_change": chosen is None or state["period"] - chosen >= clock.QUARTERS_PER_YEAR,
-            "funds": [{"code": code, "name": f["name"], "for": f["for"], "shares_bps": f["shares"], "bonds_bps": f["bonds"],
-                       "cash_bps": f["cash"],
-                       "last_return_bps": (_one(conn, "SELECT return_bps FROM pension_fund_results WHERE fund = %s ORDER BY period DESC LIMIT 1",
-                                                (code,)) or {}).get("return_bps")}
-                      for code, f in data.PENSION_FUNDS.items()],
-            "entries": _rows(conn, "SELECT period, fund, opening, growth, paid_in_by_you, paid_in_by_employer, closing"
+            "funds": funds,
+            "entries": _rows(conn, "SELECT period, fund, opening, growth, paid_in_by_you, paid_in_by_employer, closing, paid_out"
                                    " FROM retirement_entries WHERE player_id = %s ORDER BY period DESC LIMIT 8", (player_id,)),
+            "extra_bps": savings["extra_bps"], "most_extra_bps": data.EXTRA_SAVING_MOST_BPS, "match_most_bps": data.EMPLOYER_MATCH_MOST_BPS,
+            "sound_finances": sound_finances(conn, player_id, state["wage_index_bps"]),
+            "retired": savings["retired_period"] is not None, "can_retire": opens["eligible"] and savings["retired_period"] is None,
+            "retirement_level": data.RETIREMENT_LEVEL, "quarters_to_go": opens["quarters_to_go"],
+            "retires_label": clock.period_label(opens["at_period"]) if opens["at_period"] else None,
+            "early_withdrawal_used": savings["early_withdrawn_period"] is not None,
+            "managed_by": (_one(conn, "SELECT id, name FROM empires WHERE id = %s", (savings["managed_fund_id"],))
+                           if savings["managed_fund_id"] else None),
+            "leaving_fund": savings["leaving"],
         }
     if mine is None:
         return out
@@ -648,8 +814,9 @@ def profile(conn: Connection, player_id, now: datetime) -> dict:
                          for r in _rows(conn, "SELECT build, experience FROM careers WHERE player_id = %s AND build <> %s",
                                         (player_id, mine["build"]))],
     }
-    pay = split_salary(salary_per_quarter(level, state["wage_index_bps"]))
-    next_pay = split_salary(salary_per_quarter(min(level + 1, data.LEVEL_CAP), state["wage_index_bps"]))
+    extra = savings["extra_bps"] if savings else 0
+    pay = split_salary(salary_per_quarter(level, state["wage_index_bps"]), extra)
+    next_pay = split_salary(salary_per_quarter(min(level + 1, data.LEVEL_CAP), state["wage_index_bps"]), extra)
     job = current_job(conn, player_id)
     worked = has_worked(conn, player_id, state["period"])
     out["pay"] = {**pay, "at_next_level": next_pay["gross"], "worked_this_quarter": worked}

@@ -88,6 +88,7 @@ class Template:
     submit: Callable | None = None      # (ctx, objective, answers) -> verdict, or None when it is judged later
     bell: Callable | None = None        # (ctx, objective, day) -> verdict or None
     close: Callable | None = None       # (ctx, objective, period) -> verdict or None
+    listed: bool = True                 # False: never on the board; it exists only as a step in an empire's task
 
 
 def _verdict(state: str, summary: str, milestones: list, plain: str, method: str, maths: str, **more) -> dict:
@@ -1222,6 +1223,7 @@ TEMPLATES: dict[str, Template] = {t.code: t for t in (
 
 
 from simulation import objectives_more  # noqa: E402,F401  (adds the work of the other four builds to the library)
+from simulation import empires  # noqa: E402,F401          (adds the work that exists only inside an empire)
 
 
 def modules(build: str) -> list[dict]:
@@ -1248,6 +1250,17 @@ def _reward(template: Template, wage_index_bps: int) -> int:
 def _payer(conn, ctx, template: Template, terms: dict) -> dict | None:
     """Who pays for this piece of work, if they can. The client pays for work done for it; the
     employer pays performance pay. Either must have the cash many times over."""
+    step = ctx.get("step")
+    if step or template.payer == "empire":
+        # Work done for an empire is paid for by the empire, out of its own cash.
+        seat = empires.seat_of(conn, ctx["player_id"])
+        if seat is None or seat["empire_status"] != "active" or (step and seat["empire_id"] != step["empire_id"]):
+            return None
+        if ledger.balance(conn, seat["account_id"]) < _reward(template, ctx["wage_index_bps"]):
+            return None
+        return {"account": seat["account_id"], "name": seat["empire_name"], "why": "pay for work done for the empire"}
+    if ctx["job"] is None:
+        return None
     if template.payer == "client":
         company = _one(conn, "SELECT id, name, account_id FROM companies WHERE id = %s", (terms["company_id"],))
         why = "an accountancy fee"
@@ -1294,7 +1307,7 @@ def board(conn: Connection, player_id, now: datetime) -> dict:
               " (array_agg(state ORDER BY id DESC) FILTER (WHERE state <> 'active'))[1] AS last"
               " FROM objectives WHERE player_id = %s AND build = %s GROUP BY template", (player_id, build))}
     skills = []
-    for template in (t for t in TEMPLATES.values() if t.build == build):
+    for template in (t for t in TEMPLATES.values() if t.build == build and t.listed):
         seen = tally.get(template.code, {"passes": 0, "finished": 0, "last": None})
         skills.append({"module": template.module, "title": template.title, "idea": template.idea, "level": template.level,
                        "open": mine["level"] >= template.level, "stage": "learned" if seen["passes"] else "not yet",
@@ -1305,9 +1318,9 @@ def board(conn: Connection, player_id, now: datetime) -> dict:
     if ctx["job"] is None:
         why = "Work comes through an employer. Find a job first."
     else:
-        taken = {o["template"] for o in rows if o["period"] == ctx["period"]}
+        taken = {o["template"] for o in rows if o["period"] == ctx["period"] and "step_id" not in o["terms"]}
         in_hand = {o["template"] for o in rows if o["state"] == "active"}
-        for template in (t for t in TEMPLATES.values() if t.build == build):
+        for template in (t for t in TEMPLATES.values() if t.build == build and t.listed):
             offer = {"template": template.code, "module": template.module, "title": template.title, "idea": template.idea,
                      "kind": template.kind, "level": template.level, "reward": _reward(template, ctx["wage_index_bps"]),
                      "experience": template.experience, "available": False, "why_not": None, "payer": None, "client": None,
@@ -1322,7 +1335,8 @@ def board(conn: Connection, player_id, now: datetime) -> dict:
                 terms = template.offer(ctx)
                 payer = terms and _payer(conn, ctx, template, terms)
                 if terms is None:
-                    offer["why_not"] = "Not on offer at this point in the quarter."
+                    offer["why_not"] = ("This work is for a Lawyer with a seat in an open empire." if template.payer == "empire"
+                                        else "Not on offer at this point in the quarter.")
                 elif payer is None:
                     offer["why_not"] = "Nobody with the cash to pay for it is asking for this work at the moment."
                 else:
@@ -1334,8 +1348,11 @@ def board(conn: Connection, player_id, now: datetime) -> dict:
             "coverage": {"learned": learned, "modules": len(skills)}, "limit": data.MAX_ACTIVE_OBJECTIVES}
 
 
-def accept(conn: Connection, player_id, code: str, now: datetime) -> dict:
-    """Take on a piece of work. Its terms are fixed at this moment."""
+def accept(conn: Connection, player_id, code: str, now: datetime, step: dict | None = None) -> dict:
+    """Take on a piece of work. Its terms are fixed at this moment.
+
+    `step` is given only by the empires module, when the work is a step in an empire's task: the
+    company is then the one the task is about, and the empire pays."""
     template = TEMPLATES.get(code)
     with conn.transaction():
         try:
@@ -1344,24 +1361,28 @@ def accept(conn: Connection, player_id, code: str, now: datetime) -> dict:
             raise ObjectiveError(str(closing)) from None
         _one(conn, "SELECT id FROM players WHERE id = %s FOR UPDATE", (player_id,))
         ctx = _context(conn, player_id, now)
+        if step:
+            ctx.update(step=step, target=step["target"])
         mine = ctx["career"]
-        if template is None or mine is None or template.build != mine["build"]:
+        if template is None or mine is None or template.build != mine["build"] or (not template.listed and not step):
             raise ObjectiveError("That work is not open to your build.")
-        if ctx["job"] is None:
+        if ctx["job"] is None and not step and template.payer != "empire":
             raise ObjectiveError("Work comes through an employer. Find a job first.")
-        if mine["level"] < template.level:
+        if mine["level"] < template.level and not step:
             raise ObjectiveError(f"That work opens at Level {template.level}.")
         if _one(conn, "SELECT count(*) AS n FROM objectives WHERE player_id = %s AND state = 'active'", (player_id,))["n"] \
                 >= data.MAX_ACTIVE_OBJECTIVES:
             raise ObjectiveError(f"You can have {data.MAX_ACTIVE_OBJECTIVES} pieces of work in hand at once. Finish one first.")
         if _one(conn, "SELECT 1 FROM objectives WHERE player_id = %s AND template = %s AND state = 'active'", (player_id, code)):
             raise ObjectiveError("You have this work in hand already. Finish it before taking it on again.")
-        if _one(conn, "SELECT 1 FROM objectives WHERE player_id = %s AND build = %s AND template = %s AND period = %s",
-                (player_id, mine["build"], code, ctx["period"])):
+        if not step and _one(conn, "SELECT 1 FROM objectives WHERE player_id = %s AND build = %s AND template = %s AND period = %s"
+                                   " AND NOT terms ? 'step_id'", (player_id, mine["build"], code, ctx["period"])):
             raise ObjectiveError("You have already taken this work this quarter. Each piece can be taken once a quarter.")
         terms = template.offer(ctx)
         if terms is None:
             raise ObjectiveError("That work is not on offer at this point in the quarter.")
+        if step:
+            terms["step_id"] = step["step_id"]
         payer = _payer(conn, ctx, template, terms)
         if payer is None:
             raise ObjectiveError("Nobody with the cash to pay for it is asking for this work at the moment.")
@@ -1443,6 +1464,8 @@ def _finish(conn: Connection, objective: dict, verdict: dict, now: datetime, jud
                      " judged_seq = nextval('objectives_judged_seq') WHERE id = %s AND state = 'active' RETURNING judged_seq",
                (state, Jsonb(result), now, judged_period, paid, Jsonb(objective["progress"]), objective["id"]))["judged_seq"]
     _review(conn, objective, seq, now)
+    if objective["terms"].get("step_id"):
+        empires.step_result(conn, objective["terms"]["step_id"], state, objective["player_id"], now)
 
 
 def _review(conn: Connection, objective: dict, seq: int, now: datetime) -> None:

@@ -616,7 +616,7 @@ def trade(conn: Connection, *, account: UUID | str, code: str, side: str, units:
         if not books_open(conn, now):
             raise BondError(CLOSING)
         owner = _one(conn, "SELECT kind FROM ledger_accounts WHERE id = %s", (account,))
-        if owner is None or owner["kind"] != "player":
+        if owner is None or owner["kind"] not in ("player", "empire", "fund"):
             raise BondError("That account cannot trade at the bond desk.")
         bond = find(conn, code, lock=True)
         if bond is None:

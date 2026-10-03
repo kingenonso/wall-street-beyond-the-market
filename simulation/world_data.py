@@ -512,9 +512,93 @@ PLAYER_BANKS = ("HMB", "IKB", "KCB", "OBB", "OTB", "ZCB")
 SAVINGS_RATE_SHARE_BPS = {"AAA": 2400, "AA": 2700, "A": 3000, "BBB": 3300, "BB": 3700, "B": 4100, "CCC": 4500, "D": 0}
 # The four kinds of retirement fund: what share each keeps in shares, in bonds and in cash.
 PENSION_FUNDS = {
-    "growth":   {"name": "Growth",   "shares": 8000, "bonds": 2000, "cash": 0,    "for": "Players far from retirement who accept swings"},
-    "balanced": {"name": "Balanced", "shares": 5000, "bonds": 5000, "cash": 0,    "for": "The usual choice"},
-    "cautious": {"name": "Cautious", "shares": 2000, "bonds": 8000, "cash": 0,    "for": "Players close to retirement"},
-    "income":   {"name": "Income",   "shares": 0,    "bonds": 7000, "cash": 3000, "for": "Players already drawing a pension"},
+    "growth":   {"name": "Growth",   "shares": 8000, "bonds": 2000, "cash": 0,    "for": "Players far from retirement who accept swings",
+                 "good": "The highest return over the years", "bad": "Can fall hard in a bad quarter for shares"},
+    "balanced": {"name": "Balanced", "shares": 5000, "bonds": 5000, "cash": 0,    "for": "The usual choice",
+                 "good": "A smoother ride than Growth", "bad": "Never the best, never the worst"},
+    "cautious": {"name": "Cautious", "shares": 2000, "bonds": 8000, "cash": 0,    "for": "Players close to retirement",
+                 "good": "Small swings", "bad": "Its bonds lose value when the Central Bank raises its rate, and a company that defaults is a real loss"},
+    "income":   {"name": "Income",   "shares": 0,    "bonds": 7000, "cash": 3000, "for": "Players already drawing a pension",
+                 "good": "Lends only to the Government, so nothing defaults", "bad": "The lowest return: in a year of fast-rising prices it can buy less than before"},
 }
 PENSION_MANAGER_FEE_BPS = 5        # the fund manager's fee each quarter: a twentieth of one percent of the savings
+
+
+# ---------------------------------------------------------------------------
+# Stage 6: retirement savings with risks and rewards (added by the owner, 3 October 2026).
+# ---------------------------------------------------------------------------
+EXTRA_SAVING_MOST_BPS = 2000       # a player may save up to 20% of salary on top of the usual 8%
+EMPLOYER_MATCH_MOST_BPS = 300      # the employer matches extra saving, naira for naira, up to 3% of salary
+SOUND_FINANCES_QUARTERS = 2        # savings worth two quarters' salary earn the "sound finances" mark
+EARLY_WITHDRAWAL_MOST_BPS = 5000   # the one early withdrawal may take up to half of the savings
+RETIREMENT_LEVEL = 50              # retirement opens at Level 50...
+RETIREMENT_AFTER_QUARTERS = 40     # ...or after ten game years of work, whichever comes first
+PENSION_PAID_BPS = 250             # a pension pays out 2.5% of the savings each quarter
+BOND_FUND_YEARS = 3.5              # how hard a one-point move in interest rates hits a fund's bonds, in points
+COMPANY_BOND_SHARE_BPS = {"growth": 5000, "balanced": 5000, "cautious": 5000, "income": 0}   # of a fund's bonds, the part lent to companies
+DEFAULT_LOSS_BPS = 60              # each company newly in default costs this much of the company-bond part
+
+
+# ---------------------------------------------------------------------------
+# Stage 6: empires (sections 6, 13 and 15).
+# ---------------------------------------------------------------------------
+EMPIRE_BUILDS = ("investment_banker", "asset_manager", "risk_manager", "accountant", "lawyer", "journalist")
+EMPIRE_FOUNDING_LEVEL = 20
+EMPIRE_REGISTRATION_NAIRA = 25_000_000
+EMPIRE_LEAST_HUMANS = 3
+COMPUTER_EMPIRES = ("Savannah Crown Holdings", "Delta Meridian Group", "Niger Bend Partners", "Atlantic Gate Holdings", "Kola Ridge Group")
+COMPUTER_EMPIRE_CAPITAL_NAIRA = 5_000_000_000      # each, put up by the founders (the private investors of the world)
+COMPUTER_EMPIRE_CASH_KEPT_BPS = 2000               # a computer-run empire keeps a fifth of its money in cash and lends the rest to the Government
+STAFF_LEVEL = 40                                   # computer-run staff work at a fixed Level 40
+JOIN_LEAST_REPUTATION = 40
+SACKED_BAN_QUARTERS = 4                            # a member sacked for theft cannot rejoin that empire for a game year
+COMPUTER_EMPIRE_LIMIT_NAIRA = 100_000              # what a member of a computer-run empire may spend in a quarter, for each level they hold
+HEAD_LIMIT_BPS = 200                               # a head may spend up to 2% of the empire's cash in a quarter without anybody else
+THEFT_FINE_BPS = 10_000                            # a proved theft is repaid, with a fine of the same amount again
+THEFT_REPUTATION = 10
+DEBT_FROM_SALARY_BPS = 2500                        # a quarter of each take-home pay goes to a debt owed to an empire
+REPORT_REWARD_BPS = 1000                           # whoever reports a theft that is proved gets a tenth of it
+REPORTS_A_QUARTER = 3
+REPORT_FINDS_BPS = 9000                            # looking at one reported entry finds a false one nine times in ten
+AUDITOR_BASE_BPS = 5000                            # an Accountant of the thief's own level finds each theft half the time...
+AUDITOR_PER_LEVEL_BPS = 300                        # ...and 3 points more or less for each level between them
+AUDITOR_RANGE_BPS = (2000, 9000)
+AI_AUDIT_FINDS_BPS = 9500                          # the AI audit is right 95 times in 100
+AI_AUDIT_FEE_BPS = 200                             # it costs 2% of what the empire is worth...
+AI_AUDIT_LEAST_NAIRA = 5_000_000                   # ...and never less than this
+AI_AUDIT_LOOKS_BACK = 4                            # quarters. Older thefts escape
+AUDIT_SEASON_EVERY = 4                             # the AI audit can be hired in one quarter in four: the last of each game year
+TASK_SHARE_OF_CASH_BPS = 500                       # an investment task puts 5% of the empire's cash to work...
+TASK_MOST_NAIRA = 50_000_000                       # ...and never more than this
+STAFF_WAITS_TICKS = 2                              # staff leave a step to the players for two bells before doing it themselves
+PACT_KINDS = {
+    "alliance": ("An alliance: to stand together and not act against each other", True),
+    "joint_bid": ("A joint bid: to bid together for a company or a contract", True),
+    "share_information": ("Sharing information: each side sees what the other holds", True),
+    "same_candidate": ("Backing the same election candidate", True),
+    "stay_out": ("Staying out of each other's deals", False),
+    "divide_market": ("Dividing a market between them", False),
+    "fix_prices": ("Fixing prices", False),
+    "rig_bids": ("Rigging bids", False),
+}
+PACT_BREAK_TRUST = 10
+PACT_EXPOSED_TRUST = 15
+EXPOSE_BASE_BPS = 1500                             # a journalist's chance of uncovering a hidden pact...
+EXPOSE_PER_LEVEL_BPS = 200                         # ...rises with level, up to 55%
+# How each build's false entry is written in the books.
+DISGUISES = {
+    "asset_manager": ("Dealing costs", "Brokerage and dealing costs on the quarter's trades"),
+    "investment_banker": ("Advisory fees", "Outside advisers' fees on deals in progress"),
+    "risk_manager": ("Hedging costs", "Cost of protection bought against market moves"),
+    "accountant": ("Office and professional costs", "Professional subscriptions, software and office costs"),
+    "lawyer": ("Legal fees and filings", "Counsel's fees and filing costs on matters in hand"),
+    "journalist": ("Research and sources", "Research subscriptions and payments to sources"),
+    "head": ("Management expenses", "Travel, entertaining and management expenses"),
+}
+
+# Pension funds run by players (Stage 6).
+FUND_MANAGER_LEVEL = 20                            # an Asset Manager may open a pension fund at this level
+FUND_REGISTRATION_NAIRA = 5_000_000                # paid into the prize pool
+FUND_FEE_MOST_BPS = 50                             # the most a manager may charge: half of one percent of the fund each quarter
+FUND_SIGNING_BPS = 100                             # a manager can sign for costs of up to 1% of the fund in a quarter
+FUND_AI_AUDIT_LEAST_NAIRA = 1_000_000              # the least an AI audit of a pension fund costs
