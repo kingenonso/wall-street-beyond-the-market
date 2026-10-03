@@ -690,7 +690,7 @@ class BondRow(BaseModel):
     conversion_shares: int | None
     project: str | None
     green: bool
-    outstanding: int
+    outstanding: int | None            # how many exist; empty for the Government's while players are few
     fair_kobo: Kobo                    # the calculated fair value of one bond
     ask_kobo: Kobo                     # what the desk sells one for
     bid_kobo: Kobo                     # what the desk pays for one

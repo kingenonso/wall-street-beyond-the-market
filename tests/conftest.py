@@ -180,8 +180,8 @@ def government_budget(db, period: int) -> int:
                    " AND t.memo LIKE '%%new bonds sold'", (treasury, period))
     coupons = one("SELECT coalesce(-sum(e.amount), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
                   " WHERE e.account_id = %s AND e.asset = 'NGN' AND e.amount < 0 AND t.period = %s AND t.kind = 'bond_coupon'", (treasury, period))
-    discount = 0
-    for bond_id, in db.execute("SELECT id FROM bonds WHERE issuer = 'government' AND redeemed_period = %s", (period,)).fetchall():
+    discount, replaced = 0, 0
+    for bond_id, kind in db.execute("SELECT id, kind FROM bonds WHERE issuer = 'government' AND redeemed_period = %s", (period,)).fetchall():
         repaid = one("SELECT coalesce(-sum(e.amount), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
                      " WHERE e.account_id = %s AND e.asset = 'NGN' AND e.amount < 0 AND t.kind = 'bond_redemption' AND t.reference = %s",
                      (treasury, f"bond:{bond_id}"))
@@ -189,4 +189,6 @@ def government_budget(db, period: int) -> int:
                    " WHERE e.account_id = %s AND e.asset = 'NGN' AND e.amount > 0 AND t.kind = 'bond_issue' AND t.reference = %s",
                    (treasury, f"bond:{bond_id}"))
         discount += max(repaid - sold, 0)
-    return max(collected + borrowed - coupons - discount, 0)
+        if kind != "bill":
+            replaced += min(repaid, sold)                 # borrowed again to replace bonds repaid: not for spending
+    return max(collected + max(borrowed - replaced, 0) - coupons - discount, 0)

@@ -235,7 +235,7 @@ def test_the_desk_refuses_what_cannot_be_done(db):
     refuse = lambda **order: pytest.raises(bonds.BondError).__enter__() and None          # noqa: E731
     for order in ({"side": "buy", "units": 0}, {"side": "buy", "units": -5}, {"side": "buy", "units": True},
                   {"side": "buy", "units": 1.5}, {"side": "lend", "units": 1}, {"side": "sell", "units": 1},
-                  {"side": "buy", "units": row["on_offer"] + 1}):
+                  {"side": "buy", "units": ledger.balance(db, ledger.account_id(db, bonds.DEALER), f"BND-{row['code']}") + 1}):
         with pytest.raises(bonds.BondError):
             bonds.trade(db, account=player, code=row["code"], now=OPEN, **order)
     with pytest.raises(bonds.BondError, match="no bond"):

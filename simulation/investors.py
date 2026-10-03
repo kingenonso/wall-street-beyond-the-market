@@ -17,6 +17,10 @@ How one investor decides, in plain words:
      that fades each trading day. This is how buying pressure raises a price.
   5. Around the resulting price it keeps a few orders to buy just below and a
      few to sell just above.
+  6. A share may not move more than a tenth in a day. If every investor values a
+     share beyond that limit, nobody would trade inside it; the exchange then
+     moves the price to the limit, once a day, so that it reaches its worth in
+     steps instead of standing still for ever.
 
 Where two investors' views overlap, they trade with each other.
 
@@ -134,15 +138,15 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
     placed = 0
 
     from simulation import corporate                  # (it needs this module's neighbours too)
-    bids = {b["target_company_id"]: b for b in _rows(conn, "SELECT * FROM takeovers WHERE status = 'open'")}
+    open_bids = {b["target_company_id"]: b for b in _rows(conn, "SELECT * FROM takeovers WHERE status = 'open'")}
 
     for company in shares:
         value = worth.get(company["id"])
         if value is None:
             continue
-        if company["id"] in bids:
+        if company["id"] in open_bids:
             # A takeover offer is open: investors price in what it is expected to pay them.
-            expected = corporate.expected_value(conn, bids[company["id"]], value["value_per_share"])
+            expected = corporate.expected_value(conn, open_bids[company["id"]], value["value_per_share"])
             if expected:
                 value = {**value, "value_per_share": expected}
         # One share at a time, each all-or-nothing, so players' orders in other shares never wait on this.
@@ -156,14 +160,13 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
             size = order_value(value["value_per_share"] * value["shares_in_issue"])
             books = {b["account_id"]: b for b in _rows(conn, "SELECT * FROM investor_books WHERE company_id = %s", (share["company_id"],))}
 
-            # Not always in the same order, so no one investor always gets the first word.
-            turn = sorted(data.INVESTORS, key=lambda code: fortune_bps(seed, f"turn:{code}:{share['ticker']}", day_number, "order", 10_000))
-            for code in turn:
+            # What each investor thinks the share is worth today, before the day's price limits are applied.
+            views: dict = {}
+            for code in data.INVESTORS:
                 label, own_view, margin, orders, size_percent = data.INVESTORS[code]
                 account = who[code]
                 book = books.get(account)
                 one_order = size * size_percent // 100
-
                 # What past buying and selling has done to this investor's prices: today's in full,
                 # earlier days' fading by half each trading day.
                 if book is None:
@@ -175,10 +178,37 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
                     carried = _within(book["carried_bps"] + earlier) // 2
                 todays, net_sold = _impact(conn, account, share["company_id"], day, value, one_order)
                 pressure = _within(carried + todays)
-
                 view = fortune_bps(seed, f"investor:{code}:{share['ticker']}", day_number, "view", own_view)
                 news, cause = mood.get(share["company_id"], (0, None)) if code == "investors:public" else (0, None)
-                centre = value["value_per_share"] * (BPS + view) // BPS * (BPS + news) // BPS * (BPS + pressure) // BPS
+                wanted_centre = value["value_per_share"] * (BPS + view) // BPS * (BPS + news) // BPS * (BPS + pressure) // BPS
+                views[code] = (wanted_centre, carried, todays, net_sold, news, cause)
+
+            # If every investor thinks the share is worth less than the lowest price allowed today (or more
+            # than the highest), nobody would trade inside the limits and the price could never move again.
+            # The exchange then moves the price to the limit: once a trading day, and only if it has not traded.
+            if share["last_price"] is not None and share.get("marked_session") != day:
+                all_below = all(v[0] < low for v in views.values())
+                all_above = all(v[0] > high for v in views.values())
+                traded = _rows(conn, "SELECT 1 FROM market_trades WHERE company_id = %s AND session_date = %s LIMIT 1", (share["company_id"], day))
+                if (all_below or all_above) and not traded:
+                    limit = low if all_below else high
+                    exchange.reprice(
+                        conn, share["company_id"], limit, now,
+                        f"Every investor valued the share {'below the lowest' if all_below else 'above the highest'} price allowed today, "
+                        f"so nobody would trade inside the limits. The exchange moved the price to that limit, "
+                        f"₦{limit / 100:,.2f}: a tenth {'below' if all_below else 'above'} the day before.")
+                    conn.execute("UPDATE market_instruments SET marked_session = %s WHERE company_id = %s", (day, share["company_id"]))
+                    share["reference_price"] = share["last_price"] = limit
+                    low, high = exchange.price_limits(limit)
+
+            # Not always in the same order, so no one investor always gets the first word.
+            turn = sorted(data.INVESTORS, key=lambda code: fortune_bps(seed, f"turn:{code}:{share['ticker']}", day_number, "order", 10_000))
+            for code in turn:
+                label, own_view, margin, orders, size_percent = data.INVESTORS[code]
+                account = who[code]
+                book = books.get(account)
+                one_order = size * size_percent // 100
+                centre, carried, todays, net_sold, news, cause = views[code]
                 centre = min(max(centre, low), high)
 
                 _explain(conn, share, day, now, label, book, centre, value, news, cause, todays, net_sold)

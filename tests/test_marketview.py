@@ -56,7 +56,9 @@ def test_the_market_page_lists_every_share_and_the_index_starts_at_one_thousand(
     for share in seen["shares"]:
         assert share["price"] > 0 and share["market_value"] == share["price"] * share["shares"]
     # The index is every company at its present price against its listing price, counted by size.
-    by_hand = sum(s["price"] * s["shares"] for s in seen["shares"]) * 100_000 // sum(s["listing_price"] * s["shares"] for s in seen["shares"])
+    # (Once companies have issued new shares, the base is kept on record so that new shares alone never move it.)
+    base = marketview.index_base(db) or sum(s["listing_price"] * s["shares"] for s in seen["shares"])
+    by_hand = sum(s["price"] * s["shares"] for s in seen["shares"]) * 100_000 // base
     assert seen["index"] == by_hand
     assert 90_000 <= seen["index"] <= 110_000                         # about 1,000 on its first day
     assert seen["market_value"] == sum(s["market_value"] for s in seen["shares"])
@@ -385,5 +387,5 @@ def test_the_company_page_never_lists_one_players_shares_or_the_exchange_as_an_o
     body = client.get(f"/api/companies/{T}").json()
     names = [o["name"] for o in body["owners"]]
     assert set(names) == {"Founders", "Pension funds", "Small investors"}
-    assert "54321" not in client.get(f"/api/companies/{T}").text
+    assert "54321" not in str(client.get(f"/api/companies/{T}").json()["owners"])       # (the filed figures are long numbers; only the owners matter here)
     assert int(body["shares_in_issue"]) == sum(int(o["shares"]) for o in body["owners"]) == ledger.amount_in_existence(db, f"SHR-{T}")

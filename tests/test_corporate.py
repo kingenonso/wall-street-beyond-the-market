@@ -519,6 +519,11 @@ def test_offers_votes_and_bids_through_the_server(db, client, monkeypatch):
     applied = client.put(f"/api/corporate/offers/{offer_id}", json={"shares": 100}).json()
     assert applied["offers"][0]["asked"] == 100 and int(applied["offers"][0]["held_kobo"]) == 100 * (reference(db) * 70 // 100)
     assert client.get("/api/market/portfolio").json()["held_for_offers_kobo"] == applied["offers"][0]["held_kobo"]
+    # Only a shareholder has a vote.
+    assert client.put(f"/api/corporate/votes/{seen['votes'][0]['id']}", json={"choice": "against"}).status_code == 409
+    account = _dicts(db, "SELECT id FROM ledger_accounts WHERE kind = 'player'")[0]["id"]
+    ledger.transfer(db, payer=ledger.account_id(db, ledger.INVESTORS_PUBLIC), receiver=account, amount=10, asset="SHR-IDC",
+                    kind="test_shares", memo="Test: shares")
     voted = client.put(f"/api/corporate/votes/{seen['votes'][0]['id']}", json={"choice": "against"}).json()
     assert voted["votes"][0]["my_choice"] == "against"
     for path, bad in ((f"/api/corporate/offers/{offer_id}", {"shares": -1}), (f"/api/corporate/offers/{offer_id}", {"shares": "5"}),

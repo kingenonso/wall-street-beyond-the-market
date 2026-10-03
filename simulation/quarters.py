@@ -130,9 +130,9 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
                         period=period)
     # The Government pays what it owes on its bonds, borrows a little more than it repays,
     # and spends what it collected plus what it borrowed, less what its borrowing cost.
-    debt_cost = bonds.government_service(conn, world.treasury, period, policy_rate, before["price_index_bps"])
+    debt_cost, repaid = bonds.government_service(conn, world.treasury, period, policy_rate, before["price_index_bps"])
     collected = ledger.received_in_period(conn, world.treasury, period, kinds=economy.GOVERNMENT_INCOME)
-    borrowed = bonds.government_borrows(conn, world.treasury, period, collected)
+    borrowed = bonds.government_borrows(conn, world.treasury, period, collected, repaid)
     economy.government_spends(conn, world, period, borrowed=borrowed, debt_cost=debt_cost)
     economy.pensions_paid(conn, world, period)
     economy.record_households(conn, world, period, spent, results)

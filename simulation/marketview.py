@@ -107,7 +107,8 @@ def index_history(conn: Connection, shares: list[dict]) -> list[dict]:
     by_day: dict = {}
     for row in closes:
         by_day.setdefault(row["session_date"], {})[row["company_id"]] = row["price"]
-    price = {s["id"]: s["listing_price"] for s in shares}
+    # Until a share first trades it stands at its starting price (or where a share issue left it).
+    price = {s["id"]: s["listing_price"] if s["last_price"] is not None else s["price"] for s in shares}
     count = {s["id"]: s["shares"] for s in shares}
     base = index_base(conn) or sum(s["listing_price"] * s["shares"] for s in shares)
     # The level written down when each day's Closing Bell rang is the record; a day whose

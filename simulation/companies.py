@@ -419,7 +419,8 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
             bank_is_sound = bank is None or (bank["total_equity"] > 0 and bank.get("rating") != "D")
             return rating not in ("CCC", "D") and bank_is_sound
         if debt["kind"] == "bond":
-            return net_profit + earlier_profit > 0
+            # Investors lend again to a company that made a profit over the year and is not rated CCC or D.
+            return net_profit + earlier_profit > 0 and rating not in ("CCC", "D")
         return True                                   # borrowing from the Central Bank is open-ended
 
     for debt in debts:

@@ -367,7 +367,7 @@ export type Industry = {
 export type Bond = {
   code: string; name: string; kind: string; kind_label: string; issuer: string; ticker: string | null; rating: string | null;
   pays: string; face_kobo: Kobo; maturity_label: string; quarters_left: number; yield_bps: number; distressed: boolean;
-  conversion_shares: number | null; project: string | null; green: boolean; outstanding: number;
+  conversion_shares: number | null; project: string | null; green: boolean; outstanding: number | null;
   fair_kobo: Kobo; ask_kobo: Kobo; bid_kobo: Kobo; on_offer: number | null;
 };
 export type BondHolding = Bond & { units: number; held_for_swap: number; value_kobo: Kobo; cost_kobo: Kobo; gain_kobo: Kobo };

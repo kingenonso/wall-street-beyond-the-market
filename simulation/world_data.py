@@ -457,7 +457,7 @@ PROJECT_BOND_ASSETS_BPS = 400      # a project bond raises 4% of the company's b
 # Share offers.
 RIGHTS_DISCOUNT_BPS = 3000         # a rights issue is priced 30% below the market
 RIGHTS_TERMS = (1, 3)              # one new share for every three held
-OFFER_DISCOUNT_BPS = 200           # a sale to the public is priced 2% below the market
+OFFER_DISCOUNT_BPS = 0             # a sale to the public is at the market price: the buyer saves only the trading fee
 OFFER_SIZE_BPS = 800               # ...and adds 8% to the shares in issue
 OFFER_WHEN_DEAR_BPS = 10_000       # a company sells new shares only when its price is no lower than what it is worth
 OFFER_GAP_QUARTERS = 12            # one share offer in three game years, at most

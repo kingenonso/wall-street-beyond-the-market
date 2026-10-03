@@ -69,9 +69,11 @@ def review(conn: Connection, player_id, now: datetime) -> dict:
         if _rows(conn, "SELECT 1 FROM market_trades WHERE (buyer_account_id = %s OR seller_account_id = %s) AND NOT same_owner LIMIT 1",
                  (account, account)):
             _earn(conn, player_id, "first_trade", now)
+        # (A vote can only be cast by somebody holding the company's shares; an acceptance only with shares put up.)
         if _rows(conn, "SELECT 1 FROM vote_ballots WHERE account_id = %s UNION ALL SELECT 1 FROM offer_subscriptions WHERE account_id = %s"
-                       " AND (shares > 0 OR allotted > 0) UNION ALL SELECT 1 FROM takeover_tenders WHERE account_id = %s LIMIT 1",
-                 (account, account, account)):
+                       " AND (shares > 0 OR allotted > 0) UNION ALL SELECT 1 FROM takeover_tenders WHERE account_id = %s AND shares > 0"
+                       " UNION ALL SELECT 1 FROM holding_events WHERE account_id = %s AND kind = 'takeover' LIMIT 1",
+                 (account, account, account, account)):
             _earn(conn, player_id, "took_part", now)
 
         steps = {r["step"]: r for r in _rows(conn, "SELECT * FROM grant_steps WHERE player_id = %s", (player_id,))}

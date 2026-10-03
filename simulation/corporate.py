@@ -75,6 +75,12 @@ def notice(conn: Connection, period: int, company_id, kind: str, title: str, bod
                  (period, company_id, kind, title, body, now))
 
 
+def _open(conn: Connection, now: datetime) -> None:
+    """Nothing can be changed in the moments after a quarter has ended and before its books are closed."""
+    if not bonds.books_open(conn, now):
+        raise CorporateError(bonds.CLOSING)
+
+
 def _player(conn: Connection, account) -> None:
     owner = _one(conn, "SELECT kind FROM ledger_accounts WHERE id = %s", (account,))
     if owner is None or owner["kind"] != "player":
@@ -130,10 +136,13 @@ def cast_vote(conn: Connection, *, account: UUID | str, vote_id: int, choice: st
     if choice not in ("for", "against"):
         raise CorporateError("A vote is for or against.")
     with conn.transaction():
+        _open(conn, now)
         _player(conn, account)
         vote = _one(conn, "SELECT * FROM company_votes WHERE id = %s FOR UPDATE", (vote_id,))
         if vote is None or vote["status"] != "open":
             raise CorporateError("That vote is not open.")
+        if not _owners(conn, vote["company_id"]).get(UUID(str(account)), 0):
+            raise CorporateError("You hold no shares in this company, so you have no vote.")
         conn.execute("INSERT INTO vote_ballots (vote_id, account_id, choice, cast_at) VALUES (%s, %s, %s, %s)"
                      " ON CONFLICT (vote_id, account_id) DO UPDATE SET choice = EXCLUDED.choice, cast_at = EXCLUDED.cast_at",
                      (vote_id, account, choice, now))
@@ -236,6 +245,7 @@ def apply_for_shares(conn: Connection, *, account: UUID | str, offer_id: int, sh
     if not _whole(shares) or shares < 0:
         raise CorporateError("The number of shares must be a whole number, zero or more.")
     with conn.transaction():
+        _open(conn, now)
         _player(conn, account)
         offer = _one(conn, "SELECT * FROM share_offers WHERE id = %s FOR UPDATE", (offer_id,))
         if offer is None or offer["status"] != "open":
@@ -416,6 +426,7 @@ def tender(conn: Connection, *, account: UUID | str, takeover_id: int, shares: i
     if not _whole(shares) or shares < 0:
         raise CorporateError("The number of shares must be a whole number, zero or more.")
     with conn.transaction():
+        _open(conn, now)
         _player(conn, account)
         bid = _one(conn, "SELECT t.*, c.share_asset, c.name FROM takeovers t JOIN companies c ON c.id = t.target_company_id"
                          " WHERE t.id = %s FOR UPDATE OF t", (takeover_id,))
@@ -424,6 +435,8 @@ def tender(conn: Connection, *, account: UUID | str, takeover_id: int, shares: i
         held = bonds.held_account(conn)
         mine = _one(conn, "SELECT * FROM takeover_tenders WHERE takeover_id = %s AND account_id = %s FOR UPDATE", (takeover_id, account))
         before = mine["shares"] if mine else 0
+        if mine is None and shares == 0:
+            return {"shares": 0, "value": 0}
         try:
             if shares > before:
                 ledger.transfer(conn, payer=account, receiver=held, amount=shares - before, asset=bid["share_asset"],
@@ -469,9 +482,10 @@ def expected_value(conn: Connection, bid: dict, worth_per_share: int) -> int | N
             return None
     target = _company(conn, bid["target_company_id"])
     bidder = _company(conn, bid["bidder_company_id"])
+    # Only what the computer-run owners will do by their public rules is counted. What players have
+    # offered so far can be taken back, so it is left out: nobody can move this figure and then withdraw.
     offered = _computer_run_acceptances(conn, bid, who)
-    total = sum(offered.values()) + _one(conn, "SELECT coalesce(sum(shares), 0)::bigint AS n FROM takeover_tenders WHERE takeover_id = %s",
-                                         (bid["id"],))["n"]
+    total = sum(offered.values())
     in_issue = ledger.amount_in_existence(conn, target["share_asset"])
     already = ledger.balance(conn, bidder["account_id"], target["share_asset"])
     if total <= 0 or (total + already) * 2 <= in_issue:
@@ -696,6 +710,9 @@ def propose(conn: Connection, period: int, seed: str, now: datetime, results: li
     recent_offer = {r["company_id"] for r in _rows(conn, "SELECT company_id FROM share_offers WHERE opens_period > %s", (period - data.OFFER_GAP_QUARTERS,))}
     recent_bond = {r["company_id"] for r in _rows(conn, "SELECT company_id FROM bonds WHERE issuer = 'company' AND issued_period > %s"
                                                         " AND issued_period > 0", (period - data.BOND_ISSUE_GAP_QUARTERS,))}
+    # New shares are priced from the lower of the market price and what the company is worth, so that a
+    # price nobody will pay cannot make an offer that nobody will take up.
+    basis = {c: min(p, worth[c]["value_per_share"]) if c in worth else p for c, p in prices.items()}
     order = lambda company, what: events._unit(seed, company["ticker"], period, what)          # noqa: E731
     listed = [(c, r) for c, r in results if c["id"] in prices and c["id"] not in busy]
 
@@ -728,7 +745,7 @@ def propose(conn: Connection, period: int, seed: str, now: datetime, results: li
         if result["total_equity"] > 0 and (rating in ("B", "CCC") or (rating in ("BBB", "BB") and (owed > 0 or result["net_profit"] < 0))):
             needy.append((-(owed or 1), company, result))
     for _, company, result in sorted(needy, key=lambda item: (item[0], item[1]["ticker"]))[:data.MOST_RIGHTS_ISSUES_A_QUARTER]:
-        price = max(prices[company["id"]] * (BPS - data.RIGHTS_DISCOUNT_BPS) // BPS, 1)
+        price = max(basis[company["id"]] * (BPS - data.RIGHTS_DISCOUNT_BPS) // BPS, 1)
         new, per = data.RIGHTS_TERMS
         shares = result["shares_in_issue"] * new // per
         owed = result["principal_overdue"] + result["payables"]
@@ -752,7 +769,7 @@ def propose(conn: Connection, period: int, seed: str, now: datetime, results: li
                   and prices[c["id"]] * BPS >= worth[c["id"]]["value_per_share"] * data.OFFER_WHEN_DEAR_BPS]
         if strong:
             _, company, result = min(strong, key=lambda item: (item[0], item[1]["ticker"]))
-            price = prices[company["id"]] * (BPS - data.OFFER_DISCOUNT_BPS) // BPS
+            price = basis[company["id"]] * (BPS - data.OFFER_DISCOUNT_BPS) // BPS
             shares = result["shares_in_issue"] * data.OFFER_SIZE_BPS // BPS
             announce_offer(conn, company, kind="public", price=price, shares=shares, period=period, now=now,
                            reason="It will use the money to expand and to borrow less.")
@@ -772,7 +789,8 @@ def propose(conn: Connection, period: int, seed: str, now: datetime, results: li
     for chance, company, result in borrowers:
         if issued >= data.MOST_BOND_ISSUES_A_QUARTER or chance > 0.15:
             break
-        if _issue_bond(conn, company, result, period, ratings[company["id"]], policy_rate_bps, order(company, "bond kind"), prices):
+        dearer = {c: max(p, worth[c]["value_per_share"]) if c in worth else p for c, p in prices.items()}
+        if _issue_bond(conn, company, result, period, ratings[company["id"]], policy_rate_bps, order(company, "bond kind"), dearer):
             issued += 1
 
     # 5. Now and then one company makes an offer for another.

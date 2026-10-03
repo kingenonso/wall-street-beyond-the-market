@@ -129,6 +129,13 @@ def market(conn: Connection, now: datetime) -> dict:
         if now >= start:
             ends = clock.next_quarter_end(now, start)
             left = min(max((ends - now) / timedelta(days=clock.REAL_DAYS_PER_QUARTER), 0.0), 1.0)
+            if clock.periods_completed(now, start) > world["last_closed_period"]:
+                left = 0.0            # the quarter has ended and is about to be closed: its payments are due now
+    shares = {r["company_id"]: r for r in _rows(
+        conn, "SELECT m.company_id, coalesce(m.last_price, m.reference_price) AS market,"
+              " coalesce((SELECT v.value_per_share FROM company_valuations v WHERE v.company_id = m.company_id"
+              "           ORDER BY v.period DESC LIMIT 1), coalesce(m.last_price, m.reference_price)) AS worth"
+              " FROM market_instruments m")}
     companies = {r["company_id"]: r for r in _rows(
         conn, "SELECT DISTINCT ON (company_id) company_id, credit_rating,"
               " coalesce((figures->'notes'->>'principal_overdue')::bigint, 0) AS overdue"
@@ -137,7 +144,7 @@ def market(conn: Connection, now: datetime) -> dict:
         "period": world["last_closed_period"] if world else 0,
         "policy": economy["next_policy_rate_bps"] if economy else data.OPENING_RATE_BPS,
         "index": economy["price_index_bps"] if economy else BPS,
-        "left": left, "companies": companies,
+        "left": left, "companies": companies, "shares": shares,
     }
 
 
@@ -180,7 +187,10 @@ def payments(bond: dict, state: dict) -> list[tuple[float, float]]:
             coupon, face = claim * (state["policy"] + bond["coupon_bps"]) / BPS / 4, float(claim)
         elif bond["kind"] == "inflation_linked":
             # The face value has risen with prices since issue, and is expected to keep rising at the target rate.
-            face = claim * state["index"] / (bond["issue_index_bps"] or BPS) * (1 + data.INFLATION_TARGET_BPS / BPS) ** years
+            # (Counted from when prices were last measured, at the last close, not from today: otherwise the
+            # value would sag through the quarter and jump back at the close.)
+            since_measured = years + (1 - state["left"]) / 4
+            face = claim * state["index"] / (bond["issue_index_bps"] or BPS) * (1 + data.INFLATION_TARGET_BPS / BPS) ** since_measured
             coupon = face * bond["coupon_bps"] / BPS / 4
         else:
             coupon, face = claim * bond["coupon_bps"] / BPS / 4, float(claim)
@@ -198,7 +208,17 @@ def fair_value(bond: dict, state: dict) -> int:
     if distressed(bond, state):
         # Lenders to a company in trouble expect to recover only part of what they are owed.
         value = min(value, _claim(bond) * data.DISTRESSED_RECOVERY_BPS / BPS)
-    return max(int(value), 1)
+    # A bond that can be swapped for shares is never worth less than the shares it swaps into.
+    return max(int(value), swap_value(bond, state, min), 1)
+
+
+def swap_value(bond: dict, state: dict, pick=min) -> int:
+    """What the shares a convertible bond swaps into are worth, in kobo for each bond: at the lower
+    (or the higher) of the share's market price and what the company is worth."""
+    if bond["kind"] != "convertible" or not bond.get("conversion_shares"):
+        return 0
+    share = state.get("shares", {}).get(bond["company_id"])
+    return bond["conversion_shares"] * pick(share["market"], share["worth"]) if share else 0
 
 
 def _half_spread(bond: dict, state: dict) -> int:
@@ -339,11 +359,12 @@ def holders(conn: Connection, asset: str) -> dict:
 # The Government's bonds at the close of a quarter
 # ---------------------------------------------------------------------------
 
-def government_service(conn: Connection, treasury, period: int, policy_rate_bps: int, index_bps: int) -> int:
+def government_service(conn: Connection, treasury, period: int, policy_rate_bps: int, index_bps: int) -> tuple[int, int]:
     """Pay this quarter's interest on the Government's bonds and repay those that have reached
-    their end. Returns what borrowing cost the Government this quarter: the interest, plus the
-    difference between what a bill was sold for and what it is repaid at."""
-    cost = 0
+    their end. Returns what borrowing cost the Government this quarter (the interest, plus the
+    difference between what a bill or bond was sold for and what it is repaid at), and how much
+    of its bonds (not bills) it repaid, which it will borrow again."""
+    cost, repaid_bonds = 0, 0
     held = held_account(conn)
     for bond in _load(conn, "b.issuer = 'government' AND b.redeemed_period IS NULL AND b.issued_period < %s", (period,), lock=True):
         owners = holders(conn, bond["asset"])
@@ -383,12 +404,15 @@ def government_service(conn: Connection, treasury, period: int, policy_rate_bps:
                         reference=f"bond:{bond['id']}", legs=legs)
             conn.execute("UPDATE bonds SET redeemed_period = %s WHERE id = %s", (period, bond["id"]))
             cost += max(repaid - sold_for, 0)
-    return cost
+            if bond["kind"] != "bill":
+                repaid_bonds += min(repaid, sold_for)
+    return cost, repaid_bonds
 
 
-def government_borrows(conn: Connection, treasury, period: int, collected: int) -> int:
-    """After a quarter closes: open the next bill, and sell new bonds to the pension funds to
-    cover a small planned shortfall. Returns what was raised to spend.
+def government_borrows(conn: Connection, treasury, period: int, collected: int, repaid: int = 0) -> int:
+    """After a quarter closes: open the next bill, and sell new bonds to the pension funds: enough
+    to replace the bonds just repaid, and to cover a small planned shortfall. Returns what was
+    raised to spend (what replaces repaid bonds is not for spending).
 
     The Government spends a little more than it collects, and borrows the difference from
     whoever will lend it (design document, section 10)."""
@@ -404,7 +428,7 @@ def government_borrows(conn: Connection, treasury, period: int, collected: int) 
     # A fresh set of bonds once a game year, so that there is always one of each length on sale.
     if not lines or period - max(b["issued_period"] for b in lines) >= clock.QUARTERS_PER_YEAR:
         lines = _new_government_lines(conn, period, state)
-    wanted = collected * data.GOVERNMENT_DEFICIT_BPS // BPS
+    wanted = collected * data.GOVERNMENT_DEFICIT_BPS // BPS + repaid
     room = max(ledger.balance(conn, dealer), 0) * data.GOVERNMENT_BOND_APPETITE_BPS // BPS
     budget = min(wanted, room)
     raised = 0
@@ -413,7 +437,7 @@ def government_borrows(conn: Connection, treasury, period: int, collected: int) 
         units = budget // len(lines) // price
         if units > 0:
             raised += _sell_new(conn, bond, treasury, dealer, units, price, period)
-    return raised
+    return max(raised - repaid, 0)
 
 
 def government_debt(conn: Connection) -> int:
@@ -544,7 +568,10 @@ def _pressure(conn: Connection, bond: dict, day, extra_units: int) -> int:
         conn,
         "SELECT coalesce(sum(CASE WHEN side = 'buy' THEN units ELSE -units END) FILTER (WHERE session_date = %s), 0)::bigint AS today,"
         "       coalesce(sum(CASE WHEN side = 'buy' THEN units ELSE -units END) FILTER (WHERE session_date = %s), 0)::bigint AS before"
-        " FROM bond_trades WHERE bond_id = %s AND session_date >= %s", (day, day - timedelta(days=1), bond["id"], day - timedelta(days=1)))
+        " FROM bond_trades t WHERE bond_id = %s AND session_date >= %s"
+        # Only what was bought from and sold to the pension funds moves their prices: bonds bought from the Treasury do not.
+        " AND counterparty = (SELECT id FROM ledger_accounts WHERE code = %s)",
+        (day, day - timedelta(days=1), bond["id"], day - timedelta(days=1), DEALER))
     level = net["today"] + net["before"] // 2 + extra_units
     moved = level * data.BOND_IMPACT_BPS * 100 // bond["units"]          # so much for each 1% of the whole issue
     return min(max(moved, -data.MOST_BOND_IMPACT_BPS), data.MOST_BOND_IMPACT_BPS)
@@ -556,8 +583,23 @@ def prices(conn: Connection, bond: dict, state: dict, day, *, buying: int = 1, s
     fair = fair_value(bond, state)
     half = _half_spread(bond, state)
     ask = -(-fair * (BPS + half + _pressure(conn, bond, day, buying)) // BPS)
+    # The desk never sells the right to swap for less than the shares are worth at their higher price.
+    ask = max(ask, -(-swap_value(bond, state, max) * (BPS + half) // BPS))
     bid = fair * (BPS - half + _pressure(conn, bond, day, -selling)) // BPS
     return {"fair": fair, "ask": max(ask, 1), "bid": max(min(bid, ask - 1), 0)}
+
+
+def books_open(conn: Connection, now: datetime) -> bool:
+    """False in the moments after a quarter has ended and before its books are closed. Nothing that
+    depends on the quarter's payments may be done then. Asking also waits for a close that is running."""
+    world = _one(conn, "SELECT world_start, weeks_ahead, last_closed_period FROM world_state FOR SHARE")
+    if world is None:
+        return True
+    start = clock.effective_start(world["world_start"], world["weeks_ahead"])
+    return clock.periods_completed(now, start) <= world["last_closed_period"]
+
+
+CLOSING = "The quarter has just ended and its books are being closed. Try again in a minute."
 
 
 def trade(conn: Connection, *, account: UUID | str, code: str, side: str, units: int, now: datetime) -> dict:
@@ -571,6 +613,8 @@ def trade(conn: Connection, *, account: UUID | str, code: str, side: str, units:
     if not isinstance(units, int) or isinstance(units, bool) or units <= 0:
         raise BondError("The number of bonds must be a whole number above zero.")
     with conn.transaction():
+        if not books_open(conn, now):
+            raise BondError(CLOSING)
         owner = _one(conn, "SELECT kind FROM ledger_accounts WHERE id = %s", (account,))
         if owner is None or owner["kind"] != "player":
             raise BondError("That account cannot trade at the bond desk.")
@@ -639,6 +683,8 @@ def ask_to_convert(conn: Connection, *, account: UUID | str, code: str, units: i
     if not isinstance(units, int) or isinstance(units, bool) or units <= 0:
         raise BondError("The number of bonds must be a whole number above zero.")
     with conn.transaction():
+        if not books_open(conn, now):
+            raise BondError(CLOSING)
         bond = find(conn, code, lock=True)
         if bond is None or bond["kind"] != "convertible":
             raise BondError("That is not a bond that can be swapped for shares.")
@@ -656,6 +702,8 @@ def ask_to_convert(conn: Connection, *, account: UUID | str, code: str, units: i
 
 def cancel_conversion(conn: Connection, *, account: UUID | str, request_id: int, now: datetime) -> None:
     with conn.transaction():
+        if not books_open(conn, now):
+            raise BondError(CLOSING)
         row = _one(conn, "SELECT v.*, b.asset, b.name FROM bond_conversions v JOIN bonds b ON b.id = v.bond_id"
                          " WHERE v.id = %s AND v.account_id = %s FOR UPDATE OF v", (request_id, account))
         if row is None or row["status"] != "waiting":
@@ -744,14 +792,19 @@ def listing(conn: Connection, now: datetime) -> list[dict]:
     dealer = ledger.account_id(conn, DEALER)
     on_offer = {r["asset"]: r["balance"] for r in _rows(
         conn, "SELECT asset, balance::bigint AS balance FROM ledger_balances WHERE account_id = %s AND asset LIKE 'BND-%%'", (dealer,))}
+    # While players are few, nothing here may show what they hold between them.
+    few = _one(conn, "SELECT count(*) AS n FROM players")["n"] < 20
     out = []
     for bond in _load(conn, "b.redeemed_period IS NULL"):
         if bond["issuer"] == "government" and bond["maturity_period"] <= state["period"]:
             continue
         if bond["issuer"] == "company" and bond["units"] <= 0:
             continue
-        out.append({**describe(bond, state), **prices(conn, bond, state, day),
-                    "on_offer": None if bond["issuer"] == "government" else on_offer.get(bond["asset"], 0)})
+        row = {**describe(bond, state), **prices(conn, bond, state, day),
+               "on_offer": None if bond["issuer"] == "government" or few else on_offer.get(bond["asset"], 0)}
+        if bond["issuer"] == "government" and few:
+            row["outstanding"] = None
+        out.append(row)
     return out
 
 

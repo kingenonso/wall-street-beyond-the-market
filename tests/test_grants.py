@@ -111,6 +111,8 @@ def test_taking_part_in_a_company_decision_earns_a_part(db, client):
         corporate.announce_offer(db, company, kind="rights", price=reference(db) * 70 // 100,
                                  shares=ledger.amount_in_existence(db, "SHR-IDC") // 3, period=0, reason="A test.", now=OPEN, rights=(1, 3))
     assert grants.review(db, player, OPEN)["steps"][3]["earned"] is False
+    ledger.transfer(db, payer=ledger.account_id(db, ledger.INVESTORS_PUBLIC), receiver=account, amount=10, asset="SHR-IDC",
+                    kind="test_shares", memo="Test: shares, so that there is a vote to cast")
     corporate.cast_vote(db, account=account, vote_id=_dicts(db, "SELECT id FROM company_votes")[0]["id"], choice="for", now=OPEN)
     assert grants.review(db, player, OPEN)["steps"][3]["earned"] is True
 
