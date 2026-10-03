@@ -98,6 +98,12 @@ class PlayerResponse(BaseModel):
     reputation: int
     profile_icon: ProfileIcon | None
     cash: Money
+    # Stage 5: the player's build and level. None until a build is chosen.
+    build: str | None = None
+    build_name: str | None = None
+    accent: str | None = None
+    level: int | None = None
+    employer: str | None = None
 
 
 class MovementResponse(BaseModel):
@@ -535,6 +541,7 @@ class TickerShare(BaseModel):
     ticker: str
     price_kobo: Kobo
     change_bps: int
+    traded_today: bool      # false: nobody has bought or sold it today, so there is no move to show
 
 
 class TickerResponse(BaseModel):
@@ -871,3 +878,328 @@ class GrantResponse(BaseModel):
     total_kobo: Kobo
     steps: list[GrantStep]
     next_payment_at: datetime | None
+
+
+# ---------------------------------------------------------------------------
+# Stage 5: careers and professional objectives.
+# ---------------------------------------------------------------------------
+
+BuildCode = Literal["asset_manager", "accountant"]
+
+
+class BuildRequest(Request):
+    build: BuildCode
+
+
+class TickerRequest(Request):
+    ticker: str = Field(pattern="^[A-Z]{3}$")
+
+
+class FundRequest(Request):
+    fund: Literal["growth", "balanced", "cautious", "income"]
+
+
+class BuildInfo(BaseModel):
+    code: str
+    name: str
+    accent: str
+    track: str
+    work: str
+    earns: str
+    cannot: str
+    employer_words: str
+
+
+class OtherBuild(BaseModel):
+    build: str
+    name: str
+    level: int
+
+
+class ReviewStanding(BaseModel):
+    opened_at: datetime
+    finished: int
+    passes: int
+    why: str
+    how_to_recover: str
+
+
+class CareerInfo(BaseModel):
+    build: str
+    build_name: str
+    accent: str
+    track: str
+    level: int
+    level_words: str
+    experience: int
+    level_floor: int
+    next_level_at: int | None
+    at_cap: bool
+    review_open: bool
+    review: ReviewStanding | None
+    other_builds: list[OtherBuild]
+
+
+class JobInfo(BaseModel):
+    ticker: str
+    name: str
+    headquarters: str
+    since: datetime
+    can_move: bool
+    owed_kobo: Kobo
+
+
+class BankInfo(BaseModel):
+    ticker: str
+    name: str
+    since: datetime
+    savings_rate_bps: int
+    can_move: bool
+
+
+class PayInfo(BaseModel):
+    gross_kobo: Kobo
+    pension_yours_kobo: Kobo
+    pension_employer_kobo: Kobo
+    tax_kobo: Kobo
+    living_costs_kobo: Kobo
+    take_home_kobo: Kobo
+    at_next_level_kobo: Kobo
+    worked_this_quarter: bool
+
+
+class Payslip(BaseModel):
+    period_label: str
+    employer: str
+    level: int
+    days_worked: int
+    worked: bool
+    gross_kobo: Kobo
+    pension_yours_kobo: Kobo
+    pension_employer_kobo: Kobo
+    tax_kobo: Kobo
+    living_costs_kobo: Kobo
+    take_home_kobo: Kobo
+    paid_kobo: Kobo
+    owed_kobo: Kobo
+    note: str
+
+
+class InterestPaid(BaseModel):
+    period_label: str
+    bank: str
+    lowest_balance_kobo: Kobo
+    rate_bps: int
+    amount_kobo: Kobo
+
+
+class PensionFund(BaseModel):
+    code: str
+    name: str
+    who_for: str
+    shares_bps: int
+    bonds_bps: int
+    cash_bps: int
+    last_return_bps: int | None
+
+
+class RetirementEntry(BaseModel):
+    period_label: str
+    fund: str
+    opening_kobo: Kobo
+    growth_kobo: Kobo
+    paid_in_by_you_kobo: Kobo
+    paid_in_by_employer_kobo: Kobo
+    closing_kobo: Kobo
+
+
+class RetirementInfo(BaseModel):
+    fund: str
+    value_kobo: Kobo
+    can_change: bool
+    funds: list[PensionFund]
+    entries: list[RetirementEntry]
+
+
+class CareerEvent(BaseModel):
+    kind: str
+    words: str
+    at: datetime
+
+
+class CareerResponse(BaseModel):
+    build: str | None
+    builds: list[BuildInfo]
+    later_builds: list[str]
+    reputation: int
+    can_change_build_at: datetime | None
+    career: CareerInfo | None
+    job: JobInfo | None
+    bank: BankInfo | None
+    pay: PayInfo | None
+    payslips: list[Payslip]
+    interest: list[InterestPaid]
+    retirement: RetirementInfo | None
+    events: list[CareerEvent]
+    next_pay_day: datetime | None
+
+
+class Opening(BaseModel):
+    ticker: str
+    name: str
+    sector: str
+    headquarters: str
+    rating: str | None
+    places_left: int
+    behind_on_bills: bool
+    gross_kobo: Kobo
+    take_home_kobo: Kobo
+    yours: bool
+
+
+class PlayerBank(BaseModel):
+    ticker: str
+    name: str
+    headquarters: str
+    rating: str | None
+    savings_rate_bps: int
+    yours: bool
+
+
+class AcceptRequest(Request):
+    template: str = Field(pattern="^[a-z_]{3,30}$")
+
+
+class HandInRequest(Request):
+    # What is handed in: a few numbers or choices, by the field's name. Checked field by field on the server.
+    answers: dict[str, float | str | dict[str, str]] = Field(max_length=12)
+
+    @field_validator("answers")
+    @classmethod
+    def small(cls, value: dict) -> dict:
+        for key, answer in value.items():
+            if len(key) > 30 or (isinstance(answer, str) and len(answer) > 30):
+                raise ValueError("That answer is too long.")
+            if isinstance(answer, dict) and (len(answer) > 20 or any(len(k) > 30 or len(v) > 30 for k, v in answer.items())):
+                raise ValueError("That answer is too long.")
+        return value
+
+
+class ObjectiveRow(BaseModel):
+    id: int
+    template: str
+    module: str
+    title: str
+    kind: str
+    idea: str
+    terms: dict
+    reward_kobo: Kobo
+    experience: int
+    payer: str
+    accepted_at: datetime
+    state: str
+    progress: dict
+    submission: dict | None
+    submitted_at: datetime | None
+    result: dict | None
+    judged_at: datetime | None
+    paid_kobo: Kobo
+    can_hand_in: bool
+
+
+class ObjectiveOffer(BaseModel):
+    template: str
+    module: str
+    title: str
+    idea: str
+    kind: str
+    level: int
+    reward_kobo: Kobo
+    experience: int
+    available: bool
+    why_not: str | None
+    payer: str | None
+    client: dict | None
+    situation: str | None = None
+    pass_when: str | None = None
+    deadline: str | None = None
+    practise_again: bool
+
+
+class Skill(BaseModel):
+    module: str
+    title: str
+    idea: str
+    level: int
+    open: bool
+    stage: str
+    passes: int
+    finished: int
+    practise_again: bool
+
+
+class ObjectivesResponse(BaseModel):
+    ready: bool
+    why: str | None
+    active: list[ObjectiveRow]
+    offers: list[ObjectiveOffer]
+    finished: list[ObjectiveRow]
+    skills: list[Skill]
+    coverage: dict
+    limit: int
+
+
+class StatementQuarter(BaseModel):
+    period: int
+    period_label: str
+    credit_rating: str
+    income_statement: dict[str, Kobo]
+    cash_flow: dict[str, Kobo]
+    balance_sheet: dict[str, Kobo]
+    notes: list[str]
+    ratios: dict[str, float | None]
+    tax_owed_kobo: Kobo
+    staff: int | None
+
+
+class WatchRow(BaseModel):
+    ticker: str
+    name: str
+    credit_rating: str
+    unpaid_bills_kobo: Kobo
+    overdue_debt_kobo: Kobo
+    cash_kobo: Kobo
+
+
+class AccountantDeskResponse(BaseModel):
+    ticker: str
+    name: str
+    sector: str
+    is_employer: bool
+    quarters: list[StatementQuarter]
+    companies: list[dict]
+    watch: list[WatchRow]
+    tax_rate_bps: int
+
+
+class AllocationSlice(BaseModel):
+    label: str
+    group: str
+    value_kobo: Kobo
+    share_bps: int
+
+
+class AssetDeskResponse(BaseModel):
+    total_kobo: Kobo
+    cash_kobo: Kobo
+    shares_kobo: Kobo
+    bonds_kobo: Kobo
+    change_today_bps: int | None
+    change_year_bps: int | None
+    index_change_year_bps: int | None
+    allocation: list[AllocationSlice]
+    sectors: list[AllocationSlice]
+    largest_bps: int
+    companies_held: int
+    industries_held: int
+    retirement_kobo: Kobo

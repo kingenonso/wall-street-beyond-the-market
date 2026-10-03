@@ -309,7 +309,7 @@ export type Ticker = {
   closing_rush: boolean;
   index: number;
   index_change_bps: number;
-  shares: { ticker: string; price_kobo: Kobo; change_bps: number }[];
+  shares: { ticker: string; price_kobo: Kobo; change_bps: number; traded_today: boolean }[];
 };
 
 export type BellMover = { ticker: string; name: string; close_kobo: Kobo; change_bps: number };

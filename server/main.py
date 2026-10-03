@@ -57,11 +57,15 @@ from server.schemas import (
     BellMover, ClosingBell, ClosingBellResponse, CompanyFactsResponse, Industry, IndustryCompany, IndustryPlace, LargeOrder,
     NetWorthDay, NextResults, ProfitPerShare, ReportQuarter, ResultsReportResponse, TickerResponse, TickerShare,
     BondHolding, BondRow, BondsResponse, BondTradeRequest, BondTradeResponse, ConvertRequest, CorporateResponse, CreditSpread,
+    AcceptRequest, AccountantDeskResponse, AllocationSlice, AssetDeskResponse, BankInfo, BuildInfo, BuildRequest, CareerEvent,
+    CareerInfo, CareerResponse, FundRequest, HandInRequest, InterestPaid, JobInfo, ObjectiveOffer, ObjectiveRow, ObjectivesResponse,
+    Opening, OtherBuild, PayInfo, Payslip, PensionFund, PlayerBank, RetirementEntry, RetirementInfo, ReviewStanding, Skill,
+    StatementQuarter, TickerRequest, WatchRow,
     CurvePoint, GrantResponse, GrantStep, IntegrationQuarter, IntegrationRow, Notice, OfferRow, OwnershipRow, SharesRequest,
     TakeoverRow, VoteRequest, VoteRow, WaitingSwap,
 )
 from simulation import clock, exchange, investors, ledger, moneywatch, news, news_kinds, players, quarters
-from simulation import bonds, closingbell, corporate, grants, insight, marketview
+from simulation import bonds, careers, closingbell, corporate, desks, grants, insight, marketview, objectives
 from simulation import world_data as data
 from simulation.ledger import NGN
 
@@ -155,12 +159,19 @@ def _age_on(day: date, born: date) -> int:
 def _player_response(conn: Connection, row: dict) -> PlayerResponse:
     account = ledger.player_account_id(conn, row["id"])
     cash = ledger.balance(conn, account) if account else 0
+    mine = careers.career(conn, row["id"]) if row.get("build") else None
+    job = careers.current_job(conn, row["id"]) if mine else None
     return PlayerResponse(
         id=str(row["id"]),
         display_name=row["display_name"],
         reputation=row["reputation"],
         profile_icon=row["profile_icon"],
         cash=Money(amount_kobo=cash, currency=NGN),
+        build=mine and mine["build"],
+        build_name=mine and careers.BUILDS[mine["build"]]["name"],
+        accent=mine and careers.BUILDS[mine["build"]]["accent"],
+        level=mine and mine["level"],
+        employer=job and job["name"],
     )
 
 
@@ -843,7 +854,8 @@ def price_ticker(_: dict = Depends(current_player), conn: Connection = Depends(g
     return TickerResponse(
         market_state=seen["state"], closing_rush=clock.in_closing_rush(now), index=seen["index"] / 100,
         index_change_bps=seen["index_change_bps"],
-        shares=[TickerShare(ticker=s["ticker"], price_kobo=s["price"], change_bps=s["change_bps"]) for s in seen["shares"]],
+        shares=[TickerShare(ticker=s["ticker"], price_kobo=s["price"], change_bps=s["change_bps"],
+                            traded_today=s["volume"] > 0) for s in seen["shares"]],
     )
 
 
@@ -1269,3 +1281,194 @@ def my_grant(player: dict = Depends(current_player), conn: Connection = Depends(
     seen = grants.review(conn, player["id"], _exchange_time(conn))
     return GrantResponse(received_kobo=seen["received"], total_kobo=seen["total"], next_payment_at=seen["next_payment_at"],
                          steps=[GrantStep(**s) for s in seen["steps"]])
+
+
+# ---------------------------------------------------------------------------
+# Stage 5. A player's working life: build, employer, bank, pay, retirement savings.
+# ---------------------------------------------------------------------------
+
+def _career(conn: Connection, player: dict) -> CareerResponse:
+    seen = careers.profile(conn, player["id"], _exchange_time(conn))
+    label = clock.period_label
+    money = lambda row, *keys: {f"{k}_kobo": row[k] for k in keys}                 # noqa: E731
+    pay = seen["pay"]
+    savings = seen["retirement"]
+    return CareerResponse(
+        build=seen["build"], builds=[BuildInfo(**b) for b in seen["builds"]], later_builds=seen["later_builds"],
+        reputation=seen["reputation"], can_change_build_at=seen["can_change_build_at"],
+        career=seen["career"] and CareerInfo(**{**seen["career"], "review": seen["career"]["review"] and ReviewStanding(**seen["career"]["review"]),
+                                               "other_builds": [OtherBuild(**o) for o in seen["career"]["other_builds"]]}),
+        job=seen["job"] and JobInfo(ticker=seen["job"]["ticker"], name=seen["job"]["name"], headquarters=seen["job"]["headquarters"],
+                                    since=seen["job"]["since"], can_move=seen["job"]["can_move"], owed_kobo=seen["job"]["owed"]),
+        bank=seen["bank"] and BankInfo(**seen["bank"]),
+        pay=pay and PayInfo(**money(pay, "gross", "pension_yours", "pension_employer", "tax", "living_costs", "take_home", "at_next_level"),
+                            worked_this_quarter=pay["worked_this_quarter"]),
+        payslips=[Payslip(period_label=label(p["period"]), employer=p["employer"], level=p["level"], days_worked=p["days_worked"],
+                          worked=p["worked"], note=p["note"],
+                          **money(p, "gross", "pension_yours", "pension_employer", "tax", "living_costs", "take_home", "paid", "owed"))
+                  for p in seen["payslips"]],
+        interest=[InterestPaid(period_label=label(i["period"]), bank=i["bank"], lowest_balance_kobo=i["lowest_balance"],
+                               rate_bps=i["rate_bps"], amount_kobo=i["amount"]) for i in seen["interest"]],
+        retirement=savings and RetirementInfo(
+            fund=savings["fund"], value_kobo=savings["value"], can_change=savings["can_change"],
+            funds=[PensionFund(code=f["code"], name=f["name"], who_for=f["for"], shares_bps=f["shares_bps"], bonds_bps=f["bonds_bps"],
+                               cash_bps=f["cash_bps"], last_return_bps=f["last_return_bps"]) for f in savings["funds"]],
+            entries=[RetirementEntry(period_label=label(e["period"]), fund=e["fund"],
+                                     **money(e, "opening", "growth", "paid_in_by_you", "paid_in_by_employer", "closing"))
+                     for e in savings["entries"]]),
+        events=[CareerEvent(**e) for e in seen["events"]], next_pay_day=seen["next_pay_day"],
+    )
+
+
+def _career_step(conn: Connection, player: dict, action) -> CareerResponse:
+    limits.allow("career", str(player["id"]), attempts=30, per_seconds=60)
+    try:
+        action(_exchange_time(conn))
+    except careers.CareerError as refused:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
+    return _career(conn, player)
+
+
+@app.get("/api/career", response_model=CareerResponse)
+def my_career(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _career(conn, player)
+
+
+@app.put("/api/career/build", response_model=CareerResponse)
+def choose_my_build(body: BuildRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _career_step(conn, player, lambda now: careers.choose_build(conn, player["id"], body.build, now))
+
+
+@app.get("/api/career/employers", response_model=list[Opening])
+def employers_hiring(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return [Opening(ticker=o["ticker"], name=o["name"], sector=o["sector"], headquarters=o["headquarters"], rating=o["rating"],
+                    places_left=o["places_left"], behind_on_bills=o["behind_on_bills"], gross_kobo=o["gross"],
+                    take_home_kobo=o["take_home"], yours=o["yours"])
+            for o in careers.openings(conn, player["id"], _exchange_time(conn))]
+
+
+@app.put("/api/career/job", response_model=CareerResponse)
+def take_a_job(body: TickerRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _career_step(conn, player, lambda now: careers.take_job(conn, player["id"], body.ticker, now))
+
+
+@app.delete("/api/career/job", response_model=CareerResponse)
+def leave_my_job(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _career_step(conn, player, lambda now: careers.leave_job(conn, player["id"], now))
+
+
+@app.get("/api/career/banks", response_model=list[PlayerBank])
+def the_six_banks(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return [PlayerBank(**b) for b in careers.banks(conn, player["id"], _exchange_time(conn))]
+
+
+@app.put("/api/career/bank", response_model=CareerResponse)
+def choose_my_bank(body: TickerRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _career_step(conn, player, lambda now: careers.choose_bank(conn, player["id"], body.ticker, now))
+
+
+@app.put("/api/career/retirement", response_model=CareerResponse)
+def choose_my_fund(body: FundRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _career_step(conn, player, lambda now: careers.choose_fund(conn, player["id"], body.fund, now))
+
+
+# ---------------------------------------------------------------------------
+# Professional objectives. The server sets the terms, judges the result and has the payer pay.
+# A player sees only their own work, and never an answer before it has been judged.
+# ---------------------------------------------------------------------------
+
+def _amounts_as_text(value):
+    """Amounts of money inside an objective's terms travel as text, like every other amount."""
+    if isinstance(value, dict):
+        return {k: (str(v) if k == "kobo" and isinstance(v, int) else _amounts_as_text(v)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_amounts_as_text(v) for v in value]
+    return value
+
+
+def _objective(row: dict) -> ObjectiveRow:
+    return ObjectiveRow(
+        id=row["id"], template=row["template"], module=row["module"], title=row["title"], kind=row["kind"], idea=row["idea"],
+        terms=_amounts_as_text(row["terms"]), reward_kobo=row["reward"], experience=row["experience"], payer=row["payer"],
+        accepted_at=row["accepted_at"], state=row["state"], progress=row["progress"], submission=row["submission"],
+        submitted_at=row["submitted_at"], result=row["result"], judged_at=row["judged_at"], paid_kobo=row["paid"],
+        can_hand_in=row["can_hand_in"])
+
+
+@app.get("/api/objectives", response_model=ObjectivesResponse)
+def my_objectives(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    seen = objectives.board(conn, player["id"], _exchange_time(conn))
+    return ObjectivesResponse(
+        ready=seen["ready"], why=seen["why"], active=[_objective(o) for o in seen["active"]],
+        offers=[ObjectiveOffer(**{**{k: v for k, v in o.items() if k != "reward"}, "reward_kobo": o["reward"]}) for o in seen["offers"]],
+        finished=[_objective(o) for o in seen["finished"]], skills=[Skill(**s) for s in seen["skills"]],
+        coverage=seen["coverage"], limit=seen["limit"])
+
+
+def _objective_step(player: dict, action) -> ObjectiveRow:
+    limits.allow("objective", str(player["id"]), attempts=30, per_seconds=60)
+    try:
+        return _objective(action())
+    except objectives.ObjectiveError as refused:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
+
+
+@app.post("/api/objectives", response_model=ObjectiveRow, status_code=status.HTTP_201_CREATED)
+def take_on_work(body: AcceptRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _objective_step(player, lambda: objectives.accept(conn, player["id"], body.template, _exchange_time(conn)))
+
+
+@app.post("/api/objectives/{objective_id}/hand-in", response_model=ObjectiveRow)
+def hand_work_in(
+    body: HandInRequest,
+    objective_id: int = FastPath(ge=1, le=9_000_000_000_000_000_000),
+    player: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    return _objective_step(player, lambda: objectives.submit(conn, player["id"], objective_id, body.answers, _exchange_time(conn)))
+
+
+@app.delete("/api/objectives/{objective_id}", response_model=ObjectiveRow)
+def give_work_up(
+    objective_id: int = FastPath(ge=1, le=9_000_000_000_000_000_000),
+    player: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    return _objective_step(player, lambda: objectives.withdraw(conn, player["id"], objective_id, _exchange_time(conn)))
+
+
+# ---------------------------------------------------------------------------
+# The build screens' own figures.
+# ---------------------------------------------------------------------------
+
+@app.get("/api/desk/asset-manager", response_model=AssetDeskResponse)
+def asset_manager_desk(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    seen = desks.asset_desk(conn, player["id"], _trading_account(conn, player), _exchange_time(conn))
+    piece = lambda a: AllocationSlice(label=a["label"], group=a["group"], value_kobo=a["value"], share_bps=a["share_bps"])   # noqa: E731
+    return AssetDeskResponse(
+        total_kobo=seen["total"], cash_kobo=seen["cash"], shares_kobo=seen["shares"], bonds_kobo=seen["bonds"],
+        change_today_bps=seen["change_today_bps"], change_year_bps=seen["change_year_bps"],
+        index_change_year_bps=seen["index_change_year_bps"], allocation=[piece(a) for a in seen["allocation"]],
+        sectors=[piece(a) for a in seen["sectors"]], largest_bps=seen["largest_bps"], companies_held=seen["companies_held"],
+        industries_held=seen["industries_held"], retirement_kobo=seen["retirement"])
+
+
+@app.get("/api/desk/accountant", response_model=AccountantDeskResponse)
+def accountant_desk(
+    ticker: str | None = Query(default=None, pattern="^[A-Z]{3}$"),
+    player: dict = Depends(current_player),
+    conn: Connection = Depends(get_connection),
+):
+    seen = desks.accountant_desk(conn, player["id"], ticker, _exchange_time(conn))
+    if seen is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no company with that code.")
+    return AccountantDeskResponse(
+        ticker=seen["ticker"], name=seen["name"], sector=seen["sector"], is_employer=seen["is_employer"],
+        quarters=[StatementQuarter(period=q["period"], period_label=q["period_label"], credit_rating=q["credit_rating"],
+                                   income_statement=q["income_statement"], cash_flow=q["cash_flow"], balance_sheet=q["balance_sheet"],
+                                   notes=q["notes"], ratios=q["ratios"], tax_owed_kobo=q["tax_owed"], staff=q["staff"])
+                  for q in seen["quarters"]],
+        companies=seen["companies"],
+        watch=[WatchRow(ticker=w["ticker"], name=w["name"], credit_rating=w["credit_rating"], unpaid_bills_kobo=w["unpaid"],
+                        overdue_debt_kobo=w["overdue"], cash_kobo=w["cash"]) for w in seen["watch"]],
+        tax_rate_bps=seen["tax_rate_bps"])

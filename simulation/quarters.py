@@ -17,8 +17,8 @@ from datetime import datetime
 from psycopg import Connection
 from psycopg.rows import dict_row
 
-from simulation import (banking, bonds, clock, companies, corporate, economy, events, exchange, grants, investors, ledger,
-                        macro, mindsets, moneywatch, news, valuation)
+from simulation import (banking, bonds, careers, clock, companies, corporate, economy, events, exchange, grants, investors, ledger,
+                        macro, marketview, mindsets, moneywatch, news, objectives, valuation)
 from simulation.money import BPS
 from simulation.ledger import NGN
 
@@ -47,6 +47,9 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
             if problems:
                 raise ledger.LedgerError("The ledger failed its end-of-quarter check: " + " ".join(problems))
             conn.execute("UPDATE world_state SET last_closed_period = %s", (period,))
+            # With every company's accounts filed and the new interest rate set, the professional
+            # work that was waiting for them is judged, and the payers pay.
+            objectives.at_close(conn, period, now)
         closed.append(period)
         log.info("Closed %s", clock.period_label(period))
 
@@ -185,6 +188,10 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
                          facts={"amount": news.money_words(borrowed), "rate": bonds._percent(bonds.government_yield_bps(measured["next_policy_rate_bps"], 20)),
                                 "total": news.money_words(owed)})
     grants.mark_holders(conn, now)
+    # Players' retirement savings grow by what their fund earned, and this quarter's saving is added.
+    day, _ = exchange.session_of(now)
+    careers.close_retirement(conn, period, marketview.index_level(marketview._shares(conn, day), marketview.index_base(conn)),
+                             measured["next_policy_rate_bps"])
 
 
 def _dicts(conn: Connection, sql: str, params=()) -> list[dict]:

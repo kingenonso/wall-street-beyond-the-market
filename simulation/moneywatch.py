@@ -146,9 +146,9 @@ def measure(conn: Connection, period: int, *, money: int, money_growth_bps: int,
 
     conn.execute(
         "INSERT INTO money_watch_results (period, reading, money, money_growth_bps, output_growth_bps, holders,"
-        " unusual_accounts, grants_left, reasons, action) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        " unusual_accounts, grants_left, reasons, action, paid_to_players) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (period, reading, money, money_growth_bps, output_growth_bps, Jsonb(shares), len(unusual), grants_left,
-         Jsonb(reasons), action),
+         Jsonb(reasons), action, Jsonb(paid_to_players(conn, period))),
     )
     return {"reading": reading, "reasons": reasons, "action": action, "rate_extra_bps": RATE_EXTRA_BPS[reading],
             "flagged": len(unusual)}
@@ -158,3 +158,16 @@ def lending_factor_bps(conn: Connection, period: int) -> int:
     """How freely banks may lend this quarter, given last quarter's reading."""
     last = _rows(conn, "SELECT reading FROM money_watch_results WHERE period = %s", (period - 1,))
     return LENDING_FACTOR_BPS[last[0]["reading"]] if last else BPS
+
+
+# What counts as money paid to a player for their work or by the game's rules (not from their own investing).
+PLAYER_INCOME = ("salary", "starting_grant", "professional_fee", "deposit_interest")
+
+
+def paid_to_players(conn: Connection, period: int) -> dict:
+    """Stage 5's measure: what players were paid in one quarter, by reason, and how many were paid."""
+    rows = _rows(conn, "SELECT t.kind, sum(e.amount)::bigint AS total, count(DISTINCT e.account_id) AS players"
+                       " FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
+                       " JOIN ledger_accounts a ON a.id = e.account_id WHERE a.kind = 'player' AND e.asset = 'NGN' AND e.amount > 0"
+                       " AND t.period = %s AND t.kind = ANY(%s) GROUP BY t.kind", (period, list(PLAYER_INCOME)))
+    return {r["kind"]: {"total": r["total"], "players": r["players"]} for r in rows}

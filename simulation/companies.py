@@ -318,10 +318,22 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     pension = operating_expenses - wages + apply_bps(wages, data.PENSION_EMPLOYEE_BPS)
     # (Sharing pay out over five locations in whole kobo can leave a few kobo
     # unshared; the cost recorded is exactly what was due.)
+    # Players on its staff are paid out of this same wage bill: each takes the place of one
+    # computer-run member of staff, so the company's costs are what they would have been.
+    packets = _careers().salaries_due(conn, company, period, ctx.wage_index_bps)
+    to_players = sum(p["gross"] - p["pension_yours"] for p in packets)
+    if to_players > (operating_expenses - pension) // 2:
+        raise BooksDoNotBalance(f"{name}: its players' salaries are more than half its wage bill for {label}.")
     operating_expenses = _pay_people(
-        conn, company, ctx, operating_expenses, kind="wages", pension=pension,
+        conn, company, ctx, operating_expenses - to_players, kind="wages", pension=pension,
         memo=f"{name}: wages and pension contributions, {label}", period=period,
     )
+    home = world.households.get(company["headquarters"]) or next(iter(world.households.values()))
+    operating_expenses += _careers().pay_salaries(conn, company, home["account_id"], world.treasury, packets, period, _owe)
+    # Fees it paid to professionals during the quarter (audit and other work done for it by players).
+    professional_fees = moves.get("professional_fee", {}).get("paid", 0)
+    if professional_fees:
+        notes.append(f"It paid {in_words(professional_fees)} in fees to professionals for work done for it.")
     wage_here = next(loc["quarterly_wage"] for loc in world.locations if loc["name"] == company["headquarters"])
     staff = max(wages // max(apply_bps(wage_here, ctx.wage_index_bps), 1), 1)      # pay rises with prices
     if prev["staff"] > 0:
@@ -367,6 +379,10 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
                     memo=f"{name}: interest on {debt['name']}, {label}",
                     period=period, reference=f"debt:{debt['id']}")
 
+    # A bank pays interest to the players who keep their cash with it.
+    if company["ticker"] in data.PLAYER_BANKS:
+        interest_expense += _careers().pay_deposit_interest(conn, company, period, ctx.policy_rate_bps, ctx.ratings.get(company["id"]))
+
     # Interest it has received as a lender this quarter, read from the ledger.
     # (Its borrowers close their quarters before it does, so all of it has arrived.)
     # Dividends from a company it owns shares in (after a takeover) are counted with it.
@@ -383,7 +399,8 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     elif loan_losses < 0:
         notes.append(f"It recovered {in_words(-loan_losses)} of loans it had written off.")
 
-    operating_profit = revenue + interest_income - cost_of_sales - operating_expenses - depreciation - loan_losses
+    operating_profit = (revenue + interest_income - cost_of_sales - operating_expenses - professional_fees
+                        - depreciation - loan_losses)
     profit_before_tax = operating_profit - interest_expense
     tax = apply_bps(profit_before_tax, ctx.tax_bps) if profit_before_tax > 0 else 0
     _pay_or_owe(conn, company, world.treasury, tax, kind="company_tax",
@@ -565,7 +582,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     trading_cash = (
         revenue + interest_income
         - supplies_bought - paid("cost_of_sales") - paid("wages") - paid("debt_interest") - paid("company_tax")
-        - paid("insurance_claim")
+        - paid("insurance_claim") - paid("salary") - paid("professional_fee") - paid("deposit_interest")
     )
     # Anything else that moved its cash did not come from the company's own quarter:
     # somebody paid it, or took from it, outside its normal business. Whatever it is,
@@ -620,7 +637,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     result = {
         "company_id": company["id"], "period": period,
         "revenue": revenue, "interest_income": interest_income, "cost_of_sales": cost_of_sales,
-        "operating_expenses": operating_expenses, "depreciation": depreciation,
+        "operating_expenses": operating_expenses + professional_fees, "depreciation": depreciation,
         "operating_profit": operating_profit, "interest_expense": interest_expense,
         "profit_before_tax": profit_before_tax, "tax": tax, "net_profit": net_profit,
         "cash_opening": cash_opening, "cash_from_operations": cash_from_operations,
@@ -841,3 +858,9 @@ def _banking():
     """The banking module, loaded when first needed (it also depends on this one's neighbours)."""
     from simulation import banking
     return banking
+
+
+def _careers():
+    """The careers module, loaded when first needed."""
+    from simulation import careers
+    return careers

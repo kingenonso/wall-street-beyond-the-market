@@ -198,6 +198,9 @@ def ring(conn: Connection, now: datetime) -> bool:
                      (ended, now, Jsonb(content)))
         conn.execute("INSERT INTO index_days (session_date, level) VALUES (%s, %s) ON CONFLICT DO NOTHING", (ended, level))
         snapshot_net_worth(conn, ended)
+        # Professional work that is judged on what a player holds is looked at as the bell rings.
+        from simulation import objectives
+        objectives.at_bell(conn, now, ended)
         return True
 
 

@@ -29,7 +29,7 @@ from simulation.fortune import fortune_bps
 from simulation.money import BPS, apply_bps
 
 # Reasons money reaches households, for their income record.
-_WAGE_KINDS = ("wages", "cost_of_sales")
+_WAGE_KINDS = ("wages", "cost_of_sales", "salary")      # "salary": what players' living costs pay to local households
 _GOVERNMENT_KINDS = ("government_wages",)
 _PENSION_KINDS = ("pension_payment",)
 
@@ -329,7 +329,7 @@ def companies_buy_inputs(conn: Connection, world: World, companies: list[dict], 
 
 
 CAPITAL_RETURNED = ("bond_redemption", "bond_trade", "bond_issue", "takeover_payment", "takeover_refund")
-GOVERNMENT_INCOME = ("company_tax", "debt_interest", "share_trade", "exchange_surplus")
+GOVERNMENT_INCOME = ("company_tax", "debt_interest", "share_trade", "exchange_surplus", "salary")   # "salary": the income tax taken from players' pay
 
 
 def government_spends(conn: Connection, world: World, period: int, *, borrowed: int = 0, debt_cost: int = 0) -> None:

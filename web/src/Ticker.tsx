@@ -25,19 +25,24 @@ export function PriceTicker() {
          aria-hidden={copy === 1 ? true : undefined}>
         <span className="mono strong">{s.ticker}</span>
         <span className="mono">{formatNaira(s.price_kobo)}</span>
-        <span className={`mono change-${way}`}>{arrow} {(Math.abs(s.change_bps) / 100).toFixed(1)}%</span>
+        {s.traded_today
+          ? <span className={`mono change-${way}`}>{arrow} {(Math.abs(s.change_bps) / 100).toFixed(1)}%</span>
+          : <span className="muted small">no trades yet</span>}
       </a>
     );
   };
+  const anyTrade = data.shares.some((s) => s.traded_today);
   const indexWay = data.index_change_bps > 0 ? "up" : data.index_change_bps < 0 ? "down" : "flat";
   return (
     <div className="ticker-bar" role="region" aria-label="Share prices">
       <a href="#/market" className="ticker-index">
         <span className="strong">BSX 50</span>
         <span className="mono">{data.index.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-        <span className={`mono change-${indexWay}`}>
-          {data.index_change_bps > 0 ? "▲" : data.index_change_bps < 0 ? "▼" : "–"} {(Math.abs(data.index_change_bps) / 100).toFixed(1)}%
-        </span>
+        {anyTrade ? (
+          <span className={`mono change-${indexWay}`}>
+            {data.index_change_bps > 0 ? "▲" : data.index_change_bps < 0 ? "▼" : "–"} {(Math.abs(data.index_change_bps) / 100).toFixed(1)}%
+          </span>
+        ) : <span className="muted small">no trades yet</span>}
         {data.closing_rush && <span className="pill pill-opening_auction">Closing Rush</span>}
       </a>
       <div className="ticker-window">

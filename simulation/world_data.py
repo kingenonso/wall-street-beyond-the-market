@@ -485,3 +485,36 @@ OFFER_FUNDS_SHARE_BPS = 5000       # in a sale to the public, pension funds ask 
 OFFER_PUBLIC_SHARE_BPS = 3000      # ...and small investors for three tenths
 FUNDS_ACCEPT_PREMIUM_BPS = 2500    # pension funds accept a takeover offer 25% or more above the market price
 BOARD_ACCEPTS_PREMIUM_BPS = 3000   # a target's board recommends an offer 30% or more above the market price
+
+# ---------------------------------------------------------------------------
+# Stage 5: players as professionals (sections 7, 9 and 10).
+# ---------------------------------------------------------------------------
+# Salary for each game month, by level, at the start of the game. Between these levels pay rises
+# smoothly. It keeps pace with wages in the economy.
+SALARY_PER_MONTH_NAIRA = ((1, 300_000), (20, 750_000), (40, 2_000_000), (60, 6_000_000), (80, 20_000_000), (100, 60_000_000))
+# "About 40% of salary is taken automatically for tax and living costs": 12% income tax, 20% living
+# costs, and the 8% every worker saves for retirement.
+SALARY_TAX_BPS = 1200
+SALARY_LIVING_BPS = 2000
+LEVEL_EXPERIENCE = 30              # level n needs 30 x n x (n - 1) experience: 60 for level 2, 11,400 for level 20
+LEVEL_CAP = 20                     # moving past level 20 needs a rank case (Stage 7)
+STAFF_PER_OPENING = 500            # a company has one opening for a player for every 500 people it employs
+BUILD_CHANGE_DAYS = 30             # a player may change build once in a real month
+MAX_BUILDS = 3
+MAX_ACTIVE_OBJECTIVES = 3
+REVIEW_FAILURES = 5                # five failures in any ten consecutive objectives opens a performance review
+REVIEW_WINDOW = 10
+REVIEW_LENGTH = 5                  # the next five pieces of work decide it...
+REVIEW_PASSES_NEEDED = 3           # ...three passes close it; fewer means stepping down a level
+# The six banks a player may choose from, and what share of the Central Bank's rate each pays on
+# cash left with it: the weaker the bank, the more it must pay to keep its customers.
+PLAYER_BANKS = ("HMB", "IKB", "KCB", "OBB", "OTB", "ZCB")
+SAVINGS_RATE_SHARE_BPS = {"AAA": 2400, "AA": 2700, "A": 3000, "BBB": 3300, "BB": 3700, "B": 4100, "CCC": 4500, "D": 0}
+# The four kinds of retirement fund: what share each keeps in shares, in bonds and in cash.
+PENSION_FUNDS = {
+    "growth":   {"name": "Growth",   "shares": 8000, "bonds": 2000, "cash": 0,    "for": "Players far from retirement who accept swings"},
+    "balanced": {"name": "Balanced", "shares": 5000, "bonds": 5000, "cash": 0,    "for": "The usual choice"},
+    "cautious": {"name": "Cautious", "shares": 2000, "bonds": 8000, "cash": 0,    "for": "Players close to retirement"},
+    "income":   {"name": "Income",   "shares": 0,    "bonds": 7000, "cash": 3000, "for": "Players already drawing a pension"},
+}
+PENSION_MANAGER_FEE_BPS = 5        # the fund manager's fee each quarter: a twentieth of one percent of the savings
