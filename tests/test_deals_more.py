@@ -51,7 +51,7 @@ def test_partners_put_in_money_and_own_their_share_of_the_company(db):
     cash = ledger.balance(db, other["account_id"])
     firm_deals.answer_partner(db, other_head, invite["partner_id"], True, LATER)
     assert ledger.balance(db, other["account_id"]) == cash - pledge and firm_deals.check_books(db) == []
-    bid = firm_deals.place_bid(db, team["head"], file_id, sale["asking"] * 3 // 2, 0, LATER)
+    bid = firm_deals.place_bid(db, team["head"], file_id, sale["asking"] * 13 // 10, 0, LATER)
     assert bid["partners"] == pledge and bid["equity"] == bid["price"] - pledge
     assert quarters.close_due_quarters(db, after_quarters(9)) == [9]
     deal = _one(db, "SELECT * FROM deals WHERE empire_id = %s", (lead["id"],))

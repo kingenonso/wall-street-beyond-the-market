@@ -55,6 +55,7 @@ LISTING_NEW_BPS = 2500             # a listing sells new shares of a quarter of 
 COMPUTER_HOLD = 8                  # a computer-run empire sells a company it has owned this many quarters
 ASSET_SALE_BPS = (6000, 3000)      # a used asset fetches 60% of its book value, and up to 30% more for good condition
 ADMIN_ASSET_BPS = 6000             # in administration, assets fetch 60% of book value
+SALE_FLOOR_BPS = 8000              # a head may not sell the empire's company for less than 80% of its valuation
 
 
 def _owned(conn: Connection, player_id, company_id, *, runner: bool = True) -> tuple[dict, dict, dict]:
@@ -591,6 +592,11 @@ def sell_to_empire(conn: Connection, head_id, company_id, asking: int, reserve: 
             raise EmpireError("The head decides to sell.")
         if mode not in ("sealed", "auction") or not _whole(asking, 1, 10**17) or not _whole(reserve, 1, asking):
             raise EmpireError("Name the way of selling, an asking price, and a lowest price at or below it.")
+        held_value = private.value_of(conn, company_id) * ledger.balance(conn, empire["account_id"], company["share_asset"]) // max(
+            ledger.amount_in_existence(conn, company["share_asset"]), 1)
+        if reserve * BPS < held_value * SALE_FLOOR_BPS:
+            raise EmpireError(f"A head may not sell the empire's company for less than {SALE_FLOOR_BPS // 100}% of what it is worth "
+                              f"({_money(apply_bps(held_value, SALE_FLOOR_BPS))}): that would be giving the members' money away.")
         if company["listed"] or _one(conn, "SELECT 1 FROM sale_processes WHERE company_id = %s AND status = 'open'", (company_id,)):
             raise EmpireError("That company is already on sale.")
         shares = ledger.balance(conn, empire["account_id"], company["share_asset"])
@@ -604,7 +610,10 @@ def buyer_offer(conn: Connection, company_id) -> dict:
     """What the computer-run buyer (the pension funds) would pay for every share the owners in empires hold."""
     company = _one(conn, "SELECT * FROM companies WHERE id = %s", (company_id,))
     in_issue = ledger.amount_in_existence(conn, company["share_asset"])
-    per_share = apply_bps(private.value_of(conn, company_id), BUYER_DISCOUNT_BPS) // max(in_issue, 1)
+    # The lower of its valuation now and its average over the last year: a quarter's profit pumped up does not sell.
+    year = _rows(conn, "SELECT value_per_share FROM company_valuations WHERE company_id = %s ORDER BY period DESC LIMIT 4", (company_id,))
+    average = sum(max(r["value_per_share"], 0) for r in year) // max(len(year), 1) * in_issue
+    per_share = apply_bps(min(private.value_of(conn, company_id), average), BUYER_DISCOUNT_BPS) // max(in_issue, 1)
     return {"per_share": per_share, "cash": ledger.balance(conn, ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS))}
 
 

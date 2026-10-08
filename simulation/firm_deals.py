@@ -58,6 +58,7 @@ AUCTION_STEP_BPS = 200                             # an auction bid must beat th
 ESCROW_BPS = 1000                                  # held back from the seller when the agreement says so
 CLAIM_WINDOW = 4                                   # quarters for a claim, unless the window is shortened
 COMPUTER_BID_CASH_BPS = 6000                       # a computer-run empire bids at most 60% of its cash
+OVERPAY_MOST_BPS = 15_000                          # no bid above 150% of the company's worth or its asking price
 
 CLAUSES = {
     # Fair clauses: the seller's promises, and the ordinary terms. Striking one out costs 0.5% and gains nothing.
@@ -373,6 +374,8 @@ def hand_in_step(conn: Connection, player_id, step_id: int, answers: dict, now: 
             raise EmpireError("The answers did not arrive in a form that can be read.")
         result = fd.mark({"conn": conn}, step["terms"], answers)
         score = max(0, min(100, int(result["score"])))
+        # The right answer is not shown: a check done badly must not tell the empire what it failed to find.
+        result = {**result, "lines": [{"label": line["label"], "right": line["right"]} for line in result["lines"]], "words": ""}
         words = _finish_step(conn, empire, found, sale, step, score >= firm.DUTY_PASS, now)
         conn.execute("UPDATE deal_steps SET status = 'done', score = %s, done_by = %s, answers = %s, found = %s, done_at = %s WHERE id = %s",
                      (score, player_id, Jsonb(answers), Jsonb(words), now, step_id))
@@ -643,6 +646,11 @@ def place_bid(conn: Connection, head_id, file_id: int, amount: int, loan: int, n
                 raise EmpireError(f"At this auction a bid must be at least {_money(least)}.")
         charge = apply_bps(amount, charge_bps(conn, sale["id"], empire["id"]))
         price = amount + charge
+        worth = private.value_of(conn, sale["company_id"]) * sale["shares"] // max(ledger.amount_in_existence(
+            conn, _one(conn, "SELECT share_asset FROM companies WHERE id = %s", (sale["company_id"],))["share_asset"]), 1)
+        if price * BPS > max(worth, sale["asking"]) * OVERPAY_MOST_BPS // BPS * BPS:
+            raise EmpireError(f"No board would let a price through at more than {OVERPAY_MOST_BPS // 100}% of the company's worth or the "
+                              f"asking price, whichever is higher ({_money(apply_bps(max(worth, sale['asking']), OVERPAY_MOST_BPS))}).")
         pending = _one(conn, "SELECT * FROM deal_bids WHERE process_id = %s AND empire_id = %s AND status = 'pending' FOR UPDATE",
                        (sale["id"], empire["id"]))
         partners = sum(r["amount"] for r in _rows(conn, "SELECT amount FROM deal_partners WHERE bid_id = %s AND status = 'pledged'",
@@ -942,8 +950,11 @@ def claim(conn: Connection, player_id, deal_id: int, code: str, now: datetime) -
             raise EmpireError("No promise in the agreement covers that.")
         if _one(conn, "SELECT 1 FROM deal_claims WHERE deal_id = %s AND code = %s", (deal_id, code)):
             raise EmpireError("That claim has been made.")
-        if not _one(conn, "SELECT 1 FROM deal_finds WHERE empire_id = %s AND company_id = %s AND code = %s", (empire["id"], deal["company_id"], code)):
+        known = _one(conn, "SELECT * FROM deal_finds WHERE empire_id = %s AND company_id = %s AND code = %s", (empire["id"], deal["company_id"], code))
+        if not known:
             raise EmpireError("The empire cannot claim what it does not know: nothing shows that promise was false.")
+        if known["at"] < deal["at"]:
+            raise EmpireError("The empire found this before it bought, and bid knowing it. A buyer cannot claim for what it priced in.")
         p = private.profile(conn, deal["company_id"])
         secret = next((s for s in p["secrets"] if s["code"] == code), None) if p else None
         terms = deal["terms"]

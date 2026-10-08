@@ -38,6 +38,12 @@ def truth(db, step_id):
     return _one(db, "SELECT terms FROM deal_steps WHERE id = %s", (step_id,))["terms"]["_truth"]
 
 
+def right_answers(db, step_id):
+    """The answers as a player would type them: percentages as percent, not hundredths of a percent."""
+    terms = _one(db, "SELECT terms FROM deal_steps WHERE id = %s", (step_id,))["terms"]
+    return {a["key"]: terms["_truth"][a["key"]] / 100 if a["kind"] == "percent" else terms["_truth"][a["key"]] for a in terms["asks"]}
+
+
 def an_open_sale(db, *, mode=None, secret=None):
     """An open sale of a private company, decided at the next close (opened by the founders)."""
     sql = ("SELECT s.* FROM sale_processes s JOIN private_profiles p ON p.company_id = s.company_id WHERE s.status = 'open'"
@@ -64,15 +70,16 @@ def open_a_sale(db, company_ticker=None, mode="sealed"):
     return _one(db, "SELECT * FROM sale_processes WHERE id = %s", (sale_id,))
 
 
-def do_checks(db, empire, team, file_id, *, well=True):
-    """Every desk does its check on the company; `well` answers with the truth."""
+def do_checks(db, empire, team, file_id, *, well=True, badly=()):
+    """Every desk does its check on the company; `well` answers with the truth (except the checks named in `badly`)."""
     for step in _dicts(db, "SELECT * FROM deal_steps WHERE file_id = %s ORDER BY id", (file_id,)):
         who = team["lawyer" if step["build"] == "lawyer" else step["build"]]
         firm_deals.open_step(db, who, step["id"], LATER)
-        answers = truth(db, step["id"]) if well else {k: 0 for k in truth(db, step["id"])}
+        answers = right_answers(db, step["id"]) if well and step["step"] not in badly else {k: 0 for k in truth(db, step["id"])}
         if "fair" in answers and not well:
             answers["fair"] = "nonsense"
-        firm_deals.hand_in_step(db, who, step["id"], answers, LATER)
+        done = firm_deals.hand_in_step(db, who, step["id"], answers, LATER)
+        assert (done["score"] == 100) == (well and step["step"] not in badly) or not well or step["step"] in badly
 
 
 # ---------------------------------------------------------------------------
@@ -252,10 +259,10 @@ def test_a_false_promise_is_claimed_against_the_money_held_back(db):
     sale = open_a_sale(db, dressed["ticker"])
     file_id = firm_deals.open_file(db, team["investment_banker"], sale["id"], LATER)["file_id"]
     firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
-    do_checks(db, empire, team, file_id)
+    do_checks(db, empire, team, file_id, badly=("accounts",))          # the Accountant misses the dressed accounts
     draft = {t["code"]: t for t in firm_deals.terms_view(db, sale["id"], empire["id"])}
     firm_deals.mark_terms(db, team["lawyer"], file_id, {**{c: "strike" for c, t in draft.items() if t["escape"]}, "escrow": "ask"}, LATER)
-    firm_deals.place_bid(db, team["head"], file_id, sale["asking"] * 3 // 2, 0, LATER)
+    firm_deals.place_bid(db, team["head"], file_id, sale["asking"] * 13 // 10, 0, LATER)
     assert quarters.close_due_quarters(db, after_quarters(9)) == [9]
     deal = _one(db, "SELECT * FROM deals WHERE empire_id = %s", (empire["id"],))
     assert deal is not None
@@ -266,7 +273,7 @@ def test_a_false_promise_is_claimed_against_the_money_held_back(db):
     assert _one(db, "SELECT escrow FROM deals WHERE id = %s", (deal["id"],))["escrow"] == max(deal["escrow"] - got["paid"], 0)
     with pytest.raises(empires.EmpireError, match="has been made"):
         firm_deals.claim(db, team["lawyer"], deal["id"], "dressed_revenue", when)
-    # A promise that was true is no claim at all.
+    # The truth came out on taking over the books: the claim stands. One found before buying would not.
     with pytest.raises(empires.EmpireError, match="does not know"):
         firm_deals.claim(db, team["lawyer"], deal["id"], "hidden_debt", when)
     assert firm_deals.check_books(db) == [] and ledger.audit(db) == []

@@ -531,7 +531,7 @@ def after_close(conn: Connection, period: int, results: list[tuple[dict, dict]],
         if company.get("walkout"):
             _news(conn, period + 1, 2, "walkout", f"walkout:{company['ticker']}:{period}",
                   {"company": company["name"], "city": company["headquarters"]})
-        _secrets_come_true(conn, company, p, period)
+        _secrets_come_true(conn, company, p, period, now)
     _rivals_answer_prices(conn, period)
     from simulation import firm_owned               # administration and plans are judged with the owners in view
     firm_owned.after_companies(conn, period, seed, now)
@@ -581,7 +581,7 @@ def _wear(conn: Connection, company: dict, result: dict, period: int, seed: str)
                           template["capacity"] if template else apply_bps(result["revenue"], SPARE_CAPACITY_BPS) // 6, life, period))
 
 
-def _secrets_come_true(conn: Connection, company: dict, p: dict, period: int) -> None:
+def _secrets_come_true(conn: Connection, company: dict, p: dict, period: int, now: datetime) -> None:
     """A secret that was set to bite does so now: a tax bill falls due, a customer is gone or a contract signed."""
     changed = False
     secrets = p["secrets"]
@@ -597,8 +597,8 @@ def _secrets_come_true(conn: Connection, company: dict, p: dict, period: int) ->
         if secret["done"]:
             owner = controller(conn, company["id"])
             if owner:
-                conn.execute("INSERT INTO deal_finds (empire_id, company_id, code, how, at) VALUES (%s, %s, %s, 'surfaced', now())"
-                             " ON CONFLICT DO NOTHING", (owner["empire_id"], company["id"], secret["code"]))
+                conn.execute("INSERT INTO deal_finds (empire_id, company_id, code, how, at) VALUES (%s, %s, %s, 'surfaced', %s)"
+                             " ON CONFLICT DO NOTHING", (owner["empire_id"], company["id"], secret["code"], now))
     if changed:
         conn.execute("UPDATE private_profiles SET secrets = %s WHERE company_id = %s", (Jsonb(secrets), company["id"]))
 
