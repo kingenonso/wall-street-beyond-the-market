@@ -7,7 +7,7 @@ done, and never more than one part in twenty hours. No part can be paid twice.
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import psycopg
 import pytest
@@ -124,7 +124,8 @@ def test_two_requests_at_the_same_moment_pay_a_part_once(db, client):
     place(db, seller, "sell", 10, price)
     place(db, account, "buy", 10, price)
     cash = ledger.balance(db, account)
-    when = datetime.fromisoformat("2026-10-09T13:00:00+01:00")
+    # The joining grant is stamped with the real time, so the next part is due a full gap after now, whatever day the test runs.
+    when = datetime.now(timezone.utc) + timedelta(hours=data.GRANT_STEP_GAP_HOURS + 1)
     problems = []
 
     def ask():

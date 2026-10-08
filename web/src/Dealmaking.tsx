@@ -264,7 +264,7 @@ function StartStake({ d, act }: { d: Any; act: Act }) {
         <option value="">Build a stake in…</option>
         {d.listed.map((c: Any) => <option key={c.company_id} value={c.company_id}>{c.name} ({c.ticker})</option>)}
       </select>
-      <input className="small-input" type="text" placeholder="Target % (under 30)" value={target} onChange={(e) => setTarget(e.target.value)} />
+      <input className="small-input" type="text" placeholder="Target % (below 30)" value={target} onChange={(e) => setTarget(e.target.value)} />
       <input className="small-input" type="text" placeholder="Most ₦ a share" value={most} onChange={(e) => setMost(e.target.value)} />
       <button className="button-outline" disabled={act.busy || !company || !Number(target) || !asKobo(most)}>Ask the head</button>
     </form>
@@ -318,7 +318,7 @@ function Portfolio({ d }: { d: Any }) {
   if (d.portfolio.length === 0) return null;
   return (
     <Panel title="Private-equity holdings" aside="At cost, and at the latest valuation · members only">
-      <table className="mini-table">
+      <div className="table-scroll"><table className="mini-table">
         <thead><tr><th>Company</th><th>Share</th><th>Paid</th><th>Worth now</th><th>Multiple</th><th>Held</th></tr></thead>
         <tbody>
           {d.portfolio.map((x: Any) => (
@@ -328,7 +328,7 @@ function Portfolio({ d }: { d: Any }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
       <p className="muted small">● the empire controls it. The multiple is what its share is worth now for each naira paid.</p>
     </Panel>
   );
@@ -357,7 +357,7 @@ function Combinations({ f, d, act }: { f: Any; d: Any; act: Act }) {
               <select value={company} onChange={(e) => setCompany(e.target.value)} aria-label="Company"><option value="">Split off…</option>{d.owned.map((o: Any) => <option key={o.company_id} value={o.company_id}>{o.name}</option>)}</select>
               <input className="small-input" type="text" placeholder="New empire's name" value={name} onChange={(e) => setName(e.target.value)} />
               <select value={head} onChange={(e) => setHead(e.target.value)} aria-label="Its head"><option value="">led by…</option>{d.members.map((m: Any) => <option key={m.player_id} value={m.player_id}>{m.name}</option>)}</select>
-              <input className="small-input" type="text" placeholder="Cash it takes ₦ (up to a tenth)" value={cash} onChange={(e) => setCash(e.target.value)} />
+              <input className="small-input" type="text" placeholder="Cash it takes ₦" value={cash} onChange={(e) => setCash(e.target.value)} />
               <button className="button-outline" disabled={act.busy || !company || name.trim().length < 3 || !head}>Put the split to the vote</button>
             </form>
           )}

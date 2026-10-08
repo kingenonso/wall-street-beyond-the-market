@@ -607,3 +607,10 @@ button.card { text-align: left; cursor: pointer; color: inherit; font: inherit; 
   .routes select, .exits input, .bid input { max-width: 100%; }
   .inline-form { flex-wrap: wrap; }
 }
+
+/* Part 2B: selects inside the small forms match the inputs beside them. */
+.inline-form select { padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; max-width: 100%; }
+.inline-form { align-items: center; }
+details.shadow { padding: 14px 18px; }
+details.shadow summary { cursor: pointer; }
+.table-scroll { overflow-x: auto; max-width: 100%; }
