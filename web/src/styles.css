@@ -438,7 +438,7 @@ a.tab:hover { text-decoration: none; }
 /* Stage 6: the other four builds. The head's screen keeps the game's gold; the War Room is neutral. */
 .app[data-accent="purple"] { --gold: #d08cf0; --gold-soft: rgba(208, 140, 240, 0.13); }
 .app[data-accent="orange"] { --gold: #ff9f45; --gold-soft: rgba(255, 159, 69, 0.13); }
-.app[data-accent="red"] { --gold: #ff6f8a; --gold-soft: rgba(255, 111, 138, 0.13); }
+.app[data-accent="silver"] { --gold: #dfe5ee; --gold-soft: rgba(223, 229, 238, 0.12); }   /* Legal Counsel: red is kept for losses and danger */
 .app[data-accent="blue"] { --gold: #6db3ff; --gold-soft: rgba(109, 179, 255, 0.13); }
 .app[data-accent="neutral"] { --gold: #c5cede; --gold-soft: rgba(197, 206, 222, 0.10); }
 .wordmark-main { color: #d9ae55; }                      /* the game's own name keeps its gold on every screen */
@@ -464,7 +464,7 @@ a.tab:hover { text-decoration: none; }
 .build-card.accent-green { --card-accent: #4fc38a; }
 .build-card.accent-purple { --card-accent: #d08cf0; }
 .build-card.accent-orange { --card-accent: #ff9f45; }
-.build-card.accent-red { --card-accent: #ff6f8a; }
+.build-card.accent-silver { --card-accent: #dfe5ee; }
 .build-card.accent-blue { --card-accent: #6db3ff; }
 .build-card h3 { color: var(--card-accent, var(--gold)); }
 .build-card.chosen { background: var(--gold-soft); }
@@ -614,3 +614,63 @@ button.card { text-align: left; cursor: pointer; color: inherit; font: inherit; 
 details.shadow { padding: 14px 18px; }
 details.shadow summary { cursor: pointer; }
 .table-scroll { overflow-x: auto; max-width: 100%; }
+
+/* Quick fixes (owner, 9 October 2026). */
+.trade-for { align-items: center; flex-wrap: wrap; }
+.trade-for .field-label { margin: 0 6px 0 0; }
+.notice-line { border-left: 3px solid var(--gold); padding: 6px 10px; background: var(--gold-soft); border-radius: 6px; }
+
+/* Quick fixes: the menu under the profile picture. */
+.profile-menu { position: relative; }
+.profile-button { position: relative; background: none; border: 0; padding: 0; cursor: pointer; border-radius: 50%; }
+.profile-button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.waiting-dot {
+  position: absolute; top: -1px; right: -1px; width: 11px; height: 11px; border-radius: 50%;
+  background: var(--gold); border: 2px solid var(--panel);
+}
+.profile-dropdown {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 50; min-width: 230px; display: grid;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 6px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+.profile-dropdown-head { display: grid; padding: 8px 10px 10px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.profile-dropdown a, .profile-dropdown button {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border-radius: 6px;
+  color: var(--text); text-decoration: none; background: none; border: 0; font: inherit; text-align: left; cursor: pointer;
+}
+.profile-dropdown a:hover, .profile-dropdown button:hover, .profile-dropdown a:focus-visible, .profile-dropdown button:focus-visible { background: var(--gold-soft); }
+.menu-flag { color: var(--gold); font-size: 12px; }
+
+/* Quick fixes: the quiet news pop-up. Small, at the bottom, gone on its own. */
+.news-toast {
+  position: fixed; left: 16px; bottom: 16px; z-index: 40; max-width: min(440px, calc(100vw - 32px));
+  display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 12px; border-radius: 10px;
+  background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--gold);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); font-size: 13px; animation: toast-in 0.25s ease-out;
+}
+.news-toast-text { display: grid; min-width: 0; flex: 1; }
+.news-toast-outlet { color: var(--muted); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
+.news-toast-headline { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.news-toast-button { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 4px 6px; font: inherit; }
+.news-toast-button:hover { color: var(--text); }
+@keyframes toast-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .news-toast { animation: none; } }
+
+/* Quick fixes: messages. */
+.messages-layout { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 760px) { .messages-layout { grid-template-columns: minmax(0, 1fr); } }
+.conversation-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.conversation-list a { display: grid; gap: 2px; padding: 8px; border-radius: 8px; }
+.conversation-list a:hover, .conversation-list .current a { background: var(--gold-soft); }
+.conversation-preview { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.plain-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.thread { display: grid; gap: 8px; max-height: 460px; overflow-y: auto; padding: 4px 2px 8px; }
+.bubble { max-width: 80%; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--border); }
+.bubble.mine { justify-self: end; background: var(--gold-soft); border-bottom-right-radius: 3px; }
+.bubble.theirs { justify-self: start; background: var(--bg); border-bottom-left-radius: 3px; }
+.bubble-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble-meta { margin-top: 4px; }
+.compose { display: grid; gap: 6px; margin-top: 10px; }
+.compose textarea, .compose input, .report-box input {
+  width: 100%; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit;
+}
+.report-box { display: grid; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }

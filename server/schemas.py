@@ -116,6 +116,11 @@ class PlayerResponse(BaseModel):
     employer: str | None = None
     # Stage 6: the empire the player holds a seat in, if any.
     empire: EmpireBadge | None = None
+    # Quick fixes: a dot on the profile picture when a rank case is open or one is ready to be taken,
+    # and whether the quiet news pop-ups are on.
+    rank_waiting: bool = False
+    news_alerts: bool = True
+    unread_messages: int = 0
 
 
 class MovementResponse(BaseModel):
@@ -1054,6 +1059,13 @@ class RetirementInfo(BaseModel):
     sound_finances: bool
     retired: bool
     can_retire: bool
+    can_retire_early: bool
+    pension_bps: int | None
+    full_pension_bps: int
+    early_pension_bps: int
+    early_level: int
+    early_quarters_to_go: int
+    early_label: str | None
     retirement_level: int
     quarters_to_go: int
     retires_label: str | None

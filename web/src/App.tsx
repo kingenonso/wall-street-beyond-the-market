@@ -19,6 +19,7 @@ import { useRoute } from "./hooks";
 import { ProfileRail, ProfileWork } from "./Profile";
 import { Panel, Shell } from "./Shell";
 import { RankRail, RankWork } from "./Rank";
+import { MessagesRail, MessagesWork } from "./Messages";
 import { WorkRail, WorkWork } from "./Work";
 import { useClock } from "./useClock";
 
@@ -35,6 +36,13 @@ export function App() {
   const loggedOut = useCallback(() => setPlayer(null), []);
   // After a trade, the cash shown in the top bar is read again.
   const refreshPlayer = useCallback(() => { api.me().then(setPlayer).catch(() => undefined); }, []);
+
+  // The dot under the profile picture (a rank case, unread messages) is kept fresh.
+  useEffect(() => {
+    if (!player) return;
+    const timer = window.setInterval(refreshPlayer, 60_000);
+    return () => window.clearInterval(timer);
+  }, [player === null || player === undefined, refreshPlayer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function logout() {
     await api.logout().catch(() => undefined);
@@ -126,6 +134,10 @@ export function App() {
     current = "career";
     work = <CareerWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <CareerRail player={player} onLoggedOut={loggedOut} />;
+  } else if (section === "messages") {
+    current = "messages";
+    work = <MessagesWork key={item ?? ""} with={item ? decodeURIComponent(item) : undefined} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <MessagesRail />;
   } else if (section === "profile") {
     current = "profile";
     work = <ProfileWork player={player} onChanged={setPlayer} />;
@@ -139,5 +151,5 @@ export function App() {
     rail = <></>;
   }
 
-  return <Shell player={player} live={live} current={current} onLogout={logout} work={work} rail={rail} accent={accent} />;
+  return <Shell player={player} live={live} current={current} onLogout={logout} onPlayer={setPlayer} work={work} rail={rail} accent={accent} />;
 }

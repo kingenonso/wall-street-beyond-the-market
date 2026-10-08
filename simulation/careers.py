@@ -56,7 +56,7 @@ BUILDS = {
         "employer_words": "the banks and the insurers, whose business is carrying risk",
     },
     "lawyer": {
-        "name": "Legal Counsel", "accent": "red", "track": "Law",
+        "name": "Legal Counsel", "accent": "silver", "track": "Law",
         "work": "Contracts, due diligence, title checks, litigation and regulatory filings.",
         "earns": "Salary, legal fees, and case and transaction bonuses.",
         "cannot": "Change the financial terms of a deal.",
@@ -650,7 +650,7 @@ def close_retirement(conn: Connection, period: int, index_level: int, policy_rat
         paid_out = 0
         if account["retired_period"] is not None and closing > 0:
             # A pension is paid by the pension funds, out of the money they hold, to the player's own account.
-            wanted = closing if closing < naira(10_000) else apply_bps(closing, data.PENSION_PAID_BPS)
+            wanted = closing if closing < naira(10_000) else apply_bps(closing, account["pension_bps"] or data.PENSION_PAID_BPS)
             paid_out = ledger.pay_up_to(conn, payer=pension_funds, receiver=ledger.player_account_id(conn, account["player_id"]),
                                         wanted=wanted, kind="pension_to_player", period=period,
                                         memo=f"Pension for {clock.period_label(period)}", reference=f"pension:{account['player_id']}:{period}")
@@ -702,12 +702,16 @@ def retirement_opens(conn: Connection, player_id, period: int) -> dict:
     top = max((level_for(r["experience"], r["rank"]) for r in _rows(conn, "SELECT experience, rank FROM careers WHERE player_id = %s", (player_id,))), default=1)
     worked = _one(conn, "SELECT count(*) AS n FROM payslips WHERE player_id = %s AND worked AND gross > 0", (player_id,))["n"]
     to_go = max(data.RETIREMENT_AFTER_QUARTERS - worked, 0)
+    early_to_go = max(data.EARLY_RETIREMENT_AFTER_QUARTERS - worked, 0)
     return {"eligible": top >= data.RETIREMENT_LEVEL or worked >= data.RETIREMENT_AFTER_QUARTERS, "level": top,
-            "quarters_worked": worked, "quarters_to_go": to_go, "at_period": period + to_go if worked else None}
+            "early_eligible": top >= data.EARLY_RETIREMENT_LEVEL or worked >= data.EARLY_RETIREMENT_AFTER_QUARTERS,
+            "quarters_worked": worked, "quarters_to_go": to_go, "early_quarters_to_go": early_to_go,
+            "at_period": period + to_go if worked else None, "early_at_period": period + early_to_go if worked else None}
 
 
-def retire(conn: Connection, player_id, now: datetime) -> None:
-    """Start drawing the pension. It is paid every quarter from then on. The player may keep working."""
+def retire(conn: Connection, player_id, now: datetime, *, early: bool = False) -> None:
+    """Start drawing the pension. It is paid every quarter from then on. The player may keep working.
+    Early retirement (after 20 quarters of work or at Level 35) pays a smaller pension, fixed for good."""
     with conn.transaction():
         books_open(conn, now)
         state = world_now(conn, now)
@@ -715,12 +719,19 @@ def retire(conn: Connection, player_id, now: datetime) -> None:
         if account is None or account["retired_period"] is not None:
             raise CareerError("Your pension is already being paid." if account else "You have no retirement savings yet.")
         opens = retirement_opens(conn, player_id, state["period"])
-        if not opens["eligible"]:
+        if early:
+            if opens["eligible"]:
+                raise CareerError("You already qualify for the full pension. Begin that instead: it pays more.")
+            if not opens["early_eligible"]:
+                raise CareerError(f"Early retirement opens at Level {data.EARLY_RETIREMENT_LEVEL}, or after five game years of work. "
+                                  f"You have {opens['early_quarters_to_go']} quarters to go.")
+        elif not opens["eligible"]:
             raise CareerError(f"Retirement opens at Level {data.RETIREMENT_LEVEL}, or after ten game years of work. "
                               f"You have {opens['quarters_to_go']} quarters to go.")
-        conn.execute("UPDATE retirement_accounts SET retired_period = %s WHERE player_id = %s", (state["period"], player_id))
+        rate = data.EARLY_PENSION_PAID_BPS if early else data.PENSION_PAID_BPS
+        conn.execute("UPDATE retirement_accounts SET retired_period = %s, pension_bps = %s WHERE player_id = %s", (state["period"], rate, player_id))
         build = _one(conn, "SELECT build FROM players WHERE id = %s", (player_id,))["build"]
-        _event(conn, player_id, build, "retired", "Began drawing a pension.", now)
+        _event(conn, player_id, build, "retired", "Began drawing an early pension (a smaller one, for good)." if early else "Began drawing a pension.", now)
 
 
 def early_withdrawal(conn: Connection, player_id, amount: int, now: datetime, why: str, receiver=None) -> int:
@@ -811,6 +822,10 @@ def profile(conn: Connection, player_id, now: datetime) -> dict:
             "extra_bps": savings["extra_bps"], "most_extra_bps": data.EXTRA_SAVING_MOST_BPS, "match_most_bps": data.EMPLOYER_MATCH_MOST_BPS,
             "sound_finances": sound_finances(conn, player_id, state["wage_index_bps"]),
             "retired": savings["retired_period"] is not None, "can_retire": opens["eligible"] and savings["retired_period"] is None,
+            "can_retire_early": opens["early_eligible"] and not opens["eligible"] and savings["retired_period"] is None,
+            "pension_bps": savings["pension_bps"], "full_pension_bps": data.PENSION_PAID_BPS, "early_pension_bps": data.EARLY_PENSION_PAID_BPS,
+            "early_level": data.EARLY_RETIREMENT_LEVEL, "early_quarters_to_go": opens["early_quarters_to_go"],
+            "early_label": clock.period_label(opens["early_at_period"]) if opens["early_at_period"] else None,
             "retirement_level": data.RETIREMENT_LEVEL, "quarters_to_go": opens["quarters_to_go"],
             "retires_label": clock.period_label(opens["at_period"]) if opens["at_period"] else None,
             "early_withdrawal_used": savings["early_withdrawn_period"] is not None,

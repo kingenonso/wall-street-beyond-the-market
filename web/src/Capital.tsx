@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, ApiError, type Bond, type BondHolding, type Corporate, type Offer, type Takeover, type Vote } from "./api";
+import { api, ApiError, type Bond, type BondHolding, type Corporate, type EmpireView, type Offer, type Takeover, type Vote } from "./api";
 import { formatCompact, formatNaira, formatPercent } from "./format";
 import { useLoad } from "./hooks";
 import { Change, Failed, Loading, Panel, Rating } from "./Shell";
@@ -13,7 +13,13 @@ function GroupTitle({ children }: { children: string }) {
   return <div className="why-title" style={{ marginTop: 14 }}>{children}</div>;
 }
 
-function BondLine({ bond, mine, deskOpen, onDone }: { bond: Bond; mine?: BondHolding; deskOpen: boolean; onDone: (text: string) => void }) {
+type Room = NonNullable<EmpireView["room"]>;
+
+function BondLine({ bond, mine, deskOpen, onDone, room }: {
+  bond: Bond; mine?: BondHolding; deskOpen: boolean; onDone: (text: string) => void;
+  /** Set when the player is trading for their empire, with its money. */
+  room?: Room | null;
+}) {
   const [units, setUnits] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -25,7 +31,14 @@ function BondLine({ bond, mine, deskOpen, onDone }: { bond: Bond; mine?: BondHol
     setBusy(true);
     setProblem(null);
     try {
-      if (what === "swap") {
+      if (room && what !== "swap") {
+        const before = room.bond_holdings.find((h) => h.code === bond.code)?.units ?? 0;
+        const view = await api.tradeEmpireBond(bond.code, what, wanted);
+        const after = view.room?.bond_holdings.find((h) => h.code === bond.code)?.units ?? 0;
+        onDone(view.notice ?? (after !== before
+          ? `For ${room.name}: ${what === "buy" ? "bought" : "sold"} ${count(wanted)} of ${bond.name}, with the empire's money.`
+          : `For ${room.name}: the order for ${count(wanted)} of ${bond.name} waits for the empire's Risk Manager to approve it.`));
+      } else if (what === "swap") {
         await api.swapBond(bond.code, wanted);
         onDone(`${count(wanted)} of ${bond.name} will be swapped for ${count(wanted * (bond.conversion_shares ?? 0))} shares when the quarter closes.`);
       } else {
@@ -63,7 +76,10 @@ function BondLine({ bond, mine, deskOpen, onDone }: { bond: Bond; mine?: BondHol
           <div><span className="muted small">Yearly return wanted</span> <span className="mono">{formatPercent(bond.yield_bps, 2)}</span></div>
         </div>
       </div>
-      {mine && (
+      {room ? (() => {
+        const held = room.bond_holdings.find((h) => h.code === bond.code);
+        return held ? <div className="small bond-mine">{room.name} holds <span className="mono strong">{count(held.units)}</span>, worth {formatNaira(held.value_kobo)}.</div> : null;
+      })() : mine && (
         <div className="small bond-mine">
           You hold <span className="mono strong">{count(mine.units)}</span>, worth {formatNaira(mine.value_kobo)}
           {BigInt(mine.cost_kobo) > 0n && <> (cost {formatNaira(mine.cost_kobo)})</>}
@@ -75,8 +91,8 @@ function BondLine({ bond, mine, deskOpen, onDone }: { bond: Bond; mine?: BondHol
           <input inputMode="numeric" value={units} onChange={(e) => setUnits(e.target.value)} placeholder="0" aria-label={`How many of ${bond.name}`} />
         </label>
         <button className="button-outline" disabled={busy || !canBuy} onClick={() => act("buy")}>Buy</button>
-        <button className="button-quiet" disabled={busy || !deskOpen || !mine} onClick={() => act("sell")}>Sell</button>
-        {bond.kind === "convertible" && <button className="button-quiet" disabled={busy || !mine} onClick={() => act("swap")}>Swap for shares</button>}
+        <button className="button-quiet" disabled={busy || !deskOpen || !(room ? room.bond_holdings.some((h) => h.code === bond.code) : mine)} onClick={() => act("sell")}>Sell</button>
+        {bond.kind === "convertible" && !room && <button className="button-quiet" disabled={busy || !mine} onClick={() => act("swap")}>Swap for shares</button>}
         <span className="small muted">
           {wanted ? `${count(wanted)} cost ${formatNaira((BigInt(bond.ask_kobo) * BigInt(wanted)).toString())}` : ""}
           {bond.on_offer !== null && ` · ${count(bond.on_offer)} on offer`}
@@ -95,13 +111,18 @@ const GROUPS: [string, (b: Bond) => boolean, string][] = [
 
 export function BondsWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void; onChanged: () => void }) {
   const desk = useLoad(api.bonds, "bonds", onLoggedOut);
+  const empire = useLoad(api.empires, "bond-desk-empire", onLoggedOut);
+  // An empire's Asset Manager, or its head, may trade here with the empire's money as well as their own.
+  const room = empire.data?.room && empire.data.room.status === "active" && empire.data.room.can_trade ? empire.data.room : null;
+  const [forEmpire, setForEmpire] = useState(false);
+  const empireRoom = forEmpire ? room : null;
   const [done, setDone] = useState<string | null>(null);
   if (desk.loading && !desk.data) return <Loading what="the bond desk" />;
   if (desk.error) return <Failed message={desk.error} onRetry={desk.reload} />;
   if (!desk.data) return null;
   const d = desk.data;
   const mine = new Map(d.holdings.map((h) => [h.code, h]));
-  const finished = (text: string) => { setDone(text); desk.reload(); onChanged(); };
+  const finished = (text: string) => { setDone(text); desk.reload(); empire.reload(); onChanged(); };
 
   return (
     <>
@@ -111,6 +132,20 @@ export function BondsWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void;
           the end. You trade with the pension funds' bond desk, at its prices. Every bond shows two prices: its fair value,
           worked out in the open, and what the desk will actually sell and buy it for.
         </p>
+        {room && (
+          <div className="choice trade-for" role="group" aria-label="Trade for">
+            <span className="field-label">Trade for</span>
+            <button type="button" aria-pressed={!forEmpire} onClick={() => setForEmpire(false)}>Me</button>
+            <button type="button" aria-pressed={forEmpire} onClick={() => setForEmpire(true)}>My empire: {room.name}</button>
+          </div>
+        )}
+        {empireRoom && (
+          <p className="small notice-line">
+            ◆ The empire's money: {formatNaira(empireRoom.cash_kobo)} in cash.{" "}
+            {empireRoom.is_head ? "As head you trade without a limit." : `Your limit this quarter is ${formatNaira(empireRoom.trade_limit_kobo)}, of which ${formatNaira(empireRoom.trade_used_kobo)} is used.`}
+            {" "}What you buy belongs to the empire, not to you.
+          </p>
+        )}
         {done && <div className="notice" role="status">{done}</div>}
         {d.holdings.length > 0 && (
           <p className="small">
@@ -132,7 +167,7 @@ export function BondsWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void;
             <div key={title}>
               <GroupTitle>{title}</GroupTitle>
               <p className="small muted">{words}</p>
-              {rows.map((bond) => <BondLine key={bond.code} bond={bond} mine={mine.get(bond.code)} deskOpen={d.desk_open} onDone={finished} />)}
+              {rows.map((bond) => <BondLine key={bond.code} bond={bond} mine={mine.get(bond.code)} deskOpen={d.desk_open} onDone={finished} room={empireRoom} />)}
             </div>
           );
         })}

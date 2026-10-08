@@ -125,6 +125,16 @@ def standing(conn: Connection, player_id, now: datetime) -> dict:
     return out
 
 
+def waiting(conn: Connection, player_id, mine: dict, now: datetime) -> bool:
+    """True when the player has a rank case in hand, or could begin their build's case now. Shown as a dot
+    on the profile picture. Cheap when the player is short of the gate, which is most of the time."""
+    if _one(conn, "SELECT 1 FROM rank_cases WHERE player_id = %s AND state = 'active'", (player_id,)):
+        return True
+    if mine["rank"] >= len(data.RANK_GATES) or mine["level"] < careers.level_cap(mine["rank"]):
+        return False
+    return _track_standing(conn, player_id, mine, mine["build"], careers.world_now(conn, now), now, None)["can_begin"]
+
+
 def _retry_at(conn: Connection, player_id, track: str) -> datetime | None:
     last = _one(conn, "SELECT judged_at FROM rank_cases WHERE player_id = %s AND track = %s AND state IN ('failed', 'not_done')"
                       " ORDER BY id DESC LIMIT 1", (player_id, track))

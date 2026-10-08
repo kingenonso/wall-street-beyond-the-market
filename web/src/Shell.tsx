@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import type { Player } from "./api";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { api, type NewsAlert, type NewsAlertMark, type Player } from "./api";
 import { formatCompact, formatLagosDate, formatLagosTime, MARKET_LABEL } from "./format";
 import { ProfilePicture } from "./icons";
 import { PriceTicker } from "./Ticker";
@@ -31,7 +31,9 @@ function gameDate(live: LiveClock): string {
 }
 
 /** Zone 1 of the standard layout: the top bar. */
-function TopBar({ player, live }: { player: Player; live: LiveClock | null }) {
+function TopBar({ player, live, onLogout, onPlayer }: {
+  player: Player; live: LiveClock | null; onLogout: () => void; onPlayer?: (player: Player) => void;
+}) {
   return (
     <header className="topbar">
       <a href="#/" className="plain-link"><Wordmark /></a>
@@ -58,11 +60,139 @@ function TopBar({ player, live }: { player: Player; live: LiveClock | null }) {
             {player.build_name && <> · <a href="#/career" className="build-badge">{player.build_name} · Level {player.level}</a></>}
           </div>
         </div>
-        <a href="#/profile" aria-label="Your profile picture" className="plain-link">
-          <ProfilePicture icon={player.profile_icon} name={player.display_name} />
-        </a>
+        <ProfileMenu player={player} onLogout={onLogout} onPlayer={onPlayer} />
       </div>
     </header>
+  );
+}
+
+/**
+ * The profile picture in the top right opens a small menu: the player's profile, their rank,
+ * their messages, the news pop-ups switch, and logging out. A dot on the picture says something
+ * is waiting (a rank case, or a message not yet read).
+ */
+function ProfileMenu({ player, onLogout, onPlayer }: { player: Player; onLogout: () => void; onPlayer?: (player: Player) => void }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const waiting = player.rank_waiting || player.unread_messages > 0;
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: MouseEvent) => { if (box.current && !box.current.contains(event.target as Node)) setOpen(false); };
+    const key = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", key); };
+  }, [open]);
+  useEffect(() => {
+    const closeOnMove = () => setOpen(false);
+    window.addEventListener("hashchange", closeOnMove);
+    return () => window.removeEventListener("hashchange", closeOnMove);
+  }, []);
+  function toggleNews() {
+    api.setNewsAlerts(!player.news_alerts).then((p) => onPlayer?.(p)).catch(() => undefined);
+  }
+  return (
+    <div className="profile-menu" ref={box}>
+      <button
+        className="profile-button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={waiting ? "Your menu (something is waiting)" : "Your menu"}
+        onClick={() => setOpen(!open)}
+      >
+        <ProfilePicture icon={player.profile_icon} name={player.display_name} />
+        {waiting && <span className="waiting-dot" aria-hidden="true" />}
+      </button>
+      {open && (
+        <div className="profile-dropdown" role="menu">
+          <div className="profile-dropdown-head">
+            <span className="strong">{player.display_name}</span>
+            {player.build_name && <span className="muted small">{player.build_name} · Level {player.level}</span>}
+          </div>
+          <a role="menuitem" href="#/profile">Profile</a>
+          {player.build_name && (
+            <a role="menuitem" href="#/rank">
+              Rank
+              {player.rank_waiting && <span className="menu-flag">◆ a case is waiting</span>}
+            </a>
+          )}
+          <a role="menuitem" href="#/messages">
+            Messages
+            {player.unread_messages > 0 && <span className="count" aria-label={`${player.unread_messages} unread`}>{player.unread_messages}</span>}
+          </a>
+          <button role="menuitemcheckbox" aria-checked={player.news_alerts} onClick={toggleNews}>
+            News pop-ups <span className="muted small">{player.news_alerts ? "● On" : "○ Off"}</span>
+          </button>
+          <button role="menuitem" onClick={onLogout}>Log out</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Quiet news pop-ups: a short headline at the bottom of the screen for every new story, which fades
+ * on its own after a few seconds. No sound, never in the way of the work, and the player can turn
+ * them off from the menu under their picture or from the pop-up itself.
+ */
+function NewsToasts({ player, onPlayer }: { player: Player; onPlayer?: (player: Player) => void }) {
+  const [shown, setShown] = useState<{ key: number; item: NewsAlert; more: number } | null>(null);
+  const mark = useRef<NewsAlertMark | null>(null);
+  const queue = useRef<{ item: NewsAlert; more: number }[]>([]);
+  const counter = useRef(0);
+  const on = player.news_alerts;
+
+  useEffect(() => {
+    let stopped = false;
+    function look() {
+      api.newsAlerts(mark.current).then((found) => {
+        if (stopped) return;
+        mark.current = found.mark;
+        if (!on) return;
+        // Oldest first, so the newest is the last one seen.
+        const fresh = [...found.items].reverse().map((item, i) => ({ item, more: i === found.items.length - 1 ? found.more : 0 }));
+        queue.current = [...queue.current, ...fresh].slice(-3);
+      }).catch(() => undefined);
+    }
+    look();
+    const timer = window.setInterval(look, 60_000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [on]);
+
+  const showing = useRef(false);
+  showing.current = shown !== null;
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (showing.current || queue.current.length === 0) return;
+      const next = queue.current.shift()!;
+      counter.current += 1;
+      showing.current = true;
+      setShown({ key: counter.current, ...next });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!shown) return;
+    const timer = window.setTimeout(() => setShown(null), 7000);
+    return () => window.clearTimeout(timer);
+  }, [shown]);
+
+  if (!shown || !on) return null;
+  return (
+    <div className="news-toast" role="status" aria-live="polite" key={shown.key}>
+      <a href="#/news" className="plain-link news-toast-text" onClick={() => setShown(null)}>
+        <span className="news-toast-outlet">{shown.item.important ? "▲ " : ""}{shown.item.outlet}</span>
+        <span className="news-toast-headline">{shown.item.headline}</span>
+        {shown.more > 0 && <span className="muted small"> and {shown.more} more</span>}
+      </a>
+      <button className="news-toast-button" aria-label="Close" title="Close" onClick={() => setShown(null)}>×</button>
+      <button
+        className="news-toast-button small"
+        title="Turn news pop-ups off (you can turn them on again from the menu under your picture)"
+        onClick={() => { setShown(null); api.setNewsAlerts(false).then((p) => onPlayer?.(p)).catch(() => undefined); }}
+      >Mute</button>
+    </div>
   );
 }
 
@@ -72,7 +202,6 @@ function sectionsFor(player: Player) {
     { path: "", label: "My desk" },
     ...(player.build_name ? [{ path: "build", label: player.build_name }] : []),
     { path: "work", label: "Work" },
-    ...(player.build_name ? [{ path: "rank", label: "Rank" }] : []),
     // One section for the empire: its overview, desks, requests, deals, companies and War Room are tabs inside it.
     { path: "empire", label: player.empire ? "Empire" : "Empires", ...(player.empire && !player.empire.forming ? { count: player.empire.waiting } : {}) },
     { path: "market", label: "Market" },
@@ -81,7 +210,6 @@ function sectionsFor(player: Player) {
     { path: "companies", label: "Companies" },
     { path: "economy", label: "Economy" },
     { path: "career", label: "Career" },
-    { path: "profile", label: "Profile" },
   ];
 }
 
@@ -115,8 +243,10 @@ function SectionsMenu({ player, current, onLogout }: { player: Player; current: 
  * The standard layout every screen uses (design document, section 18):
  * top bar, sections menu, work area and context rail.
  */
-export function Shell({ player, live, current, onLogout, work, rail, accent }: {
+export function Shell({ player, live, current, onLogout, onPlayer, work, rail, accent }: {
   player: Player;
+  /** Called with the player as the server now sees them, after a change made from the top bar. */
+  onPlayer?: (player: Player) => void;
   live: LiveClock | null;
   /** The accent of the screen being shown, when it is not the player's own build's (the head's screen is gold; the War Room is neutral). */
   accent?: string;
@@ -127,13 +257,14 @@ export function Shell({ player, live, current, onLogout, work, rail, accent }: {
 }) {
   return (
     <div className="app" data-accent={accent ?? player.accent ?? undefined}>
-      <TopBar player={player} live={live} />
+      <TopBar player={player} live={live} onLogout={onLogout} onPlayer={onPlayer} />
       <PriceTicker />
       <div className="shell">
         <SectionsMenu player={player} current={current} onLogout={onLogout} />
         <main className="work">{work}</main>
         <aside className="rail" aria-label="Context">{rail}</aside>
       </div>
+      <NewsToasts player={player} onPlayer={onPlayer} />
     </div>
   );
 }

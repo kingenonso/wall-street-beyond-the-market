@@ -21,6 +21,10 @@ export type Player = {
   employer: string | null;
   /** Stage 6. The empire the player holds a seat in, if any. */
   empire: EmpireBadge | null;
+  /** Quick fixes: a rank case is open or ready; the news pop-ups are on; unread messages. */
+  rank_waiting: boolean;
+  news_alerts: boolean;
+  unread_messages: number;
 };
 export type EmpireBadge = { name: string; place: number | null; is_head: boolean; waiting: number; forming: boolean };
 
@@ -64,6 +68,8 @@ export type Career = {
     entries: { period_label: string; fund: string; opening_kobo: Kobo; growth_kobo: Kobo; paid_in_by_you_kobo: Kobo;
                paid_in_by_employer_kobo: Kobo; closing_kobo: Kobo; paid_out_kobo: Kobo }[];
     extra_bps: number; most_extra_bps: number; match_most_bps: number; sound_finances: boolean; retired: boolean; can_retire: boolean;
+    can_retire_early: boolean; pension_bps: number | null; full_pension_bps: number; early_pension_bps: number; early_level: number;
+    early_quarters_to_go: number; early_label: string | null;
     retirement_level: number; quarters_to_go: number; retires_label: string | null; early_withdrawal_used: boolean;
     managed_by: string | null; leaving_fund: boolean;
   };
@@ -780,11 +786,36 @@ const announce = (name: string) => <T,>(result: T): T => {
   return result;
 };
 
+/** Quick fixes: the quiet news pop-ups. */
+export type NewsAlertMark = { period: number; day: number; top: number };
+export type NewsAlert = { headline: string; outlet: string; period_label: string; day: number; important: boolean; tickers: string[] };
+export type NewsAlerts = { items: NewsAlert[]; more: number; mark: NewsAlertMark | null };
+
+/** Quick fixes: messages between players. */
+export type Conversation = { name: string; preview: string; sent_at: string; mine: boolean; unread: number; blocked: boolean };
+export type Conversations = {
+  conversations: Conversation[]; blocked: string[]; unread: number;
+  limits: { max_chars: number; per_hour: number; new_people_per_day: number; unanswered_in_a_row: number };
+};
+export type ChatMessage = { id: number; mine: boolean; body: string; sent_at: string; read: boolean; reported: boolean };
+export type Thread = { name: string; messages: ChatMessage[]; blocked: boolean; can_write: boolean };
+
 export const api = {
   me: () => request<Player>("/me"),
   movements: () => request<Movement[]>("/me/movements?limit=10"),
   setProfileIcon: (profile_icon: ProfileIcon) =>
     request<Player>("/me/profile-icon", { method: "PATCH", body: JSON.stringify({ profile_icon }) }),
+  setNewsAlerts: (on: boolean) => request<Player>("/me/news-alerts", { method: "PATCH", body: JSON.stringify({ on }) }),
+  newsAlerts: (mark: NewsAlertMark | null) =>
+    request<NewsAlerts>(mark ? `/news/alerts?period=${mark.period}&day=${mark.day}&top=${mark.top}` : "/news/alerts"),
+  conversations: () => request<Conversations>("/messages"),
+  thread: (name: string) => request<Thread>(`/messages/with?name=${encodeURIComponent(name)}`),
+  sendMessage: (to: string, body: string) => request<ChatMessage>("/messages", { method: "POST", body: JSON.stringify({ to, body }) }),
+  blockPlayer: (name: string) => request<Conversations>("/messages/block", { method: "POST", body: JSON.stringify({ name }) }),
+  unblockPlayer: (name: string) => request<Conversations>("/messages/unblock", { method: "POST", body: JSON.stringify({ name }) }),
+  reportMessage: (message_id: number, reason: string, block: boolean) =>
+    request<Conversations>("/messages/report", { method: "POST", body: JSON.stringify({ message_id, reason: reason || null, block }) }),
+  clearConversation: (name: string) => request<Conversations>("/messages/clear", { method: "POST", body: JSON.stringify({ name }) }),
   clock: () => request<Clock>("/world/clock"),
   worldStatus: () => request<WorldStatus>("/world/status"),
   companies: () => request<{ sectors: Sector[] }>("/companies"),
@@ -813,6 +844,10 @@ export const api = {
   placeOrder: (order: NewOrder) =>
     request<{ order: Order; trades: PublicTrade[] }>("/market/orders", { method: "POST", body: JSON.stringify(order) }),
   cancelOrder: (id: number) => request<Order>(`/market/orders/${id}`, { method: "DELETE" }),
+  placeEmpireOrder: (order: NewOrder) => request<unknown>("/empire/orders", { method: "POST", body: JSON.stringify(order) }),
+  tradeEmpireBond: (code: string, side: "buy" | "sell", units: number) =>
+    request<EmpireView & { notice?: string }>("/empire/bonds", { method: "POST", body: JSON.stringify({ code, side, units }) }),
+  cancelEmpireOrder: (id: number) => request<unknown>(`/empire/orders/${id}`, { method: "DELETE" }),
   ticker: () => request<Ticker>("/market/ticker"),
   closingBell: () => request<ClosingBell>("/market/closing-bell"),
   industries: () => request<Industry[]>("/market/industries"),
@@ -843,7 +878,7 @@ export const api = {
   chooseBank: (ticker: string) => request<Career>("/career/bank", { method: "PUT", body: JSON.stringify({ ticker }) }),
   chooseFund: (fund: string) => request<Career>("/career/retirement", { method: "PUT", body: JSON.stringify({ fund }) }),
   setExtraSaving: (extra_bps: number) => request<Career>("/career/extra-saving", { method: "PUT", body: JSON.stringify({ extra_bps }) }),
-  beginPension: () => request<Career>("/career/retirement/pension", { method: "POST" }),
+  beginPension: (early = false) => request<Career>("/career/retirement/pension", { method: "POST", body: JSON.stringify({ early }) }),
   empires: () => request<EmpireView>("/empires"),
   empire: (method: "POST" | "PUT" | "DELETE", path: string, body?: unknown) =>
     request<EmpireView>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) }),

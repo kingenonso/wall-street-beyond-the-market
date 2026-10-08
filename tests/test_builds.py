@@ -45,7 +45,7 @@ def test_there_are_six_builds_to_start_in_and_ceo_cannot_be_chosen(db):
     with pytest.raises(careers.CareerError):
         careers.choose_build(db, player, "ceo", NOW9)
     accents = {b["accent"] for b in careers.BUILDS.values()}
-    assert accents == {"violet", "green", "purple", "orange", "red", "blue"}
+    assert accents == {"violet", "green", "purple", "orange", "silver", "blue"}       # Legal Counsel is silver (owner, 8 October 2026)
 
 
 def test_each_build_is_hired_by_the_right_kind_of_company(db):

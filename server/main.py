@@ -16,6 +16,7 @@ import psycopg
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi import Path as FastPath
 from fastapi.exceptions import RequestValidationError
+from server.schemas import Request as BaseRequest
 from fastapi.responses import JSONResponse
 from psycopg import Connection
 from psycopg.errors import UniqueViolation
@@ -65,7 +66,7 @@ from server.schemas import (
     TakeoverRow, VoteRequest, VoteRow, WaitingSwap,
 )
 from simulation import clock, exchange, investors, ledger, moneywatch, news, news_kinds, players, quarters
-from simulation import bonds, careers, closingbell, corporate, desks, grants, insight, marketview, objectives
+from simulation import bonds, careers, closingbell, corporate, desks, grants, insight, marketview, messages, objectives
 from simulation import world_data as data
 from simulation.ledger import NGN
 
@@ -173,7 +174,15 @@ def _player_response(conn: Connection, row: dict) -> PlayerResponse:
         level=mine and mine["level"],
         employer=job and job["name"],
         empire=_empire_badge(conn, row["id"]),
+        rank_waiting=bool(mine and _rank_waiting(conn, row["id"], mine)),
+        news_alerts=row.get("news_alerts", True),
+        unread_messages=messages.unread_count(conn, row["id"]),
     )
+
+
+def _rank_waiting(conn: Connection, player_id, mine: dict) -> bool:
+    from simulation import ranks
+    return ranks.waiting(conn, player_id, mine, _exchange_time(conn))
 
 
 def _empire_badge(conn: Connection, player_id):
@@ -1337,6 +1346,9 @@ def _career(conn: Connection, player: dict) -> CareerResponse:
                      for e in savings["entries"]],
             extra_bps=savings["extra_bps"], most_extra_bps=savings["most_extra_bps"], match_most_bps=savings["match_most_bps"],
             sound_finances=savings["sound_finances"], retired=savings["retired"], can_retire=savings["can_retire"],
+            can_retire_early=savings["can_retire_early"], pension_bps=savings["pension_bps"], full_pension_bps=savings["full_pension_bps"],
+            early_pension_bps=savings["early_pension_bps"], early_level=savings["early_level"],
+            early_quarters_to_go=savings["early_quarters_to_go"], early_label=savings["early_label"],
             retirement_level=savings["retirement_level"], quarters_to_go=savings["quarters_to_go"],
             retires_label=savings["retires_label"], early_withdrawal_used=savings["early_withdrawal_used"],
             managed_by=savings["managed_by"] and savings["managed_by"]["name"], leaving_fund=savings["leaving_fund"]),
@@ -1401,9 +1413,14 @@ def choose_my_extra_saving(body: ExtraSavingRequest, player: dict = Depends(curr
     return _career_step(conn, player, lambda now: careers.set_extra_saving(conn, player["id"], body.extra_bps, now))
 
 
+class PensionRequest(BaseRequest):
+    early: bool = False
+
+
 @app.post("/api/career/retirement/pension", response_model=CareerResponse)
-def begin_my_pension(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _career_step(conn, player, lambda now: careers.retire(conn, player["id"], now))
+def begin_my_pension(body: PensionRequest | None = None, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    early = bool(body and body.early)
+    return _career_step(conn, player, lambda now: careers.retire(conn, player["id"], now, early=early))
 
 
 # ---------------------------------------------------------------------------
@@ -1517,3 +1534,4 @@ from server import empire_routes  # noqa: E402,F401  (importing it adds its rout
 from server import rank_routes  # noqa: E402,F401
 from server import firm_routes  # noqa: E402,F401
 from server import deal_routes, dealmaking_routes  # noqa: E402,F401
+from server import message_routes  # noqa: E402,F401

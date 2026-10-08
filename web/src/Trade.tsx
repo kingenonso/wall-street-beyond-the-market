@@ -45,7 +45,7 @@ export function Book({ quote }: { quote: Quote }) {
   );
 }
 
-function describe(order: Order): string {
+function describe(order: Pick<Order, "side" | "quantity" | "remaining" | "limit_price_kobo">): string {
   const what = `${order.side === "buy" ? "Buy" : "Sell"} ${shares(order.quantity)}`;
   const price = order.limit_price_kobo ? `at ${formatNaira(order.limit_price_kobo)}` : "at the best price";
   const done = order.quantity - order.remaining;
@@ -62,6 +62,11 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
   const why = useLoad(() => api.why(ticker), `why:${ticker}`, onLoggedOut);
   const orders = useLoad(api.myOrders, "orders", onLoggedOut);
   const holdings = useLoad(api.myHoldings, "holdings", onLoggedOut);
+  const empire = useLoad(api.empires, "trade-panel-empire", onLoggedOut);
+  // An empire's Asset Manager, or its head, may trade here with the empire's money as well as their own.
+  const room = empire.data?.room && empire.data.room.status === "active" && empire.data.room.can_trade ? empire.data.room : null;
+  const [forEmpire, setForEmpire] = useState(false);
+  const empireMode = forEmpire && room !== null;
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [kind, setKind] = useState<"limit" | "market">("limit");
   const [quantity, setQuantity] = useState("");
@@ -74,7 +79,10 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
   const q = quote.data;
   const open = q.market_state === "open";
   const holding: Holding | undefined = holdings.data?.find((h) => h.ticker === ticker);
-  const mine = (orders.data ?? []).filter((o) => o.ticker === ticker && o.status === "open");
+  const empireHeld = room?.holdings.find((h) => h.ticker === ticker)?.shares ?? 0;
+  const mine = empireMode
+    ? (room?.orders ?? []).filter((o) => o.ticker === ticker && o.status === "open").map((o) => ({ ...o, limit_price_kobo: o.limit_price_kobo ?? null }))
+    : (orders.data ?? []).filter((o) => o.ticker === ticker && o.status === "open");
   const count = /^\d{1,11}$/.test(quantity) ? Number(quantity) : 0;
   const chosen = kind === "limit" ? toKobo(price) : Number(side === "buy" ? q.highest_today_kobo : q.lowest_today_kobo);
   const value = count > 0 && chosen ? count * chosen : null;
@@ -85,6 +93,7 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
     why.reload();
     orders.reload();
     holdings.reload();
+    empire.reload();
     onTraded();
   }
 
@@ -96,6 +105,20 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
     const limit = kind === "limit" ? toKobo(price) : null;
     if (kind === "limit" && limit === null) return setProblem("Enter your price in naira, for example 20.50.");
     setBusy(true);
+    if (empireMode) {
+      try {
+        await api.placeEmpireOrder({ ticker, side, kind, quantity: count, ...(limit !== null ? { limit_price_kobo: limit } : {}) });
+        setDone(`Sent for ${room?.name}: the order is placed with the empire's money, and what it buys belongs to the empire.`);
+        setQuantity("");
+        refresh();
+      } catch (failure) {
+        if (failure instanceof ApiError && failure.status === 401) return onLoggedOut();
+        setProblem(failure instanceof ApiError ? failure.message : "Could not reach the server.");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     try {
       const result = await api.placeOrder({
         ticker, side, kind, quantity: count, ...(limit !== null ? { limit_price_kobo: limit } : {}),
@@ -121,7 +144,7 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
   async function cancel(id: number) {
     setProblem(null);
     try {
-      await api.cancelOrder(id);
+      await (empireMode ? api.cancelEmpireOrder(id) : api.cancelOrder(id));
       setDone("Order cancelled. What the exchange was holding for it has been handed back.");
     } catch (failure) {
       setProblem(failure instanceof ApiError ? failure.message : "Could not reach the server.");
@@ -131,6 +154,21 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
 
   return (
     <Panel title="Trade this share" aside={`Broad Street Exchange · ${MARKET_LABEL[q.market_state]}`}>
+      {room && (
+        <div className="choice trade-for" role="group" aria-label="Trade for">
+          <span className="field-label">Trade for</span>
+          <button type="button" aria-pressed={!forEmpire} onClick={() => setForEmpire(false)}>Me</button>
+          <button type="button" aria-pressed={forEmpire} onClick={() => setForEmpire(true)}>My empire: {room.name}</button>
+        </div>
+      )}
+      {empireMode && room && (
+        <p className="small notice-line">
+          ◆ The empire's money: {formatNaira(room.cash_kobo)} in cash.{" "}
+          {room.is_head ? "As head you trade without a limit." : `Your limit this quarter is ${formatNaira(room.trade_limit_kobo)}, of which ${formatNaira(room.trade_used_kobo)} is used.`}
+          {room.fair_dealing && " An empire the computer runs deals only at a price you name, within 2% of the last session's price."}
+          {" "}What you buy belongs to the empire, not to you.
+        </p>
+      )}
       <div className="tiles">
         <div className="tile">
           <div className="muted small">{q.last_price_kobo ? "Last price" : "Listing price (not yet traded)"}</div>
@@ -143,10 +181,10 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
           <div className="small muted">a tenth either side of yesterday's last price</div>
         </div>
         <div className="tile">
-          <div className="muted small">You own</div>
-          <div className="mono figure-small">{shares((holding?.shares ?? 0) + (holding?.held_for_orders ?? 0))}</div>
+          <div className="muted small">{empireMode ? "The empire owns" : "You own"}</div>
+          <div className="mono figure-small">{shares(empireMode ? empireHeld : (holding?.shares ?? 0) + (holding?.held_for_orders ?? 0))}</div>
           <div className="small muted">
-            {holding && holding.held_for_orders > 0 ? `${shares(holding.held_for_orders)} held for your sell orders` : "shares"}
+            {!empireMode && holding && holding.held_for_orders > 0 ? `${shares(holding.held_for_orders)} held for your sell orders` : "shares"}
           </div>
         </div>
       </div>
@@ -159,7 +197,7 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
           </div>
           <div className="choice" role="group" aria-label="Price">
             <button type="button" aria-pressed={kind === "limit"} onClick={() => setKind("limit")}>At my price</button>
-            <button type="button" aria-pressed={kind === "market"} disabled={!open} onClick={() => setKind("market")}>
+            <button type="button" aria-pressed={kind === "market"} disabled={!open || (empireMode && room?.fair_dealing)} onClick={() => setKind("market")}>
               At the best price now
             </button>
           </div>
@@ -186,7 +224,7 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
           {problem && <div className="error" role="alert">{problem}</div>}
           {done && <div className="notice" role="status">{done}</div>}
           <button className="button-primary" type="submit" disabled={busy}>
-            {busy ? "Sending…" : side === "buy" ? "Place buy order" : "Place sell order"}
+            {busy ? "Sending…" : `${side === "buy" ? "Place buy order" : "Place sell order"}${empireMode ? " for the empire" : ""}`}
           </button>
           <p className="small muted">
             {open
@@ -207,7 +245,7 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
           )}
           {mine.length > 0 && (
             <>
-              <div className="why-title">YOUR ORDERS WAITING</div>
+              <div className="why-title">{empireMode ? "THE EMPIRE'S ORDERS WAITING" : "YOUR ORDERS WAITING"}</div>
               {mine.map((order) => (
                 <div key={order.id} className="order-line">
                   <span>{describe(order)}</span>

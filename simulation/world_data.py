@@ -593,6 +593,10 @@ EARLY_WITHDRAWAL_MOST_BPS = 5000   # the one early withdrawal may take up to hal
 RETIREMENT_LEVEL = 50              # retirement opens at Level 50...
 RETIREMENT_AFTER_QUARTERS = 40     # ...or after ten game years of work, whichever comes first
 PENSION_PAID_BPS = 250             # a pension pays out 2.5% of the savings each quarter
+# Early retirement (owner, 9 October 2026): sooner, with a smaller pension, fixed for good when it begins.
+EARLY_RETIREMENT_LEVEL = 35
+EARLY_RETIREMENT_AFTER_QUARTERS = 20
+EARLY_PENSION_PAID_BPS = 150
 BOND_FUND_YEARS = 3.5              # how hard a one-point move in interest rates hits a fund's bonds, in points
 COMPANY_BOND_SHARE_BPS = {"growth": 5000, "balanced": 5000, "cautious": 5000, "income": 0}   # of a fund's bonds, the part lent to companies
 DEFAULT_LOSS_BPS = 60              # each company newly in default costs this much of the company-bond part
@@ -718,3 +722,12 @@ COUNTER_OFFER_MOST_BPS = 500                       # a counter-offer's bonus may
 DIVISION_SIZE = 5
 DIVISION_MOVES = 1                                 # how many go up and down between two divisions each year
 LEAGUE_POINTS = {"task": 10, "work": 2, "challenge": 3, "theft": -5, "growth_most": 20}
+
+# Quick fixes: messages between players. Limits keep anyone from flooding others.
+MESSAGE_MAX_CHARS = 1000
+MESSAGES_PER_HOUR = 30                 # messages one player may send in any hour
+NEW_PEOPLE_PER_DAY = 10                # different players one may write to first, in any day
+UNANSWERED_IN_A_ROW = 3                # messages to someone who has not answered yet
+REPORTS_TO_BE_LIMITED = 3              # different players reporting one sender within a week...
+REPORT_WINDOW_DAYS = 7                 # ...and the sender may only answer people who wrote first, for that week
+MESSAGE_REPORT_MAX_CHARS = 300

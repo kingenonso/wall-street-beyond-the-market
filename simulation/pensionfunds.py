@@ -405,7 +405,7 @@ def after_close(conn: Connection, period: int, now: datetime) -> None:
                 paid_out = 0
                 if account["retired_period"] is not None and units > 0:
                     value = _value(units, price)
-                    wanted = value if value < naira(10_000) else apply_bps(value, data.PENSION_PAID_BPS)
+                    wanted = value if value < naira(10_000) else apply_bps(value, account["pension_bps"] or data.PENSION_PAID_BPS)
                     paid_out = ledger.pay_up_to(conn, payer=fund["account_id"], receiver=ledger.player_account_id(conn, account["player_id"]),
                                                 wanted=wanted, kind="pension_to_player", period=period,
                                                 memo=f"Pension for {clock.period_label(period)}", reference=f"pension:{account['player_id']}:{period}")

@@ -2,7 +2,7 @@
 // section 18). Each uses the same four zones as every other screen, in its own accent colour:
 //   Investment Banker (purple)   deals open in the market; one company against the companies like it
 //   Risk Manager (orange)        what could be lost, by kind, city and industry; stress tests
-//   Legal Counsel (red)                 matters in hand; who controls a company and who is paid first
+//   Legal Counsel (silver)                matters in hand; who controls a company and who is paid first
 //   Financial Journalist (blue)            the newsroom, investigations, the indicators, the publishing pipeline
 //   Head of an empire (gold)     what the empire is worth and holds; what waits for the head's decision
 

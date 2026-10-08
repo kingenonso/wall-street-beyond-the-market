@@ -216,15 +216,20 @@ function Retirement({ career, act }: { career: Career; act: ReturnType<typeof us
 
       <div className="why-title">WHEN IS RETIREMENT?</div>
       {savings.retired ? (
-        <p className="small">✓ Your pension is paid every quarter: a fortieth of your savings each time. You may keep working.</p>
+        <p className="small">✓ Your pension is paid every quarter: {formatPercent(savings.pension_bps ?? savings.full_pension_bps, 1)} of your savings each time{savings.pension_bps !== null && savings.pension_bps < savings.full_pension_bps ? " (an early pension, smaller for good)" : ""}. You may keep working.</p>
       ) : (
         <>
           <p className="small">
-            At Level {savings.retirement_level}, or after ten game years of work (forty quarters), whichever comes first.
-            {savings.can_retire ? " You may begin your pension now." : savings.retires_label ? ` For you that is ${savings.retires_label}: ${savings.quarters_to_go} quarters to go.` : " Only quarters you were paid a salary for count."}
-            {" "}From then a pension is paid to you every quarter, and you may keep working.
+            <strong>Full pension</strong> ({formatPercent(savings.full_pension_bps, 1)} of your savings each quarter): at Level {savings.retirement_level}, or after forty quarters of work (forty real weeks), whichever comes first.
+            {savings.can_retire ? " You may begin it now." : savings.retires_label ? ` For you that is ${savings.retires_label}: ${savings.quarters_to_go} quarters to go.` : " Only quarters you were paid a salary for count."}
           </p>
-          {savings.can_retire && <button className="button-outline" disabled={act.busy} onClick={() => act.run(api.beginPension)}>Begin my pension</button>}
+          <p className="small">
+            <strong>Early pension</strong> ({formatPercent(savings.early_pension_bps, 1)} each quarter, smaller for good): at Level {savings.early_level}, or after twenty quarters of work.
+            {savings.can_retire_early ? " You may begin it now." : !savings.can_retire && savings.early_label ? ` For you that is ${savings.early_label}: ${savings.early_quarters_to_go} quarters to go.` : ""}
+            {" "}Either way the pension is paid every quarter, and you may keep working. Retiring early is the real trade-off: money sooner, less of it.
+          </p>
+          {savings.can_retire && <button className="button-outline" disabled={act.busy} onClick={() => act.run(() => api.beginPension(false))}>Begin my full pension</button>}
+          {savings.can_retire_early && <button className="button-outline" disabled={act.busy} onClick={() => act.run(() => api.beginPension(true))}>Begin an early pension ({formatPercent(savings.early_pension_bps, 1)})</button>}
         </>
       )}
 

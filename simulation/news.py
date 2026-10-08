@@ -691,3 +691,22 @@ def visible(conn: Connection, period_now: int, day_now: int, *, limit: int = 60,
         f" WHERE {' AND '.join(conditions)} ORDER BY period DESC, day DESC, importance DESC, id DESC LIMIT %s",
         params,
     )
+
+
+def alerts(conn: Connection, period_now: int, day_now: int, after: tuple[int, int, int] | None, *, limit: int = 3) -> dict:
+    """The stories published since the player last looked, for the quiet pop-ups. `after` is the
+    mark the last look returned: (period, day, the highest story number already published that day).
+    The first look returns no stories, only a mark, so nobody is shown the whole past at once.
+    Nothing dated later than today is ever returned, and a mark from the future is treated as today."""
+    today = _rows(conn, "SELECT coalesce(max(id), 0) AS top FROM news_items WHERE period = %s AND day = %s", (period_now, day_now))[0]
+    mark = (period_now, day_now, today["top"])
+    if after is None or tuple(after[:2]) > (period_now, day_now):
+        return {"items": [], "more": 0, "mark": mark}
+    p, d, top = after
+    found = _rows(conn, """
+        SELECT period, day, outlet, headline, importance, tickers FROM news_items
+        WHERE (period < %(pn)s OR (period = %(pn)s AND day <= %(dn)s))
+          AND ((period, day) > (%(p)s, %(d)s) OR (period = %(p)s AND day = %(d)s AND id > %(top)s))
+        ORDER BY period DESC, day DESC, importance DESC, id DESC LIMIT 200
+    """, {"pn": period_now, "dn": day_now, "p": p, "d": d, "top": top})
+    return {"items": found[:limit], "more": max(0, len(found) - limit), "mark": mark}
