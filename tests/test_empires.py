@@ -417,7 +417,7 @@ def test_in_a_players_empire_the_head_decides_what_follows(db, monkeypatch):
     with pytest.raises(empires.EmpireError, match="signing limit"):
         empires.divert(db, scribe, naira(200_001), NOW9)
     empires.divert(db, scribe, naira(150_000), NOW9)
-    empires.divert(db, ledgerman, naira(400_000), NOW9)
+    countersigned(db, empires.divert(db, ledgerman, naira(400_000), NOW9), head, NOW9)   # the Accountant's own cost is signed by the head
     always(monkeypatch, True)
     audit = empires.accountant_audit(db, ledgerman, NOW9)
     assert {f["yours"] for f in audit["findings"]} == {True, False}

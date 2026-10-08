@@ -409,7 +409,7 @@ def _draw(conn: Connection, empire: dict, period: int, now: datetime) -> dict | 
         debt = open_debt[_roll(conn, "which_debt", empire["id"], day) % len(open_debt)]
         cash = ledger.balance(conn, empire["account_id"])
         best = "repay" if cash >= debt["outstanding"] else "sell" if cash + _holdings_value(conn, empire, shares) >= debt["outstanding"] else "refinance"
-        return {"kind": kind, "body": f"{debt['lender_name']} has written: it wants its {_money(debt['outstanding'])} back. The empire has two days to say how it will pay.",
+        return {"kind": kind, "body": f"A letter from {debt['lender_name']}: the {_money(debt['outstanding'])} lent is called back. The empire has two days to say how it will pay.",
                 "payload": {"debt_id": debt["id"], "owed": debt["outstanding"], "_best": best, "_cash": cash}}
     if kind == "holding_collapse":
         h = falling[_roll(conn, "which_holding", empire["id"], day) % len(falling)]
