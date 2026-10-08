@@ -138,9 +138,9 @@ function DutyForm({ duty, act }: { duty: Any; act: Act }) {
     const out: Record<string, Any> = {};
     for (const ask of terms.asks) {
       const value = answers[ask.key];
-      if (ask.kind === "money") { const k = asKobo(String(value ?? "")); out[ask.key] = k ?? (String(value ?? "").trim() === "0" ? 0 : null); }
-      else if (ask.kind === "number") out[ask.key] = Number(String(value ?? "").replace(/,/g, ""));
-      else if (ask.kind === "percent") out[ask.key] = Number(String(value ?? "").replace("%", ""));
+      if (ask.kind === "money") out[ask.key] = signedKobo(String(value ?? ""));
+      else if (ask.kind === "number") out[ask.key] = Math.round(Number(String(value ?? "").replace(/,/g, "")) || 0);
+      else if (ask.kind === "percent") out[ask.key] = Number(String(value ?? "").replace("%", "")) || 0;
       else out[ask.key] = value ?? (ask.kind === "pick" ? [] : "");
     }
     const done = await act.run("POST", `/firm/duties/${duty.id}/hand-in`, { answers: out });
@@ -188,10 +188,18 @@ function DutyForm({ duty, act }: { duty: Any; act: Act }) {
   );
 }
 
+/** An amount typed in naira, which may be below nought (a loss), as whole kobo. Nothing typed counts as nought. */
+function signedKobo(text: string): number {
+  const clean = text.replace(/[,₦\s]/g, "");
+  const negative = clean.startsWith("-") || clean.startsWith("−");
+  const kobo = asKobo(clean.replace(/^[-−]/, "")) ?? 0;
+  return negative ? -kobo : kobo;
+}
+
 function DutyResult({ result }: { result: Any }) {
   return (
     <div className="debrief">
-      <p className="strong">Marked {result.score} out of 100 · {result.experience} experience</p>
+      <p className="strong">Marked {result.score} out of 100{result.experience !== undefined ? ` · ${result.experience} experience` : ""}</p>
       {(result.result?.lines ?? []).map((line: Any, i: number) => (
         <div key={i} className="row"><span><Arrow up={line.right} />{line.label}</span><span className="muted small">{line.right ? "right" : `right answer: ${line.answer}`}</span></div>
       ))}
@@ -210,7 +218,7 @@ function Desks({ f, act }: { f: Any; act: Act }) {
     <>
       <p className="muted small">Each desk's duties for {f.period_label ?? "this quarter"}. A duty nobody does is done by the staff where there are staff
         (scored {f.duties.staff_score}), or missed: a missed duty costs a league point. Well done means {f.duties.pass_mark} or more.</p>
-      {f.duties.desks.map((desk: Any) => (
+      {[...f.duties.desks].sort((a: Any, b: Any) => Number(b.yours) - Number(a.yours)).map((desk: Any) => (
         <Panel key={desk.build} title={desk.name} aside={desk.yours ? "Your desk" : desk.staffed ? "Staff on the desk" : desk.empty ? "Nobody on the desk" : ""}
           className={desk.yours ? "panel-yours" : ""}>
           <div className="row"><span className="small muted">Lead</span><span className="small">{desk.lead ?? "—"}{desk.you_lead ? " (you)" : ""}</span></div>
@@ -226,6 +234,7 @@ function Desks({ f, act }: { f: Any; act: Act }) {
                 <button className="button-outline" disabled={act.busy} onClick={async () => { if (await act.run("POST", `/firm/duties/${duty.id}/open`)) setOpen(duty.id); }}>Open it</button>
               )}
               {duty.opened && (open === duty.id || duty.terms) && <DutyForm duty={duty} act={act} />}
+              {duty.result && <DutyResult result={{ score: duty.score, result: duty.result }} />}
               {duty.can_assign && desk.members.length > 1 && (
                 <label className="answer"><span className="field-label">Give it to</span>
                   <select defaultValue="" onChange={(e) => act.run("PUT", `/firm/duties/${duty.id}/given-to`, { seat_id: e.target.value ? Number(e.target.value) : null })}>
