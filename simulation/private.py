@@ -653,9 +653,11 @@ def value_of(conn: Connection, company_id) -> int:
 
 
 def open_sales(conn: Connection, period: int, seed: str, now: datetime) -> list[int]:
-    """The founders put a few of their companies up for sale. The asking price is near what the company is
-    worth; a gem is asked for well below it. Half are sold by sealed bids, half by auction."""
+    """The founders (or the pension funds, once they have owned a company two years) put a few companies up
+    for sale. The asking price is near what the company is worth; a gem is asked for well below it. Half are
+    sold by sealed bids, half by auction."""
     founders = ledger.account_id(conn, ledger.INVESTORS_FOUNDERS)
+    funds = ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
     opened = []
     candidates = _rows(conn, "SELECT c.id, c.ticker, c.name, c.share_asset FROM companies c JOIN private_profiles p ON p.company_id = c.id"
                              " WHERE NOT c.listed AND c.status = 'trading' AND NOT EXISTS (SELECT 1 FROM owned_companies o WHERE o.company_id = c.id)"
@@ -666,10 +668,16 @@ def open_sales(conn: Connection, period: int, seed: str, now: datetime) -> list[
             break
         if roll(seed, c["ticker"], "sale", period) >= (3000 if first else SALE_CHANCE_BPS):
             continue
-        shares = ledger.balance(conn, founders, c["share_asset"])
+        seller = founders
+        if ledger.balance(conn, founders, c["share_asset"]) <= 0:
+            bought = _one(conn, "SELECT max(closes_period) AS p FROM sale_processes WHERE company_id = %s AND status = 'sold'", (c["id"],))
+            if bought["p"] is not None and bought["p"] > period - 8:
+                continue                                   # the pension funds hold what they buy for two years at least
+            seller = funds
+        shares = ledger.balance(conn, seller, c["share_asset"])
         if shares <= 0:
             continue
-        opened.append(start_sale(conn, c["id"], founders, None, shares, period, seed, now))
+        opened.append(start_sale(conn, c["id"], seller, None, shares, period, seed, now))
     return opened
 
 

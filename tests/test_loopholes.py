@@ -90,7 +90,10 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     Stage 7 added resignation letters, counter-offers and the vote for a head (test_leaving.py), rank cases
     and reports of marking (test_mastery.py, test_rank_api.py). The private equity stage, part 1, added the firm: duties,
     requests, votes, papers, borrowing, budgets, contracts, poaching, tasks, events and cover (test_firm.py, test_firm_api.py),
-    buying into another empire's stake offer, and hiring a bookkeeper (test_firm_review.py): each acts on the player's own seat and moves money only through the ledger."""
+    buying into another empire's stake offer, and hiring a bookkeeper (test_firm_review.py): each acts on the player's own seat and moves money only through the ledger.
+    Part 2A added deals (bringing, checking, arguing, bidding, partners, claims), running an owned company (dials, assets, routes,
+    managers, the 100-day plan, selling and listing) and the company doctor (test_deals*.py): each acts as the player, for their own
+    desk and empire, and moves money only through the ledger."""
     from server.main import app
 
     writes = sorted(
@@ -101,6 +104,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("DELETE", "/api/bonds/swaps/{swap_id}"),
         ("DELETE", "/api/bookkeeping/{engagement_id}"),
         ("DELETE", "/api/career/job"),
+        ("DELETE", "/api/deals/files/{file_id}/bid"),
         ("DELETE", "/api/empire/application"),
         ("DELETE", "/api/empire/founding"),
         ("DELETE", "/api/empire/members/{member_id}"),
@@ -113,6 +117,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("DELETE", "/api/market/orders/{order_id}"),
         ("DELETE", "/api/market/watchlist/{ticker}"),
         ("DELETE", "/api/objectives/{objective_id}"),
+        ("DELETE", "/api/owned/routes/{route_id}"),
         ("DELETE", "/api/pension-fund/orders/{order_id}"),
         ("DELETE", "/api/pension-fund/savings"),
         ("PATCH", "/api/me/profile-icon"),
@@ -126,6 +131,13 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/bookkeeping/{engagement_id}/open"),
         ("POST", "/api/bookkeeping/{engagement_id}/report"),
         ("POST", "/api/career/retirement/pension"),
+        ("POST", "/api/deals/files/{file_id}/bid"),
+        ("POST", "/api/deals/files/{file_id}/nda"),
+        ("POST", "/api/deals/files/{file_id}/partners"),
+        ("POST", "/api/deals/steps/{step_id}/hand-in"),
+        ("POST", "/api/deals/steps/{step_id}/open"),
+        ("POST", "/api/deals/{deal_id}/claims"),
+        ("POST", "/api/deals/{process_id}/file"),
         ("POST", "/api/empire/ai-audit"),
         ("POST", "/api/empire/audits"),
         ("POST", "/api/empire/bonds"),
@@ -164,6 +176,13 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/me/grant"),
         ("POST", "/api/objectives"),
         ("POST", "/api/objectives/{objective_id}/hand-in"),
+        ("POST", "/api/owned/assets/{asset_id}/repair"),
+        ("POST", "/api/owned/assets/{asset_id}/sell"),
+        ("POST", "/api/owned/{company_id}/list"),
+        ("POST", "/api/owned/{company_id}/plans"),
+        ("POST", "/api/owned/{company_id}/routes"),
+        ("POST", "/api/owned/{company_id}/sell"),
+        ("POST", "/api/owned/{company_id}/sell-to-buyer"),
         ("POST", "/api/pension-fund/ai-audit"),
         ("POST", "/api/pension-fund/bonds"),
         ("POST", "/api/pension-fund/costs"),
@@ -172,6 +191,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/ranks/cases"),
         ("POST", "/api/ranks/cases/{case_id}/hand-in"),
         ("POST", "/api/reports"),
+        ("POST", "/api/rescues"),
         ("POST", "/api/stake-offers/{offer_id}"),
         ("PUT", "/api/bookkeeping/{engagement_id}/rating"),
         ("PUT", "/api/career/bank"),
@@ -182,6 +202,9 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("PUT", "/api/corporate/offers/{offer_id}"),
         ("PUT", "/api/corporate/takeovers/{takeover_id}"),
         ("PUT", "/api/corporate/votes/{vote_id}"),
+        ("PUT", "/api/deals/files/{file_id}/terms"),
+        ("PUT", "/api/deals/partners/{partner_id}"),
+        ("PUT", "/api/deals/{process_id}/terms/{empire_id}"),
         ("PUT", "/api/empire/applications/{application_id}"),
         ("PUT", "/api/empire/audits/{audit_id}"),
         ("PUT", "/api/empire/cases/{case_id}"),
@@ -208,8 +231,13 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("PUT", "/api/firm/trade-limit"),
         ("PUT", "/api/firm/votes/{resolution_id}"),
         ("PUT", "/api/market/watchlist/{ticker}"),
+        ("PUT", "/api/owned/assets/{asset_id}/route"),
+        ("PUT", "/api/owned/routes/{route_id}/fare"),
+        ("PUT", "/api/owned/{company_id}/dials"),
+        ("PUT", "/api/owned/{company_id}/manager"),
         ("PUT", "/api/pension-fund/fee"),
         ("PUT", "/api/pension-funds/{fund_id}/savings"),
+        ("PUT", "/api/rescues/{plan_id}"),
     ]
     for method, path in [("post", "/api/companies"), ("put", "/api/companies/IKB"), ("delete", "/api/companies/IKB"),
                          ("post", "/api/me/movements"), ("post", "/api/world/clock"), ("delete", "/api/me")]:

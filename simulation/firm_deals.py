@@ -763,7 +763,13 @@ def _computer_bidders(conn: Connection, sale: dict, period: int) -> list[dict]:
         cash = ledger.balance(conn, e["account_id"])
         if offer <= 0 or offer > apply_bps(cash, COMPUTER_BID_CASH_BPS):
             continue
-        out.append({"empire": e, "amount": offer})
+        out.append({"empire": e, "account": e["account_id"], "name": e["name"], "amount": offer, "order": e["id"]})
+    # The pension funds buy private companies too, for the long run, at a little below what they are worth.
+    funds = ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
+    r = private.roll(seed, "funds_bid", sale["id"])
+    offer = apply_bps(worth, 8000 + r % 1500)
+    if r % 2 == 0 and 0 < offer <= ledger.balance(conn, funds) // 2 and sale["seller_account"] != funds:
+        out.append({"empire": None, "account": funds, "name": "The pension funds", "amount": offer, "order": 0})
     return out
 
 
@@ -804,7 +810,7 @@ def _decide(conn: Connection, sale: dict, period: int, now: datetime) -> None:
         # At auction the computer-run bidders go no higher than they have bid at the bells.
         computers = [{**c, "amount": min(c["amount"], sale["highest"] or 0)} for c in computers if (sale["highest"] or 0) > 0]
     best_player = bids[0] if bids else None
-    best_computer = max(computers, key=lambda c: (c["amount"], -c["empire"]["id"]), default=None)
+    best_computer = max(computers, key=lambda c: (c["amount"], -c["order"]), default=None)
     seller_has = ledger.balance(conn, sale["seller_account"], sale["share_asset"])
     winner = None
     if best_player and best_player["amount"] + best_player["clause_charge"] >= sale["reserve"] and (
@@ -919,23 +925,24 @@ def _book_purchase(conn: Connection, empire: dict, sale: dict, paid: int, period
 
 
 def _complete_computer(conn: Connection, sale: dict, winner: dict, period: int, now: datetime) -> None:
-    """A computer-run empire won: it pays from its cash and owns the company."""
+    """A computer-run buyer won (an empire the computer runs, or the pension funds): it pays from its cash and owns the company."""
     empire = winner["empire"]
     price = winner["amount"]
     reference = f"process:{sale['id']}"
-    ledger.transfer(conn, payer=empire["account_id"], receiver=sale["seller_account"], amount=price, kind="company_sale",
+    ledger.transfer(conn, payer=winner["account"], receiver=sale["seller_account"], amount=price, kind="company_sale",
                     memo=f"The price of {sale['company']}", period=period, reference=reference)
-    ledger.transfer(conn, payer=sale["seller_account"], receiver=empire["account_id"], amount=sale["shares"], asset=sale["share_asset"],
+    ledger.transfer(conn, payer=sale["seller_account"], receiver=winner["account"], amount=sale["shares"], asset=sale["share_asset"],
                     kind="company_sale", memo=f"{sale['company']}: shares bought", period=period, reference=reference)
     conn.execute("UPDATE sale_processes SET status = 'sold', price = %s, outcome = %s WHERE id = %s",
-                 (price, f"Sold to {empire['name']} for {_money(price)}.", sale["id"]))
-    add_stake(conn, sale["company_id"], empire["id"], price, period)
+                 (price, f"Sold to {winner['name']} for {_money(price)}.", sale["id"]))
+    if empire:
+        add_stake(conn, sale["company_id"], empire["id"], price, period)
     if sale["seller_empire_id"]:
         from simulation import firm_owned
         firm_owned.exited(conn, sale["seller_empire_id"], sale["company_id"], "to_empire", price, period, now)
     _take_control(conn, sale["company_id"], period, now)
     private._news(conn, period + 1, 2, "private_deal", f"deal:computer:{sale['id']}",
-                  {"buyer": empire["name"], "company": sale["company"], "amount": _money(price),
+                  {"buyer": winner["name"], "company": sale["company"], "amount": _money(price),
                    "how": "after sealed bids" if sale["mode"] == "sealed" else "at auction"})
 
 
