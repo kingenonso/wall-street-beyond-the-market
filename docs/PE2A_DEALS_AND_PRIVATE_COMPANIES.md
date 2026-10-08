@@ -14,7 +14,7 @@ every desk does its check, Legal Counsel strikes the seller's escape clauses and
 held back, the head bids with a buyout loan, the quarter closes and the empire owns the company, its
 dials change its next quarter, and it is sold to the pension funds.
 
-Tests at the end of this part: **TESTS_TOTAL on the server** (of which 51 are new: 11 in
+Tests at the end of this part: **907 on the server** (of which 51 are new: 11 in
 `tests/test_deals.py`, 11 in `tests/test_deals_more.py`, 10 in `tests/test_deals_loopholes.py`,
 19 in `tests/test_deals_review.py`), 13 on the order-matching engine, 12 on the website. All pass.
 

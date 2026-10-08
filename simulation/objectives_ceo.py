@@ -212,7 +212,7 @@ def _allocate_offer(ctx):
     if len(pool) < 6:
         return None
     first = _roll(ctx["player_id"], "ce_allocate", ctx["period"]) % len(pool)
-    chosen = [pool[(first + n * 5) % len(pool)] for n in range(3)]
+    chosen = [pool[(first + step) % len(pool)] for step in (0, len(pool) // 3, 2 * len(pool) // 3)]   # three different companies, spread out
     if len({c[0]["ticker"] for c in chosen}) < 3:
         return None
     options = [{"ticker": c["ticker"], "name": c["name"], "profit": profit, "value": share["price"] * share["shares"]}

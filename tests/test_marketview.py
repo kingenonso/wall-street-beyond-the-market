@@ -224,7 +224,7 @@ def test_a_troubled_company_is_judged_on_its_assets_and_its_risks_are_named(db):
     investors.act(db, OPEN, force=True)
     worst = _dicts(db, "SELECT c.ticker, p.credit_rating FROM company_reports p JOIN companies c ON c.id = p.company_id"
                        " JOIN company_valuations v ON v.company_id = c.id AND v.period = 8"
-                       " WHERE p.period = 8 AND v.method = 'assets' ORDER BY p.credit_rating DESC LIMIT 1")
+                       " WHERE p.period = 8 AND v.method = 'assets' AND c.listed ORDER BY p.credit_rating DESC LIMIT 1")
     assert worst, "expected at least one loss-making company after eight quarters"
     a = marketview.analysis(db, worst[0]["ticker"], OPEN)
     assert a["npv_method"] == "assets" and a["schedule"] == [] and a["price_to_profit"] is None
@@ -290,7 +290,7 @@ def test_a_watchlist_has_its_limits(db):
         marketview.watch(db, ada, "ZZZ", None, None)
     with pytest.raises(marketview.WatchlistError, match="must be above"):
         marketview.watch(db, ada, T, alert_above=1000, alert_below=2000)
-    tickers = [t for (t,) in db.execute("SELECT ticker FROM companies ORDER BY ticker").fetchall()]
+    tickers = [t for (t,) in db.execute("SELECT ticker FROM companies WHERE listed ORDER BY ticker").fetchall()]
     for ticker in tickers[:marketview.MOST_WATCHED]:
         marketview.watch(db, ada, ticker, None, None)
     with pytest.raises(marketview.WatchlistError, match="at most 30"):

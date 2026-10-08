@@ -18,7 +18,7 @@ from simulation.news_kinds import BY_NAME, KINDS, OUTLETS
 from simulation.news_wordings import PER_OUTLET, check
 from tests.conftest import after_quarters
 
-MODULES = ("places", "happenings", "economy", "results", "capital")
+MODULES = ("places", "happenings", "economy", "results", "capital", "deals")
 
 
 def _dicts(db, sql, params=()):
@@ -34,10 +34,10 @@ def test_every_kind_of_news_has_three_wordings_in_each_papers_voice_and_each_fil
         module = importlib.import_module(f"simulation.news_wordings.{name}")
         assert check(module.WORDINGS, module.KINDS) == [], name
         covered += module.KINDS
-    assert sorted(covered) == sorted(kind.name for kind in KINDS) and len(covered) == len(set(covered)) == 73
+    assert sorted(covered) == sorted(kind.name for kind in KINDS) and len(covered) == len(set(covered)) == 79
     assert set(news.WORDINGS) == set(BY_NAME)
     total = sum(len(options) for kind in news.WORDINGS.values() for options in kind.values())
-    assert total == 73 * 3 * PER_OUTLET == 657
+    assert total == 79 * 3 * PER_OUTLET == 711
     # Every kind of event the world can produce has news to go with it.
     assert {kind.name for kind in events.KINDS} <= set(BY_NAME)
 
@@ -108,7 +108,7 @@ def test_a_flood_is_followed_by_its_bill_under_the_same_story(db):
     # The bill printed is the bill in the ledger.
     paid = db.execute("SELECT sum(e.amount) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
                       " JOIN companies c ON c.account_id = e.account_id WHERE t.kind = 'insurance_claim' AND e.amount > 0"
-                      " AND c.headquarters = %s", (data.LAGOS,)).fetchone()[0]
+                      " AND c.headquarters = %s AND c.listed", (data.LAGOS,)).fetchone()[0]       # private companies' losses are not reported
     assert after[0]["facts"]["paid"] == news.money_words(int(paid))
     assert _dicts(db, "SELECT 1 FROM news_items WHERE kind = 'insurance_claims' AND period = 2")
 
