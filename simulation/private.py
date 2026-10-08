@@ -451,6 +451,10 @@ def before_close(conn: Connection, companies: list[dict], period: int, wage_inde
                 if fare != BPS:
                     company["labour_bps"] = company["labour_bps"] * BPS // fare
         pull = max(pull, 500)
+        # A company doctor whose rescue worked is paid in this quarter's accounts.
+        company["doctor_fees"] = [(r["id"], r["doctor_id"], r["fee"]) for r in _rows(
+            conn, "SELECT id, doctor_id, fee FROM company_plans WHERE company_id = %s AND kind = 'rescue' AND status = 'done'"
+                  " AND NOT fee_paid AND fee > 0", (company["id"],))]
         # What its assets can serve caps what it can sell: customers turned away go to its rivals.
         can_serve = capacity(conn, company["id"], period)
         demand = quarter_sales * pull // max(p["last_pull_bps"], 1)
@@ -506,6 +510,8 @@ def after_close(conn: Connection, period: int, results: list[tuple[dict, dict]],
         if p is None:
             continue
         _wear(conn, company, result, period, seed)
+        for plan_id, _doctor, _fee in company.get("doctor_fees", []):
+            conn.execute("UPDATE company_plans SET fee_paid = true WHERE id = %s", (plan_id,))
         # Morale follows pay against the going rate, and cuts in staff.
         ratio = company.get("pay_ratio_bps", BPS)
         dials = dials_for(conn, company["id"], period) if company["id"] in controlled else None

@@ -332,6 +332,11 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
                                                          packets, period, _owe)
     # Fees it paid to professionals during the quarter (audit and other work done for it by players).
     professional_fees = moves.get("professional_fee", {}).get("paid", 0)
+    # A company doctor's fee for a rescue that worked: a cost of this quarter, paid now or owed.
+    for plan_id, doctor, fee in company.get("doctor_fees", []):
+        _pay_or_owe(conn, company, ledger.player_account_id(conn, doctor), fee, kind="professional_fee",
+                    memo=f"{name}: fee to the Accountant whose rescue worked, {label}", period=period, reference=f"rescue:{plan_id}")
+        professional_fees += fee
     if professional_fees:
         notes.append(f"It paid {in_words(professional_fees)} in fees to professionals for work done for it.")
     wage_here = next(loc["quarterly_wage"] for loc in world.locations if loc["name"] == company["headquarters"])

@@ -47,7 +47,13 @@ def an_open_sale(db, *, mode=None, secret=None):
 
 
 def open_a_sale(db, company_ticker=None, mode="sealed"):
-    """Put a private company up for sale now (as the founders might), for a test that needs a particular one."""
+    """Put a private company up for sale now (as the founders might), for a test that needs a particular one.
+    If the founders already have that one on sale, that sale is used."""
+    if company_ticker:
+        already = _one(db, "SELECT s.* FROM sale_processes s JOIN companies c ON c.id = s.company_id WHERE c.ticker = %s AND s.status = 'open'"
+                           " AND s.seller_empire_id IS NULL", (company_ticker,))
+        if already:
+            return already
     company = _one(db, "SELECT c.* FROM companies c WHERE NOT c.listed AND c.status = 'trading'"
                        + (" AND c.ticker = %s" if company_ticker else "") + " AND NOT EXISTS (SELECT 1 FROM sale_processes s WHERE"
                        " s.company_id = c.id AND s.status = 'open') ORDER BY c.ticker LIMIT 1", (company_ticker,) if company_ticker else ())

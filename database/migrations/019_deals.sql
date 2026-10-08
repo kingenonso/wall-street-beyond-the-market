@@ -268,6 +268,7 @@ CREATE TABLE company_plans (                 -- the 100-day plan after a purchas
     code        text NOT NULL,
     cost        bigint NOT NULL DEFAULT 0,
     fee         bigint NOT NULL DEFAULT 0,               -- a rescue: paid to the doctor only if it works
+    fee_paid    boolean NOT NULL DEFAULT false,          -- ...in the company's next close
     doctor_id   uuid REFERENCES players (id),
     chance_bps  integer NOT NULL DEFAULT 10000,
     started_period integer NOT NULL,

@@ -288,7 +288,7 @@ def start_plan(conn: Connection, player_id, company_id, code: str, now: datetime
         if state["period"] > company["bought_period"] + PLAN_WINDOW:
             raise EmpireError("The 100-day plan is set out in the first two quarters after buying.")
         if _one(conn, "SELECT count(*) AS n FROM company_plans WHERE company_id = %s AND kind = 'hundred_days' AND empire_id = %s"
-                      " AND started_period > %s", (company_id, empire["id"], company["bought_period"]))["n"] >= PLANS_MOST:
+                      " AND started_period >= %s", (company_id, empire["id"], company["bought_period"]))["n"] >= PLANS_MOST:
             raise EmpireError("A 100-day plan has at most three parts.")
         title, cost_bps, quarters, chance, _effect = PLANS[code]
         cost = apply_bps(_quarter_sales(conn, company_id), cost_bps)
@@ -451,13 +451,9 @@ def _judge_plans(conn: Connection, period: int, seed: str, now: datetime) -> Non
             r = _one(conn, "SELECT payables, principal_overdue, net_profit FROM company_results WHERE company_id = %s ORDER BY period DESC LIMIT 1",
                      (company["id"],))
             saved = r["payables"] == 0 and r["principal_overdue"] == 0 and r["net_profit"] > 0
-            paid = 0
-            if saved and plan["fee"]:
-                paid = ledger.pay_up_to(conn, payer=company["account_id"], receiver=ledger.player_account_id(conn, plan["doctor_id"]),
-                                        wanted=plan["fee"], kind="professional_fee", memo=f"{company['name']}: fee for a rescue that worked",
-                                        period=period + 1, reference=f"rescue:{plan['id']}")
-            words = (f"The rescue of {company['name']} worked. The Accountant was paid {_money(paid)}." if saved
-                     else f"The rescue of {company['name']} did not work. No fee is paid.")
+            # The fee is the company's cost in its next quarter's accounts: paid then, or owed if it has not the cash.
+            words = (f"The rescue of {company['name']} worked. The Accountant's fee of {_money(plan['fee'])} is paid with its next quarter's bills."
+                     if saved else f"The rescue of {company['name']} did not work. No fee is paid.")
             conn.execute("UPDATE company_plans SET status = %s, outcome = %s WHERE id = %s", ("done" if saved else "failed", words, plan["id"]))
             mine = careers.career(conn, plan["doctor_id"], "accountant")
             careers._event(conn, plan["doctor_id"], "accountant", "rescue", words, now)
@@ -474,13 +470,17 @@ def _administrations(conn: Connection, period: int, now: datetime) -> None:
     for c in _rows(conn, "SELECT c.* FROM companies c WHERE NOT c.listed AND c.status = 'trading' ORDER BY c.ticker FOR UPDATE"):
         rows = _rows(conn, "SELECT * FROM company_results WHERE company_id = %s AND period >= 1 ORDER BY period DESC LIMIT %s",
                      (c["id"], TROUBLE_QUARTERS))
-        if len(rows) < TROUBLE_QUARTERS:
-            continue
-        if not all(r["payables"] > 0 or r["principal_overdue"] > 0 for r in rows) or rows[0]["total_equity"] >= 0:
+        if not in_trouble(rows):
             continue
         if _one(conn, "SELECT 1 FROM company_plans WHERE company_id = %s AND kind = 'rescue' AND status = 'running'", (c["id"],)):
             continue                                         # a rescue under way is given its time
         _wind_up(conn, c, rows[0], period, now)
+
+
+def in_trouble(rows: list[dict]) -> bool:
+    """Behind on its bills or loans at each of the last two closes, and owing more than it owns at the last."""
+    return (len(rows) >= TROUBLE_QUARTERS and all(r["payables"] > 0 or r["principal_overdue"] > 0 for r in rows[:TROUBLE_QUARTERS])
+            and rows[0]["total_equity"] < 0)
 
 
 def _wind_up(conn: Connection, c: dict, last: dict, period: int, now: datetime) -> None:
