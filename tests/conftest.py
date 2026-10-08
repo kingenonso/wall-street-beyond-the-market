@@ -74,6 +74,9 @@ def _templates():
         _recreate(admin, _TEMPLATES["fresh"], _TEMPLATES["empty"])
         with psycopg.connect(_url(_TEMPLATES["fresh"]), autocommit=True) as conn:
             genesis.create_world(conn, WORLD_START, fortune_seed="a-fixed-secret-so-that-every-test-run-repeats", test_world=True)
+            # The exchange opens its first trading day on the day the world is made. For tests that day is fixed
+            # (the world's first Monday), so that no test depends on the real date it happens to run on.
+            conn.execute("UPDATE market_instruments SET session_date = %s", (WORLD_START.date(),))
 
         _recreate(admin, _TEMPLATES["eight"], _TEMPLATES["fresh"])
         with psycopg.connect(_url(_TEMPLATES["eight"]), autocommit=True) as conn:
