@@ -268,8 +268,9 @@ def test_a_cost_above_the_threshold_waits_for_the_accountant_who_sees_only_its_h
     assert ledger.balance(db, ledger.player_account_id(db, team["journalist"])) == cash + naira(400_000)
     book = _one(db, "SELECT * FROM empire_books WHERE empire_id = %s AND entered_by = %s", (empire["id"], team["journalist"]))
     assert book["genuine"] is False and book["desk"] == "journalist"
-    # Below the threshold it goes through at once, as before.
-    assert empires.divert(db, team["journalist"], naira(100_000), LATER)["waiting"] is False
+    # Below the threshold it goes through at once, as before; the threshold counts the quarter's costs together.
+    assert empires.divert(db, team["head"], naira(100_000), LATER)["waiting"] is False
+    assert empires.divert(db, team["journalist"], naira(100_000), LATER)["waiting"] is True
     sound(db)
 
 
@@ -301,6 +302,7 @@ def test_training_is_a_genuine_cost_that_teaches_a_member(db):
 def test_a_contract_drafted_by_the_lawyer_sets_the_notice_and_its_non_compete_bars_the_rival(db):
     empire, team = firm_of(db)
     contract = firm_people.offer_contract(db, team["lawyer"], team["journalist"], 3, 500, 1, LATER)
+    firm_people.send_contract(db, team["head"], contract["id"], True, LATER)          # a Lawyer's draft goes to the head, who offers it
     firm_people.answer_contract(db, team["journalist"], contract["id"], True, LATER)
     gone = empires.resign(db, team["journalist"], "Off I go.", LATER)
     assert gone["leaves_at"] == LATER + timedelta(days=3)
@@ -331,7 +333,8 @@ def test_poaching_gives_the_home_empire_two_days_to_match_and_a_member_under_con
         member(db, rival, rival_head, build, name)
     rival = empires.open_empire(db, rival_head, NOW9)
     give_cash(db, rival["account_id"], 50_000_000)
-    firm_people.offer_contract(db, team["lawyer"], team["risk_manager"], 7, 0, 0, LATER)
+    drafted = firm_people.offer_contract(db, team["lawyer"], team["risk_manager"], 7, 0, 0, LATER)
+    firm_people.send_contract(db, team["head"], drafted["id"], True, LATER)
     firm_people.answer_contract(db, team["risk_manager"], _one(db, "SELECT id FROM member_contracts WHERE player_id = %s", (team["risk_manager"],))["id"],
                                 True, LATER)
     offer = firm_people.poach(db, rival_head, team["risk_manager"], naira(2_000_000), "Come to us.", LATER)
