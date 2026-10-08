@@ -182,7 +182,7 @@ def _sign_nda(conn: Connection, empire: dict, found: dict, player_id, now: datet
     _log(conn, empire["id"], f"A confidentiality agreement was signed for {sale['company']}. The data room is open.", now)
 
 
-def data_room(conn: Connection, company_id, empire_id) -> dict:
+def data_room(conn: Connection, company_id, empire_id, process_id=None) -> dict:
     """What the seller shows a buyer who has signed: its papers, its assets as stated, its debts, its
     manager, its routes, and its place in its industry. What the empire has found is shown beside it."""
     company = _one(conn, "SELECT c.*, s.name AS sector_name FROM companies c JOIN sectors s ON s.code = c.sector WHERE c.id = %s", (company_id,))
@@ -206,7 +206,15 @@ def data_room(conn: Connection, company_id, empire_id) -> dict:
         "market_share_bps": mine * BPS // total if listed else None,      # with no listed rival, there is nothing to set it against
         "routes": _routes(conn, company_id),
         "found": finds(conn, empire_id, company_id),
+        "audit": firm_practice().audit_opinion(conn, process_id) if process_id else None,     # the auditor's opinion, if the sale has one
+        "adviser": _one(conn, "SELECT f.name FROM sale_processes s JOIN pro_firms f ON f.id = s.adviser_firm_id WHERE s.id = %s",
+                        (process_id,)) if process_id else None,
     }
+
+
+def firm_practice():
+    from simulation import firm_practice as practice
+    return practice
 
 
 def _routes(conn: Connection, company_id) -> list[dict]:
@@ -365,6 +373,8 @@ def _step_for(conn: Connection, player_id, step_id: int):
         raise EmpireError("Nothing can be checked until the confidentiality agreement is signed and the data room is open.")
     if step["status"] != "due":
         raise EmpireError("That check is done.")
+    if step["firm_id"]:
+        raise EmpireError("That check was sent to an outside firm. The firm does it.")
     if not _desk_ok(conn, empire, seat, step["build"]):
         raise EmpireError(f"That check belongs to the {firm.DESK_NAMES[step['build']]}'s desk.")
     sale = _process(conn, found["process_id"])
@@ -433,7 +443,8 @@ def _staff_steps(conn: Connection, now: datetime) -> None:
                     _sign_nda(conn, empire, found, None, now)
                 continue
             sale = _process(conn, found["process_id"])
-            for step in _rows(conn, "SELECT * FROM deal_steps WHERE file_id = %s AND status = 'due' AND terms IS NULL FOR UPDATE", (found["id"],)):
+            for step in _rows(conn, "SELECT * FROM deal_steps WHERE file_id = %s AND status = 'due' AND terms IS NULL AND firm_id IS NULL FOR UPDATE",
+                                (found["id"],)):
                 if firm.desk_members(conn, empire["id"], step["build"]) or not firm.desk_staffed(conn, empire["id"], step["build"]):
                     continue
                 well = private.roll(private._seed(conn), "staff_check", step["id"]) < STAFF_FINDS_BPS
@@ -759,7 +770,7 @@ def _computer_bidders(conn: Connection, sale: dict, period: int) -> list[dict]:
         r = private.roll(seed, "computer_bid", sale["id"], e["id"])
         if r % 3 == 0:
             continue                                    # not interested
-        offer = apply_bps(worth, 7500 + r % 2500)
+        offer = apply_bps(apply_bps(worth, 7500 + r % 2500), BPS + (sale.get("pitch_bps") or 0))   # a pitch book that holds up lifts it
         cash = ledger.balance(conn, e["account_id"])
         if offer <= 0 or offer > apply_bps(cash, COMPUTER_BID_CASH_BPS):
             continue
@@ -767,7 +778,7 @@ def _computer_bidders(conn: Connection, sale: dict, period: int) -> list[dict]:
     # The pension funds buy private companies too, for the long run, at a little below what they are worth.
     funds = ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
     r = private.roll(seed, "funds_bid", sale["id"])
-    offer = apply_bps(worth, 8000 + r % 1500)
+    offer = apply_bps(apply_bps(worth, 8000 + r % 1500), BPS + (sale.get("pitch_bps") or 0))
     if r % 2 == 0 and 0 < offer <= ledger.balance(conn, funds) // 2 and sale["seller_account"] != funds:
         out.append({"empire": None, "account": funds, "name": "The pension funds", "amount": offer, "order": 0})
     return out
@@ -873,6 +884,7 @@ def _complete(conn: Connection, sale: dict, bid: dict, period: int, now: datetim
                     (empire["id"], bank["account_id"], lender["name"], bid["loan"], bid["loan"], bid["loan_rate_bps"], period, period + 20,
                      sale["company_id"], Jsonb(bid["covenants"]), empire["head_player_id"], now))
     _pay_seller(conn, sale, price, escrow, pot, period, reference)
+    adviser_fee = firm_practice().mandate_fee(conn, sale, price, period, now)        # the advisory firm that ran the sale, from the seller
     partners = _rows(conn, "SELECT * FROM deal_partners WHERE bid_id = %s AND status = 'pledged' FOR UPDATE", (bid["id"],))
     given = 0
     legs = []
@@ -901,7 +913,7 @@ def _complete(conn: Connection, sale: dict, bid: dict, period: int, now: datetim
             add_stake(conn, sale["company_id"], row["empire_id"], row["amount"], period)
     if sale["seller_empire_id"]:
         from simulation import firm_owned
-        firm_owned.exited(conn, sale["seller_empire_id"], sale["company_id"], "to_empire", price - escrow, period, now)
+        firm_owned.exited(conn, sale["seller_empire_id"], sale["company_id"], "to_empire", price - escrow - adviser_fee, period, now)
     _take_control(conn, sale["company_id"], period, now, deal_id=deal["id"])
     _book_purchase(conn, empire, sale, price - sum(r["amount"] for r in partners), period, now)
     for code in ("dressed_revenue", "worn_assets"):
@@ -935,11 +947,12 @@ def _complete_computer(conn: Connection, sale: dict, winner: dict, period: int, 
                     kind="company_sale", memo=f"{sale['company']}: shares bought", period=period, reference=reference)
     conn.execute("UPDATE sale_processes SET status = 'sold', price = %s, outcome = %s WHERE id = %s",
                  (price, f"Sold to {winner['name']} for {_money(price)}.", sale["id"]))
+    adviser_fee = firm_practice().mandate_fee(conn, sale, price, period, now)
     if empire:
         add_stake(conn, sale["company_id"], empire["id"], price, period)
     if sale["seller_empire_id"]:
         from simulation import firm_owned
-        firm_owned.exited(conn, sale["seller_empire_id"], sale["company_id"], "to_empire", price, period, now)
+        firm_owned.exited(conn, sale["seller_empire_id"], sale["company_id"], "to_empire", price - adviser_fee, period, now)
     _take_control(conn, sale["company_id"], period, now)
     private._news(conn, period + 1, 2, "private_deal", f"deal:computer:{sale['id']}",
                   {"buyer": winner["name"], "company": sale["company"], "amount": _money(price),
@@ -1207,7 +1220,11 @@ def view(conn: Connection, seat: dict, empire: dict, state: dict, now: datetime)
               "found": finds(conn, empire["id"], d["company_id"])}
              for d in _rows(conn, "SELECT d.*, c.name AS company FROM deals d JOIN companies c ON c.id = d.company_id WHERE d.empire_id = %s"
                                   " ORDER BY d.id DESC LIMIT 12", (empire["id"],))]
-    return {"sales": sales, "invitations": invitations, "deals": deals, "fairness_above": FAIRNESS_ABOVE,
+    outside = [x for x in firm_practice().firms(conn)
+               if not _one(conn, "SELECT 1 FROM pro_firms f JOIN empire_seats s ON s.player_id = f.founder_id WHERE f.id = %s AND s.empire_id = %s",
+                           (x["id"], empire["id"]))]
+    return {"sales": sales, "invitations": invitations, "deals": deals, "fairness_above": FAIRNESS_ABOVE, "outside_firms": outside,
+            "step_firms": firm_practice().STEP_FIRMS,
             "partners": [{"id": e["id"], "name": e["name"]} for e in _rows(conn, "SELECT id, name FROM empires WHERE kind = 'player' AND status = 'active'"
                                                                                  " AND id <> %s ORDER BY name", (empire["id"],))] if is_head else []}
 
@@ -1215,11 +1232,15 @@ def view(conn: Connection, seat: dict, empire: dict, state: dict, now: datetime)
 def _file_view(conn: Connection, f: dict, sale: dict, seat: dict, empire: dict, now: datetime) -> dict:
     me = seat["player_id"]
     steps = []
-    for s in _rows(conn, "SELECT s.*, p.display_name AS doer FROM deal_steps s LEFT JOIN players p ON p.id = s.done_by WHERE s.file_id = %s ORDER BY s.id",
-                   (f["id"],)):
-        mine = _desk_ok(conn, empire, seat, s["build"])
+    is_head = empire["head_player_id"] == me
+    for s in _rows(conn, "SELECT s.*, p.display_name AS doer, x.name AS firm FROM deal_steps s LEFT JOIN players p ON p.id = s.done_by"
+                         " LEFT JOIN pro_firms x ON x.id = s.firm_id WHERE s.file_id = %s ORDER BY s.id", (f["id"],)):
+        mine = _desk_ok(conn, empire, seat, s["build"]) and not s["firm_id"]
         steps.append({"id": s["id"], "step": s["step"], "title": STEPS[s["step"]][1], "why": STEPS[s["step"]][2], "desk": firm.DESK_LABELS[s["build"]],
-                      "status": s["status"], "score": s["score"], "found": s["found"], "by": s["doer"] or ("The staff" if s["by_staff"] else None),
+                      "status": s["status"], "score": s["score"], "found": s["found"],
+                      "by": (f"{s['firm']} (outside firm)" if s["firm"] else s["doer"]) or ("The staff" if s["by_staff"] else None),
+                      "firm": s["firm"], "can_send": is_head and s["status"] == "due" and s["terms"] is None and not s["firm_id"] and f["nda_at"] is not None
+                      and s["step"] in firm_practice().STEP_FIRMS,
                       "yours": mine and s["status"] == "due" and s["assigned_to"] in (None, me),
                       "terms": firm._public_terms(s["terms"]) if s["assigned_to"] == me and s["status"] == "due" else None})
     bid = _one(conn, "SELECT * FROM deal_bids WHERE process_id = %s AND empire_id = %s AND status IN ('pending', 'live')", (sale["id"], empire["id"]))
@@ -1234,7 +1255,7 @@ def _file_view(conn: Connection, f: dict, sale: dict, seat: dict, empire: dict, 
            "partners": partners, "clauses": [{"code": k, "words": v[0], "escape": v[1]} for k, v in CLAUSES.items()],
            "protections": [{"code": k, "words": v[0]} for k, v in PROTECTIONS.items()]}
     if f["nda_at"]:
-        out["data_room"] = data_room(conn, sale["company_id"], empire["id"])
+        out["data_room"] = data_room(conn, sale["company_id"], empire["id"], sale["id"])
         out["terms"] = terms_view(conn, sale["id"], empire["id"])
         out["charge_bps"] = charge_bps(conn, sale["id"], empire["id"])
         if empire["head_player_id"] == me:
@@ -1247,7 +1268,7 @@ def waiting(conn: Connection, seat: dict, empire: dict, now: datetime) -> int:
     me = seat["player_id"]
     n = 0
     for s in _rows(conn, "SELECT s.* FROM deal_steps s JOIN deal_files f ON f.id = s.file_id JOIN sale_processes p ON p.id = f.process_id"
-                         " WHERE f.empire_id = %s AND f.status = 'open' AND p.status = 'open' AND s.status = 'due' AND f.nda_at IS NOT NULL",
+                         " WHERE f.empire_id = %s AND f.status = 'open' AND p.status = 'open' AND s.status = 'due' AND f.nda_at IS NOT NULL AND s.firm_id IS NULL",
                    (empire["id"],)):
         if _desk_ok(conn, empire, seat, s["build"]) and s["assigned_to"] in (None, me):
             n += 1

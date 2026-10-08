@@ -253,7 +253,7 @@ function TakeoverCard({ bid, update }: { bid: Takeover; update: (c: Corporate) =
   return (
     <div className="bond">
       <div className="strong">
-        <a href={`#/companies/${bid.bidder_ticker}`}>{bid.bidder}</a> offers for <a href={`#/companies/${bid.ticker}`}>{bid.target}</a>{" "}
+        {bid.bidder_ticker ? <a href={`#/companies/${bid.bidder_ticker}`}>{bid.bidder}</a> : <span>{bid.bidder} (an empire)</span>} offers for <a href={`#/companies/${bid.ticker}`}>{bid.target}</a>{" "}
         <span className={bid.hostile ? "pill pill-test" : "pill pill-open"}>{bid.hostile ? "Hostile: the board rejected it" : "Agreed: the board recommends it"}</span>
       </div>
       <div className="small">

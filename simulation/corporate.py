@@ -81,9 +81,9 @@ def _open(conn: Connection, now: datetime) -> None:
         raise CorporateError(bonds.CLOSING)
 
 
-def _player(conn: Connection, account) -> None:
+def _player(conn: Connection, account, *, empire_ok: bool = False) -> None:
     owner = _one(conn, "SELECT kind FROM ledger_accounts WHERE id = %s", (account,))
-    if owner is None or owner["kind"] != "player":
+    if owner is None or owner["kind"] not in (("player", "empire") if empire_ok else ("player",)):
         raise CorporateError("That account cannot take part.")
 
 
@@ -96,6 +96,14 @@ def _investors(conn: Connection) -> dict:
     return {r["code"]: r["id"] for r in _rows(
         conn, "SELECT code, id FROM ledger_accounts WHERE code = ANY(%s)",
         ([ledger.INVESTORS_FOUNDERS, ledger.INVESTORS_INSTITUTIONS, ledger.INVESTORS_PUBLIC],))}
+
+
+def _bidder(conn: Connection, bid: dict) -> dict:
+    """Who made a takeover offer: a company, or an empire run by players. Both have a name and an account."""
+    if bid.get("bidder_company_id"):
+        return _company(conn, bid["bidder_company_id"])
+    empire = _one(conn, "SELECT id, name, account_id FROM empires WHERE id = %s", (bid["bidder_empire_id"],))
+    return {**empire, "ticker": None, "empire_id": empire["id"]}
 
 
 def _company(conn: Connection, company_id) -> dict:
@@ -328,6 +336,16 @@ def _complete_offers(conn: Connection, period: int, now: datetime) -> None:
             demand = sum(wanted.values())
             for account, amount in wanted.items():
                 allot[account] = amount if demand <= total else amount * total // demand
+        underwriter = None
+        if offer["kind"] != "rights" and offer.get("underwriter_firm_id"):
+            # A small bank stood behind the offer: it buys, at the offer price, what the public did not, as far as its cash goes.
+            from simulation import firm_practice
+            underwriter = _one(conn, "SELECT * FROM pro_firms WHERE id = %s AND status = 'open'", (offer["underwriter_firm_id"],))
+            if underwriter:
+                left = total - sum(amount for amount in allot.values() if amount > 0)
+                take = firm_practice.underwrite(conn, offer, left)
+                if take > 0:
+                    allot[underwriter["account_id"]] = allot.get(underwriter["account_id"], 0) + take
         allot = {account: amount for account, amount in allot.items() if amount > 0}
         sold = sum(allot.values())
         raised = sold * price
@@ -366,6 +384,9 @@ def _complete_offers(conn: Connection, period: int, now: datetime) -> None:
                              f"{sold:,} new shares were issued at {_naira(price)}. The same company is now divided into more "
                              f"shares, so each is worth less: the price was adjusted from {_naira(listed)} to {_naira(new_price)}.")
             outcome += f" The share price was adjusted from {_naira(listed)} to {_naira(new_price)} to allow for the new shares."
+        if underwriter and sold:
+            from simulation import firm_practice
+            outcome += firm_practice.underwritten(conn, offer, company, underwriter, allot.get(underwriter["account_id"], 0), raised, period, now)
         conn.execute("UPDATE share_offers SET status = 'done', shares_sold = %s, raised = %s, outcome = %s, closed_at = %s WHERE id = %s",
                      (sold, raised, outcome, now, offer["id"]))
         notice(conn, period, company["id"], "offer_result", f"{company['name']}: share offer completed", outcome, now)
@@ -420,14 +441,14 @@ def _complete_splits(conn: Connection, period: int, now: datetime) -> None:
 # Takeovers
 # ---------------------------------------------------------------------------
 
-def tender(conn: Connection, *, account: UUID | str, takeover_id: int, shares: int, now: datetime) -> dict:
+def tender(conn: Connection, *, account: UUID | str, takeover_id: int, shares: int, now: datetime, empire_ok: bool = False) -> dict:
     """Offer `shares` of the target to the bidder (0 withdraws them). They are held until the
     offer closes. If the offer fails, or more are offered than the bidder wants, they come back."""
     if not _whole(shares) or shares < 0:
         raise CorporateError("The number of shares must be a whole number, zero or more.")
     with conn.transaction():
         _open(conn, now)
-        _player(conn, account)
+        _player(conn, account, empire_ok=empire_ok)
         bid = _one(conn, "SELECT t.*, c.share_asset, c.name FROM takeovers t JOIN companies c ON c.id = t.target_company_id"
                          " WHERE t.id = %s FOR UPDATE OF t", (takeover_id,))
         if bid is None or bid["status"] != "open":
@@ -460,13 +481,16 @@ def _computer_run_acceptances(conn: Connection, bid: dict, who: dict) -> dict:
     founders, funds, public = who[ledger.INVESTORS_FOUNDERS], who[ledger.INVESTORS_INSTITUTIONS], who[ledger.INVESTORS_PUBLIC]
     owned = _owners(conn, bid["target_company_id"])
     offered = {}
-    if not bid["hostile"]:
+    # A defence that held up: the board has said what the company is worth. Below it, the founders follow the board and
+    # small investors are slower to sell.
+    defended = bool(bid.get("defence_value")) and bid["price"] < bid["defence_value"]
+    if not bid["hostile"] and not defended:
         offered[founders] = owned.get(founders, 0)
     valued = _one(conn, "SELECT value_per_share FROM company_valuations WHERE company_id = %s ORDER BY period DESC LIMIT 1",
                   (bid["target_company_id"],))
     if bid["premium_bps"] >= data.FUNDS_ACCEPT_PREMIUM_BPS and (valued is None or bid["price"] >= valued["value_per_share"]):
         offered[funds] = owned.get(funds, 0)                # ...and never below what the company is worth
-    offered[public] = owned.get(public, 0) * min(max(bid["premium_bps"] * 2, 2000), 9000) // BPS
+    offered[public] = owned.get(public, 0) * min(max(bid["premium_bps"] * 2, 2000), 9000) // BPS // (2 if defended else 1)
     return {account: shares for account, shares in offered.items() if shares > 0}
 
 
@@ -481,7 +505,7 @@ def expected_value(conn: Connection, bid: dict, worth_per_share: int) -> int | N
         if sum(t[0] for t in tally.values()) <= sum(t[1] for t in tally.values()):
             return None
     target = _company(conn, bid["target_company_id"])
-    bidder = _company(conn, bid["bidder_company_id"])
+    bidder = _bidder(conn, bid)
     # Only what the computer-run owners will do by their public rules is counted. What players have
     # offered so far can be taken back, so it is left out: nobody can move this figure and then withdraw.
     offered = _computer_run_acceptances(conn, bid, who)
@@ -494,11 +518,14 @@ def expected_value(conn: Connection, bid: dict, worth_per_share: int) -> int | N
     return (bid["price"] * buy + worth_per_share * (total - buy)) // total
 
 
+TAKEOVER_CLOSED: list = []          # (conn, bid, target, period, now): what follows a takeover offer's close (empires' records)
+
+
 def _complete_takeovers(conn: Connection, period: int, now: datetime) -> None:
     held = bonds.held_account(conn)
     who = _investors(conn)
     for bid in _rows(conn, "SELECT * FROM takeovers WHERE status = 'open' AND closes_period <= %s ORDER BY id FOR UPDATE", (period,)):
-        bidder, target = _company(conn, bid["bidder_company_id"]), _company(conn, bid["target_company_id"])
+        bidder, target = _bidder(conn, bid), _company(conn, bid["target_company_id"])
         asset = target["share_asset"]
         offered = {r["account_id"]: r["shares"] for r in _rows(
             conn, "SELECT account_id, shares FROM takeover_tenders WHERE takeover_id = %s AND shares > 0 ORDER BY account_id FOR UPDATE", (bid["id"],))}
@@ -549,13 +576,14 @@ def _complete_takeovers(conn: Connection, period: int, now: datetime) -> None:
             outcome = (f"Owners of {_percent(accepted_bps)} of the shares accepted. {bidder['name']} bought {buy:,} shares at "
                        f"{_naira(bid['price'])} for {_big(paid)} and now owns {_percent(stake)} of {target['name']}."
                        + (" More shares were offered than it wanted, so each seller sold the same proportion." if buy < total else ""))
-            conn.execute("INSERT INTO integrations (takeover_id, bidder_company_id, target_company_id, start_period, quarters, planned_saving_bps)"
-                         " VALUES (%s, %s, %s, %s, %s, %s)", (bid["id"], bidder["id"], target["id"], period + 1,
-                                                              data.INTEGRATION_QUARTERS, data.INTEGRATION_SAVING_BPS))
+            if bid["bidder_company_id"]:          # two businesses are joined; an empire simply owns the shares
+                conn.execute("INSERT INTO integrations (takeover_id, bidder_company_id, target_company_id, start_period, quarters, planned_saving_bps)"
+                             " VALUES (%s, %s, %s, %s, %s, %s)", (bid["id"], bidder["id"], target["id"], period + 1,
+                                                                  data.INTEGRATION_QUARTERS, data.INTEGRATION_SAVING_BPS))
             news.publish(conn, period=period + 1, day=1, kind="takeover_won", story=f"takeover:{bid['id']}",
                          facts={"bidder": bidder["name"], "target": target["name"], "ticker": target["ticker"],
                                 "price": _naira(bid["price"]), "stake": _percent(stake), "value": _big(paid)},
-                         tickers=[target["ticker"], bidder["ticker"]])
+                         tickers=[t for t in (target["ticker"], bidder["ticker"]) if t])
         else:
             outcome = ("The bidder's own shareholders voted against the purchase, so the offer was withdrawn." if blocked else
                        f"Owners of only {_percent(accepted_bps)} of the shares accepted; more than half was needed. The offer lapsed.") \
@@ -563,11 +591,13 @@ def _complete_takeovers(conn: Connection, period: int, now: datetime) -> None:
             news.publish(conn, period=period + 1, day=1, kind="takeover_failed", story=f"takeover:{bid['id']}",
                          facts={"bidder": bidder["name"], "target": target["name"], "ticker": target["ticker"],
                                 "price": _naira(bid["price"]), "accepted": _percent(accepted_bps)},
-                         tickers=[target["ticker"], bidder["ticker"]])
+                         tickers=[t for t in (target["ticker"], bidder["ticker"]) if t])
         conn.execute("UPDATE takeovers SET status = %s, accepted = %s, bought = %s, paid = %s, reserved = 0, outcome = %s, closed_at = %s"
                      " WHERE id = %s", ("won" if won else "failed", total, buy, paid, outcome, now, bid["id"]))
         notice(conn, period, target["id"], "takeover_result",
                f"{bidder['name']}'s offer for {target['name']}: {'succeeded' if won else 'failed'}", outcome, now)
+        for hook in TAKEOVER_CLOSED:
+            hook(conn, {**bid, "status": "won" if won else "failed", "bought": buy, "paid": paid}, target, period, now)
 
 
 # ---------------------------------------------------------------------------
@@ -956,10 +986,11 @@ def board(conn: Connection, account: UUID | str | None, period: int) -> dict:
                         " LEFT JOIN share_owners o ON o.company_id = v.company_id AND o.account_id = %s"
                         " WHERE v.status = 'open' OR v.closes_period >= %s ORDER BY (v.status = 'open') DESC, v.id DESC LIMIT 30",
                   (account, account, period - 3))
-    bids = _rows(conn, "SELECT t.*, b.name AS bidder, b.ticker AS bidder_ticker, c.name AS target, c.ticker, d.shares AS offered,"
+    bids = _rows(conn, "SELECT t.*, coalesce(b.name, e.name) AS bidder, b.ticker AS bidder_ticker, c.name AS target, c.ticker, d.shares AS offered,"
                        " coalesce(m.last_price, m.reference_price) AS market_price,"
                        " coalesce((SELECT h.balance FROM ledger_balances h WHERE h.account_id = %s AND h.asset = c.share_asset), 0)::bigint AS free"
-                       " FROM takeovers t JOIN companies b ON b.id = t.bidder_company_id JOIN companies c ON c.id = t.target_company_id"
+                       " FROM takeovers t LEFT JOIN companies b ON b.id = t.bidder_company_id LEFT JOIN empires e ON e.id = t.bidder_empire_id"
+                       " JOIN companies c ON c.id = t.target_company_id"
                        " LEFT JOIN market_instruments m ON m.company_id = c.id"
                        " LEFT JOIN takeover_tenders d ON d.takeover_id = t.id AND d.account_id = %s"
                        " WHERE t.status = 'open' OR t.closes_period >= %s ORDER BY (t.status = 'open') DESC, t.id DESC LIMIT 20",

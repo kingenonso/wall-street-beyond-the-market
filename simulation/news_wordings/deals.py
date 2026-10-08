@@ -32,7 +32,7 @@ WORDINGS = {
              "The founders of {company} have committed {amount}. The company, headquartered in {city}, adds capacity "
              "to {sector} and will take customers from established names."),
             ("{city} start-up {company} raises {amount} from founders",
-             "{company} begins operations in {sector}. All {amount} of its opening capital came from its founders; no "
+             "{company} begins operations in {sector}. All {amount} of its opening capital came from its founders, and no "
              "money was borrowed."),
         ],
     },
@@ -62,7 +62,7 @@ WORDINGS = {
              "is {amount}. Access to the data room requires a confidentiality agreement."),
             ("Private sale: {company}, asking {amount}",
              "{company} is being sold {how}. Bidders will want to test the accounts, the assets and the contracts "
-             "before committing; the sale is decided at the quarter's close."),
+             "before committing. The sale is decided at the quarter's close."),
             ("{sector} asset on the market: {company}",
              "A sale of {company} has been launched {how}, with {amount} asked. Buyers may borrow part of the price "
              "against the company itself."),
@@ -120,7 +120,7 @@ WORDINGS = {
         "ledger": [
             ("{buyer} acquires {company} for {amount}",
              "{buyer} has completed the purchase of {company} for {amount}, {how}. Part of the price may have been "
-             "borrowed against the company; lenders will watch its cash closely."),
+             "borrowed against the company, and lenders will watch its cash closely."),
             ("{company} sold: {amount}",
              "The sale of {company} has closed with {buyer} as the winning bidder, {how}. The price was {amount}."),
             ("Private deal: {buyer} takes {company}",
@@ -134,7 +134,7 @@ WORDINGS = {
              "what it owned raised {recovered}, shared out among those it owed in the order the law sets."),
             ("The end for {company}",
              "Administrators have wound up {company}. Lenders and staff were paid first from the {recovered} its assets "
-             "fetched; of the {owed} it owed, much will never be paid. Its owners get nothing."),
+             "fetched. Of the {owed} it owed, much will never be paid. Its owners get nothing."),
             ("{company} fails, owing {owed}",
              "{company} has failed. Its assets were sold for {recovered}, against debts of {owed}."),
         ],
@@ -149,13 +149,13 @@ WORDINGS = {
         "ledger": [
             ("{company} enters administration owing {owed}",
              "{company}, based in {city}, has been placed in administration. Asset sales realised {recovered} against "
-             "liabilities of {owed}. Secured lenders rank first, then staff, then tax, then other creditors; "
-             "shareholders receive nothing."),
+             "liabilities of {owed}. Secured lenders rank first, then staff, then tax, then other creditors. "
+             "Shareholders receive nothing."),
             ("Creditors recover {recovered} from {company}",
              "The administration of {company} has concluded. Of {owed} owed, {recovered} was raised from the sale of "
              "its assets and distributed by rank."),
             ("{company} wound up after failing to pay its debts",
-             "{company} could no longer meet its obligations. Its assets fetched {recovered}; its debts stood at {owed}."),
+             "{company} could no longer meet its obligations. Its assets fetched {recovered}, and its debts stood at {owed}."),
         ],
     },
     "deal_of_the_year": {

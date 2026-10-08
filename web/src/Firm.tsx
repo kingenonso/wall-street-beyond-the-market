@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError, type Player } from "./api";
 import { CompaniesTab, DealsTab } from "./Deals";
+import { FirmsTab, TakeoversTab } from "./Dealmaking";
 import { HeadWork } from "./Desks2";
 import { asKobo, EmpireWork } from "./Empire";
 import { formatCompact, formatNaira, formatPercent } from "./format";
@@ -25,6 +26,7 @@ const when = (iso: string | null | undefined) =>
 export const pct = (bps: number | null | undefined) => (bps === null || bps === undefined ? "—" : formatPercent(bps, 1));
 const TABS = [
   ["overview", "Overview"], ["desks", "Desks"], ["requests", "Requests and votes"], ["deals", "Deals"], ["companies", "Companies"],
+  ["takeovers", "Takeovers"], ["firms", "Firms"],
   ["money", "Money"], ["people", "People"], ["work", "Work and events"], ["risk", "Risk"], ["board", "Board"], ["warroom", "War Room"],
 ] as const;
 export type Tab = (typeof TABS)[number][0];
@@ -868,6 +870,11 @@ function needsYou(f: Any): { tag: string; title: string; tab: Tab }[] {
   for (const i of f.deals?.invitations ?? []) if (i.status === "invited") out.push({ tag: "PARTNER", title: `${i.from} asks you to co-invest in ${i.company}`, tab: "deals" });
   for (const r of f.owned?.rescues_waiting ?? []) out.push({ tag: "RESCUE", title: `A rescue plan for ${r.company}`, tab: "companies" });
   for (const c of f.owned?.companies ?? []) if (c.loan?.broken?.length) out.push({ tag: "LOAN", title: `${c.name}: a promise to the bank is broken`, tab: "companies" });
+  for (const j of f.practice?.mine?.jobs ?? []) if (j.status === "open") out.push({ tag: "CLIENT", title: `${f.practice.mine.name}: ${j.company ?? "a job"} is waiting`, tab: "firms" });
+  for (const o of f.practice?.loan_offers ?? []) out.push({ tag: "LOAN", title: `${o.bank} offers the empire a loan`, tab: "firms" });
+  for (const b of f.dealmaking?.blocks ?? []) if (b.status === "offered" && !b.selling && f.is_head) out.push({ tag: "BLOCK", title: `${b.seller} offers a block of ${b.company} shares`, tab: "takeovers" });
+  for (const o of f.dealmaking?.offers ?? []) if (o.can_defend && !o.defence) out.push({ tag: "DEFENCE", title: `${o.bidder} is bidding for ${o.target}: write the board's defence`, tab: "takeovers" });
+  for (const c of f.dealmaking?.combinations ?? []) if (c.joining_us && c.status === "voting" && f.is_head) out.push({ tag: "MERGER", title: `${c.with} has voted to merge with your empire`, tab: "takeovers" });
   return out;
 }
 
@@ -917,6 +924,8 @@ export function FirmWork({ player, onLoggedOut, onChanged, initialTab }: Props &
       {tab === "warroom" && <EmpireWork player={player} onLoggedOut={onLoggedOut} onChanged={onChanged} />}
       {tab === "deals" && <DealsTab f={f} act={act} />}
       {tab === "companies" && <CompaniesTab f={f} act={act} />}
+      {tab === "takeovers" && <TakeoversTab f={f} act={act} />}
+      {tab === "firms" && <FirmsTab f={f} act={act} />}
       {tab === "desks" && <Desks f={f} act={act} />}
       {tab === "requests" && <Requests f={f} act={act} />}
       {tab === "money" && <MoneyTab f={f} act={act} />}

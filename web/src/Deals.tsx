@@ -7,6 +7,7 @@
 
 import { useState, type FormEvent } from "react";
 import { asKobo } from "./Empire";
+import { SendOut } from "./Dealmaking";
 import { type Act, type Any, Arrow, DutyForm, Money, pct } from "./Firm";
 import { formatCompact, formatNaira } from "./format";
 import { NumberTile } from "./Parts";
@@ -108,7 +109,7 @@ function File({ file, s, d, act }: { file: Any; s: Any; d: Any; act: Act }) {
         </div>
       )}
       {file.data_room && <DataRoom room={file.data_room} />}
-      <Checks file={file} act={act} />
+      <Checks file={file} d={d} act={act} />
       {file.terms && <Terms file={file} act={act} />}
       {file.nda && file.is_head && <Bid file={file} s={s} d={d} act={act} />}
     </div>
@@ -136,6 +137,15 @@ function DataRoom({ room }: { room: Any }) {
         <div key={a.id} className="row small"><span>{a.name}{a.base ? ` · ${a.base}` : ""} · {a.age_quarters} of {a.life_quarters} quarters</span><Condition bps={a.condition_bps} /></div>
       ))}
       {room.routes.length > 0 && <p className="small">Routes: {room.routes.map((r: Any) => `${r.from}–${r.to}`).join(", ")}</p>}
+      {room.audit && (
+        <div className="row small">
+          <span>Audited by {room.audit.firm} ({room.audit.reputation}/100)</span>
+          <span className={room.audit.opinion === "refused" ? "mono condition-poor" : "mono"}>
+            {room.audit.status !== "done" ? "under way" : room.audit.opinion === "clean" ? "✓ signed clean" : "✗ the auditor refused to sign"}
+          </span>
+        </div>
+      )}
+      {room.adviser && <div className="row small"><span>The sale is run by</span><span>{room.adviser.name}</span></div>}
       {room.found.length > 0 && (
         <div className="callout">
           <p className="field-label">What the empire has found</p>
@@ -151,7 +161,7 @@ function Condition({ bps }: { bps: number }) {
   return <span className={`mono condition-${word}`}>{bps >= 7000 ? "●" : bps >= 4000 ? "◐" : "○"} {pct(bps)} · {word}</span>;
 }
 
-function Checks({ file, act }: { file: Any; act: Act }) {
+function Checks({ file, d, act }: { file: Any; d: Any; act: Act }) {
   return (
     <div className="checks">
       <p className="field-label">The checks</p>
@@ -166,6 +176,7 @@ function Checks({ file, act }: { file: Any; act: Act }) {
             <button className="button-outline" disabled={act.busy} onClick={() => act.run("POST", `/deals/steps/${step.id}/open`)}>Open this check</button>
           )}
           {step.yours && step.terms && <DutyForm duty={step} act={act} path={`/deals/steps/${step.id}/hand-in`} />}
+          <SendOut step={step} firms={(d.outside_firms ?? []).filter((x: Any) => x.kind === d.step_firms?.[step.step])} act={act} />
         </div>
       ))}
     </div>
@@ -313,7 +324,7 @@ function Owned({ c, o, act }: { c: Any; o: Any; act: Act }) {
       {c.is_airline && <Routes c={c} act={act} />}
       {c.candidates && <Managers c={c} act={act} />}
       {c.runs && <Plans c={c} o={o} act={act} />}
-      {c.candidates && <Exits c={c} act={act} />}
+      {c.candidates && <Exits c={c} firms={o.outside_firms ?? []} act={act} />}
     </Panel>
   );
 }
@@ -450,7 +461,9 @@ function Plans({ c, o, act }: { c: Any; o: Any; act: Act }) {
   );
 }
 
-function Exits({ c, act }: { c: Any; act: Act }) {
+function Exits({ c, firms, act }: { c: Any; firms: Any[]; act: Act }) {
+  const [adviser, setAdviser] = useState("");
+  const [underwriter, setUnderwriter] = useState("");
   const [asking, setAsking] = useState("");
   const [reserve, setReserve] = useState("");
   const [mode, setMode] = useState("sealed");
@@ -461,15 +474,25 @@ function Exits({ c, act }: { c: Any; act: Act }) {
         <span>The pension funds would pay {formatNaira(c.buyer_offer)} for the empire's shares now (partners sell alongside).</span>
         <button className="button-outline" disabled={act.busy || c.on_sale} onClick={() => act.run("POST", `/owned/${c.id}/sell-to-buyer`)}>Sell to them</button>
       </div>
-      <form className="inline-form" onSubmit={(e) => { e.preventDefault(); const a = asKobo(asking); const r = asKobo(reserve); if (a && r) act.run("POST", `/owned/${c.id}/sell`, { asking_kobo: a, reserve_kobo: r, mode }); }}>
+      <form className="inline-form" onSubmit={(e) => { e.preventDefault(); const a = asKobo(asking); const r = asKobo(reserve); if (a && r) act.run("POST", `/owned/${c.id}/sell`, { asking_kobo: a, reserve_kobo: r, mode, adviser_firm_id: adviser ? Number(adviser) : null }); }}>
         <select value={mode} onChange={(e) => setMode(e.target.value)}><option value="sealed">Sealed bids</option><option value="auction">Auction</option></select>
         <input className="small-input" type="text" placeholder="Asking ₦" value={asking} onChange={(e) => setAsking(e.target.value)} />
         <input className="small-input" type="text" placeholder="Lowest you'll take ₦" value={reserve} onChange={(e) => setReserve(e.target.value)} />
+        <select value={adviser} onChange={(e) => setAdviser(e.target.value)} aria-label="Adviser">
+          <option value="">No adviser</option>
+          {firms.filter((x: Any) => x.kind === "advisory").map((x: Any) => <option key={x.id} value={x.id}>Run by {x.name} (1% on success)</option>)}
+        </select>
         <button className="button-outline" disabled={act.busy || c.on_sale || !asKobo(asking) || !asKobo(reserve)}>Put it up for sale</button>
       </form>
       <div className="row small">
         <span>List it on the exchange: a quarter more shares sold to the public, a tenth below its valuation.</span>
-        <button className="button-outline" disabled={act.busy || c.failing} onClick={() => act.run("POST", `/owned/${c.id}/list`)}>List it</button>
+        <span className="inline-form">
+          <select value={underwriter} onChange={(e) => setUnderwriter(e.target.value)} aria-label="Underwriter">
+            <option value="">No underwriter</option>
+            {firms.filter((x: Any) => x.kind === "bank").map((x: Any) => <option key={x.id} value={x.id}>Ask {x.name} to stand behind it (2%)</option>)}
+          </select>
+          <button className="button-outline" disabled={act.busy || c.failing} onClick={() => act.run("POST", `/owned/${c.id}/list`, underwriter ? { underwriter_firm_id: Number(underwriter) } : undefined)}>List it</button>
+        </span>
       </div>
       <p className="muted small">On a gain, the empire pays deal fees to the banker who brought it and to each player who did a check.</p>
     </div>

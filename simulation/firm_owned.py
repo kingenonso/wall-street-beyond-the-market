@@ -595,7 +595,7 @@ def _computer_resales(conn: Connection, period: int, seed: str, now: datetime) -
 # Getting out
 # ---------------------------------------------------------------------------
 
-def sell_to_empire(conn: Connection, head_id, company_id, asking: int, reserve: int, mode: str, now: datetime) -> dict:
+def sell_to_empire(conn: Connection, head_id, company_id, asking: int, reserve: int, mode: str, now: datetime, adviser_firm_id=None) -> dict:
     """Put the empire's stake up for sale, by sealed bids or at auction. Other empires, and the computer-run
     ones, bid as for any company. Partners keep their shares, with the new owner."""
     with conn.transaction():
@@ -615,7 +615,7 @@ def sell_to_empire(conn: Connection, head_id, company_id, asking: int, reserve: 
             raise EmpireError("That company is already on sale, or its listing is under way.")
         shares = ledger.balance(conn, empire["account_id"], company["share_asset"])
         sale_id = private.start_sale(conn, company_id, empire["account_id"], empire["id"], shares, state["period"], private._seed(conn), now,
-                                     asking=asking, reserve=reserve, mode=mode)
+                                     asking=asking, reserve=reserve, mode=mode, adviser_firm_id=adviser_firm_id)
         _log(conn, empire["id"], f"The head put {company['name']} up for sale {'by sealed bids' if mode == 'sealed' else 'at auction'}, asking {_money(asking)}.", now)
         return {"sale_id": sale_id}
 
@@ -666,7 +666,7 @@ def sell_to_buyer(conn: Connection, head_id, company_id, now: datetime) -> dict:
         return {"proceeds": mine}
 
 
-def list_on_exchange(conn: Connection, head_id, company_id, now: datetime) -> dict:
+def list_on_exchange(conn: Connection, head_id, company_id, now: datetime, underwriter_firm_id=None) -> dict:
     """List the company: new shares (a quarter more) are sold to the public at a tenth below its valuation, and
     from the next close its shares trade on the exchange. The empire keeps its shares, and can sell them there."""
     from simulation import corporate
@@ -687,8 +687,11 @@ def list_on_exchange(conn: Connection, head_id, company_id, now: datetime) -> di
         if price <= 0:
             raise EmpireError("It has no value to list at.")
         shares = apply_bps(in_issue, LISTING_NEW_BPS)
-        corporate.announce_offer(conn, {**company, "sector_name": company["sector"]}, kind="ipo", price=price, shares=shares,
-                                 period=state["period"], reason=f"Its owners, {empire['name']}, are bringing it to the exchange.", now=now)
+        offer_id = corporate.announce_offer(conn, {**company, "sector_name": company["sector"]}, kind="ipo", price=price, shares=shares,
+                                            period=state["period"], reason=f"Its owners, {empire['name']}, are bringing it to the exchange.", now=now)
+        if underwriter_firm_id:
+            from simulation import firm_practice
+            firm_practice.underwriting_ask(conn, offer_id, underwriter_firm_id, empire["id"], now)
         _log(conn, empire["id"], f"The head announced the listing of {company['name']}: {shares:,} new shares at {_money(price)} each.", now)
         return {"price": price, "shares": shares}
 
@@ -710,7 +713,7 @@ def exited(conn: Connection, empire_id, company_id, kind: str, proceeds: int, pe
         if f and f["brought_by"]:
             team.append((f["brought_by"], "investment_banker", DEAL_FEE_BRING_BPS, "bringing the deal"))
         if f:
-            for s in _rows(conn, "SELECT * FROM deal_steps WHERE file_id = %s AND done_by IS NOT NULL", (f["id"],)):
+            for s in _rows(conn, "SELECT * FROM deal_steps WHERE file_id = %s AND done_by IS NOT NULL AND firm_id IS NULL", (f["id"],)):
                 team.append((s["done_by"], s["build"], DEAL_FEE_CHECK_BPS, s["step"]))
         state = careers.world_now(conn, now)
         for player_id, build, bps, why in team:
@@ -825,7 +828,11 @@ def view(conn: Connection, seat: dict, empire: dict, state: dict, now: datetime)
     rescues = [{"id": r["id"], "company": r["company"], "fee": r["fee"], "measures": r["code"].split(",")}
                for r in _rows(conn, "SELECT p.*, c.name AS company FROM company_plans p JOIN companies c ON c.id = p.company_id WHERE p.empire_id = %s"
                                     " AND p.kind = 'rescue' AND p.status = 'proposed'", (empire["id"],))] if is_head else []
-    return {"companies": out, "plans": {k: {"title": v[0], "cost_bps": v[1], "quarters": v[2], "chance_bps": v[3], "effect": v[4]} for k, v in PLANS.items()},
+    from simulation import firm_practice
+    outside = [x for x in firm_practice.firms(conn) if x["kind"] in ("advisory", "bank")
+               and not _one(conn, "SELECT 1 FROM pro_firms f JOIN empire_seats s ON s.player_id = f.founder_id WHERE f.id = %s AND s.empire_id = %s",
+                            (x["id"], empire["id"]))]
+    return {"companies": out, "outside_firms": outside, "plans": {k: {"title": v[0], "cost_bps": v[1], "quarters": v[2], "chance_bps": v[3], "effect": v[4]} for k, v in PLANS.items()},
             "rescue_measures": {k: {"title": v[0], "words": v[1]} for k, v in RESCUE.items()}, "rescues_waiting": rescues,
             "league": league_tables(conn, (state["period"] - 1) // clock.QUARTERS_PER_YEAR + 1)}
 

@@ -208,6 +208,8 @@ def poach(conn: Connection, head_id, member_id, bonus: int, words: str, now: dat
             raise EmpireError("You can approach a member of another open empire.")
         if their["head_player_id"] == member_id:
             raise EmpireError("A head is not poached. Talk to them as one head to another.")
+        if empires.in_truce(conn, empire["id"], their["empire_id"]):
+            raise EmpireError("Your empire has a truce with theirs: no poaching while it stands. Break the truce first, and pay for it in trust.")
         if not firm._whole(bonus, naira(100_000)):
             raise EmpireError("A bonus of at least ₦100,000.")
         if not _one(conn, "SELECT 1 FROM empire_seats WHERE empire_id = %s AND build = %s AND player_id IS NULL", (empire["id"], their["build"])):

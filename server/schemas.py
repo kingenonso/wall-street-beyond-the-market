@@ -822,7 +822,7 @@ class VoteRow(BaseModel):
 class TakeoverRow(BaseModel):
     id: int
     bidder: str
-    bidder_ticker: str
+    bidder_ticker: str | None
     target: str
     ticker: str
     price_kobo: Kobo

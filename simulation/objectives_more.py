@@ -350,8 +350,9 @@ def _bid_submit(ctx, objective, answers):
 
 
 def _open_bids(conn) -> list[dict]:
-    return o._rows(conn, "SELECT t.id, t.price, t.premium_bps, t.hostile, t.closes_period, b.name AS bidder, c.name AS target, c.ticker"
-                         " FROM takeovers t JOIN companies b ON b.id = t.bidder_company_id JOIN companies c ON c.id = t.target_company_id"
+    return o._rows(conn, "SELECT t.id, t.price, t.premium_bps, t.hostile, t.closes_period, coalesce(b.name, e.name) AS bidder, c.name AS target, c.ticker"
+                         " FROM takeovers t LEFT JOIN companies b ON b.id = t.bidder_company_id LEFT JOIN empires e ON e.id = t.bidder_empire_id"
+                         " JOIN companies c ON c.id = t.target_company_id"
                          " WHERE t.status = 'open' ORDER BY t.id")
 
 

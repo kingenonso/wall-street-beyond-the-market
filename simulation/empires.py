@@ -792,11 +792,11 @@ def bonus_limit(conn: Connection, empire: dict, now: datetime) -> int:
 
 
 def _book(conn: Connection, empire_id, period: int, category: str, description: str, amount: int, genuine: bool, now: datetime,
-          entered_by=None, thief_level: int | None = None, kind: str = "cost", desk: str | None = None) -> int:
-    return _one(conn, "INSERT INTO empire_books (empire_id, period, category, description, amount, genuine, entered_by, thief_level, at, kind, desk)"
-                      " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+          entered_by=None, thief_level: int | None = None, kind: str = "cost", desk: str | None = None, company_id=None) -> int:
+    return _one(conn, "INSERT INTO empire_books (empire_id, period, category, description, amount, genuine, entered_by, thief_level, at, kind, desk,"
+                      " company_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                 (empire_id, period, category, description, amount, genuine, entered_by, thief_level, now,
-                 "taken" if not genuine else kind, desk))["id"]
+                 "taken" if not genuine else kind, desk, company_id))["id"]
 
 
 def pay_bonus(conn: Connection, head_id, member_id, amount: int, why: str, now: datetime) -> None:
@@ -1731,6 +1731,12 @@ def _propose(conn: Connection, pact: dict, sender: dict, period: int, now: datet
     if other["head_player_id"] is None:
         agrees = sender["trust"] >= 40 if pact["legal"] else (sender["trust"] >= 50 and _roll(conn, "pact", pact["id"]) < 3300)
         _answer(conn, pact, other, agrees, period, now)
+
+
+def in_truce(conn: Connection, empire_a, empire_b) -> bool:
+    """Whether two empires have a truce signed and in force: no poaching each other's people, no offers for each other's companies."""
+    return bool(_one(conn, "SELECT 1 FROM empire_pacts WHERE kind = 'truce' AND status = 'signed' AND ((from_empire = %s AND to_empire = %s)"
+                           " OR (from_empire = %s AND to_empire = %s))", (empire_a, empire_b, empire_b, empire_a)))
 
 
 def _pact(conn: Connection, pact_id: int) -> dict:

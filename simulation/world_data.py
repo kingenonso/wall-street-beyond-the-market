@@ -633,6 +633,7 @@ TASK_MOST_NAIRA = 50_000_000                       # ...and never more than this
 STAFF_WAITS_TICKS = 2                              # staff leave a step to the players for two bells before doing it themselves
 PACT_KINDS = {
     "alliance": ("An alliance: to stand together and not act against each other", True),
+    "truce": ("A truce: no poaching each other's people, and no offers or stake-building against each other's companies", True),
     "joint_bid": ("A joint bid: to bid together for a company or a contract", True),
     "share_information": ("Sharing information: each side sees what the other holds", True),
     "same_candidate": ("Backing the same election candidate", True),

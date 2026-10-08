@@ -554,7 +554,7 @@ export type Vote = {
   votes_for: number | null; votes_against: number | null; tally: Record<string, { for: number; against: number }> | null;
 };
 export type Takeover = {
-  id: number; bidder: string; bidder_ticker: string; target: string; ticker: string; price_kobo: Kobo;
+  id: number; bidder: string; bidder_ticker: string | null; target: string; ticker: string; price_kobo: Kobo;
   market_price_kobo: Kobo | null; premium_bps: number; shares_sought: number; hostile: boolean; status: string;
   closes_label: string; needs_vote: boolean; outcome: string | null; offered: number; free: number;
 };

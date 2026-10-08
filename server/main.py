@@ -1516,4 +1516,4 @@ def accountant_desk(
 from server import empire_routes  # noqa: E402,F401  (importing it adds its routes to the application)
 from server import rank_routes  # noqa: E402,F401
 from server import firm_routes  # noqa: E402,F401
-from server import deal_routes  # noqa: E402,F401
+from server import deal_routes, dealmaking_routes  # noqa: E402,F401

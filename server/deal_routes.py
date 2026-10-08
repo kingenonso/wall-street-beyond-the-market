@@ -103,6 +103,11 @@ class SaleRequest(Request):
     asking_kobo: Kobo
     reserve_kobo: Kobo
     mode: Literal["sealed", "auction"]
+    adviser_firm_id: int | None = Field(default=None, ge=1, le=9_000_000_000_000_000_000, strict=True)
+
+
+class ListRequest(Request):
+    underwriter_firm_id: int | None = Field(default=None, ge=1, le=9_000_000_000_000_000_000, strict=True)
 
 
 # --- Finding and buying -------------------------------------------------------
@@ -221,7 +226,7 @@ def start_part_of_the_plan(company_id: UUID, body: PlanRequest, player: dict = D
 @app.post("/api/owned/{company_id}/sell")
 def put_a_company_up_for_sale(company_id: UUID, body: SaleRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     return _do(conn, player, lambda now: firm_owned.sell_to_empire(conn, player["id"], company_id, body.asking_kobo, body.reserve_kobo,
-                                                                   body.mode, now), "owned", 10)
+                                                                   body.mode, now, body.adviser_firm_id), "owned", 10)
 
 
 @app.post("/api/owned/{company_id}/sell-to-buyer")
@@ -230,8 +235,10 @@ def sell_to_the_buyer(company_id: UUID, player: dict = Depends(current_player), 
 
 
 @app.post("/api/owned/{company_id}/list")
-def list_a_company(company_id: UUID, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _do(conn, player, lambda now: firm_owned.list_on_exchange(conn, player["id"], company_id, now), "owned", 10)
+def list_a_company(company_id: UUID, body: ListRequest | None = None, player: dict = Depends(current_player),
+                   conn: Connection = Depends(get_connection)):
+    underwriter = body.underwriter_firm_id if body else None
+    return _do(conn, player, lambda now: firm_owned.list_on_exchange(conn, player["id"], company_id, now, underwriter), "owned", 10)
 
 
 # --- The company doctor -------------------------------------------------------

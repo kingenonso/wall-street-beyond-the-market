@@ -18,7 +18,7 @@ from simulation.news_kinds import BY_NAME, KINDS, OUTLETS
 from simulation.news_wordings import PER_OUTLET, check
 from tests.conftest import after_quarters
 
-MODULES = ("places", "happenings", "economy", "results", "capital")
+MODULES = ("places", "happenings", "economy", "results", "capital", "deals", "dealmaking")
 
 
 def _dicts(db, sql, params=()):
@@ -34,10 +34,10 @@ def test_every_kind_of_news_has_three_wordings_in_each_papers_voice_and_each_fil
         module = importlib.import_module(f"simulation.news_wordings.{name}")
         assert check(module.WORDINGS, module.KINDS) == [], name
         covered += module.KINDS
-    assert sorted(covered) == sorted(kind.name for kind in KINDS) and len(covered) == len(set(covered)) == 73
+    assert sorted(covered) == sorted(kind.name for kind in KINDS) and len(covered) == len(set(covered)) == 89
     assert set(news.WORDINGS) == set(BY_NAME)
     total = sum(len(options) for kind in news.WORDINGS.values() for options in kind.values())
-    assert total == 73 * 3 * PER_OUTLET == 657
+    assert total == 89 * 3 * PER_OUTLET == 801
     # Every kind of event the world can produce has news to go with it.
     assert {kind.name for kind in events.KINDS} <= set(BY_NAME)
 

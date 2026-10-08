@@ -682,7 +682,7 @@ def open_sales(conn: Connection, period: int, seed: str, now: datetime) -> list[
 
 
 def start_sale(conn: Connection, company_id, seller_account, seller_empire_id, shares: int, period: int, seed: str, now: datetime,
-               *, asking: int | None = None, reserve: int | None = None, mode: str | None = None) -> int:
+               *, asking: int | None = None, reserve: int | None = None, mode: str | None = None, adviser_firm_id=None) -> int:
     """Open a sale. It is decided as the next quarter closes. Secrets set to bite after a sale are timed from now."""
     company = _one(conn, "SELECT * FROM companies WHERE id = %s", (company_id,))
     in_issue = ledger.amount_in_existence(conn, company["share_asset"])
@@ -705,6 +705,13 @@ def start_sale(conn: Connection, company_id, seller_account, seller_empire_id, s
     sale = _one(conn, "INSERT INTO sale_processes (company_id, seller_account, seller_empire_id, shares, mode, asking, reserve, opened_period,"
                       " closes_period, at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                 (company_id, seller_account, seller_empire_id, shares, mode, asking, max(min(reserve, asking), 1), period, period + 1, now))
+    # Firms players run: the founders have the company audited and, for a large sale, hire an advisory firm to run it;
+    # a selling empire may name its own adviser.
+    from simulation import firm_practice
+    opened = {"id": sale["id"], "asking": asking, "seller_account": seller_account, "seller_empire_id": seller_empire_id, "company_id": company_id}
+    if seller_empire_id is None:
+        firm_practice.appoint_auditor(conn, opened, period, now)
+    firm_practice.appoint_adviser(conn, opened, period, now, adviser_firm_id)
     _news(conn, period + 1, 1, "company_for_sale", f"sale:{sale['id']}",
           {"company": company["name"], "sector": _sector_words(company["sector"]), "how": "by sealed bids" if mode == "sealed" else "at auction",
            "amount": money(asking)})

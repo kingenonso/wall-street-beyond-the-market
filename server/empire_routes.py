@@ -176,7 +176,7 @@ class CaseRequest(Request):
 
 class PactRequest(Request):
     to_empire: int = Field(ge=1, le=9_000_000_000_000_000_000, strict=True)
-    kind: Literal["alliance", "joint_bid", "share_information", "same_candidate", "stay_out", "divide_market", "fix_prices", "rig_bids"]
+    kind: Literal["alliance", "truce", "joint_bid", "share_information", "same_candidate", "stay_out", "divide_market", "fix_prices", "rig_bids"]
     terms: Words = Field(min_length=10, max_length=400)
 
 
