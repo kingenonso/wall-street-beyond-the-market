@@ -10,9 +10,11 @@ In it the Accountant closes the books; money is raised by the banker, checked by
 approved by the Risk Manager, read by the Lawyer and signed by the head; the quarter closes and
 every desk is scored, interest is paid and the empire's accounts are kept.
 
-Tests at the end of the stage: **TESTS_TOTAL on the server** (of which 63 are new for this part:
+Tests at the end of the stage: **806 on the server** (of which 57 are new for this part:
 31 in `tests/test_firm.py`, 2 in `tests/test_firm_api.py`, 24 in `tests/test_firm_review.py`, and
 older tests brought up to date), 13 on the order-matching engine, 12 on the website. All pass.
+(The full run also found three exchange tests that had begun to fail only because the real date had
+passed the test world's first trading day; the test world's first trading day is now fixed.)
 
 ## Checklist
 
