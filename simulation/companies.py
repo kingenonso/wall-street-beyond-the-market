@@ -511,9 +511,11 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         borrowed_now = _borrow_on_request(conn, company, ctx, debts, rating, company["borrow_wanted"], period)
         if borrowed_now:
             notes.append(f"Its owners had it borrow {in_words(borrowed_now)} from its bank.")
+    upkeep_planned, assets_budget = upkeep, 0
     if company.get("extra_capex"):
         # New assets its owners ordered: bought from other companies, and paid for if the cash is there.
-        upkeep += min(company["extra_capex"], max(ledger.balance(conn, account) - upkeep, 0))
+        assets_budget = min(company["extra_capex"], max(ledger.balance(conn, account) - upkeep, 0))
+        upkeep += assets_budget
     # A company holding more cash than it needs puts part of it to work.
     lends = company["is_lender"] or prev["customer_funds"] > 0       # banks and insurers do not build factories
     expansion = 0
@@ -532,6 +534,8 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
                                  location=company["headquarters"], exclude=account),
         kind="capital_spending", memo=f"{name}: buildings and machines, {label}", period=period,
     )
+    # What went on the new assets its owners ordered, apart from upkeep (read after the close, as the assets arrive).
+    company["assets_paid"] = max(min(assets_budget, capital_spending - min(upkeep_planned, capital_spending)), 0)
     if capital_spending < (depreciation - destroyed) * 99 // 100:
         notes.append("It cut back on upkeep of its buildings and machines to protect its cash.")
     elif expansion > 0 and capital_spending > (depreciation - destroyed) * 3 // 2:

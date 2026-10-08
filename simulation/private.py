@@ -59,6 +59,7 @@ MARKETING_PULL_LIMIT_BPS = 1500   # marketing can add at most this much to a com
 MARKETING_FADE_BPS = 2000         # what marketing won fades by a fifth each quarter
 TECH_SAVING_LIMIT_BPS = 1500      # technology can take at most this many points of sales off its costs
 ROUTE_PULL_BPS = 10_000
+RIVAL_NOTICE_BPS = 1000           # rivals answer an owned company's price cut only once it has 5% of the industry (weighted twice)
 
 SECRET_NAMES = {
     "dressed_revenue": "Its accounts overstate its sales",
@@ -322,8 +323,10 @@ def profile(conn: Connection, company_id) -> dict | None:
 
 
 def dials_for(conn: Connection, company_id, period: int) -> dict | None:
-    """The dials in force for a quarter: the latest set for it or before."""
-    return _one(conn, "SELECT * FROM company_dials WHERE company_id = %s AND period <= %s ORDER BY period DESC LIMIT 1", (company_id, period))
+    """The dials in force for a quarter: the latest set for it or before, by the empire that controls it now
+    (a new owner does not inherit the last owner's dials)."""
+    return _one(conn, "SELECT d.* FROM company_dials d JOIN owned_companies o ON o.company_id = d.company_id AND d.at >= o.since"
+                      " WHERE d.company_id = %s AND d.period <= %s ORDER BY d.period DESC LIMIT 1", (company_id, period))
 
 
 def manager(conn: Connection, company_id) -> dict | None:
@@ -406,8 +409,8 @@ def before_close(conn: Connection, companies: list[dict], period: int, wage_inde
             # Dearer goods sell fewer for the same money: the cost of making them falls as a share of sales.
             company["labour_bps"] = company["labour_bps"] * BPS // price
         p = profiles.get(company["id"])
-        if p is None:
-            continue
+        if p is None or company["listed"]:
+            continue                                   # a listed company (even one that was private) is run by its own board
         # Only an empire that controls the company sets its dials; the founders run it as it has always been run.
         dials = dials_for(conn, company["id"], period) if company["id"] in controlled else None
         boss = manager(conn, company["id"])
@@ -419,11 +422,14 @@ def before_close(conn: Connection, companies: list[dict], period: int, wage_inde
             opex = apply_bps(opex, dials["staff_bps"])
             company["payout_bps"] = dials["payout_bps"]
             company["upkeep_bps"] = dials["maintenance_bps"]
-            company["borrow_wanted"] = dials["borrow"]
-            if dials["buy_assets"]:
+            if dials["period"] == period:                       # borrowing and new assets are for the quarter they were set for
+                company["borrow_wanted"] = dials["borrow"]
+            if dials["buy_assets"] and dials["period"] == period:
                 unit = _unit_cost(conn, company["id"], period)
                 company["extra_capex"] = unit * dials["buy_assets"]
                 company["assets_ordered"] = dials["buy_assets"]
+        if p["no_dividend_until"] and period <= p["no_dividend_until"]:
+            company["payout_bps"] = 0                             # a rescue stopped the dividend
         company["opex_bps"] = apply_bps(opex, ratio)
         company["pay_ratio_bps"] = ratio
         last = lasts.get(company["id"])
@@ -547,9 +553,10 @@ def _computer_empires(conn: Connection) -> set:
 def _wear(conn: Connection, company: dict, result: dict, period: int, seed: str) -> None:
     """Assets age. Kept up, they hold their condition; left unkept, they wear, break down and must be
     repaired or replaced. A plane based where its airline has no hangar wears twice as fast."""
-    upkeep_bps = company.get("upkeep_bps", BPS)
     depreciation = max(result["depreciation"], 1)
-    kept = min(result["capital_spending"] * BPS // depreciation, BPS) * upkeep_bps // BPS if result["capital_spending"] else 0
+    bought = company.get("assets_paid", 0)
+    upkeep_spent = max(result["capital_spending"] - bought, 0)
+    kept = upkeep_spent * BPS // depreciation                # 10000 = its assets were kept up exactly; more restores them a little
     hangar_cities = {a["base"] for a in assets(conn, company["id"]) if a["kind"] == "hangar" and a["status"] == "working"}
     for asset in assets(conn, company["id"]):
         wear = BPS // asset["life_quarters"]
@@ -568,7 +575,6 @@ def _wear(conn: Connection, company: dict, result: dict, period: int, seed: str)
                      (condition, status, asset["id"]))
     ordered = company.get("assets_ordered", 0)
     if ordered:
-        bought = result["capital_spending"] - min(result["capital_spending"], result["depreciation"])
         unit = company["extra_capex"] // ordered
         got = min(ordered, bought // max(unit, 1))
         template = next((a for a in assets(conn, company["id"]) if a["capacity"] > 0), None)
@@ -609,16 +615,21 @@ def _rivals_answer_prices(conn: Connection, period: int) -> None:
     owned = {r["company_id"] for r in _rows(conn, "SELECT o.company_id FROM owned_companies o JOIN empires e ON e.id = o.empire_id"
                                                   " WHERE e.kind = 'player'")}
     by_sector: dict[str, list[dict]] = {}
-    for c in _rows(conn, "SELECT id, sector, price_bps FROM companies WHERE status = 'trading'"):
+    for c in _rows(conn, "SELECT c.id, c.sector, c.price_bps, r.revenue FROM companies c JOIN company_results r ON r.company_id = c.id"
+                         " AND r.period = %s WHERE c.status = 'trading'", (period,)):
         by_sector.setdefault(c["sector"], []).append(c)
     for sector, members in by_sector.items():
-        cheapest = min((c["price_bps"] for c in members if c["id"] in owned), default=None)
+        total = sum(max(c["revenue"], 0) for c in members) or 1
+        # An undercutter counts for its share of the industry: a small one barely moves its rivals.
+        cutters = [(c["price_bps"], max(c["revenue"], 0) * BPS // total) for c in members if c["id"] in owned and c["price_bps"] < BPS]
+        cheapest, weight = min(cutters, default=(None, 0))
+        weight = min(weight * 2, BPS) if cheapest is not None else 0
         for c in members:
             if c["id"] in owned:
                 continue
             target = BPS
-            if cheapest is not None and cheapest < c["price_bps"] - 300:
-                target = cheapest
+            if cheapest is not None and weight >= RIVAL_NOTICE_BPS and cheapest < c["price_bps"] - 300:
+                target = c["price_bps"] + (cheapest - c["price_bps"]) * weight // BPS
             new = c["price_bps"] + (target - c["price_bps"]) // 2
             if new != c["price_bps"]:
                 conn.execute("UPDATE companies SET price_bps = %s WHERE id = %s", (max(min(new, 20_000), 5000), c["id"]))
@@ -633,9 +644,9 @@ def value_of(conn: Connection, company_id) -> int:
     row = _one(conn, "SELECT v.value_per_share, r.shares_in_issue, r.total_equity FROM companies c"
                      " JOIN LATERAL (SELECT * FROM company_results WHERE company_id = c.id ORDER BY period DESC LIMIT 1) r ON true"
                      " LEFT JOIN LATERAL (SELECT value_per_share FROM company_valuations WHERE company_id = c.id ORDER BY period DESC LIMIT 1) v ON true"
-                     " WHERE c.id = %s", (company_id,))
+                     " WHERE c.id = %s AND c.status = 'trading'", (company_id,))
     if row is None:
-        return 0
+        return 0                                       # a company wound up is worth nothing
     if row["value_per_share"] is not None:
         return max(row["value_per_share"] * row["shares_in_issue"], 0)
     return max(row["total_equity"], 0)

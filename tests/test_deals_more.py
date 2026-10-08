@@ -11,6 +11,7 @@ from simulation import empires, firm_deals, firm_money, firm_owned, ledger, priv
 from simulation.money import BPS, million_naira
 from tests.conftest import after_quarters
 from tests.test_builds import pro
+from tests.test_careers import NOW9
 from tests.test_deals import LATER, _dicts, _one, do_checks, open_a_sale
 from tests.test_firm import firm_of, member
 from tests.test_objectives import give_cash
@@ -26,8 +27,9 @@ def own(db, empire, ticker, *, cost=million_naira(1_000)):
     with db.transaction():
         ledger.transfer(db, payer=founders, receiver=empire["account_id"], amount=ledger.balance(db, founders, company["share_asset"]),
                         asset=company["share_asset"], kind="company_sale", memo="test", period=9)
-        db.execute("INSERT INTO owned_companies (company_id, empire_id, bought_period, cost, since) VALUES (%s, %s, 9, %s, now())",
-                   (company["id"], empire["id"], cost))
+        db.execute("INSERT INTO company_stakes (company_id, empire_id, cost, since_period) VALUES (%s, %s, %s, 9)", (company["id"], empire["id"], cost))
+        db.execute("INSERT INTO owned_companies (company_id, empire_id, bought_period, cost, since) VALUES (%s, %s, 9, %s, %s)",
+                   (company["id"], empire["id"], cost, NOW9))
     return company
 
 

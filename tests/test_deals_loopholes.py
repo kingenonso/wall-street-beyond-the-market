@@ -167,8 +167,9 @@ def test_q10_private_shares_are_not_traded_and_are_counted_at_a_fair_value(db):
                              now=LATER)
     have = objectives.wealth(db, empire["account_id"], LATER)
     line = next(x for x in have["lines"] if x["ticker"] == company["ticker"])
-    assert line["value"] > 0 and line["price"] == _one(db, "SELECT value_per_share FROM company_valuations WHERE company_id = %s"
-                                                          " ORDER BY period DESC LIMIT 1", (company["id"],))["value_per_share"]
+    # An empire carries a private stake at what it paid: nothing about the company's private figures shows in its worth.
+    held = ledger.balance(db, empire["account_id"], company["share_asset"])
+    assert line["value"] > 0 and line["price"] == million_naira(1_000) // held
     # The computer-run buyer pays no more than the year's average valuation, so a quarter pumped up does not sell high.
     offer = firm_owned.buyer_offer(db, company["id"])
     year = _dicts(db, "SELECT value_per_share FROM company_valuations WHERE company_id = %s ORDER BY period DESC LIMIT 4", (company["id"],))

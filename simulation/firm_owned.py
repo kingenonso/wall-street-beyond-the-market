@@ -45,6 +45,7 @@ RESCUE = {   # code -> (title, words)
 }
 RESCUE_FEE_MOST_BPS = 500          # a doctor's fee is at most 5% of a quarter's sales
 RESCUE_QUARTERS = 2
+RESCUE_EVERY = 4                   # one rescue a year at most, for any company
 FOUNDERS_ACCEPT_FEE_BPS = 300      # the founders accept a rescue whose fee is no more than 3% of a quarter's sales
 TROUBLE_QUARTERS = 2               # behind on bills or loans for two closes running, and owing more than it owns: administration
 DEAL_FEE_BRING_BPS = 100           # of a gain: to the banker who brought the deal
@@ -62,6 +63,8 @@ def _owned(conn: Connection, player_id, company_id, *, runner: bool = True) -> t
     """The company, controlled by the player's empire, and the player's seat. Run by the head, the deputy
     or the Asset Manager's desk."""
     seat, empire = firm._active(conn, player_id)
+    if not firm.player_run(empire):
+        raise EmpireError("A company owned by an empire the computer runs is run by the computer.")
     company = _one(conn, "SELECT c.*, o.empire_id, o.bought_period, o.cost FROM companies c JOIN owned_companies o ON o.company_id = c.id"
                          " WHERE c.id = %s FOR UPDATE OF c", (company_id,))
     if company is None or company["empire_id"] != empire["id"]:
@@ -335,13 +338,16 @@ def propose_rescue(conn: Connection, player_id, company_id, measures: list, fee:
             raise EmpireError("Choose the measures of the plan.")
         if not _whole(fee, 0, apply_bps(_quarter_sales(conn, company_id), RESCUE_FEE_MOST_BPS)):
             raise EmpireError("A fee of at most 5% of a quarter's sales.")
-        if _one(conn, "SELECT 1 FROM company_plans WHERE company_id = %s AND kind = 'rescue' AND status IN ('proposed', 'running')", (company_id,)):
-            raise EmpireError("A rescue is already proposed or under way.")
+        if _one(conn, "SELECT 1 FROM company_plans WHERE company_id = %s AND kind = 'rescue' AND (status IN ('proposed', 'running')"
+                      " OR (status IN ('done', 'failed') AND started_period > %s))", (company_id, state["period"] - RESCUE_EVERY)):
+            raise EmpireError("A company has one rescue a year at most, and one is proposed, under way, or was tried within the year.")
         owner = private.controller(conn, company_id)
-        if owner and owner["empire_kind"] == "player":
-            seat = empires.seat_of(conn, player_id)
-            if seat and seat["empire_id"] == owner["empire_id"] and owner["head_player_id"] == player_id:
-                raise EmpireError("A head does not hire themselves to rescue their own company.")
+        seat = empires.seat_of(conn, player_id)
+        if owner and seat and seat["empire_id"] == owner["empire_id"]:
+            raise EmpireError("A member of the empire that owns the company cannot be paid to rescue it: the doctor comes from outside.")
+        for measure in measures:
+            if not _measure_applies(conn, company_id, measure, state["period"]):
+                raise EmpireError(f"\"{RESCUE[measure][0]}\" would change nothing at this company. A plan is paid for what it does.")
         plan = _one(conn, "INSERT INTO company_plans (company_id, empire_id, kind, code, fee, doctor_id, started_period, due_period, status, at)"
                           " VALUES (%s, %s, 'rescue', %s, %s, %s, %s, %s, 'proposed', %s) RETURNING *",
                     (company_id, owner["empire_id"] if owner else None, ",".join(sorted(measures)), fee, player_id, state["period"],
@@ -355,6 +361,18 @@ def propose_rescue(conn: Connection, player_id, company_id, measures: list, fee:
         else:
             _log(conn, owner["empire_id"], f"An Accountant has offered a rescue plan for {company['name']}, for a fee of {_money(fee)} if it works.", now)
         return {"id": plan["id"]}
+
+
+def _measure_applies(conn: Connection, company_id, measure: str, period: int) -> bool:
+    if measure == "sell_grounded":
+        return any(a["status"] == "grounded" for a in private.assets(conn, company_id))
+    if measure == "extend_loans":
+        return _one(conn, "SELECT 1 FROM company_debts WHERE company_id = %s AND kind = 'bank_loan' AND principal_outstanding > 0"
+                          " AND maturity_period <= %s", (company_id, period + 2)) is not None
+    if measure == "skip_dividends":
+        return _one(conn, "SELECT dividends_paid FROM company_results WHERE company_id = %s ORDER BY period DESC LIMIT 1", (company_id,))["dividends_paid"] > 0 \
+            or _one(conn, "SELECT payout_bps FROM companies WHERE id = %s", (company_id,))["payout_bps"] > 0
+    return True
 
 
 def answer_rescue(conn: Connection, head_id, plan_id: int, accept: bool, now: datetime) -> None:
@@ -382,12 +400,7 @@ def _start_rescue(conn: Connection, plan: dict, period: int, now: datetime) -> N
                 if asset["status"] == "grounded":
                     _sell_quietly(conn, company, asset, period, now)
         elif code == "skip_dividends":
-            last = private.dials_for(conn, company["id"], period)
-            for q in (period, period + 1):
-                conn.execute("INSERT INTO company_dials (company_id, period, price_bps, staff_bps, payout_bps, maintenance_bps, at)"
-                             " VALUES (%s, %s, %s, %s, 0, %s, %s) ON CONFLICT (company_id, period) DO UPDATE SET payout_bps = 0",
-                             (company["id"], q, last["price_bps"] if last else company["price_bps"], last["staff_bps"] if last else BPS,
-                              last["maintenance_bps"] if last else BPS, now))
+            conn.execute("UPDATE private_profiles SET no_dividend_until = %s WHERE company_id = %s", (period + 1, company["id"]))
         elif code == "extend_loans":
             rows = _rows(conn, "SELECT operating_profit, depreciation FROM company_results WHERE company_id = %s AND period >= 1 ORDER BY period DESC LIMIT 4",
                          (company["id"],))
@@ -548,10 +561,10 @@ def _wind_up(conn: Connection, c: dict, last: dict, period: int, now: datetime) 
     conn.execute("UPDATE companies SET status = 'wound_up' WHERE id = %s", (c["id"],))
     private._news(conn, period + 1, 3, "administration", f"administration:{c['ticker']}",
                   {"company": c["name"], "city": c["headquarters"], "owed": _money(owed_total), "recovered": _money(raised)})
-    owner = private.controller(conn, c["id"])
-    if owner:
-        exited(conn, owner["empire_id"], c["id"], "administration", to_owners.get(_one(conn, "SELECT account_id FROM empires WHERE id = %s",
-                                                                                      (owner["empire_id"],))["account_id"], 0), period, now, forced=True)
+    for stake in _rows(conn, "SELECT s.empire_id, e.account_id FROM company_stakes s JOIN empires e ON e.id = s.empire_id WHERE s.company_id = %s",
+                       (c["id"],)):
+        exited(conn, stake["empire_id"], c["id"], "administration", to_owners.get(stake["account_id"], 0), period, now, forced=True)
+    conn.execute("DELETE FROM owned_companies WHERE company_id = %s", (c["id"],))
 
 
 def empires_json(value):
@@ -561,11 +574,11 @@ def empires_json(value):
 
 def _listings(conn: Connection, period: int, now: datetime) -> None:
     """A company an empire controlled that is now listed: the empire's stake is counted out at the listing price."""
-    for row in _rows(conn, "SELECT o.*, c.share_asset, m.listing_price FROM owned_companies o JOIN companies c ON c.id = o.company_id"
-                           " JOIN market_instruments m ON m.company_id = c.id WHERE c.listed"):
-        empire = empires._empire(conn, row["empire_id"])
-        held = ledger.balance(conn, empire["account_id"], row["share_asset"])
-        exited(conn, empire["id"], row["company_id"], "listing", held * row["listing_price"], period, now)
+    for row in _rows(conn, "SELECT s.*, c.share_asset, m.listing_price, e.account_id FROM company_stakes s JOIN companies c ON c.id = s.company_id"
+                           " JOIN market_instruments m ON m.company_id = c.id JOIN empires e ON e.id = s.empire_id WHERE c.listed"):
+        held = ledger.balance(conn, row["account_id"], row["share_asset"])
+        exited(conn, row["empire_id"], row["company_id"], "listing", held * row["listing_price"], period, now)
+    conn.execute("DELETE FROM owned_companies o USING companies c WHERE c.id = o.company_id AND c.listed")
 
 
 def _computer_resales(conn: Connection, period: int, seed: str, now: datetime) -> None:
@@ -597,8 +610,9 @@ def sell_to_empire(conn: Connection, head_id, company_id, asking: int, reserve: 
         if reserve * BPS < held_value * SALE_FLOOR_BPS:
             raise EmpireError(f"A head may not sell the empire's company for less than {SALE_FLOOR_BPS // 100}% of what it is worth "
                               f"({_money(apply_bps(held_value, SALE_FLOOR_BPS))}): that would be giving the members' money away.")
-        if company["listed"] or _one(conn, "SELECT 1 FROM sale_processes WHERE company_id = %s AND status = 'open'", (company_id,)):
-            raise EmpireError("That company is already on sale.")
+        if company["listed"] or _one(conn, "SELECT 1 FROM sale_processes WHERE company_id = %s AND status = 'open'", (company_id,)) or \
+                _one(conn, "SELECT 1 FROM share_offers WHERE company_id = %s AND status = 'open'", (company_id,)):
+            raise EmpireError("That company is already on sale, or its listing is under way.")
         shares = ledger.balance(conn, empire["account_id"], company["share_asset"])
         sale_id = private.start_sale(conn, company_id, empire["account_id"], empire["id"], shares, state["period"], private._seed(conn), now,
                                      asking=asking, reserve=reserve, mode=mode)
@@ -624,8 +638,9 @@ def sell_to_buyer(conn: Connection, head_id, company_id, now: datetime) -> dict:
         seat, empire, company = _owned(conn, head_id, company_id)
         if empire["head_player_id"] != head_id:
             raise EmpireError("The head decides to sell.")
-        if _one(conn, "SELECT 1 FROM sale_processes WHERE company_id = %s AND status = 'open'", (company_id,)):
-            raise EmpireError("That company is on sale already.")
+        if _one(conn, "SELECT 1 FROM sale_processes WHERE company_id = %s AND status = 'open'", (company_id,)) or \
+                _one(conn, "SELECT 1 FROM share_offers WHERE company_id = %s AND status = 'open'", (company_id,)):
+            raise EmpireError("That company is on sale, or its listing is under way, already.")
         offer = buyer_offer(conn, company_id)
         if offer["per_share"] <= 0:
             raise EmpireError("No buyer will pay anything for it.")
@@ -644,7 +659,10 @@ def sell_to_buyer(conn: Connection, head_id, company_id, now: datetime) -> dict:
                 _log(conn, h["empire_id"], f"Its shares in {company['name']} were sold alongside the controlling empire's, for "
                                            f"{_money(h['balance'] * offer['per_share'])}.", now)
         mine = next(h for h in holders if h["empire_id"] == empire["id"])["balance"] * offer["per_share"]
-        exited(conn, empire["id"], company_id, "to_buyer", mine, state["period"], now)
+        for h in holders:
+            exited(conn, h["empire_id"], company_id, "to_buyer", h["balance"] * offer["per_share"], state["period"], now)
+        from simulation import firm_deals
+        firm_deals._take_control(conn, company_id, state["period"], now)
         return {"proceeds": mine}
 
 
@@ -662,6 +680,8 @@ def list_on_exchange(conn: Connection, head_id, company_id, now: datetime) -> di
             raise EmpireError("Only a company that is profitable and paying its way can be listed.")
         if _one(conn, "SELECT 1 FROM share_offers WHERE company_id = %s AND status = 'open'", (company_id,)):
             raise EmpireError("Its listing is already announced.")
+        if _one(conn, "SELECT 1 FROM sale_processes WHERE company_id = %s AND status = 'open'", (company_id,)):
+            raise EmpireError("It is on sale. A company is sold or listed, not both at once.")
         in_issue = ledger.amount_in_existence(conn, company["share_asset"])
         price = apply_bps(private.value_of(conn, company_id), LISTING_DISCOUNT_BPS) // max(in_issue, 1)
         if price <= 0:
@@ -678,7 +698,8 @@ def exited(conn: Connection, empire_id, company_id, kind: str, proceeds: int, pe
     work on the deal are paid their fees out of a gain; the deal goes into the league tables."""
     owned = _one(conn, "SELECT * FROM owned_companies WHERE company_id = %s AND empire_id = %s", (company_id, empire_id))
     deal = _one(conn, "SELECT * FROM deals WHERE company_id = %s AND empire_id = %s AND status = 'held' ORDER BY id DESC LIMIT 1", (company_id, empire_id))
-    cost = owned["cost"] if owned else (deal["price"] if deal else 0)
+    stake = _one(conn, "SELECT cost FROM company_stakes WHERE company_id = %s AND empire_id = %s", (company_id, empire_id))
+    cost = stake["cost"] if stake else (owned["cost"] if owned else 0)
     gain = proceeds - cost
     empire = empires._empire(conn, empire_id)
     fees = []
@@ -700,18 +721,17 @@ def exited(conn: Connection, empire_id, company_id, kind: str, proceeds: int, pe
                 empires._book(conn, empire_id, state["period"], "Deal fees", f"Deal fee for {why}", paid, True, now, kind="fee", desk=build)
                 careers._event(conn, player_id, build, "deal_fee", f"Paid {_money(paid)} as a deal fee for {why}.", now)
                 fees.append({"build": build, "why": why, "paid": paid})
-    conn.execute("INSERT INTO deal_exits (company_id, empire_id, kind, proceeds, cost, gain, fees, period, at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                 (company_id, empire_id, kind, proceeds, cost, gain, empires_json(fees), period, now))
+    conn.execute("INSERT INTO deal_exits (company_id, empire_id, kind, proceeds, cost, gain, fees, forced, period, at)"
+                 " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                 (company_id, empire_id, kind, proceeds, cost, gain, empires_json(fees), forced, period, now))
     if deal:
-        conn.execute("UPDATE deals SET status = %s WHERE id = %s", ("failed" if forced and gain < 0 else "exited", deal["id"]))
+        conn.execute("UPDATE deals SET status = %s WHERE id = %s", ("failed" if forced else "exited", deal["id"]))
+    # Only this empire's own rows go: another holder's stake, and its control, are untouched.
+    conn.execute("DELETE FROM company_stakes WHERE company_id = %s AND empire_id = %s", (company_id, empire_id))
     if owned:
         conn.execute("DELETE FROM owned_companies WHERE company_id = %s AND empire_id = %s", (company_id, empire_id))
-    from simulation import firm_deals
-    company = _one(conn, "SELECT status, listed FROM companies WHERE id = %s", (company_id,))
-    if company["status"] == "trading" and not company["listed"]:
-        firm_deals._take_control(conn, company_id, period, now)
     if empire["kind"] == "player":
-        points = 5 if gain > 0 else -3
+        points = 5 if gain > 0 and not forced else -3
         leagues.award(conn, empire_id, points, ("A gain" if gain > 0 else "A loss") + f" of {_money(abs(gain))} on a company", period, now,
                       reference=f"exit:{company_id}:{period}:{kind}")
         if empire["head_player_id"]:
@@ -735,7 +755,7 @@ def league_tables(conn: Connection, year: int | None = None) -> dict:
                           " LEFT JOIN deals d ON d.process_id = s.id LEFT JOIN empires e ON e.id = d.empire_id"
                           f" WHERE s.status = 'sold' AND {in_year('s.closes_period')} ORDER BY s.price DESC LIMIT 10", params)
     exits = _rows(conn, f"SELECT c.name AS company, e.name AS empire, x.kind, x.gain, x.proceeds FROM deal_exits x JOIN companies c ON c.id = x.company_id"
-                        f" JOIN empires e ON e.id = x.empire_id WHERE e.kind = 'player' AND {in_year('x.period')} ORDER BY x.gain DESC LIMIT 10", params)
+                        f" JOIN empires e ON e.id = x.empire_id WHERE e.kind = 'player' AND NOT x.forced AND {in_year('x.period')} ORDER BY x.gain DESC LIMIT 10", params)
     bankers = _rows(conn, "SELECT p.display_name AS banker, count(*) AS deals, sum(d.price)::bigint AS value FROM deals d"
                           " JOIN deal_bids b ON b.id = d.bid_id JOIN deal_files f ON f.id = b.file_id JOIN players p ON p.id = f.brought_by"
                           f" WHERE {in_year('d.period')} GROUP BY p.display_name ORDER BY value DESC LIMIT 10", params)
@@ -745,7 +765,7 @@ def league_tables(conn: Connection, year: int | None = None) -> dict:
 def _deal_of_the_year(conn: Connection, period: int, now: datetime) -> None:
     year = (period - 1) // clock.QUARTERS_PER_YEAR + 1
     best = _one(conn, "SELECT x.*, c.name AS company, e.name AS empire FROM deal_exits x JOIN companies c ON c.id = x.company_id JOIN empires e ON e.id = x.empire_id"
-                      " WHERE e.kind = 'player' AND x.gain > 0 AND (x.period - 1) / %s + 1 = %s ORDER BY x.gain DESC, x.id LIMIT 1",
+                      " WHERE e.kind = 'player' AND x.gain > 0 AND NOT x.forced AND (x.period - 1) / %s + 1 = %s ORDER BY x.gain DESC, x.id LIMIT 1",
                 (clock.QUARTERS_PER_YEAR, year))
     if best is None:
         return

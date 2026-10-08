@@ -160,12 +160,23 @@ def _client(company: dict) -> dict:
     return {"ticker": company["ticker"], "name": company["name"]}
 
 
-def private_share(conn: Connection, company_id) -> dict:
-    """A share that has no market price (a private company): valued at its latest valuation."""
-    row = _one(conn, "SELECT c.ticker, s.name AS sector, (SELECT v.value_per_share FROM company_valuations v WHERE v.company_id = c.id"
+def private_share(conn: Connection, company_id, account=None) -> dict:
+    """A share that has no market price (a private company). An empire carries its stake at what it paid until
+    it sells (nothing about the company's private figures shows in its worth); anyone else at the latest
+    valuation. A company wound up is worth nothing."""
+    row = _one(conn, "SELECT c.ticker, c.status, c.share_asset, s.name AS sector, (SELECT v.value_per_share FROM company_valuations v WHERE v.company_id = c.id"
                      " ORDER BY v.period DESC LIMIT 1) AS value FROM companies c JOIN sectors s ON s.code = c.sector WHERE c.id = %s",
                (company_id,))
-    return {"ticker": row["ticker"], "sector": row["sector"], "price": max(row["value"] or 0, 0), "private": True}
+    price = max(row["value"] or 0, 0)
+    if account is not None:
+        stake = _one(conn, "SELECT k.cost FROM company_stakes k JOIN empires e ON e.id = k.empire_id WHERE k.company_id = %s AND e.account_id = %s",
+                     (company_id, account))
+        if stake is not None:
+            held = ledger.balance(conn, account, row["share_asset"])
+            price = stake["cost"] // max(held, 1)
+    if row["status"] != "trading":
+        price = 0
+    return {"ticker": row["ticker"], "sector": row["sector"], "price": price, "private": True}
 
 
 def wealth(conn: Connection, account, now: datetime) -> dict:
@@ -174,7 +185,7 @@ def wealth(conn: Connection, account, now: datetime) -> dict:
     prices = {s["id"]: s for s in marketview._shares(conn, day)}
     lines = []
     for row in _rows(conn, "SELECT company_id, shares FROM share_owners WHERE account_id = %s", (account,)):
-        share = prices.get(row["company_id"]) or private_share(conn, row["company_id"])
+        share = prices.get(row["company_id"]) or private_share(conn, row["company_id"], account)
         lines.append({"ticker": share["ticker"], "sector": share["sector"], "shares": row["shares"],
                       "price": share["price"], "value": row["shares"] * share["price"]})
     held = bonds.holdings_of(conn, account, now)

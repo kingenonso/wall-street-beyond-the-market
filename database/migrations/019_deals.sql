@@ -41,6 +41,7 @@ CREATE TABLE private_profiles (
     pull_adj_bps    integer NOT NULL DEFAULT 0,      -- ...to its pull on customers
     pay_index_bps   integer NOT NULL DEFAULT 10000,  -- the pay it gives, in the units of the world's wage index
     last_pull_bps   integer NOT NULL DEFAULT 10000,  -- last quarter's combined pull, to judge the demand its assets must serve
+    no_dividend_until integer,                       -- a rescue stopped its dividend until this quarter
     morale_bps      integer NOT NULL DEFAULT 10000,
     route_base      bigint NOT NULL DEFAULT 0        -- an airline: its routes' pull when the world began
 );
@@ -55,6 +56,15 @@ CREATE TABLE owned_companies (
     since       timestamptz NOT NULL
 );
 CREATE INDEX owned_companies_by_empire ON owned_companies (empire_id);
+
+-- What each empire holding shares of a company paid for them: its cost, for the gain when it gets out.
+CREATE TABLE company_stakes (
+    company_id  uuid NOT NULL REFERENCES companies (id),
+    empire_id   bigint NOT NULL REFERENCES empires (id),
+    cost        bigint NOT NULL CHECK (cost >= 0),
+    since_period integer NOT NULL,
+    PRIMARY KEY (company_id, empire_id)
+);
 
 CREATE TABLE sale_processes (
     id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -116,6 +126,14 @@ CREATE TABLE deal_finds (                    -- secrets an empire has found, by 
     PRIMARY KEY (empire_id, company_id, code)
 );
 
+CREATE TABLE deal_shown (                   -- what an empire's own checks put in front of it, done well or not. Never shown.
+    empire_id   bigint NOT NULL REFERENCES empires (id),
+    company_id  uuid NOT NULL REFERENCES companies (id),
+    code        text NOT NULL,
+    at          timestamptz NOT NULL,
+    PRIMARY KEY (empire_id, company_id, code)
+);
+
 CREATE TABLE deal_bids (
     id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     process_id  bigint NOT NULL REFERENCES sale_processes (id),
@@ -173,6 +191,7 @@ CREATE TABLE deals (                         -- a purchase completed
     escrow      bigint NOT NULL DEFAULT 0,                     -- held back from the seller against claims
     escrow_until integer,                                      -- the quarter whose close releases it
     terms       jsonb NOT NULL DEFAULT '{}',                   -- the clauses in force: {code: true}
+    conditions  jsonb NOT NULL DEFAULT '{}',                   -- each asset's true condition when the sale completed
     period      integer NOT NULL,
     status      text NOT NULL DEFAULT 'held' CHECK (status IN ('held', 'exited', 'failed')),
     at          timestamptz NOT NULL
@@ -297,6 +316,7 @@ CREATE TABLE deal_exits (
     cost        bigint NOT NULL,
     gain        bigint NOT NULL,
     fees        jsonb NOT NULL DEFAULT '[]',
+    forced      boolean NOT NULL DEFAULT false,                -- taken by a lender, or wound up: never a Deal of the Year
     period      integer NOT NULL,
     at          timestamptz NOT NULL
 );
