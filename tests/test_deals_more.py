@@ -227,8 +227,8 @@ def test_pay_that_falls_behind_prices_brings_slow_work_and_then_a_walkout(db):
     with db.transaction():
         private.before_close(db, [slow], 9, BPS)
     assert not slow.get("walkout") and slow["labour_bps"] > labour - 1000
-    # The owners' pay rise is the only way its pay keeps up once an empire owns it.
-    assert private.profile(db, company["id"])["pay_index_bps"] == BPS
+    # While the founders owned it, its pay kept up with the going rate; now only the owners' pay rises keep it up.
+    assert private.profile(db, company["id"])["pay_index_bps"] == _one(db, "SELECT wage_index_bps FROM economy_results WHERE period = 8")["wage_index_bps"]
 
 
 def test_a_tax_bill_the_founders_hid_falls_due_as_tax_and_the_books_still_balance(db):
