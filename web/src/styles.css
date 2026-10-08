@@ -591,3 +591,19 @@ details.why p { margin-top: 8px; }
 .propose { display: grid; gap: 8px; margin-top: 12px; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
 button.card { text-align: left; cursor: pointer; color: inherit; font: inherit; }
+
+/* Private equity part 2A: deals and the companies an empire owns. */
+.mini-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; display: block; overflow-x: auto; }
+.mini-table th, .mini-table td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.deal-file, .data-room, .checks, .terms, .bid, .assets, .routes, .managers, .plans, .exits { display: grid; gap: 6px; margin-top: 14px; }
+.check { padding: 8px 0; border-top: 1px solid var(--border); }
+.dials { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px 16px; margin-top: 14px; align-items: start; }
+.dials > .field-label, .dials > button { grid-column: 1 / -1; }
+.dials > button { justify-self: start; }
+.callout { border: 1px solid var(--border); border-left: 3px solid var(--gold, #c9a227); padding: 10px 12px; border-radius: 6px; }
+.condition-good { color: var(--up, #3fb68b); } .condition-fair { color: inherit; } .condition-poor, .condition-unfit { color: var(--down, #e26d5c); }
+@media (max-width: 700px) {
+  .deal-file .row, .assets .row, .routes .row, .managers .row, .plans .row, .exits .row, .terms .row { flex-wrap: wrap; gap: 6px; }
+  .routes select, .exits input, .bid input { max-width: 100%; }
+  .inline-form { flex-wrap: wrap; }
+}

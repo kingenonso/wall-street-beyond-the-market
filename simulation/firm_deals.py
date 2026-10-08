@@ -203,7 +203,7 @@ def data_room(conn: Connection, company_id, empire_id) -> dict:
                   for d in _rows(conn, "SELECT * FROM company_debts WHERE company_id = %s AND principal_outstanding > 0 ORDER BY id", (company_id,))],
         "manager": {"name": boss["name"], "quality": boss["quality"]} if boss else None,
         "management": p["management"] if p else None,
-        "market_share_bps": mine * BPS // total,
+        "market_share_bps": mine * BPS // total if listed else None,      # with no listed rival, there is nothing to set it against
         "routes": _routes(conn, company_id),
         "found": finds(conn, empire_id, company_id),
     }

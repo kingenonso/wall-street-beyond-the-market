@@ -128,7 +128,7 @@ function DataRoom({ room }: { room: Any }) {
           ))}
         </tbody>
       </table>
-      <div className="row small"><span>Share of its industry's sales</span><span className="mono">{pct(room.market_share_bps)}</span></div>
+      <div className="row small"><span>Share of its industry's sales</span><span className="mono">{room.market_share_bps === null ? "no listed rival publishes its sales" : pct(room.market_share_bps)}</span></div>
       {room.manager && <div className="row small"><span>Managing director</span><span>{room.manager.name} · {STARS(room.manager.quality)}</span></div>}
       {room.debts.map((x: Any, i: number) => <div key={i} className="row small"><span>{x.name} · {pct(x.rate_bps)} · due {x.due}</span><Money kobo={x.outstanding} compact /></div>)}
       <p className="field-label">Assets, as the seller states them</p>
