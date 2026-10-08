@@ -976,7 +976,7 @@ def board(conn: Connection, account: UUID | str | None, period: int) -> dict:
 def ownership(conn: Connection) -> list[dict]:
     """Who owns what: every company, who controls it, and the companies that own shares in others."""
     out = []
-    for company in _rows(conn, "SELECT id, ticker, name FROM companies ORDER BY name"):
+    for company in _rows(conn, "SELECT id, ticker, name FROM companies WHERE listed ORDER BY name"):
         out.append({"ticker": company["ticker"], "name": company["name"], **control(conn, company["id"])})
     return out
 

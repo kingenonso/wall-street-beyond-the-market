@@ -191,7 +191,7 @@ def _compose(conn: Connection, ctx: dict, track: str, salt: str) -> tuple[dict |
                                          (ctx["period"], track))}
     # A case is set on a company that makes or sells things: a bank's or an insurer's accounts read differently.
     companies = _rows(conn, "SELECT DISTINCT c.id AS company_id, c.ticker, c.name FROM companies c JOIN company_reports r ON r.company_id = c.id"
-                            " WHERE r.period = %s AND c.sector NOT IN ('banking', 'insurance')", (ctx["period"] - 1,))
+                            " WHERE r.period = %s AND c.listed AND c.sector NOT IN ('banking', 'insurance')", (ctx["period"] - 1,))
     ordered = _order(salt + str(ctx["player_id"]), companies, lambda c: c["ticker"])
     ordered.sort(key=lambda c: c["ticker"] in used)             # a company not yet used for a case this quarter comes first
     token = o.SALT.set(salt)

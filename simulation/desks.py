@@ -84,10 +84,10 @@ def accountant_desk(conn: Connection, player_id, ticker: str | None, now: dateti
     job = _rows(conn, "SELECT c.ticker FROM employments e JOIN companies c ON c.id = e.company_id"
                       " WHERE e.player_id = %s AND e.ended_at IS NULL", (player_id,))
     employer = job[0]["ticker"] if job else None
-    companies = _rows(conn, "SELECT c.ticker, c.name, s.name AS sector FROM companies c JOIN sectors s ON s.code = c.sector ORDER BY c.name")
+    companies = _rows(conn, "SELECT c.ticker, c.name, s.name AS sector FROM companies c JOIN sectors s ON s.code = c.sector WHERE c.listed ORDER BY c.name")
     ticker = ticker or employer or (companies[0]["ticker"] if companies else None)
     company = _rows(conn, "SELECT c.id, c.ticker, c.name, s.name AS sector FROM companies c JOIN sectors s ON s.code = c.sector"
-                          " WHERE c.ticker = %s", (ticker,))
+                          " WHERE c.ticker = %s AND c.listed", (ticker,))
     if not company:
         return None
     company = company[0]

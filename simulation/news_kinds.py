@@ -153,6 +153,16 @@ KINDS: tuple[NewsKind, ...] = (
                                       "detail": "Costs at Kainji Textiles came in about 4% lower than before the takeover."}),
     NewsKind("integration_bad", 60, {"bidder": "Idanre Cement", "target": "Kainji Textiles", "ticker": "KTX",
                                      "detail": "Staff have been leaving and customers have gone elsewhere: sales at Kainji Textiles are about 5% lower."}),
+    # --- Private equity stage, part 2: private companies and deals ---
+    NewsKind("startup", 45, {"company": "Yaba Bike Couriers", "sector": "transport and logistics", "city": "Lagos", "amount": "₦1.2 billion"}),
+    NewsKind("company_for_sale", 55, {"company": "Eko Skyways", "sector": "airlines", "how": "by sealed bids", "amount": "₦18.4 billion"}),
+    NewsKind("walkout", 60, {"company": "Eko Skyways", "city": "Lagos"}),
+    NewsKind("private_deal", 70, {"buyer": "Harbour Lights Capital", "company": "Eko Skyways", "amount": "₦17.9 billion",
+                                  "how": "after sealed bids"}),
+    NewsKind("administration", 72, {"company": "Garden City Airlines", "city": "Port Harcourt", "owed": "₦9.6 billion",
+                                    "recovered": "₦5.1 billion"}),
+    NewsKind("deal_of_the_year", 65, {"empire": "Harbour Lights Capital", "company": "Eko Skyways", "gain": "₦6.2 billion",
+                                      "year": "Year 2"}),
     # --- Smaller items, gathered together ---
     NewsKind("roundup_results", 35, {"quarter": "Year 2 Q3", "count": "six",
                                      "list": "Ikoyi Bank (profit up 4%), Kainji Textiles (profit down 6%) and Zuma Rock Hotels (profit up 3%)"}),
@@ -211,4 +221,9 @@ FIELD_NOTES = {
     "matter": "a noun phrase for what shareholders voted on, starting with 'its', e.g. 'its plan to raise ₦6.2 billion from its owners'",
     "outcome": "'approved' or 'rejected'", "support": "the part of the votes cast that were in favour, e.g. '71%'",
     "detail": "one complete sentence from the records saying how the joining of the two businesses is going",
+    # Private equity stage, part 2.
+    "city": "one of the five cities", "how": "'by sealed bids', 'at auction' (for sale) or 'after sealed bids', 'at auction' (sold)",
+    "buyer": "the name of the empire that bought it", "owed": "everything it owed when it failed",
+    "recovered": "what selling its assets raised for those it owed", "empire": "an empire's name",
+    "gain": "the gain made on the deal", "year": "the game year, e.g. 'Year 2'",
 }

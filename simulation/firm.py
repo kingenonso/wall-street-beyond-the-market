@@ -1053,3 +1053,4 @@ def view(conn: Connection, player_id, now: datetime) -> dict | None:
 
 # The parts of the firm, each adding itself to the lists above.
 from simulation import firm_money, firm_people, firm_risk, firm_tasks, firm_duties, firm_clients  # noqa: E402,F401
+from simulation import firm_deals, firm_owned  # noqa: E402,F401

@@ -54,6 +54,12 @@ class World:
     members: dict[str, list[dict]] = field(default_factory=dict)   # sector -> companies with this quarter's pull
     mindset_mix: dict[str, dict[str, int]] = field(default_factory=dict)   # location -> mindset -> share
 
+    def elasticity(self, location: str | None) -> int:
+        """How far this location's customers move when one company's prices change."""
+        if location is None or location not in self.mindset_mix:
+            return 15_000
+        return _private().elasticity_bps(self.mindset_mix[location])
+
     @property
     def population(self) -> dict[UUID, int]:
         """Each household account's share of the people."""
@@ -67,6 +73,11 @@ class World:
         home = self.households[headquarters]["account_id"]
         spread[home] += data.HOME_STAFF_BPS
         return spread
+
+
+def _private():
+    from simulation import private
+    return private
 
 
 def _rows(conn: Connection, sql: str, params=()) -> list[dict]:
@@ -133,6 +144,10 @@ def allocate(world: World, amount: int, sector_weights: dict[str, int], *,
                 continue
             local = local_preference_bps if company["headquarters"] == location else BPS
             pulls[company["account_id"]] = company["pull"] * local
+            if company.get("price", BPS) != BPS:
+                # Customers weigh its prices against its rivals': how much depends on the kinds of people buying.
+                pulls[company["account_id"]] = pulls[company["account_id"]] * _private().price_factor(
+                    company["price"], world.elasticity(location)) // BPS
         for account, part in split(sector_amount, pulls).items():
             shares[account] = shares.get(account, 0) + part
     return shares
@@ -164,7 +179,8 @@ def set_market_pulls(conn: Connection, world: World, companies: list[dict], peri
         # Part of the way back towards where it began. A company can pull well ahead
         # of its rivals or fall well behind, but none can swallow the whole market
         # simply by trending for long enough.
-        lasting = max(drifted + apply_bps(opening[company["id"]] - drifted, data.PULL_RETURN_BPS), 1)
+        # (A company founded during the game is drawn back towards where it began, as the others are.)
+        lasting = max(drifted + apply_bps(opening.get(company["id"], previous[company["id"]]) - drifted, data.PULL_RETURN_BPS), 1)
         # Most of a quarter's ups and downs now have a real cause: this quarter's
         # events. A smaller part is still the ordinary run of business.
         own = fortune_bps(seed, company["ticker"], period, "sales", company["volatility_bps"] // 2)
@@ -174,7 +190,8 @@ def set_market_pulls(conn: Connection, world: World, companies: list[dict], peri
         company["event_effects"] = effects
         world.members.setdefault(company["sector"], []).append({
             "account_id": company["account_id"], "headquarters": company["headquarters"],
-            "pull": max(apply_bps(apply_bps(lasting, BPS + own), effects["sales_bps"]), 1),
+            "pull": max(apply_bps(apply_bps(apply_bps(lasting, BPS + own), effects["sales_bps"]), company.get("pull_bps", BPS)), 1),
+            "price": company.get("price_bps", BPS),
         })
     return carried
 
@@ -315,7 +332,7 @@ def companies_buy_inputs(conn: Connection, world: World, companies: list[dict], 
             # little more or less than that, as its managers judge the quarter ahead.
             judgement = fortune_bps(seed, company["ticker"], period, f"orders:{supplier_sector}",
                                     company["volatility_bps"] // 2 + 100)
-            wanted = max(apply_bps(apply_bps(last[company["id"]], share), BPS + judgement), 0)
+            wanted = max(apply_bps(apply_bps(last.get(company["id"], 0), share), BPS + judgement), 0)
             # A company cannot do without its supplies: when they get dearer, it pays more.
             wanted = apply_bps(wanted, dear.get(supplier_sector, BPS))
             placed = allocate(world, wanted, {supplier_sector: 1},

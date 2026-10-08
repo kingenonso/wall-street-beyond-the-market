@@ -277,7 +277,7 @@ def _employers(conn: Connection, build: str) -> list[dict]:
         " FROM companies c JOIN sectors s ON s.code = c.sector"
         " JOIN LATERAL (SELECT figures, credit_rating FROM company_reports p WHERE p.company_id = c.id"
         "               ORDER BY p.period DESC, p.version DESC LIMIT 1) r ON true"
-        " WHERE (%s::text[] IS NULL OR c.sector = ANY(%s)) ORDER BY c.name",
+        " WHERE c.listed AND (%s::text[] IS NULL OR c.sector = ANY(%s)) ORDER BY c.name",
         (list(sectors) if sectors else None, list(sectors) if sectors else None))
 
 
@@ -325,7 +325,7 @@ def take_job(conn: Connection, player_id, ticker: str, now: datetime) -> dict:
             raise CareerError("Choose your bank first: your employer needs to know where to pay you.")
         state = world_now(conn, now)
         # Lock the employer, so that two people cannot take its last place at the same moment.
-        company = _one(conn, "SELECT id, name, ticker, sector FROM companies WHERE ticker = %s FOR UPDATE", (ticker,))
+        company = _one(conn, "SELECT id, name, ticker, sector FROM companies WHERE ticker = %s AND listed FOR UPDATE", (ticker,))
         employer = next((e for e in _employers(conn, player["build"]) if e["ticker"] == ticker), None)
         if company is None or employer is None:
             raise CareerError(f"That company does not hire {BUILDS[player['build']]['name']}s.")

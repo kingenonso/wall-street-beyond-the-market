@@ -112,7 +112,7 @@ def generate(conn: Connection, period: int, seed: str) -> list[dict]:
         raise ValueError("Events cannot be decided without the world's secret.")
     locations = [r["name"] for r in _rows(conn, "SELECT name FROM locations ORDER BY sort_order")]
     sectors = _rows(conn, "SELECT code, name FROM sectors ORDER BY sort_order")
-    companies = _rows(conn, "SELECT id, ticker, name, sector, headquarters FROM companies ORDER BY ticker")
+    companies = _rows(conn, "SELECT id, ticker, name, sector, headquarters FROM companies WHERE listed ORDER BY ticker")
     made: list[dict] = []
 
     def happen(kind: Kind, target: str, **where) -> None:

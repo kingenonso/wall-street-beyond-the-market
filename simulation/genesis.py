@@ -27,7 +27,7 @@ from psycopg import Connection
 from psycopg.rows import tuple_row
 from psycopg.types.json import Jsonb
 
-from simulation import bonds, companies, events, exchange, ledger, macro, news, players, valuation
+from simulation import bonds, companies, events, exchange, ledger, macro, news, players, private, valuation
 from simulation import world_data as data
 from simulation.ledger import NGN, Leg
 from simulation.money import apply_bps, million_naira, naira
@@ -158,12 +158,12 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str, test_wor
         company_id = conn.execute(
             "INSERT INTO companies (ticker, name, sector, headquarters, account_id, share_asset,"
             " revenue_growth_bps, season_bps, cost_of_sales_bps, opex_growth_bps, depreciation_bps, payout_bps,"
-            " volatility_bps, location_cost_bps, opex_bps, labour_bps)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            " volatility_bps, location_cost_bps, opex_bps, labour_bps, listed)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
             (company.ticker, company.name, company.sector, company.headquarters, account, share_asset,
              shape["revenue_growth_bps"], list(sector.season_bps), shape["cost_of_sales_bps"],
              shape["revenue_growth_bps"], data.DEPRECIATION_BPS, sector.payout_bps, shape["volatility_bps"],
-             shape["location_cost_bps"], shape["opex_bps"], shape["labour_bps"]),
+             shape["location_cost_bps"], shape["opex_bps"], shape["labour_bps"], company.listed),
         ).fetchone()
         shapes[company.ticker] = shape
         rows[company.ticker] = {
@@ -278,13 +278,14 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str, test_wor
         to_founders = shares * (3000 + (row["index"] * 700) % 2500) // 10_000
         to_institutions = shares * (3000 + (row["index"] * 500) % 1500) // 10_000
         to_small = shares - to_founders - to_institutions
+        if not company.listed:
+            to_founders, to_institutions, to_small = shares, 0, 0          # a private company: its founders own all of it
         ledger.post(
             conn, kind="share_issue", memo=f"{company.name}: shares in issue when the world began",
             legs=[
                 Leg(row["account_id"], -shares, row["share_asset"]),
-                Leg(founders, to_founders, row["share_asset"]),
-                Leg(institutions, to_institutions, row["share_asset"]),
-                Leg(small_investors, to_small, row["share_asset"]),
+                *[Leg(account, amount, row["share_asset"]) for account, amount in
+                  ((founders, to_founders), (institutions, to_institutions), (small_investors, to_small)) if amount],
             ],
             period=0,
         )
@@ -311,6 +312,9 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str, test_wor
         }
         companies.insert_result(conn, result)
         companies.file_report(conn, loaded[company.ticker], result)
+
+    # The private companies: how well each is run, what it owns, and what its papers do not say.
+    private.setup(conn, fortune_seed)
 
     # The events of the first quarter are decided now, and stay out of sight until their day.
     news.for_events(conn, events.generate(conn, 1, fortune_seed))

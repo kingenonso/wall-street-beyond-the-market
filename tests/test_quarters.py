@@ -440,7 +440,7 @@ def test_the_books_hold_together_over_a_long_run(db):
 
     assert ledger.amount_in_existence(db) == money_accounted_for(db) > money_before
     assert db.execute("SELECT sum(balance) FROM ledger_balances WHERE asset = 'NGN'").fetchone()[0] == 0
-    assert db.execute("SELECT count(*) FROM company_results").fetchone()[0] == 50 * 35
+    assert db.execute("SELECT count(*) FROM company_results r JOIN companies c ON c.id = r.company_id WHERE c.listed").fetchone()[0] == 50 * 35
     unbalanced = db.execute("SELECT count(*) FROM company_results WHERE total_assets <> total_liabilities + total_equity").fetchone()[0]
     assert unbalanced == 0
     assert ledger.audit(db) == []

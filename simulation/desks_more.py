@@ -61,7 +61,7 @@ def banker_desk(conn: Connection, player_id, account, ticker: str | None, now: d
     shares = {s["id"]: s for s in marketview._shares(conn, exchange.session_of(now)[0])}
     filed = _latest(conn)
     companies = _rows(conn, "SELECT c.id, c.ticker, c.name, c.sector AS sector_code, s.name AS sector, c.headquarters FROM companies c"
-                            " JOIN sectors s ON s.code = c.sector ORDER BY c.name")
+                            " JOIN sectors s ON s.code = c.sector WHERE c.listed ORDER BY c.name")
     job = _rows(conn, "SELECT c.ticker FROM employments e JOIN companies c ON c.id = e.company_id WHERE e.player_id = %s AND e.ended_at IS NULL",
                 (player_id,))
     listed = [c for c in companies if c["id"] in shares and c["id"] in filed]
@@ -250,7 +250,7 @@ def lawyer_desk(conn: Connection, player_id, ticker: str | None, now: datetime) 
     failed, and the list of companies the rules are closing in on."""
     filed = _latest(conn)
     companies = _rows(conn, "SELECT c.id, c.ticker, c.name, c.share_asset, s.name AS sector, c.headquarters FROM companies c"
-                            " JOIN sectors s ON s.code = c.sector ORDER BY c.name")
+                            " JOIN sectors s ON s.code = c.sector WHERE c.listed ORDER BY c.name")
     ticker = ticker or (companies[0]["ticker"] if companies else None)
     company = next((c for c in companies if c["ticker"] == ticker and c["id"] in filed), None)
     if company is None:

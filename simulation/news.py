@@ -29,13 +29,14 @@ from simulation import world_data as data
 from simulation.money import BPS
 from simulation.news_kinds import BY_NAME, OUTLETS
 from simulation.news_wordings import capital as _capital
+from simulation.news_wordings import deals as _deals
 from simulation.news_wordings import economy as _economy
 from simulation.news_wordings import happenings as _happenings
 from simulation.news_wordings import places as _places
 from simulation.news_wordings import results as _results
 
 WORDINGS: dict[str, dict[str, list[tuple[str, str]]]] = {
-    **_places.WORDINGS, **_happenings.WORDINGS, **_economy.WORDINGS, **_results.WORDINGS, **_capital.WORDINGS,
+    **_places.WORDINGS, **_happenings.WORDINGS, **_economy.WORDINGS, **_results.WORDINGS, **_capital.WORDINGS, **_deals.WORDINGS,
 }
 
 # How a kind of business reads in the middle of a sentence.
@@ -44,6 +45,7 @@ SECTOR_WORDS = {
     "telecoms": "telecoms", "cement": "cement and building materials", "agriculture": "agriculture",
     "real_estate": "real estate and construction", "manufacturing": "manufacturing", "media": "media",
     "insurance": "insurance", "power": "power and utilities", "transport": "transport and logistics",
+    "aviation": "airlines", "hospitality": "hotels and leisure", "shipping": "shipping and ports",
 }
 COMMODITY_WORDS = {"energy": "energy", "metals": "metals", "agriculture": "farm produce", "materials": "building materials"}
 GOOD_NEWS = {"local_boom", "sector_demand_surge", "good_harvest", "contract_win", "new_product"}
@@ -221,7 +223,7 @@ def for_events(conn: Connection, happening: list[dict]) -> None:
         conn,
         "SELECT c.id, c.ticker, c.name, c.sector, c.headquarters,"
         "   (SELECT r.base_revenue FROM company_results r WHERE r.company_id = c.id ORDER BY r.period DESC LIMIT 1) AS size"
-        " FROM companies c ORDER BY 6 DESC NULLS LAST, c.ticker",
+        " FROM companies c WHERE c.listed ORDER BY 6 DESC NULLS LAST, c.ticker",
     )
     # In date order, so each item's wording depends only on items dated before it.
     for event in sorted(happening, key=lambda e: (e["period"], e["day"], e.get("id") or 0)):
@@ -451,8 +453,8 @@ def _aftermath_news(conn: Connection, period: int, happening: list[dict], compan
             continue
         destroyed, paid, touched = 0, 0, []
         for company_id, lost in damages.items():
-            company = by_id[company_id]
-            if not events.touches(event, company):
+            company = by_id.get(company_id)
+            if company is None or not events.touches(event, company):      # a private company's losses are not reported
                 continue
             # A company struck twice in a quarter has its loss shared between the two events.
             whole = (company.get("event_effects") or {}).get("damage_bps", 0) or event["damage_bps"]
@@ -657,8 +659,10 @@ def for_results(conn: Connection, period: int, *, before: dict, now: dict, watch
         _price_news(conn, period, before, now, moves)
         _watch_news(conn, period, watch)
         _economy_news(conn, period, before, now, policy_rate_bps)
-        _aftermath_news(conn, period, happening, companies, damages, claims_paid)
-        _company_news(conn, period, results)
+        # A private company's accounts are not published, so its quarter is not news.
+        listed = [c for c in companies if c.get("listed", True)]
+        _aftermath_news(conn, period, happening, listed, damages, claims_paid)
+        _company_news(conn, period, [(c, r) for c, r in results if c.get("listed", True)])
     finally:
         _held_back = None
     for item in sorted(gathered, key=lambda item: item["day"]):

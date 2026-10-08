@@ -65,6 +65,13 @@ SECTORS: tuple[Sector, ...] = (
            fixed_assets_x=16000, cash_x=1000, debt_x=5000, loan_rate_bps=2000, payout_bps=4000),
     Sector("transport", "Transport and logistics", 6600, 1800, 350, (9700, 9800, 10000, 10500),
            fixed_assets_x=9000, cash_x=1000, debt_x=3500, loan_rate_bps=2100, payout_bps=3500),
+    # --- Private equity stage, part 2: three industries whose companies are all private on day one. ---
+    Sector("aviation", "Airlines", 6400, 2200, 400, (9600, 10400, 9800, 10600),
+           fixed_assets_x=15000, cash_x=1200, debt_x=5000, loan_rate_bps=2200, payout_bps=2500),
+    Sector("hospitality", "Hotels and leisure", 4200, 3200, 400, (9500, 9800, 10000, 11000),
+           fixed_assets_x=22000, cash_x=1000, debt_x=4500, loan_rate_bps=2200, payout_bps=3000),
+    Sector("shipping", "Shipping and ports", 6000, 1600, 350, FLAT,
+           fixed_assets_x=16000, cash_x=1200, debt_x=5000, loan_rate_bps=2000, payout_bps=3500),
 )
 
 # The same for every company (stand-ins until Stage 3).
@@ -92,6 +99,7 @@ class Company:
     funds_times_bps: int = 10_000      # banks: customers' money against the sector's usual
     overdue_bps: int = 0               # share of its bank loan that is ALREADY past its repayment date
     unpaid_bills_bps: int = 0          # bills already owed and unpaid, as a share of one quarter's sales
+    listed: bool = True                # False: a private company, owned by its founders, not traded on the exchange
 
 
 COMPANIES: tuple[Company, ...] = (
@@ -182,6 +190,47 @@ COMPANIES: tuple[Company, ...] = (
             cash_times_bps=3_000, funds_times_bps=8_300),
     Company("ISP", "Ibom Solar Power", "power", PORT_HARCOURT, 30_000, lender="OBB",
             trend_bps=150, volatility_bps=500, debt_times_bps=13_000, cash_times_bps=22_000),
+
+    # --- Private equity stage, part 2: thirty private companies, owned by their founders and not
+    # listed. Some are gems, some are traps; the accounts tell part of the story and the rest is found
+    # by digging. Players' empires may buy them, run them, and sell or list them. ---
+    Company("MPK", "Mama Put Kitchens", "consumer", LAGOS, 18_000, lender="OTB", listed=False, trend_bps=250),
+    Company("KGO", "Kano Groundnut Oils", "consumer", KANO, 26_000, lender="ZCB", listed=False),
+    Company("SSC", "Suya Spot Chain", "consumer", ABUJA, 9_000, lender="HMB", listed=False, trend_bps=300, volatility_bps=900),
+    Company("UGS", "Ughelli Gas Services", "oil_gas", PORT_HARCOURT, 40_000, lender="OBB", listed=False),
+    Company("EFD", "Escravos Fuel Depots", "oil_gas", PORT_HARCOURT, 55_000, lender="IKB", listed=False,
+            cost_extra_bps=400, debt_times_bps=15_000, cash_times_bps=5_000),
+    Company("IDX", "Ikeja Data Centres", "telecoms", LAGOS, 15_000, lender="IKB", listed=False, trend_bps=350),
+    Company("EWT", "Ewekoro Tiles", "cement", LAGOS, 12_000, lender="OTB", listed=False),
+    Company("ASQ", "Ashaka Quarries", "cement", KANO, 8_000, lender="ZCB", listed=False, trend_bps=-200,
+            cost_extra_bps=500, opex_times_bps=12_000),
+    Company("JPG", "Jos Plateau Growers", "agriculture", ABUJA, 7_000, lender="HMB", listed=False, volatility_bps=1_200),
+    Company("KRM", "Kebbi Rice Mills", "agriculture", KANO, 22_000, lender="ZCB", listed=False, trend_bps=200),
+    Company("OPO", "Ogoni Palm Oil", "agriculture", PORT_HARCOURT, 11_000, lender="OBB", listed=False),
+    Company("BID", "Bar Beach Developers", "real_estate", LAGOS, 30_000, lender="IKB", listed=False,
+            debt_times_bps=17_000, cash_times_bps=4_000),
+    Company("MTH", "Maitama Homes", "real_estate", ABUJA, 14_000, lender="HMB", listed=False),
+    Company("ALW", "Aba Leather Works", "manufacturing", ABA, 10_000, lender="KCB", listed=False, trend_bps=150),
+    Company("NAP", "Nnewi Auto Parts", "manufacturing", ABA, 24_000, lender="KCB", listed=False),
+    Company("KNP", "Kano Plastics", "manufacturing", KANO, 13_000, lender="ZCB", listed=False, trend_bps=-150,
+            unpaid_bills_bps=1_000, cash_times_bps=3_000),
+    Company("OWR", "Owambe Radio", "media", LAGOS, 4_000, lender="OTB", listed=False, trend_bps=200),
+    Company("KMG", "Kano Mini-Grids", "power", KANO, 6_000, lender="ZCB", listed=False, trend_bps=300),
+    Company("OJH", "Ojota Haulage", "transport", LAGOS, 16_000, lender="OTB", listed=False),
+    Company("KRF", "Kano Rail Freight", "transport", KANO, 20_000, lender="HMB", listed=False, cost_extra_bps=300),
+    Company("EKS", "Eko Skyways", "aviation", LAGOS, 60_000, lender="IKB", listed=False),
+    Company("ARW", "Arewa Air", "aviation", KANO, 35_000, lender="HMB", listed=False, cost_extra_bps=300),
+    Company("GCA", "Garden City Airlines", "aviation", PORT_HARCOURT, 25_000, lender="OBB", listed=False,
+            trend_bps=-200, debt_times_bps=16_000, cash_times_bps=4_000, unpaid_bills_bps=1_500),
+    Company("IGH", "Ikoyi Grand Hotels", "hospitality", LAGOS, 28_000, lender="IKB", listed=False),
+    Company("MPH", "Millennium Park Hotels", "hospitality", ABUJA, 18_000, lender="HMB", listed=False, trend_bps=200),
+    Company("ENI", "Enyimba Inns", "hospitality", ABA, 6_000, lender="KCB", listed=False),
+    Company("RWH", "Rivers Waterfront Hotel", "hospitality", PORT_HARCOURT, 9_000, lender="OBB", listed=False,
+            trend_bps=-100, opex_times_bps=11_500),
+    Company("ACL", "Apapa Container Lines", "shipping", LAGOS, 45_000, lender="OTB", listed=False),
+    Company("OPS", "Onne Port Services", "shipping", PORT_HARCOURT, 30_000, lender="OBB", listed=False, trend_bps=150),
+    Company("CCS", "Calabar Coastal Shipping", "shipping", PORT_HARCOURT, 14_000, lender="KCB", listed=False,
+            overdue_bps=2_000, debt_times_bps=15_000, cash_times_bps=3_000),
 )
 
 # Whole sectors have good and bad quarters too: up to this far above or below trend.
@@ -221,6 +270,10 @@ SECTOR_FIT: dict[tuple[str, str], int] = {
     ("real_estate", ABUJA): -300,          # close to government contracts
     ("transport", PORT_HARCOURT): -300,    # a port
     ("transport", LAGOS): -300,            # the main port
+    ("shipping", LAGOS): -300,
+    ("shipping", PORT_HARCOURT): -300,
+    ("aviation", LAGOS): -200,             # the busiest airport
+    ("hospitality", ABUJA): -200,          # government travel
     ("cement", KANO): 500,                 # far from the ports
     ("manufacturing", ABUJA): 300,
     ("oil_gas", KANO): 800,
@@ -250,6 +303,12 @@ INPUTS: dict[str, dict[str, int]] = {
     "insurance":     {"banking": 150, "telecoms": 100, "media": 100, "real_estate": 100},
     "power":         {"oil_gas": 2500, "manufacturing": 400, "transport": 200, "banking": 150, "insurance": 100},
     "transport":     {"oil_gas": 2000, "manufacturing": 500, "insurance": 200, "banking": 150, "power": 100,
+                      "telecoms": 50},
+    "aviation":      {"oil_gas": 2500, "manufacturing": 500, "insurance": 300, "banking": 150, "telecoms": 100,
+                      "consumer": 150, "media": 100},
+    "hospitality":   {"consumer": 1200, "power": 500, "real_estate": 300, "manufacturing": 300, "telecoms": 150,
+                      "insurance": 100, "banking": 100, "media": 150},
+    "shipping":      {"oil_gas": 2000, "manufacturing": 700, "insurance": 300, "banking": 150, "power": 100,
                       "telecoms": 50},
 }
 

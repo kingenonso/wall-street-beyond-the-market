@@ -476,7 +476,7 @@ def world_clock(conn: Connection = Depends(get_connection)):
 def world_status(_: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     world = _world(conn)
     last = world["last_closed_period"] if world else 0
-    count = conn.execute("SELECT count(*) AS n FROM companies").fetchone()["n"]
+    count = conn.execute("SELECT count(*) AS n FROM companies WHERE listed").fetchone()["n"]
     return WorldStatusResponse(
         companies=count,
         last_closed_period=last,
@@ -1049,7 +1049,7 @@ def list_companies(_: dict = Depends(current_player), conn: Connection = Depends
         "               ORDER BY x.period DESC, x.version DESC LIMIT 1) r ON true"
         " LEFT JOIN LATERAL (SELECT figures FROM company_reports y WHERE y.company_id = c.id"
         "                    AND y.period = r.period - 1 ORDER BY y.version DESC LIMIT 1) prev ON true"
-        " ORDER BY s.sort_order, c.name"
+        " WHERE c.listed ORDER BY s.sort_order, c.name"
     ).fetchall()
 
     sectors: dict[str, SectorCompanies] = {}
@@ -1087,7 +1087,7 @@ def get_company(
     if len(ticker) == 3 and ticker.isascii() and ticker.isalpha():   # anything else cannot be a ticker
         company = conn.execute(
             "SELECT c.*, s.name AS sector_name FROM companies c JOIN sectors s ON s.code = c.sector"
-            " WHERE c.ticker = %s",
+            " WHERE c.ticker = %s AND c.listed",          # a private company's accounts are seen only in a data room
             (ticker.upper(),),
         ).fetchone()
     if company is None:

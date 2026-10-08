@@ -86,7 +86,7 @@ def test_a_loss_maker_is_valued_on_what_is_left_of_its_owners_funds_and_never_be
 
 @pytest.mark.world("eight")
 def test_every_company_is_valued_at_every_filing_from_public_figures_alone(db):
-    assert db.execute("SELECT count(*) FROM company_valuations").fetchone()[0] == 50 * 9
+    assert db.execute("SELECT count(*) FROM company_valuations v JOIN companies c ON c.id = v.company_id WHERE c.listed").fetchone()[0] == 50 * 9
     # Anybody can reach the same figure from the filed reports, the rating, the interest rate and inflation.
     state = _dicts(db, "SELECT next_policy_rate_bps, inflation_bps FROM economy_results WHERE period = 8")[0]
     for company in _dicts(db, "SELECT id, ticker FROM companies ORDER BY ticker"):
@@ -304,7 +304,7 @@ def test_investors_take_their_orders_off_at_the_instant_new_reports_are_filed(db
     assert db.execute("SELECT count(*) FROM market_orders WHERE status = 'open'").fetchone()[0] > 500
     assert quarters.close_due_quarters(db, after_quarters(9)) == [9]
     assert db.execute("SELECT count(*) FROM market_orders WHERE status = 'open'").fetchone()[0] == 0
-    assert db.execute("SELECT count(*) FROM company_valuations WHERE period = 9").fetchone()[0] == 50
+    assert db.execute("SELECT count(*) FROM company_valuations v JOIN companies c ON c.id = v.company_id WHERE v.period = 9 AND c.listed").fetchone()[0] == 50
     held = ledger.account_id(db, exchange.ESCROW)
     assert ledger.balance(db, held) == 0
     # They come back with prices built on the new filings, and "Why?" says so.

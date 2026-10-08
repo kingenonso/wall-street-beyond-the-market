@@ -482,7 +482,9 @@ def _regulator_sells(conn: Connection, fund: dict, owed: int, now: datetime) -> 
                      (fund["account_id"],)):
         if owed <= 0:
             return
-        share = shares[row["company_id"]]
+        share = shares.get(row["company_id"])
+        if share is None:
+            continue                                   # a private company's shares cannot be sold on the exchange
         quantity = min(row["shares"], owed // max(share["price"], 1) + 1)
         low, _high = exchange.price_limits(share["reference"])
         try:

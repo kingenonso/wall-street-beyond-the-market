@@ -832,7 +832,7 @@ def test_a_test_world_can_be_moved_ahead_and_its_quarters_close_as_normal(db, cl
     now = WORLD_START + timedelta(hours=1)                       # the world has only just opened
     assert fast_forward.fast_forward(db, 3, now) == [1, 2, 3]
     assert db.execute("SELECT last_closed_period, weeks_ahead FROM world_state").fetchone() == (3, 3)
-    assert db.execute("SELECT count(*) FROM company_results WHERE period = 3").fetchone()[0] == 50
+    assert db.execute("SELECT count(*) FROM company_results r JOIN companies c ON c.id = r.company_id WHERE r.period = 3 AND c.listed").fetchone()[0] == 50
     assert ledger.audit(db) == []
     assert client.get("/api/world/clock").json()["test_weeks_ahead"] == 3
     # Moving ahead again carries on from there.

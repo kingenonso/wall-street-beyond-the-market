@@ -18,7 +18,7 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 
 from simulation import (banking, bonds, careers, clock, companies, corporate, economy, events, exchange, grants, investors, ledger,
-                        macro, marketview, mindsets, moneywatch, news, objectives, valuation)
+                        macro, marketview, mindsets, moneywatch, news, objectives, private, valuation)
 from simulation import empires
 from simulation import ranks
 from simulation.money import BPS
@@ -45,7 +45,8 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
             _close_period(conn, period, world["company_tax_bps"], world["fortune_seed"], now)
             # Re-add the whole ledger before the quarter is allowed to close. If anything
             # is out, the quarter is not closed and the fault is reported loudly.
-            problems = ledger.audit(conn) + exchange.check_books(conn) + corporate.check_books(conn)
+            from simulation import firm_deals
+            problems = ledger.audit(conn) + exchange.check_books(conn) + corporate.check_books(conn) + firm_deals.check_books(conn)
             if problems:
                 raise ledger.LedgerError("The ledger failed its end-of-quarter check: " + " ".join(problems))
             conn.execute("UPDATE world_state SET last_closed_period = %s", (period,))
@@ -97,6 +98,8 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     lending_factor = moneywatch.lending_factor_bps(conn, period)
 
     banking.reprice_loans(conn, period, policy_rate)
+    # Private companies: their owners' dials, their managers, assets, routes and staff shape their quarter.
+    private.before_close(conn, all_companies, period, before["wage_index_bps"])
     lasting_pull = economy.set_market_pulls(conn, world, all_companies, period, fortune_seed, happening)
     sector_weights, sector_fortune = economy.household_sector_weights(world, period, fortune_seed, before)
 
@@ -110,6 +113,7 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     )
     spent = economy.households_spend(conn, world, period, sector_weights, fortune_seed, responses, moods, borrowed, debt_service)
     economy.companies_buy_inputs(conn, world, all_companies, period, fortune_seed, before)
+    private.pay_spending(conn, world, all_companies, period)
     damages, claims_paid = economy.pay_claims(conn, world, all_companies, period, happening, spent)
 
     ratings = {
@@ -182,6 +186,8 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
         results=results, damages=damages, claims_paid=claims_paid, policy_rate_bps=policy_rate,
     )
     news.for_events(conn, events.generate(conn, period + 1, fortune_seed))
+    # Private companies after the close: wear, morale, secrets, rivals' prices, failures, sales and start-ups.
+    private.after_close(conn, period, results, measured["wage_index_bps"], fortune_seed, now)
 
     # With the results in, companies announce what they will ask of the market next quarter,
     # and players who held through the close earn the parts of their starting grant that depend on it.

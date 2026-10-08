@@ -177,7 +177,7 @@ def setup(conn: Connection, now: datetime) -> None:
         "SELECT c.id, c.ticker, r.total_equity, r.shares_in_issue FROM companies c"
         " JOIN company_results r ON r.company_id = c.id"
         " AND r.period = (SELECT max(period) FROM company_results WHERE company_id = c.id)"
-        " WHERE NOT EXISTS (SELECT 1 FROM market_instruments m WHERE m.company_id = c.id) ORDER BY c.ticker",
+        " WHERE c.listed AND NOT EXISTS (SELECT 1 FROM market_instruments m WHERE m.company_id = c.id) ORDER BY c.ticker",
     )
     for company in unlisted:
         # TEMPORARY STAND-IN (the next slice has investors value each company from its
@@ -580,6 +580,7 @@ def list_company(conn: Connection, company_id, price: int, now: datetime) -> Non
         allow_index_for(conn, price * shares)
     conn.execute("INSERT INTO market_instruments (company_id, asset, listing_price, reference_price, session_date)"
                  " VALUES (%s, %s, %s, %s, %s)", (company["id"], company["share_asset"], price, price, day))
+    conn.execute("UPDATE companies SET listed = true WHERE id = %s", (company["id"],))      # a private company is listed from now on
 
 
 def withdraw(conn: Connection, account_ids: list, now: datetime, reason: str) -> int:

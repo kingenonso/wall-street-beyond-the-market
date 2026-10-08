@@ -81,7 +81,7 @@ def _against(reports: list[dict], report: dict) -> tuple[dict | None, str]:
 
 def facts(conn: Connection, ticker: str, now: datetime) -> dict | None:
     """One company's quick facts for an investor."""
-    found = _rows(conn, "SELECT c.id, c.name, c.ticker, c.sector FROM companies c WHERE c.ticker = %s", (ticker,))
+    found = _rows(conn, "SELECT c.id, c.name, c.ticker, c.sector FROM companies c WHERE c.ticker = %s AND c.listed", (ticker,))
     if not found:
         return None
     company = found[0]
@@ -154,7 +154,7 @@ def _yearly_sales(conn: Connection) -> list[dict]:
         "   count(*) FILTER (WHERE f.period > latest.p - 4) AS quarters,"
         "   count(*) FILTER (WHERE f.period <= latest.p - 4) AS quarters_before"
         " FROM companies c JOIN sectors s ON s.code = c.sector CROSS JOIN latest"
-        " LEFT JOIN filed f ON f.company_id = c.id GROUP BY c.id, c.ticker, c.name, c.sector, s.name, s.sort_order")
+        " LEFT JOIN filed f ON f.company_id = c.id WHERE c.listed GROUP BY c.id, c.ticker, c.name, c.sector, s.name, s.sort_order")
 
 
 def _place_in_industry(conn: Connection, company: dict) -> dict:
@@ -208,7 +208,7 @@ def industries(conn: Connection, now: datetime) -> list[dict]:
 
 def results_report(conn: Connection, ticker: str, period: int | None = None) -> dict | None:
     """One quarter's results in words, built only from what the company filed."""
-    found = _rows(conn, "SELECT id, name, ticker FROM companies WHERE ticker = %s", (ticker,))
+    found = _rows(conn, "SELECT id, name, ticker FROM companies WHERE ticker = %s AND listed", (ticker,))
     if not found:
         return None
     company = found[0]

@@ -42,7 +42,7 @@ def _dicts(db, sql, params=()):
 
 
 def test_all_50_companies_exist_with_the_blueprint_names_and_sectors(db):
-    rows = db.execute("SELECT s.name, c.name FROM companies c JOIN sectors s ON s.code = c.sector").fetchall()
+    rows = db.execute("SELECT s.name, c.name FROM companies c JOIN sectors s ON s.code = c.sector WHERE c.listed").fetchall()
     found: dict[str, set] = {}
     for sector, company in rows:
         found.setdefault(sector, set()).add(company)

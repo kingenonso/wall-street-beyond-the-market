@@ -396,6 +396,10 @@ def _default(conn: Connection, empire: dict, debt: dict, owed: int, period: int,
     signed pays under a personal guarantee. What was due as interest is not taken off what is owed."""
     took = ledger.pay_up_to(conn, payer=empire["account_id"], receiver=debt["lender_account"], wanted=owed, kind="empire_default",
                             memo=f"{empire['name']}: what could be paid of a debt in default", period=period)
+    if took < owed and debt.get("kind") == "buyout" and not interest:
+        # A buyout loan is secured on the company it paid for: the bank takes that first.
+        from simulation import firm_deals
+        took += firm_deals.enforce_security(conn, empire, debt, owed - took, period, now)
     if took < owed:
         took += _seize(conn, empire, debt, owed - took, period, now)
     left = owed - took
@@ -446,7 +450,11 @@ def _close_debts(conn: Connection, empire: dict, period: int, now: datetime) -> 
             if before and empires.worth(conn, empire, now)["total"] < before["worth"] and debt["breach_since"] is None:
                 conn.execute("UPDATE empire_debts SET rate_bps = rate_bps + 300 WHERE id = %s", (debt["id"],))
                 _log(conn, empire["id"], f"The empire's worth fell: under a clause nobody struck out, {debt['lender_name']} raised its rate by three points.", now)
-        broken = covenant_test(conn, empire, debt, now)
+        if debt["kind"] == "buyout":
+            from simulation import firm_deals
+            broken = firm_deals.covenant_test(conn, debt)       # the bank tests the company it lent against
+        else:
+            broken = covenant_test(conn, empire, debt, now)
         if broken:
             conn.execute("UPDATE empire_debts SET status = 'called', called_at = %s, breach_since = coalesce(breach_since, %s) WHERE id = %s",
                          (now, period, debt["id"]))

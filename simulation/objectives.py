@@ -147,7 +147,7 @@ def _filed(conn: Connection, period: int) -> list[dict]:
     return _rows(
         conn,
         "SELECT DISTINCT ON (r.company_id) r.company_id, c.ticker, c.name, c.sector, c.account_id, r.period, r.figures, r.credit_rating"
-        " FROM company_reports r JOIN companies c ON c.id = r.company_id WHERE r.period = %s"
+        " FROM company_reports r JOIN companies c ON c.id = r.company_id WHERE r.period = %s AND c.listed"
         " ORDER BY r.company_id, r.version DESC", (period,))
 
 
@@ -160,17 +160,30 @@ def _client(company: dict) -> dict:
     return {"ticker": company["ticker"], "name": company["name"]}
 
 
+def private_share(conn: Connection, company_id) -> dict:
+    """A share that has no market price (a private company): valued at its latest valuation."""
+    row = _one(conn, "SELECT c.ticker, s.name AS sector, (SELECT v.value_per_share FROM company_valuations v WHERE v.company_id = c.id"
+                     " ORDER BY v.period DESC LIMIT 1) AS value FROM companies c JOIN sectors s ON s.code = c.sector WHERE c.id = %s",
+               (company_id,))
+    return {"ticker": row["ticker"], "sector": row["sector"], "price": max(row["value"] or 0, 0), "private": True}
+
+
 def wealth(conn: Connection, account, now: datetime) -> dict:
     """What a player owns right now, in its three parts: cash, shares and bonds."""
     day, _ = exchange.session_of(now)
     prices = {s["id"]: s for s in marketview._shares(conn, day)}
     lines = []
     for row in _rows(conn, "SELECT company_id, shares FROM share_owners WHERE account_id = %s", (account,)):
-        share = prices[row["company_id"]]
+        share = prices.get(row["company_id"]) or private_share(conn, row["company_id"])
         lines.append({"ticker": share["ticker"], "sector": share["sector"], "shares": row["shares"],
                       "price": share["price"], "value": row["shares"] * share["price"]})
     held = bonds.holdings_of(conn, account, now)
     cash = ledger.balance(conn, account)
+    # Cash held in escrow while a bid for a company stands, or pledged as a partner, is still its owner's.
+    cash += _one(conn, "SELECT ((SELECT coalesce(sum(b.held), 0) FROM deal_bids b JOIN empires e ON e.id = b.empire_id"
+                       " WHERE e.account_id = %s AND b.status IN ('pending', 'live'))"
+                       " + (SELECT coalesce(sum(amount), 0) FROM deal_partners WHERE account_id = %s AND status = 'pledged'))::bigint AS total",
+                 (account, account))["total"]
     cash += _one(conn, "SELECT coalesce(sum(reserved), 0)::bigint AS total FROM market_orders WHERE account_id = %s AND status = 'open'",
                  (account,))["total"]
     cash += corporate.held_by_account(conn).get(account, (0, 0))[0]
