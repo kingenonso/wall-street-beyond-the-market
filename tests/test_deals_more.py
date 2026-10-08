@@ -12,7 +12,6 @@ from simulation.money import BPS, million_naira
 from tests.conftest import after_quarters
 from tests.test_builds import pro
 from tests.test_deals import LATER, _dicts, _one, do_checks, open_a_sale
-from tests.test_empires import founded
 from tests.test_firm import firm_of, member
 from tests.test_objectives import give_cash
 
