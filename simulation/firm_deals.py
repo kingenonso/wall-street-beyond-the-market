@@ -123,6 +123,13 @@ def _desk_ok(conn: Connection, empire: dict, seat: dict, build: str) -> bool:
 # Bringing a deal, and the data room
 # ---------------------------------------------------------------------------
 
+def _conflicted(conn: Connection, empire_id, process_id) -> str | None:
+    """A firm auditing or running a sale is on the seller's side: its founder's empire may not buy."""
+    row = _one(conn, "SELECT f.name FROM firm_jobs j JOIN pro_firms f ON f.id = j.firm_id JOIN empire_seats s ON s.player_id = f.founder_id"
+                     " WHERE j.process_id = %s AND j.kind IN ('audit', 'mandate') AND s.empire_id = %s LIMIT 1", (process_id, empire_id))
+    return row["name"] if row else None
+
+
 def open_file(conn: Connection, player_id, process_id: int, now: datetime) -> dict:
     """The Investment Banker brings a company on sale to the empire. The six checks are set out."""
     with conn.transaction():
@@ -135,6 +142,9 @@ def open_file(conn: Connection, player_id, process_id: int, now: datetime) -> di
             raise EmpireError("Your empire is the seller.")
         if not _desk_ok(conn, empire, seat, "investment_banker"):
             raise EmpireError("A deal is brought by the empire's Investment Banker.")
+        conflict = _conflicted(conn, empire["id"], process_id)
+        if conflict:
+            raise EmpireError(f"{conflict}, run from your empire, is working for the seller on this sale. Your empire may not buy it.")
         try:
             with conn.transaction():
                 made = _one(conn, "INSERT INTO deal_files (empire_id, process_id, brought_by, at) VALUES (%s, %s, %s, %s) RETURNING *",
@@ -646,6 +656,9 @@ def place_bid(conn: Connection, head_id, file_id: int, amount: int, loan: int, n
         sale = _process(conn, found["process_id"], lock=True)
         if sale["status"] != "open" or found["status"] != "open":
             raise EmpireError("That sale is over.")
+        conflict = _conflicted(conn, empire["id"], sale["id"])
+        if conflict:
+            raise EmpireError(f"{conflict}, run from your empire, is working for the seller on this sale. Your empire may not buy it.")
         for value in (amount, loan):
             if not isinstance(value, int) or isinstance(value, bool) or value < 0:
                 raise EmpireError("Amounts are whole kobo, nought or more.")

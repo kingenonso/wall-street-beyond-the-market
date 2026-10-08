@@ -135,6 +135,10 @@ def _growth_points(conn: Connection, empire: dict, period: int) -> tuple[int, st
     taken = _one(conn, "SELECT coalesce(sum(amount), 0)::bigint AS total FROM empire_books WHERE empire_id = %s AND kind = 'taken'"
                        " AND period > %s AND period <= %s", (empire["id"], start["period"], period))["total"]
     put_in += max(fines - taken, 0)
+    # An empire merged in is not growth, and a company split off is not a loss.
+    put_in += _one(conn, "SELECT coalesce(sum(CASE WHEN kind = 'merger' THEN worth_moved ELSE -worth_moved END), 0)::bigint AS total"
+                         " FROM empire_combinations WHERE empire_id = %s AND status = 'done' AND period > %s AND period <= %s",
+                   (empire["id"], start["period"], period))["total"]
     grew = (end["worth"] - put_in - start["worth"]) / start["worth"] * 100
     most = data.LEAGUE_POINTS["growth_most"]
     points = max(-most, min(most, round(grew)))

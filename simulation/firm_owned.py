@@ -829,7 +829,7 @@ def view(conn: Connection, seat: dict, empire: dict, state: dict, now: datetime)
                for r in _rows(conn, "SELECT p.*, c.name AS company FROM company_plans p JOIN companies c ON c.id = p.company_id WHERE p.empire_id = %s"
                                     " AND p.kind = 'rescue' AND p.status = 'proposed'", (empire["id"],))] if is_head else []
     from simulation import firm_practice
-    outside = [x for x in firm_practice.firms(conn) if x["kind"] in ("advisory", "bank")
+    outside = [x for x in firm_practice.firms(conn) if x["kind"] in ("advisory", "bank", "audit")
                and not _one(conn, "SELECT 1 FROM pro_firms f JOIN empire_seats s ON s.player_id = f.founder_id WHERE f.id = %s AND s.empire_id = %s",
                             (x["id"], empire["id"]))]
     return {"companies": out, "outside_firms": outside, "plans": {k: {"title": v[0], "cost_bps": v[1], "quarters": v[2], "chance_bps": v[3], "effect": v[4]} for k, v in PLANS.items()},

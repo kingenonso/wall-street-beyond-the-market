@@ -1024,4 +1024,9 @@ def held_by_account(conn: Connection) -> dict:
                            " JOIN market_instruments m ON m.company_id = t.target_company_id WHERE t.status = 'open' GROUP BY d.account_id"):
         was = worth.get(row["account_id"], (0, 0))
         worth[row["account_id"]] = (was[0], was[1] + row["value"])
+    # Cash an empire has set aside for its own takeover offer is still the empire's until the offer closes.
+    for row in _rows(conn, "SELECT e.account_id, sum(t.reserved)::bigint AS cash FROM takeovers t JOIN empires e ON e.id = t.bidder_empire_id"
+                           " WHERE t.status = 'open' GROUP BY e.account_id"):
+        was = worth.get(row["account_id"], (0, 0))
+        worth[row["account_id"]] = (was[0] + row["cash"], was[1])
     return worth

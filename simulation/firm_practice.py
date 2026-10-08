@@ -39,6 +39,9 @@ KINDS = {   # kind -> (build that may found it, what it is called, what it does)
 STEP_FIRMS = {"accounts": "audit", "stress": "risk", "valuation": "advisory", "fairness": "advisory"}
 BANK_CAPITAL_LEAST = million_naira(50)
 JOB_FEE_LEAST, JOB_FEE_MOST = million_naira(1), million_naira(500)
+CHECK_FEE_BPS = 50                  # a check on a deal costs at most 0.5% of the asking price (and at most the fee most)
+AUDIT_SALES_BPS = 100               # an audit of an owned company costs at most 1% of a quarter's sales, once a quarter
+LOAN_RATE_ABOVE_MOST = 1500         # a small bank lends at no more than 15 points above the Central Bank's rate
 AUDIT_FEE_BPS = 20                  # the founders pay an audit 0.2% of the asking price...
 AUDIT_FEE_RANGE = (million_naira(2), million_naira(50))
 MANDATE_FEE_BPS = 100               # an advisory firm's success fee: 1% of the price
@@ -153,9 +156,10 @@ def send_step(conn: Connection, head_id, step_id: int, firm_id: int, fee: int, n
             raise EmpireError("That check is not the work of that kind of firm.")
         if empires.seat_of(conn, f["founder_id"]) and empires.seat_of(conn, f["founder_id"])["empire_id"] == empire["id"]:
             raise EmpireError("A firm run from your own empire is not an outside firm: its founder does the check at their desk.")
-        if not isinstance(fee, int) or isinstance(fee, bool) or not JOB_FEE_LEAST <= fee <= JOB_FEE_MOST:
-            raise EmpireError(f"A fee from {_money(JOB_FEE_LEAST)} to {_money(JOB_FEE_MOST)}.")
         sale = _one(conn, "SELECT p.* FROM sale_processes p JOIN deal_files f ON f.process_id = p.id WHERE f.id = %s", (step["file_id"],))
+        most = max(min(apply_bps(sale["asking"], CHECK_FEE_BPS), JOB_FEE_MOST), JOB_FEE_LEAST)
+        if not isinstance(fee, int) or isinstance(fee, bool) or not JOB_FEE_LEAST <= fee <= most:
+            raise EmpireError(f"A fee from {_money(JOB_FEE_LEAST)} to {_money(most)} (half a percent of the asking price at most).")
         job = _one(conn, "INSERT INTO firm_jobs (firm_id, kind, client_account, client_empire_id, company_id, process_id, step_id, fee, period, at)"
                          " VALUES (%s, 'deal_check', %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                    (f["id"], empire["account_id"], empire["id"], sale["company_id"], sale["id"], step_id, fee, state["period"], now))
@@ -169,6 +173,8 @@ def _job(conn: Connection, player_id, job_id: int) -> tuple[dict, dict]:
     job = _one(conn, "SELECT * FROM firm_jobs WHERE id = %s AND firm_id = %s FOR UPDATE", (job_id, f["id"]))
     if job is None or job["status"] != "open":
         raise EmpireError("Your firm has no such job waiting.")
+    if job["words"] == AWAITING_OWNER:
+        raise EmpireError("The company's owners have not accepted your offer yet.")
     if job["process_id"]:
         sale = _one(conn, "SELECT status FROM sale_processes WHERE id = %s", (job["process_id"],))
         if sale["status"] != "open" and job["kind"] in ("deal_check", "audit", "mandate"):
@@ -228,11 +234,16 @@ def hand_in_job(conn: Connection, player_id, job_id: int, answers: dict, now: da
             words = _finish_restructuring(conn, f, job, well, now, state["period"])
         conn.execute("UPDATE firm_jobs SET answers = %s, score = %s, opinion = %s, words = %s, status = 'done', done_at = %s WHERE id = %s",
                      (Jsonb(answers), score, opinion, words[:600], now, job_id))
-        conn.execute("UPDATE pro_firms SET jobs_done = jobs_done + 1 WHERE id = %s", (f["id"],))
-        _reputation(conn, f["id"], REPUTATION_GOOD if well else REPUTATION_BAD)
+        paid_work = job["fee"] > 0
+        if paid_work:
+            # Work done for nothing earns no name and teaches nothing: reputation cannot be farmed with free jobs.
+            conn.execute("UPDATE pro_firms SET jobs_done = jobs_done + 1 WHERE id = %s", (f["id"],))
+            _reputation(conn, f["id"], REPUTATION_GOOD if well else REPUTATION_BAD)
+        elif not well:
+            _reputation(conn, f["id"], REPUTATION_BAD)
         build = KINDS[f["kind"]][0]
         mine = careers.career(conn, player_id, build)
-        gained = firm.DUTY_EXPERIENCE * score // 100 * (1 + (mine["rank"] if mine else 0))
+        gained = firm.DUTY_EXPERIENCE * score // 100 * (1 + (mine["rank"] if mine else 0)) if paid_work else 0
         if gained and mine:
             careers.add_experience(conn, player_id, build, gained, now)
         return {"score": score, "result": result, "words": words}
@@ -251,7 +262,9 @@ def _finish_check(conn: Connection, f: dict, job: dict, score: int, well: bool, 
     firm.sign_opinion(conn, f["founder_id"], KINDS[f["kind"]][0], empire["id"], f"deal_{step['step']}",
                       f"{firm_deals.STEPS[step['step']][1]} for {empire['name']}: {sale['company']}",
                       {"file_id": found["id"], "score": score, "found": words}, period, period + 4, now)
-    paid = _split_fee(conn, f, empire["account_id"], job["fee"], f"{empire['name']}: {f['name']}'s fee for a check on a deal", period, f"job:{job['id']}")
+    # The fee is paid for a check done well; a check that does not hold up earns nothing.
+    paid = _split_fee(conn, f, empire["account_id"], job["fee"], f"{empire['name']}: {f['name']}'s fee for a check on a deal", period,
+                      f"job:{job['id']}") if well else 0
     if paid:
         empires._book(conn, empire["id"], period, "Professional fees", f"{f['name']}: a check on a deal", paid, True, now, kind="fee", desk="head")
     _log(conn, empire["id"], f"{f['name']} handed in the check \"{firm_deals.STEPS[step['step']][1].lower()}\" on {sale['company']}.", now)
@@ -288,10 +301,13 @@ def commission_audit(conn: Connection, head_id, company_id, firm_id: int, fee: i
         seat = empires.seat_of(conn, f["founder_id"])
         if seat and seat["empire_id"] == empire["id"]:
             raise EmpireError("An auditor must be independent: not from the empire that owns the company.")
-        if not isinstance(fee, int) or isinstance(fee, bool) or not JOB_FEE_LEAST <= fee <= JOB_FEE_MOST:
-            raise EmpireError(f"A fee from {_money(JOB_FEE_LEAST)} to {_money(JOB_FEE_MOST)}.")
-        if _one(conn, "SELECT 1 FROM firm_jobs WHERE company_id = %s AND kind = 'audit' AND status = 'open'", (company_id,)):
-            raise EmpireError("An audit of that company is already under way.")
+        from simulation import firm_owned
+        most = max(min(apply_bps(firm_owned._quarter_sales(conn, company_id), AUDIT_SALES_BPS), JOB_FEE_MOST), JOB_FEE_LEAST)
+        if not isinstance(fee, int) or isinstance(fee, bool) or not JOB_FEE_LEAST <= fee <= most:
+            raise EmpireError(f"A fee from {_money(JOB_FEE_LEAST)} to {_money(most)} (1% of a quarter's sales at most).")
+        if _one(conn, "SELECT 1 FROM firm_jobs WHERE company_id = %s AND kind = 'audit' AND (status = 'open' OR period = %s)",
+                (company_id, state["period"])):
+            raise EmpireError("An audit of that company is already under way, or was done this quarter.")
         company = _one(conn, "SELECT * FROM companies WHERE id = %s", (company_id,))
         job = _one(conn, "INSERT INTO firm_jobs (firm_id, kind, client_account, client_empire_id, company_id, fee, period, at)"
                          " VALUES (%s, 'audit', %s, %s, %s, %s, %s, %s) RETURNING id",
@@ -352,7 +368,8 @@ def _finish_audit(conn: Connection, f: dict, job: dict, opinion: str, well: bool
     right = opinion == truth["opinion"]
     words = (f"{f['name']} signed the accounts of {company['name']} clean." if opinion == "clean"
              else f"{f['name']} refused to sign the accounts of {company['name']}.")
-    paid = _split_fee(conn, f, job["client_account"], job["fee"], f"{company['name']}: {f['name']}'s audit fee", period, f"job:{job['id']}")
+    paid = _split_fee(conn, f, job["client_account"], job["fee"], f"{company['name']}: {f['name']}'s audit fee", period,
+                      f"job:{job['id']}") if well else 0
     owner = private.controller(conn, company["id"])
     if owner and well and truth["consulting"] > 0:
         # A good audit finds the money members took out of the company as consulting fees: the empire's case follows.
@@ -389,6 +406,8 @@ def audit_opinion(conn: Connection, process_id) -> dict | None:
 
 def appoint_adviser(conn: Connection, sale: dict, period: int, now: datetime, firm_id=None) -> int | None:
     """An advisory firm is hired to run a sale: by a selling empire's head (who names it), or by the founders for a large sale."""
+    if not firm_id and sale["seller_empire_id"]:
+        return None                       # a selling empire chooses its own adviser, or none
     f = (_firm(conn, firm_id) if firm_id else
          _one(conn, "SELECT * FROM pro_firms WHERE kind = 'advisory' AND status = 'open' ORDER BY reputation DESC, id LIMIT 1"))
     if f is None or (not firm_id and sale["asking"] < MANDATE_ABOVE):
@@ -436,7 +455,8 @@ def _finish_pitch(conn: Connection, f: dict, job: dict, well: bool, now: datetim
 
 def mandate_fee(conn: Connection, sale: dict, price: int, period: int, now: datetime) -> int:
     """At a completed sale, the advisory firm that ran it (and handed in its pitch book) is paid its success fee by the seller."""
-    job = _one(conn, "SELECT * FROM firm_jobs WHERE process_id = %s AND kind = 'mandate' AND status = 'done'", (sale["id"],))
+    job = _one(conn, "SELECT * FROM firm_jobs WHERE process_id = %s AND kind = 'mandate' AND status = 'done' AND score >= %s",
+               (sale["id"], firm.DUTY_PASS))
     if job is None:
         return 0
     f = _one(conn, "SELECT * FROM pro_firms WHERE id = %s", (job["firm_id"],))
@@ -475,17 +495,38 @@ def propose_restructuring(conn: Connection, player_id, company_id, fee: int, now
         if _one(conn, "SELECT 1 FROM firm_jobs WHERE company_id = %s AND kind = 'restructuring' AND (status = 'open' OR period > %s)",
                 (company_id, state["period"] - 4)):
             raise EmpireError("A company's debts are restructured once a year at most.")
-        job = _one(conn, "INSERT INTO firm_jobs (firm_id, kind, client_account, client_empire_id, company_id, fee, period, at)"
-                         " VALUES (%s, 'restructuring', %s, %s, %s, %s, %s, %s) RETURNING id",
-                   (f["id"], company["account_id"], owner["empire_id"] if owner else None, company_id, fee, state["period"], now))
-        if owner:
-            _log(conn, owner["empire_id"], f"{f['name']} has offered to restructure the debts of {company['name']}.", now)
+        owner_empire = empires._empire(conn, owner["empire_id"]) if owner else None
+        asks_owner = bool(owner_empire and firm.player_run(owner_empire))
+        job = _one(conn, "INSERT INTO firm_jobs (firm_id, kind, client_account, client_empire_id, company_id, fee, period, at, words)"
+                         " VALUES (%s, 'restructuring', %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                   (f["id"], company["account_id"], owner["empire_id"] if owner else None, company_id, fee, state["period"], now,
+                    AWAITING_OWNER if asks_owner else None))
+        if asks_owner:
+            # A company run by players' empire is restructured only if its head agrees to the adviser and the fee.
+            firm.ask(conn, owner_empire, kind="restructuring_offer", desk="head", asked_by=player_id,
+                     title=f"{f['name']} offers to restructure the bank loan of {company['name']}, for {_money(fee)} if it works",
+                     amount=fee, payload={"job_id": job["id"]}, period=state["period"], now=now)
+            _log(conn, owner["empire_id"], f"{f['name']} has offered to restructure the debts of {company['name']}. The head decides.", now)
         return {"job_id": job["id"]}
+
+
+AWAITING_OWNER = "Waiting for the owners to accept."
+
+
+def _restructuring_accepted(conn: Connection, approval: dict, now: datetime) -> None:
+    conn.execute("UPDATE firm_jobs SET words = NULL WHERE id = %s AND status = 'open' AND words = %s", (approval["payload"]["job_id"], AWAITING_OWNER))
+
+
+def _restructuring_refused(conn: Connection, approval: dict, now: datetime) -> None:
+    conn.execute("UPDATE firm_jobs SET status = 'cancelled', words = 'The owners turned it down.' WHERE id = %s AND status = 'open'",
+                 (approval["payload"]["job_id"],))
 
 
 def _restructure_terms(conn: Connection, job: dict) -> dict:
     debt = _one(conn, "SELECT * FROM company_debts WHERE company_id = %s AND kind = 'bank_loan' AND principal_outstanding > 0"
                       " ORDER BY principal_outstanding DESC LIMIT 1", (job["company_id"],))
+    if debt is None:
+        raise EmpireError("The company has no bank loan left to restructure.")
     rows = _rows(conn, "SELECT operating_profit, depreciation FROM company_results WHERE company_id = %s AND period >= 1 ORDER BY period DESC LIMIT 4",
                  (job["company_id"],))
     ebitda = sum(r["operating_profit"] + r["depreciation"] for r in rows) * 4 // max(len(rows), 1)
@@ -504,10 +545,17 @@ def _restructure_terms(conn: Connection, job: dict) -> dict:
 def _finish_restructuring(conn: Connection, f: dict, job: dict, well: bool, now: datetime, period: int) -> str:
     """A plan that holds up and shows the company can carry the loan, the bank accepts."""
     terms = job["terms"]
+    from simulation import firm_owned
+    debt = _one(conn, "SELECT * FROM company_debts WHERE id = %s", (terms["debt_id"],))
+    company = _one(conn, "SELECT status, listed FROM companies WHERE id = %s", (job["company_id"],))
+    if debt is None or debt["principal_outstanding"] <= 0 or company["status"] != "trading" or company["listed"] \
+            or not firm_owned.failing(conn, job["company_id"]):
+        conn.execute("UPDATE firm_jobs SET fee = 0 WHERE id = %s", (job["id"],))
+        return "The company no longer needs it: its loan is gone, it is sold or listed, or it is out of trouble. Nothing was changed."
     if not well or terms["_truth"]["cover"] < 100:
         return "The bank turned the plan down: it did not hold up, or showed the company cannot carry the loan even so."
     conn.execute("UPDATE company_debts SET annual_rate_bps = %s, maturity_period = greatest(maturity_period, %s) + %s WHERE id = %s",
-                 (terms["new_rate"], period, RESTRUCTURE_QUARTERS, int(terms["debt_id"])))
+                 (terms["new_rate"], period, RESTRUCTURE_QUARTERS, terms["debt_id"]))
     conn.execute("UPDATE firm_jobs SET period = %s WHERE id = %s", (period, job["id"]))
     owner = private.controller(conn, job["company_id"])
     company = _one(conn, "SELECT name FROM companies WHERE id = %s", (job["company_id"],))
@@ -551,12 +599,19 @@ def offer_loan(conn: Connection, player_id, empire_id: int, amount: int, rate_bp
             raise EmpireError("A rate up to 60% a year, for 1 to 20 quarters.")
         if amount > ledger.balance(conn, f["account_id"]):
             raise EmpireError("The bank has not that much cash to lend.")
-        if rate_bps < state["policy_rate_bps"]:
-            raise EmpireError(f"No bank lends below the Central Bank's rate ({state['policy_rate_bps'] / 100:.2f}%).")
+        _rate_ok(rate_bps, state["policy_rate_bps"])
         offer = _one(conn, "INSERT INTO bank_loan_offers (firm_id, empire_id, amount, rate_bps, quarters, period, at) VALUES (%s, %s, %s, %s, %s, %s, %s)"
                            " RETURNING id", (f["id"], empire_id, amount, rate_bps, quarters, state["period"], now))
         _log(conn, empire_id, f"{f['name']}, a small bank, offers the empire a loan of {_money(amount)} at {rate_bps / 100:.2f}% for {quarters} quarters.", now)
         return {"offer_id": offer["id"]}
+
+
+def _rate_ok(rate_bps: int, policy_bps: int) -> None:
+    if rate_bps < policy_bps:
+        raise EmpireError(f"No bank lends below the Central Bank's rate ({policy_bps / 100:.2f}%).")
+    if rate_bps > policy_bps + LOAN_RATE_ABOVE_MOST:
+        raise EmpireError(f"A small bank lends at no more than {LOAN_RATE_ABOVE_MOST // 100} points above the Central Bank's rate "
+                          f"({(policy_bps + LOAN_RATE_ABOVE_MOST) / 100:.2f}%).")
 
 
 def answer_loan(conn: Connection, head_id, offer_id: int, accept: bool, now: datetime) -> dict:
@@ -571,6 +626,12 @@ def answer_loan(conn: Connection, head_id, offer_id: int, accept: bool, now: dat
             conn.execute("UPDATE bank_loan_offers SET status = 'refused' WHERE id = %s", (offer_id,))
             return {"accepted": False}
         f = _one(conn, "SELECT * FROM pro_firms WHERE id = %s FOR UPDATE", (offer["firm_id"],))
+        if f["status"] != "open":
+            raise EmpireError("That bank has closed.")
+        _rate_ok(offer["rate_bps"], state["policy_rate_bps"])          # the Central Bank's rate may have moved since the offer
+        founder_seat = empires.seat_of(conn, f["founder_id"])
+        if founder_seat and founder_seat["empire_id"] == empire["id"]:
+            raise EmpireError("The bank's founder now sits in your empire: a bank does not lend to its founder's empire.")
         from simulation import firm_money
         if offer["amount"] > firm_money.gearing_room(conn, empire, now):
             raise EmpireError("With this loan the empire would owe more than half of what it owns.")
@@ -605,6 +666,24 @@ def pay_out(conn: Connection, player_id, amount: int, now: datetime) -> dict:
         return {"paid": paid}
 
 
+def sell_holding(conn: Connection, player_id, company_id, quantity: int, limit_price: int, now: datetime) -> dict:
+    """The founder of a small bank sells shares the bank holds (from an underwriting, or a borrower's default) on the exchange."""
+    from simulation import exchange
+    with conn.transaction():
+        _open(conn, now)
+        f = _mine(conn, player_id)
+        if f["kind"] != "bank":
+            raise EmpireError("Only a small bank holds shares.")
+        company = _one(conn, "SELECT ticker, share_asset, listed FROM companies WHERE id = %s", (company_id,))
+        if company is None or not company["listed"] or ledger.balance(conn, f["account_id"], company["share_asset"]) <= 0:
+            raise EmpireError("The bank holds no shares of that company that trade on the exchange.")
+        try:
+            return exchange.place_order(conn, account=f["account_id"], ticker=company["ticker"], side="sell", kind="limit", quantity=quantity,
+                                        limit_price=limit_price, now=now)
+        except exchange.ExchangeError as refused:
+            raise EmpireError(str(refused)) from None
+
+
 def underwriting_ask(conn: Connection, offer_id: int, firm_id: int, empire_id, now: datetime) -> int:
     """A listing asks a small bank to underwrite it. The bank's founder accepts before the offer closes."""
     f = _firm(conn, firm_id)
@@ -633,6 +712,8 @@ def accept_underwriting(conn: Connection, player_id, job_id: int, now: datetime)
             raise EmpireError("That listing has closed.")
         if offer["underwriter_firm_id"]:
             raise EmpireError("Another bank already stands behind it.")
+        if ledger.balance(conn, f["account_id"]) < offer["shares"] * offer["price"]:
+            raise EmpireError(f"To stand behind it the bank must have the cash to buy every share on offer: {_money(offer['shares'] * offer['price'])}.")
         conn.execute("UPDATE share_offers SET underwriter_firm_id = %s, underwriting_fee_bps = %s WHERE id = %s", (f["id"], job["fee"], offer_id))
         conn.execute("UPDATE firm_jobs SET status = 'done', done_at = %s, words = %s WHERE id = %s",
                      (now, f"offer:{offer_id} accepted", job_id))
@@ -649,7 +730,9 @@ def underwrite(conn: Connection, offer: dict, left: int) -> int:
 
 def underwritten(conn: Connection, offer: dict, company: dict, f: dict, took: int, raised: int, period: int, now: datetime) -> str:
     """The listing has closed: the company pays the bank its fee out of what was raised."""
-    fee = apply_bps(raised, offer["underwriting_fee_bps"])
+    # The fee is for the part of the offer the bank could truly have bought: a promise it could not keep earns nothing.
+    backed = min(max(ledger.balance(conn, f["account_id"]), 0) + took * offer["price"], offer["shares"] * offer["price"])
+    fee = apply_bps(min(raised, backed), offer["underwriting_fee_bps"])
     paid = _split_fee(conn, f, company["account_id"], fee, f"{company['name']}: {f['name']}'s fee for underwriting its listing", period,
                       f"offer:{offer['id']}")
     conn.execute("UPDATE pro_firms SET jobs_done = jobs_done + 1 WHERE id = %s", (f["id"],))
@@ -678,7 +761,17 @@ def view(conn: Connection, seat: dict, empire: dict, state: dict, now: datetime)
                          "score": j["score"], "words": j["words"], "opened": j["terms"] is not None})
         lent = _rows(conn, "SELECT d.outstanding, d.rate_bps, d.status, e.name FROM empire_debts d JOIN empires e ON e.id = d.empire_id"
                            " WHERE d.lender_account = %s AND d.status <> 'repaid' ORDER BY d.id", (mine["account_id"],))
+        held = [{"company_id": r["id"], "name": r["name"], "ticker": r["ticker"], "shares": r["balance"]}
+                for r in _rows(conn, "SELECT c.id, c.name, c.ticker, b.balance FROM ledger_balances b JOIN companies c ON c.share_asset = b.asset"
+                                     " WHERE b.account_id = %s AND b.balance > 0 ORDER BY c.name", (mine["account_id"],))]
+        failing = []
+        if mine["kind"] == "advisory":
+            from simulation import firm_owned
+            failing = [{"company_id": r["id"], "name": r["name"]} for r in _rows(
+                conn, "SELECT DISTINCT c.id, c.name FROM companies c JOIN company_debts d ON d.company_id = c.id AND d.kind = 'bank_loan'"
+                      " AND d.principal_outstanding > 0 WHERE NOT c.listed AND c.status = 'trading' ORDER BY c.name") if firm_owned.failing(conn, r["id"])]
         out["mine"] = {"id": mine["id"], "kind": mine["kind"], "name": mine["name"], "reputation": mine["reputation"], "jobs_done": mine["jobs_done"],
+                       "holdings": held, "failing": failing,
                        "cash": ledger.balance(conn, mine["account_id"]), "capital": mine["capital"], "jobs": jobs,
                        "lent": [{"to": r["name"], "outstanding": r["outstanding"], "rate_bps": r["rate_bps"], "status": r["status"]} for r in lent],
                        "borrowers": [{"id": e["id"], "name": e["name"]} for e in _rows(conn, "SELECT id, name FROM empires WHERE kind = 'player' AND"
@@ -710,11 +803,16 @@ def _closed(conn: Connection, period: int, now: datetime) -> None:
             _reputation(conn, job["firm_id"], -1)
         conn.execute("UPDATE firm_jobs SET status = 'lapsed' WHERE status = 'open' AND kind IN ('restructuring', 'audit') AND process_id IS NULL"
                      " AND period < %s", (period - 1,))
-        conn.execute("UPDATE bank_loan_offers SET status = 'lapsed' WHERE status = 'offered' AND period < %s", (period,))
+        conn.execute("UPDATE bank_loan_offers SET status = 'lapsed' WHERE status = 'offered' AND period <= %s", (period,))
+        # A listing nobody stood behind closes the request to underwrite it.
+        conn.execute("UPDATE firm_jobs j SET status = 'lapsed' FROM share_offers o WHERE j.kind = 'underwriting' AND j.status = 'open'"
+                     " AND o.id = split_part(split_part(j.words, ':', 2), ' ', 1)::bigint AND o.status <> 'open'")
         _judge_restructurings(conn, period, now)
 
 
 firm.CLOSED.append(_closed)
+firm.EXECUTORS["restructuring_offer"] = _restructuring_accepted
+firm.REFUSERS["restructuring_offer"] = _restructuring_refused
 firm.VIEW["practice"] = lambda conn, seat, empire, state, now: view(conn, seat, empire, state, now) if firm.player_run(empire) else None
 firm.WAITING.append(lambda conn, seat, empire, now: waiting(conn, seat, empire, now) if firm.player_run(empire) else 0)
 firm.OPINION_NAMES.update({"audit_opinion": "Audit opinions"})

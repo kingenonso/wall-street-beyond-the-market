@@ -32,8 +32,8 @@ def hand(db, company, account, shares):
 # 1. Can an empire pay a firm run by one of its own members, to move the empire's money to that member?
 def test_q1_no_empire_hires_a_firm_run_from_inside_itself(db):
     empire, team = firm_of(db, n_cash=60_000_000_000)
+    sale = open_a_sale(db)                     # opened before the firm exists, so it is not the sale's auditor
     own_firm = firm_practice.found(db, team["accountant"], "audit", "Inside Audit", 0, LATER)["firm_id"]
-    sale = open_a_sale(db)
     file_id = firm_deals.open_file(db, team["investment_banker"], sale["id"], LATER)["file_id"]
     firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
     step = _one(db, "SELECT * FROM deal_steps WHERE file_id = %s AND step = 'accounts'", (file_id,))

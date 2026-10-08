@@ -12,7 +12,7 @@ from simulation.money import BPS, million_naira, naira
 from tests.conftest import after_quarters
 from tests.test_builds import pro
 from tests.test_careers import NOW9
-from tests.test_deals import LATER, _dicts, _one, do_checks, open_a_sale, right_answers
+from tests.test_deals import LATER, _dicts, _one, open_a_sale
 from tests.test_deals_more import own
 from tests.test_firm import firm_of, member
 from tests.test_objectives import give_cash
@@ -426,3 +426,24 @@ def test_a_head_drafting_at_an_empty_banker_desk_signs_the_offer_at_once(db):
     assert done["announced"] and corporate.bid_for(db, target["id"])["bidder_empire_id"] == other["id"]
     assert firm.view(db, them["head"], LATER)["dealmaking"]["offers"][0]["ours"]
     assert private.value_of(db, target["id"]) >= 0
+
+
+def test_an_advisory_firm_restructures_a_failing_companys_loan_and_is_paid_only_if_it_works(db, monkeypatch):
+    other, them = house(db, "Delta Partners")
+    firm_practice.found(db, them["investment_banker"], "advisory", "Creek Advisory", 0, LATER)
+    company = _one(db, "SELECT c.* FROM companies c JOIN company_debts d ON d.company_id = c.id AND d.kind = 'bank_loan' AND d.principal_outstanding > 0"
+                       " WHERE NOT c.listed AND c.status = 'trading' AND NOT EXISTS (SELECT 1 FROM owned_companies o WHERE o.company_id = c.id)"
+                       " ORDER BY c.ticker LIMIT 1")
+    monkeypatch.setattr(firm_owned, "failing", lambda conn, company_id: True)
+    job = firm_practice.propose_restructuring(db, them["investment_banker"], company["id"], million_naira(1), LATER)["job_id"]
+    firm_practice.open_job(db, them["investment_banker"], job, LATER)
+    terms = _one(db, "SELECT terms FROM firm_jobs WHERE id = %s", (job,))["terms"]
+    debt = _one(db, "SELECT * FROM company_debts WHERE id = %s", (terms["debt_id"],))
+    done = firm_practice.hand_in_job(db, them["investment_banker"], job, job_truth(db, job), LATE)
+    after = _one(db, "SELECT * FROM company_debts WHERE id = %s", (terms["debt_id"],))
+    if terms["_truth"]["cover"] >= 100:
+        assert "accepted" in done["words"] and after["annual_rate_bps"] == terms["new_rate"] <= debt["annual_rate_bps"]
+        assert after["maturity_period"] > debt["maturity_period"]
+    else:
+        assert after["annual_rate_bps"] == debt["annual_rate_bps"]
+    assert ledger.audit(db) == []

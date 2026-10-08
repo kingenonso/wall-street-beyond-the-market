@@ -952,6 +952,9 @@ def trade_shares(conn: Connection, player_id, *, ticker: str, side: str, kind: s
         if seat["head_player_id"] is None:
             fair_dealing(share, side, kind, limit_price, "An empire run by the computer")
         no_dealing_with_yourself(conn, seat["account_id"], share["id"], side, _insiders(conn, seat["empire_id"]), "the empire")
+        if side == "buy" and seat["empire_kind"] == "player":
+            from simulation import firm_dealmaking
+            firm_dealmaking.buying_guard(conn, seat["empire_id"], share["id"], quantity)      # the 30% rule and truces
         value = (limit_price or share["price"]) * quantity
         for_task = _task_purchase(conn, seat, share["id"]) if side == "buy" else 0
         counted = value if quantity > for_task else 0                      # buying what the task calls for is outside the limit
@@ -1069,9 +1072,16 @@ def _punish(conn: Connection, empire: dict, case: dict, now: datetime) -> None:
     period = careers.world_now(conn, now)["period"]
     fine = apply_bps(case["amount"], data.THEFT_FINE_BPS)
     owed = case["amount"] + fine
-    paid = ledger.pay_up_to(conn, payer=ledger.player_account_id(conn, thief), receiver=empire["account_id"], wanted=owed,
-                            kind="theft_repayment", memo=f"{empire['name']}: money taken, repaid with a fine", period=period,
-                            reference=f"case:{case['id']}")
+    taken_from = _one(conn, "SELECT c.account_id, c.name FROM empire_books b JOIN companies c ON c.id = b.company_id WHERE b.id = %s",
+                      (case["book_id"],))
+    paid = 0
+    if taken_from:
+        # Money taken out of a company the empire owns goes back to that company (its other owners lose nothing); the fine to the empire.
+        paid = ledger.pay_up_to(conn, payer=ledger.player_account_id(conn, thief), receiver=taken_from["account_id"], wanted=case["amount"],
+                                kind="theft_repayment", memo=f"{taken_from['name']}: money taken, repaid", period=period, reference=f"case:{case['id']}")
+    paid += ledger.pay_up_to(conn, payer=ledger.player_account_id(conn, thief), receiver=empire["account_id"], wanted=owed - paid,
+                             kind="theft_repayment", memo=f"{empire['name']}: money taken, repaid with a fine", period=period,
+                             reference=f"case:{case['id']}")
     reward = 0
     if case["reward_to"] and case["reward_to"] != thief and paid > 0:
         reward = ledger.pay_up_to(conn, payer=empire["account_id"], receiver=ledger.player_account_id(conn, case["reward_to"]),

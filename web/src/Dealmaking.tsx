@@ -79,6 +79,7 @@ function MyFirm({ m, p, act }: { m: Any; p: Any; act: Act }) {
   return (
     <Panel title={m.name} aside={`${p.kinds[m.kind].name} · reputation ${m.reputation}/100 · ${m.jobs_done} jobs done`}>
       {m.kind === "bank" && <Bank m={m} act={act} />}
+      {m.kind === "advisory" && m.failing.length > 0 && <Restructure m={m} act={act} />}
       <p className="field-label">Work for clients</p>
       {m.jobs.length === 0 && <p className="muted small">No work yet. Empires send checks to firms with a good name; founders hire audit and advisory firms for their sales.</p>}
       {m.jobs.map((j: Any) => (
@@ -101,6 +102,34 @@ function MyFirm({ m, p, act }: { m: Any; p: Any; act: Act }) {
   );
 }
 
+function Restructure({ m, act }: { m: Any; act: Act }) {
+  const [company, setCompany] = useState("");
+  const [fee, setFee] = useState("");
+  return (
+    <form className="inline-form" onSubmit={(e) => { e.preventDefault(); act.run("POST", "/firms/restructurings", { company_id: company, fee_kobo: asKobo(fee) ?? 0 }); }}>
+      <select value={company} onChange={(e) => setCompany(e.target.value)} aria-label="Company in trouble">
+        <option value="">Offer to restructure the loan of…</option>
+        {m.failing.map((x: Any) => <option key={x.company_id} value={x.company_id}>{x.name}</option>)}
+      </select>
+      <input className="small-input" type="text" placeholder="Fee ₦, paid only if it works" value={fee} onChange={(e) => setFee(e.target.value)} />
+      <button className="button-outline" disabled={act.busy || !company}>Make the offer</button>
+    </form>
+  );
+}
+
+function Holding({ h, act }: { h: Any; act: Act }) {
+  const [qty, setQty] = useState("");
+  const [price, setPrice] = useState("");
+  return (
+    <form className="inline-form" onSubmit={(e) => { e.preventDefault(); act.run("POST", `/firms/holdings/${h.company_id}/sell`, { quantity: Number(qty.replace(/,/g, "")), limit_price_kobo: asKobo(price) }); }}>
+      <span className="small">{h.name} ({h.ticker}) · {Number(h.shares).toLocaleString()} shares</span>
+      <input className="small-input" type="text" placeholder="Shares to sell" value={qty} onChange={(e) => setQty(e.target.value)} />
+      <input className="small-input" type="text" placeholder="₦ a share" value={price} onChange={(e) => setPrice(e.target.value)} />
+      <button className="button-quiet" disabled={act.busy || !Number(qty.replace(/,/g, "")) || !asKobo(price)}>Sell on the exchange</button>
+    </form>
+  );
+}
+
 function Bank({ m, act }: { m: Any; act: Act }) {
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
@@ -111,6 +140,7 @@ function Bank({ m, act }: { m: Any; act: Act }) {
     <div className="exits">
       <div className="row small"><span>Cash</span><Money kobo={m.cash} /></div>
       <div className="row small"><span>Capital put in</span><Money kobo={m.capital} /></div>
+      {m.holdings.map((h: Any) => <Holding key={h.company_id} h={h} act={act} />)}
       {m.lent.map((l: Any, i: number) => <div key={i} className="row small"><span>Lent to {l.to} at {pct(l.rate_bps)} · {l.status}</span><Money kobo={l.outstanding} /></div>)}
       <form className="inline-form" onSubmit={(e) => { e.preventDefault(); act.run("POST", "/firms/loans", { empire_id: Number(to), amount_kobo: asKobo(amount), rate_bps: Math.round(Number(rate) * 100), quarters: Number(quarters) }); }}>
         <select value={to} onChange={(e) => setTo(e.target.value)}><option value="">Lend to…</option>{m.borrowers.map((b: Any) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>

@@ -225,3 +225,14 @@ def propose_joining(body: JoinRequest, player: dict = Depends(current_player), c
 def propose_a_spinoff(body: SpinoffRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     payload = {"company_id": str(body.company_id), "new_name": body.new_name, "new_head": str(body.new_head), "cash": body.cash_kobo}
     return _do(conn, player, lambda now: firm.propose(conn, player["id"], "spinoff", payload, now) and None, "firm-vote", 5)
+
+
+class SellRequest(Request):
+    quantity: Count
+    limit_price_kobo: Kobo
+
+
+@app.post("/api/firms/holdings/{company_id}/sell")
+def sell_a_banks_shares(company_id: UUID, body: SellRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _do(conn, player, lambda now: firm_practice.sell_holding(conn, player["id"], company_id, body.quantity, body.limit_price_kobo, now) and None,
+               "firms", 20)

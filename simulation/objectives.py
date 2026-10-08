@@ -197,8 +197,9 @@ def wealth(conn: Connection, account, now: datetime) -> dict:
                  (account, account))["total"]
     cash += _one(conn, "SELECT coalesce(sum(reserved), 0)::bigint AS total FROM market_orders WHERE account_id = %s AND status = 'open'",
                  (account,))["total"]
-    cash += corporate.held_by_account(conn).get(account, (0, 0))[0]
-    shares_value = sum(line["value"] for line in lines)
+    in_offers = corporate.held_by_account(conn).get(account, (0, 0))
+    cash += in_offers[0]
+    shares_value = sum(line["value"] for line in lines) + in_offers[1]       # shares offered to a takeover are still theirs until it closes
     bonds_value = sum(b["value"] for b in held)
     return {"cash": cash, "shares": shares_value, "bonds": bonds_value, "total": cash + shares_value + bonds_value,
             "lines": lines, "bond_lines": held, "day": day}

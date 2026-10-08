@@ -46,6 +46,7 @@ MUST_OFFER_BPS = 3000               # at 30% an empire must make an offer: nobod
 STAKE_BELL_BPS = 50                 # a stake is built at most half a percent of the shares at each bell
 BLOCK_BAND_BPS = 1000               # a block changes hands within a tenth of the market price
 TRUCE_HOLDS_BPS = 2000              # a truce protects the companies an empire holds a fifth of, or controls
+DEFENCE_HOURS = 24                  # a defence not handed in within a day may be taken over by another holder's adviser
 TAKE_MOST_BPS = 500                 # the shadow side: at most a twentieth of the company's cash at a time
 TRUCE_KIND = "truce"
 
@@ -65,9 +66,34 @@ def _in_issue(conn: Connection, company: dict) -> int:
     return ledger.amount_in_existence(conn, company["share_asset"])
 
 
+def holding(conn: Connection, account, company_id, share_asset: str) -> int:
+    """Every share an account owns of a company: those it holds, those offered to a takeover, and those in its sell orders."""
+    return ledger.balance(conn, account, share_asset) + _one(
+        conn, "SELECT (SELECT coalesce(sum(d.shares), 0) FROM takeover_tenders d JOIN takeovers t ON t.id = d.takeover_id"
+              " WHERE d.account_id = %s AND t.target_company_id = %s AND t.status = 'open')"
+              " + (SELECT coalesce(sum(remaining), 0) FROM market_orders WHERE account_id = %s AND company_id = %s AND side = 'sell'"
+              " AND status = 'open') AS n", (account, company_id, account, company_id))["n"]
+
+
 def _held_bps(conn: Connection, account, company: dict) -> int:
     issued = _in_issue(conn, company)
-    return ledger.balance(conn, account, company["share_asset"]) * BPS // issued if issued else 0
+    return holding(conn, account, company["id"], company["share_asset"]) * BPS // issued if issued else 0
+
+
+def buying_guard(conn: Connection, empire_id, company_id, quantity: int) -> None:
+    """Before an empire buys a listed company's shares on the exchange: no creeping to 30% without an offer, and no
+    buying into a company held by an empire it has a truce with."""
+    company = _one(conn, "SELECT * FROM companies WHERE id = %s", (company_id,))
+    empire = empires._empire(conn, empire_id)
+    if company is None or not company["listed"] or empire["kind"] != "player":
+        return
+    _truce_guards(conn, empire_id, company)
+    issued = _in_issue(conn, company)
+    have = holding(conn, empire["account_id"], company_id, company["share_asset"])
+    buying = _one(conn, "SELECT coalesce(sum(remaining), 0) AS n FROM market_orders WHERE account_id = %s AND company_id = %s AND side = 'buy'"
+                        " AND status = 'open'", (empire["account_id"], company_id))["n"]
+    if have * 2 <= issued and (have + buying + quantity) * BPS >= issued * MUST_OFFER_BPS:
+        raise EmpireError("With this the empire would hold 30% or more: at that point an empire must make an offer to every owner instead.")
 
 
 def _worth_per_share(conn: Connection, company_id) -> int | None:
@@ -269,15 +295,17 @@ def open_defence(conn: Connection, player_id, takeover_id: int, now: datetime) -
         if bid["bidder_empire_id"] == empire["id"]:
             raise EmpireError("An empire does not defend a company against its own offer.")
         company = _listed(conn, bid["target_company_id"])
-        if _held_bps(conn, empire["account_id"], company) < DEFEND_FROM_BPS and not _one(
-                conn, "SELECT 1 FROM takeover_tenders WHERE takeover_id = %s AND account_id = %s AND shares > 0", (takeover_id, empire["account_id"])):
+        if _held_bps(conn, empire["account_id"], company) < DEFEND_FROM_BPS:
             raise EmpireError("The board takes advice from owners of 5% of the shares or more. Your empire holds less.")
-        if bid["defence_terms"] is not None and (bid["defence_empire_id"] != empire["id"] or bid["defence_by"] != player_id):
-            raise EmpireError("The board's defence is already being written by another adviser.")
         if bid["defence_value"] is not None or (bid["defence_terms"] or {}).get("done"):
             raise EmpireError("The board's defence has been handed in.")
-        if bid["defence_terms"] is None:
-            terms = _defence_terms(conn, bid, company)
+        mine = bid["defence_terms"] is not None and bid["defence_by"] == player_id
+        stale = bid["defence_terms"] is not None and not mine and firm._hours(datetime.fromisoformat(bid["defence_terms"]["opened_at"]), now) >= DEFENCE_HOURS
+        if bid["defence_terms"] is not None and not mine and not stale:
+            raise EmpireError("The board's defence is already being written by another adviser. If it is not handed in within a day, "
+                              "the board will take another's.")
+        if bid["defence_terms"] is None or stale:
+            terms = {**_defence_terms(conn, bid, company), "opened_at": now.isoformat()}
             conn.execute("UPDATE takeovers SET defence_terms = %s, defence_by = %s, defence_empire_id = %s WHERE id = %s",
                          (Jsonb(terms), player_id, empire["id"], takeover_id))
             bid = {**bid, "defence_terms": terms}
@@ -443,15 +471,18 @@ def _build_stakes(conn: Connection, now: datetime) -> None:
             low, high = exchange.price_limits(share["reference_price"])
             try:
                 with conn.transaction():
-                    bids = exchange.quote(conn, share["ticker"], now)["bids"]
-                    price = min(prog["most_price"], high, (bids[0]["price"] + 1) if bids else share["reference_price"])
+                    # Never against the empire's own people's orders, and at the day's reference price (a member cannot push
+                    # the price the programme pays by bidding it up first).
+                    empires.no_dealing_with_yourself(conn, empire["account_id"], company["id"], "buy", empires._insiders(conn, empire["id"]), "the empire")
+                    buying_guard(conn, empire["id"], company["id"], 0)
+                    price = min(prog["most_price"], high, share["reference_price"])
                     if price < low:
                         continue
                     quantity = min(want, max(issued * STAKE_BELL_BPS // BPS, 1), ledger.balance(conn, empire["account_id"]) // max(price, 1))
                     if quantity > 0:
                         exchange.place_order(conn, account=empire["account_id"], ticker=share["ticker"], side="buy", kind="limit",
                                              quantity=quantity, limit_price=price, now=now)
-            except (exchange.ExchangeError, ledger.LedgerError):
+            except (exchange.ExchangeError, ledger.LedgerError, EmpireError):
                 pass
 
 
@@ -459,14 +490,17 @@ def disclose(conn: Connection, now: datetime) -> None:
     """Every 5% step an empire holds in a listed company is made public: crossing it up, or falling below it."""
     period = careers.world_now(conn, now)["period"]
     rows = _rows(conn, "SELECT e.id AS empire_id, e.name AS empire, e.account_id, c.id AS company_id, c.name AS company, c.ticker, c.share_asset,"
-                       " coalesce(b.balance, 0)::bigint AS shares, d.bps AS disclosed FROM empires e CROSS JOIN companies c"
+                       " d.bps AS disclosed FROM empires e CROSS JOIN companies c"
                        " LEFT JOIN ledger_balances b ON b.account_id = e.account_id AND b.asset = c.share_asset"
                        " LEFT JOIN stake_disclosures d ON d.empire_id = e.id AND d.company_id = c.id"
                        " WHERE e.kind IN ('player', 'computer') AND e.status IN ('active', 'merged') AND c.listed AND c.status = 'trading'"
-                       " AND (coalesce(b.balance, 0) > 0 OR d.bps > 0) ORDER BY e.id, c.ticker")
+                       " AND (coalesce(b.balance, 0) > 0 OR d.bps > 0 OR EXISTS (SELECT 1 FROM market_orders o WHERE o.account_id = e.account_id"
+                       " AND o.company_id = c.id AND o.side = 'sell' AND o.status = 'open') OR EXISTS (SELECT 1 FROM takeover_tenders t"
+                       " WHERE t.account_id = e.account_id AND t.shares > 0)) ORDER BY e.id, c.ticker")
     for r in rows:
         issued = ledger.amount_in_existence(conn, r["share_asset"])
-        step = r["shares"] * BPS // max(issued, 1) // DISCLOSE_STEP_BPS * DISCLOSE_STEP_BPS
+        owned = holding(conn, r["account_id"], r["company_id"], r["share_asset"])
+        step = owned * BPS // max(issued, 1) // DISCLOSE_STEP_BPS * DISCLOSE_STEP_BPS
         if step == (r["disclosed"] or 0):
             continue
         conn.execute("INSERT INTO stake_disclosures (empire_id, company_id, bps, at) VALUES (%s, %s, %s, %s) ON CONFLICT (empire_id, company_id)"
@@ -612,6 +646,11 @@ def _merge_blockers(conn: Connection, joining: dict) -> list[str]:
         ("SELECT 1 FROM bank_loan_offers WHERE empire_id = %s AND status = 'offered'", (e,), "it has a bank's loan offer waiting"),
         ("SELECT 1 FROM share_offers o JOIN owned_companies c ON c.company_id = o.company_id WHERE c.empire_id = %s AND o.status = 'open'", (e,),
          "a company it owns is being listed"),
+        ("SELECT 1 FROM empire_stake_offers WHERE empire_id = %s AND status = 'open'", (e,), "it is selling a stake in itself"),
+        ("SELECT 1 FROM empire_cases WHERE empire_id = %s AND status = 'open'", (e,), "a case of money taken is waiting to be decided"),
+        ("SELECT 1 FROM deal_files WHERE empire_id = %s AND status = 'open'", (e,), "it has a deal file open"),
+        ("SELECT 1 FROM firm_jobs WHERE client_empire_id = %s AND status = 'open'", (e,), "a firm is doing work for it"),
+        ("SELECT 1 FROM empire_resolutions WHERE empire_id = %s AND status = 'open' AND kind <> 'merger_join'", (e,), "its members have a vote open"),
     )
     return [why for sql, params, why in checks if _one(conn, sql, params)]
 
@@ -723,16 +762,18 @@ def merge(conn: Connection, combo: dict, resolution_id: int, now: datetime) -> s
         seat = empires.seat_of(conn, member["player_id"], lock=True)
         empires._vacate(conn, seat, now, period, "merged")
         empires._take_seat(conn, into, member["player_id"], member["build"], now, period)
+    # Thefts nobody has found yet go with it: the continuing empire's audits can still find them.
+    conn.execute("UPDATE empire_books SET empire_id = %s WHERE empire_id = %s AND NOT genuine AND NOT found", (into["id"], joining["id"]))
     conn.execute("UPDATE empires SET status = 'merged', head_player_id = NULL WHERE id = %s", (joining["id"],))
     conn.execute("UPDATE empire_seats SET staffed = false WHERE empire_id = %s", (joining["id"],))
     conn.execute("UPDATE empire_pacts SET status = 'ended' WHERE status IN ('drafted', 'proposed', 'signed') AND %s IN (from_empire, to_empire)",
                  (joining["id"],))
-    conn.execute("UPDATE empire_combinations SET status = 'done', resolution_ids = resolution_ids || %s::bigint WHERE id = %s", (resolution_id, combo["id"]))
+    conn.execute("UPDATE empire_combinations SET status = 'done', worth_moved = %s, resolution_ids = resolution_ids || %s::bigint WHERE id = %s",
+                 (worth_joining, resolution_id, combo["id"]))
     news.publish(conn, period=period, day=1, kind="empires_merge", story=f"merger:{combo['id']}", facts={"empire": into["name"], "other": joining["name"]})
     _log(conn, into["id"], f"{joining['name']} merged into the empire: its money, shares and companies are now the empire's, its owners hold units here, "
                            "and its members have taken seats.", now)
     _log(conn, joining["id"], f"The empire merged into {into['name']}.", now)
-    leagues.award(conn, into["id"], 2, f"Merged with {joining['name']}", period, now, reference=f"merger:{combo['id']}")
     return f"{joining['name']} has merged into {into['name']}."
 
 
@@ -765,7 +806,15 @@ def _spinoff_carry(conn: Connection, empire: dict, resolution: dict, now: dateti
     period = careers.world_now(conn, now)["period"]
     empire = empires._empire(conn, empire["id"], lock=True)
     company = _one(conn, "SELECT * FROM companies WHERE id = %s", (p["company_id"],))
+    from simulation import world_data as wd
+    fee = wd.EMPIRE_REGISTRATION_NAIRA * 100
+    if ledger.balance(conn, empire["account_id"]) < fee + p["cash"]:
+        raise EmpireError(f"A new empire pays the registration fee of {_money(fee)}; the empire has not the cash.")
+    before = empires.worth(conn, empire, now)["total"]
     new = empires._create(conn, p["new_name"], "player", "active", p["new_head"], now, period)
+    ledger.transfer(conn, payer=empire["account_id"], receiver=ledger.account_id(conn, ledger.PRIZE_POOL), amount=fee, kind="empire_registration",
+                    memo=f"{new['name']}: registration fee", reference=f"empire:{new['id']}", period=period)
+    leagues.place_new(conn, new["id"])
     shares = ledger.balance(conn, empire["account_id"], company["share_asset"])
     legs = [Leg(empire["account_id"], -shares, company["share_asset"]), Leg(new["account_id"], shares, company["share_asset"])]
     if p["cash"]:
@@ -788,9 +837,10 @@ def _spinoff_carry(conn: Connection, empire: dict, resolution: dict, now: dateti
     seat = empires.seat_of(conn, member["player_id"], lock=True)
     empires._vacate(conn, seat, now, period, "spun_off")
     empires._take_seat(conn, new, member["player_id"], member["build"], now, period)
-    conn.execute("INSERT INTO empire_combinations (kind, empire_id, other_empire_id, company_id, new_name, new_head, status, resolution_ids, period, at)"
-                 " VALUES ('spinoff', %s, %s, %s, %s, %s, 'done', %s, %s, %s)",
-                 (empire["id"], new["id"], company["id"], new["name"], member["player_id"], [resolution["id"]], period, now))
+    moved = max(before - empires.worth(conn, empires._empire(conn, empire["id"]), now)["total"], 0)
+    conn.execute("INSERT INTO empire_combinations (kind, empire_id, other_empire_id, company_id, new_name, new_head, status, resolution_ids, period, at,"
+                 " worth_moved) VALUES ('spinoff', %s, %s, %s, %s, %s, 'done', %s, %s, %s, %s)",
+                 (empire["id"], new["id"], company["id"], new["name"], member["player_id"], [resolution["id"]], period, now, moved))
     news.publish(conn, period=period, day=1, kind="spinoff", story=f"spinoff:{new['id']}",
                  facts={"empire": empire["name"], "company": company["name"], "new_empire": new["name"]})
     _log(conn, new["id"], f"{new['name']} was split off from {empire['name']}, with {company['name']}"
@@ -849,7 +899,7 @@ def view(conn: Connection, seat: dict, empire: dict, state: dict, now: datetime)
         held = ledger.balance(conn, empire["account_id"], t["share_asset"])
         tendered = _one(conn, "SELECT shares FROM takeover_tenders WHERE takeover_id = %s AND account_id = %s", (t["id"], empire["account_id"]))
         issued = max(ledger.amount_in_existence(conn, t["share_asset"]), 1)
-        mine_bps = (held + (tendered["shares"] if tendered else 0)) * BPS // issued
+        mine_bps = holding(conn, empire["account_id"], t["target_company_id"], t["share_asset"]) * BPS // issued
         defence = None
         if t["defence_terms"] is not None:
             defence = {"by_us": t["defence_empire_id"] == empire["id"], "done": bool(t["defence_terms"].get("done")), "value": t["defence_value"],
@@ -860,7 +910,8 @@ def view(conn: Connection, seat: dict, empire: dict, state: dict, now: datetime)
                        "held": held, "tendered": tendered["shares"] if tendered else 0, "our_bps": mine_bps, "defence": defence,
                        "defence_value": t["defence_value"],
                        "can_defend": banker and t["status"] == "open" and t["bidder_empire_id"] != empire["id"] and mine_bps >= DEFEND_FROM_BPS
-                       and (t["defence_terms"] is None or (t["defence_by"] == me and not t["defence_terms"].get("done"))),
+                       and t["defence_value"] is None and (t["defence_terms"] is None or (not t["defence_terms"].get("done") and (
+                           t["defence_by"] == me or firm._hours(datetime.fromisoformat(t["defence_terms"]["opened_at"]), now) >= DEFENCE_HOURS))),
                        "can_tender": is_head and t["status"] == "open" and t["bidder_empire_id"] != empire["id"] and (held or tendered)})
     holdings = []
     for h in _rows(conn, "SELECT c.id, c.name, c.ticker, c.share_asset, b.balance FROM ledger_balances b JOIN companies c ON c.share_asset = b.asset"

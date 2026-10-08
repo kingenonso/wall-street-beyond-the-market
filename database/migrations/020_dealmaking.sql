@@ -158,3 +158,5 @@ ALTER TABLE empire_books ADD COLUMN company_id uuid REFERENCES companies (id);  
 
 ALTER TABLE holding_events DROP CONSTRAINT holding_events_kind_check;
 ALTER TABLE holding_events ADD CONSTRAINT holding_events_kind_check CHECK (kind IN ('offer', 'conversion', 'takeover', 'block'));
+
+ALTER TABLE empire_combinations ADD COLUMN worth_moved bigint NOT NULL DEFAULT 0;   -- what passed between the empires: not growth, in the league

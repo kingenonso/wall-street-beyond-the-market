@@ -463,6 +463,8 @@ function Plans({ c, o, act }: { c: Any; o: Any; act: Act }) {
 
 function Exits({ c, firms, act }: { c: Any; firms: Any[]; act: Act }) {
   const [adviser, setAdviser] = useState("");
+  const [auditor, setAuditor] = useState("");
+  const [auditFee, setAuditFee] = useState("");
   const [underwriter, setUnderwriter] = useState("");
   const [asking, setAsking] = useState("");
   const [reserve, setReserve] = useState("");
@@ -494,6 +496,16 @@ function Exits({ c, firms, act }: { c: Any; firms: Any[]; act: Act }) {
           <button className="button-outline" disabled={act.busy || c.failing} onClick={() => act.run("POST", `/owned/${c.id}/list`, underwriter ? { underwriter_firm_id: Number(underwriter) } : undefined)}>List it</button>
         </span>
       </div>
+      {firms.some((x: Any) => x.kind === "audit") && (
+        <form className="inline-form" onSubmit={(e) => { e.preventDefault(); act.run("POST", `/owned/${c.id}/audit`, { firm_id: Number(auditor), fee_kobo: asKobo(auditFee) }); }}>
+          <select value={auditor} onChange={(e) => setAuditor(e.target.value)} aria-label="Audit firm">
+            <option value="">Have it audited by…</option>
+            {firms.filter((x: Any) => x.kind === "audit").map((x: Any) => <option key={x.id} value={x.id}>{x.name} · {x.reputation}/100</option>)}
+          </select>
+          <input className="small-input" type="text" placeholder="Fee ₦ (the company pays)" value={auditFee} onChange={(e) => setAuditFee(e.target.value)} />
+          <button className="button-outline" disabled={act.busy || !auditor || !asKobo(auditFee)}>Commission the audit</button>
+        </form>
+      )}
       <p className="muted small">On a gain, the empire pays deal fees to the banker who brought it and to each player who did a check.</p>
     </div>
   );
