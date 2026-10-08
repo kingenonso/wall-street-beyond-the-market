@@ -14,7 +14,7 @@ from simulation.money import apply_bps, naira
 from tests.conftest import after_quarters
 from tests.test_builds import pro
 from tests.test_careers import NOW9, sound
-from tests.test_empires import always, computer_empire, founded, thief_in
+from tests.test_empires import countersigned, always, computer_empire, founded, thief_in
 from tests.test_objectives import give_cash
 
 pytestmark = pytest.mark.world("eight")
@@ -209,7 +209,7 @@ def test_a_theft_found_after_the_thief_has_left_is_still_punished_and_their_new_
     thief, thief_account = thief_in(db, old, "lawyer", "mallam", cash=2_000_000)
     asked = _dicts(db, "SELECT id FROM empire_applications WHERE player_id = %s AND status = 'waiting'", (thief,))[0]["id"]
     empires.decide_application(db, old_head, asked, True, NOW9)
-    empires.divert(db, thief, naira(400_000), NOW9)
+    countersigned(db, empires.divert(db, thief, naira(400_000), NOW9), auditor, NOW9)
     # The thief hands in a letter, is let go, and takes a seat somewhere else.
     empires.resign(db, thief, "Thank you for everything.", NOW9)
     empires.release(db, old_head, empires.war_room(db, old_head, NOW9)["resignations"][0]["id"], NOW9)

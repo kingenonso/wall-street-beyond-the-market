@@ -17,7 +17,7 @@ from simulation.money import apply_bps, naira
 from tests.conftest import ADULT, WORLD_START, after_quarters, join
 from tests.test_builds import pro
 from tests.test_careers import NOW9, professional, sound
-from tests.test_empires import always, computer_empire, founded, thief_in
+from tests.test_empires import countersigned, always, computer_empire, founded, thief_in
 from tests.test_objectives import bell, give_cash, give_shares, state_of
 from tests.test_savings import a_fund, joined, savings
 
@@ -193,7 +193,7 @@ def test_nobody_decides_their_own_case_and_an_accused_member_does_not_become_hea
     scribe, ledgerman = partners["journalist"][0], partners["accountant"][0]
     careers.add_experience(db, scribe, "journalist", 5000, NOW9)
     empires.set_limits(db, head, expense_limit=naira(500_000))
-    empires.divert(db, scribe, naira(400_000), NOW9)
+    countersigned(db, empires.divert(db, scribe, naira(400_000), NOW9), ledgerman, NOW9)
     always(monkeypatch, True)
     audit = empires.accountant_audit(db, ledgerman, NOW9)
     empires.file_audit(db, ledgerman, audit["id"], [f["book_id"] for f in audit["findings"]], NOW9)

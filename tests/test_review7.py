@@ -15,7 +15,7 @@ from simulation.money import naira
 from tests.conftest import ADULT, after_quarters, join
 from tests.test_builds import pro
 from tests.test_careers import NOW9, sound
-from tests.test_empires import always, computer_empire, founded
+from tests.test_empires import countersigned, always, computer_empire, founded
 from tests.test_mastery import FRIDAY9, answers_for, do, master, right_case
 from tests.test_objectives import bell, give_cash, government
 
@@ -158,7 +158,7 @@ def test_money_taken_and_paid_back_with_a_fine_is_not_growth(db, monkeypatch):
     _seat_with(db, head, empire, friend, now)
     take = start * 22 // 100
     empires.set_limits(db, head, member_id=friend, signing_limit=take, now=now)
-    empires.divert(db, friend, take, now)
+    countersigned(db, empires.divert(db, friend, take, now), auditor, now)
     always(monkeypatch, True)
     audit = empires.accountant_audit(db, auditor, now)
     empires.file_audit(db, auditor, audit["id"], [f["book_id"] for f in audit["findings"]], now)

@@ -44,6 +44,14 @@ def founded(db, *, open_it=True, cash=60_000_000, put_in=40_000_000):
     return empire, (head, head_account), partners
 
 
+def countersigned(db, taken: dict, accountant, now) -> dict:
+    """A cost above the threshold in an empire run by players waits for the Accountant's desk: here the Accountant signs it."""
+    if taken.get("waiting"):
+        from simulation import firm
+        firm.decide(db, accountant, taken["approval_id"], True, "", now)
+    return taken
+
+
 def always(monkeypatch, found: bool):
     """Make every draw of chance come out one way, so that a test does not hang on luck."""
     monkeypatch.setattr(empires, "_roll", lambda conn, *parts: 0 if found else 9999)
@@ -200,7 +208,7 @@ def test_an_empire_of_three_humans_plus_staff_completes_a_task_that_needs_five_b
     for build in ("investment_banker", "risk_manager", "lawyer"):
         empires.staff_seat(db, head, build, 1, True, NOW9)
     task = empires.start_task(db, head, NOW9)
-    with pytest.raises(empires.EmpireError, match="already has a task"):
+    with pytest.raises(empires.EmpireError, match="already started an investment task"):
         empires.start_task(db, head, NOW9)
 
     def step(player):
@@ -250,7 +258,7 @@ def test_an_empire_of_three_humans_plus_staff_completes_a_task_that_needs_five_b
     log = " ".join(e["words"] for e in empires.war_room(db, head, NOW9)["events"])
     assert "The task is complete" in log and "Handed on" in log
     # One task a quarter: finished work cannot be started again for the experience.
-    with pytest.raises(empires.EmpireError, match="One task a quarter"):
+    with pytest.raises(empires.EmpireError, match="One of each kind a quarter"):
         empires.start_task(db, head, NOW9)
     sound(db)
 

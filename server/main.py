@@ -1515,3 +1515,4 @@ def accountant_desk(
 # Stage 6: empires, the War Room and pension funds run by players.
 from server import empire_routes  # noqa: E402,F401  (importing it adds its routes to the application)
 from server import rank_routes  # noqa: E402,F401
+from server import firm_routes  # noqa: E402,F401

@@ -1682,6 +1682,8 @@ def _finish(conn: Connection, objective: dict, verdict: dict, now: datetime, jud
             verdict["payment_note"] = (f"{objective['payer_name']} had only {_money(paid)} to pay with. A reward is paid from the "
                                        f"payer's own cash, and nobody makes up the difference.")
         careers.add_experience(conn, objective["player_id"], objective["build"], objective["experience"], now)
+        from simulation import firm_people
+        firm_people.apprentice_gain(conn, objective["player_id"], objective["build"], objective["experience"], now)
         conn.execute("UPDATE players SET reputation = least(reputation + 1, 100) WHERE id = %s", (objective["player_id"],))
     result = {k: v for k, v in verdict.items() if k != "state"}
     seq = _one(conn, "UPDATE objectives SET state = %s, result = %s, judged_at = %s, judged_period = %s, paid = %s, progress = %s,"

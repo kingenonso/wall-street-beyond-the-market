@@ -88,7 +88,9 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     by players (test_empires.py, test_savings.py, test_empire_api.py): every one of those requests acts
     on the empire or fund the server knows the player belongs to, and moves money only through the ledger.
     Stage 7 added resignation letters, counter-offers and the vote for a head (test_leaving.py), rank cases
-    and reports of marking (test_mastery.py, test_rank_api.py)."""
+    and reports of marking (test_mastery.py, test_rank_api.py). The private equity stage, part 1, added the firm: duties,
+    requests, votes, papers, borrowing, budgets, contracts, poaching, tasks, events and cover (test_firm.py, test_firm_api.py),
+    and buying into another empire's stake offer: each acts on the player's own seat and moves money only through the ledger."""
     from server.main import app
 
     writes = sorted(
@@ -104,6 +106,9 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("DELETE", "/api/empire/orders/{order_id}"),
         ("DELETE", "/api/empire/resignation"),
         ("DELETE", "/api/empire/resignations/{resignation_id}"),
+        ("DELETE", "/api/firm/apprentices"),
+        ("DELETE", "/api/firm/approaches/{offer_id}"),
+        ("DELETE", "/api/firm/votes/{resolution_id}"),
         ("DELETE", "/api/market/orders/{order_id}"),
         ("DELETE", "/api/market/watchlist/{ticker}"),
         ("DELETE", "/api/objectives/{objective_id}"),
@@ -137,6 +142,20 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/empire/tasks"),
         ("POST", "/api/empires"),
         ("POST", "/api/empires/{empire_id}/applications"),
+        ("POST", "/api/firm/apprentices"),
+        ("POST", "/api/firm/approaches"),
+        ("POST", "/api/firm/bonus-pool"),
+        ("POST", "/api/firm/contracts"),
+        ("POST", "/api/firm/cover"),
+        ("POST", "/api/firm/debts/{debt_id}/repayment"),
+        ("POST", "/api/firm/duties/{duty_id}/hand-in"),
+        ("POST", "/api/firm/duties/{duty_id}/open"),
+        ("POST", "/api/firm/events/{happening_id}"),
+        ("POST", "/api/firm/raisings"),
+        ("POST", "/api/firm/requests/{approval_id}/overrule"),
+        ("POST", "/api/firm/tasks"),
+        ("POST", "/api/firm/training"),
+        ("POST", "/api/firm/votes"),
         ("POST", "/api/market/orders"),
         ("POST", "/api/me/grant"),
         ("POST", "/api/objectives"),
@@ -149,6 +168,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/ranks/cases"),
         ("POST", "/api/ranks/cases/{case_id}/hand-in"),
         ("POST", "/api/reports"),
+        ("POST", "/api/stake-offers/{offer_id}"),
         ("PUT", "/api/career/bank"),
         ("PUT", "/api/career/build"),
         ("PUT", "/api/career/extra-saving"),
@@ -164,6 +184,23 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("PUT", "/api/empire/pacts/{pact_id}"),
         ("PUT", "/api/empire/resignations/{resignation_id}/offer"),
         ("PUT", "/api/empire/staff"),
+        ("PUT", "/api/firm/approaches/{offer_id}"),
+        ("PUT", "/api/firm/approaches/{offer_id}/match"),
+        ("PUT", "/api/firm/budgets"),
+        ("PUT", "/api/firm/contracts/{contract_id}"),
+        ("PUT", "/api/firm/duties/{duty_id}/given-to"),
+        ("PUT", "/api/firm/freeze"),
+        ("PUT", "/api/firm/papers/{document_id}"),
+        ("PUT", "/api/firm/requests/{approval_id}"),
+        ("PUT", "/api/firm/rival"),
+        ("PUT", "/api/firm/shortlists/{approval_id}"),
+        ("PUT", "/api/firm/steps/{step_id}/defence"),
+        ("PUT", "/api/firm/steps/{step_id}/given-to"),
+        ("PUT", "/api/firm/strategy"),
+        ("PUT", "/api/firm/tasks/{task_id}/priority"),
+        ("PUT", "/api/firm/titles"),
+        ("PUT", "/api/firm/trade-limit"),
+        ("PUT", "/api/firm/votes/{resolution_id}"),
         ("PUT", "/api/market/watchlist/{ticker}"),
         ("PUT", "/api/pension-fund/fee"),
         ("PUT", "/api/pension-funds/{fund_id}/savings"),
@@ -287,10 +324,11 @@ def test_changing_the_setting_does_not_move_a_world_that_already_exists(client, 
     """The world remembers its own start. Editing the setting later cannot fast-forward it."""
     from server.config import get_settings
 
-    monkeypatch.setenv("WORLD_START", "2020-01-01T00:00:00+01:00")
+    honest = client.get("/api/world/clock").json()["world_started"]
+    monkeypatch.setenv("WORLD_START", "2099-01-01T00:00:00+01:00")
     get_settings.cache_clear()
     try:
-        assert client.get("/api/world/clock").json()["world_started"] is False     # still 5 October 2026
+        assert client.get("/api/world/clock").json()["world_started"] is honest    # the world keeps the start it was made with
     finally:
         monkeypatch.undo()
         get_settings.cache_clear()

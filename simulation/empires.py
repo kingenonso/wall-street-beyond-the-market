@@ -159,8 +159,11 @@ def humans(conn: Connection, empire_id) -> list[dict]:
 
 
 def worth(conn: Connection, empire: dict, now: datetime) -> dict:
-    """What an empire owns: cash, shares and bonds at today's prices."""
-    return objectives.wealth(conn, empire["account_id"], now)
+    """What an empire is worth: its cash, shares and bonds at today's prices, less what it owes."""
+    have = objectives.wealth(conn, empire["account_id"], now)
+    from simulation import firm
+    owed = firm.debt_of(conn, empire["id"]) if empire.get("kind") != "pension" else 0
+    return {**have, "owned": have["total"], "debt": owed, "total": have["total"] - owed}
 
 
 def league(conn: Connection, now: datetime) -> list[dict]:
@@ -211,6 +214,8 @@ def _may_join(conn: Connection, empire: dict, player: dict, period: int) -> None
     if sacked is not None and period - sacked < data.SACKED_BAN_QUARTERS:
         raise EmpireError(f"{empire['name']} sacked you. It will not have you back before "
                           f"{clock.period_label(sacked + data.SACKED_BAN_QUARTERS)}.")
+    from simulation import firm_people
+    firm_people.barred(conn, empire, player["id"], period)
 
 
 def apply(conn: Connection, player_id, empire_id: int, now: datetime) -> dict:
@@ -270,6 +275,8 @@ def _vacate(conn: Connection, seat: dict, now: datetime, period: int, reason: st
                             " AND payer_account_id = (SELECT account_id FROM empires WHERE id = %s) AND NOT terms ? 'step_id'",
                       (seat["player_id"], seat["empire_id"])):
         objectives.withdraw(conn, seat["player_id"], work["id"], now)
+    from simulation import firm
+    firm.on_vacate(conn, seat, now)
     conn.execute("UPDATE empire_seats SET player_id = NULL, since = NULL, signing_limit = NULL WHERE id = %s", (seat["id"],))
     conn.execute("UPDATE empire_resignations SET status = CASE WHEN %s::text IN ('left', 'released') THEN %s::text ELSE 'overtaken' END, ended_at = %s"
                  " WHERE player_id = %s AND status = 'waiting'", (reason, reason, now, seat["player_id"]))
@@ -286,7 +293,9 @@ def _succession(conn: Connection, empire_id, leaving_id, now: datetime) -> None:
     accused = {r["player_id"] for r in _rows(conn, "SELECT player_id FROM empire_cases WHERE empire_id = %s AND status = 'open'", (empire_id,))}
     others = [h for h in humans(conn, empire_id) if h["player_id"] != leaving_id and h["player_id"] not in accused]
     if others:
-        successor = max(others, key=lambda h: h["experience"] or 0)
+        from simulation import firm
+        named = firm.successor(conn, empire_id, leaving_id)          # the deputy, if the head named one
+        successor = next((h for h in others if h["player_id"] == named), None) or max(others, key=lambda h: h["experience"] or 0)
         conn.execute("UPDATE empires SET head_player_id = %s WHERE id = %s", (successor["player_id"], empire_id))
         _log(conn, empire_id, f"{successor['display_name']} became Acting Head.", now)
         return
@@ -354,7 +363,9 @@ def resign(conn: Connection, player_id, letter: str, now: datetime) -> dict:
             _go(conn, seat, now, state["period"])
             return {"left": True, "leaves_at": None, "leaves_period": None}
         run_by_players = empire["head_player_id"] is not None
-        leaves_at = now + timedelta(days=data.NOTICE_DAYS) if run_by_players else None
+        from simulation import firm_people
+        days = firm_people.notice_days(conn, empire["id"], player_id)          # a signed contract may set a shorter notice
+        leaves_at = now + timedelta(days=days) if run_by_players else None
         leaves_period = None if run_by_players else state["period"]
         conn.execute("INSERT INTO empire_resignations (empire_id, player_id, letter, given_at, given_period, leaves_at, leaves_period)"
                      " VALUES (%s, %s, %s, %s, %s, %s, %s)", (empire["id"], player_id, letter, now, state["period"], leaves_at, leaves_period))
@@ -587,6 +598,10 @@ def _pledge(conn: Connection, empire: dict, player_id, amount: int, from_savings
                  (empire["id"], player_id, amount + drawn, drawn, now, careers.world_now(conn, now)["period"]))
 
 
+def firm_whole(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
 def put_in(conn: Connection, player_id, amount: int, from_savings: int, now: datetime) -> None:
     """A member puts money into their empire: a partner pooling money to found it, or more capital later."""
     with conn.transaction():
@@ -599,6 +614,9 @@ def put_in(conn: Connection, player_id, amount: int, from_savings: int, now: dat
             raise EmpireError("That empire has closed.")
         if from_savings and empire["status"] != "forming":
             raise EmpireError("The early withdrawal is for founding an empire. This one is already open.")
+        if empire["status"] == "active" and firm_whole(amount):
+            from simulation import firm_money
+            firm_money.capital_in(conn, empire, player_id, amount, now)      # units at today's price, before the money arrives
         _pledge(conn, empire, player_id, amount, from_savings, now)
         _log(conn, empire["id"], f"{_money(amount + from_savings)} of capital was put in.", now)
 
@@ -706,7 +724,7 @@ def _pay_staff(conn: Connection, empire: dict, build: str, seats: int, salary: i
                             kind="empire_staff_pay", memo=f"{empire['name']}: {why}, {clock.period_label(period)}", period=period)
     if paid:
         category, description = data.DISGUISES[build]
-        _book(conn, empire["id"], period, category, description, paid, True, now, kind="staff_pay")
+        _book(conn, empire["id"], period, category, description, paid, True, now, kind="staff_pay", desk=build)
     return paid
 
 
@@ -769,11 +787,11 @@ def bonus_limit(conn: Connection, empire: dict, now: datetime) -> int:
 
 
 def _book(conn: Connection, empire_id, period: int, category: str, description: str, amount: int, genuine: bool, now: datetime,
-          entered_by=None, thief_level: int | None = None, kind: str = "cost") -> int:
-    return _one(conn, "INSERT INTO empire_books (empire_id, period, category, description, amount, genuine, entered_by, thief_level, at, kind)"
-                      " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+          entered_by=None, thief_level: int | None = None, kind: str = "cost", desk: str | None = None) -> int:
+    return _one(conn, "INSERT INTO empire_books (empire_id, period, category, description, amount, genuine, entered_by, thief_level, at, kind, desk)"
+                      " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                 (empire_id, period, category, description, amount, genuine, entered_by, thief_level, now,
-                 "taken" if not genuine else kind))["id"]
+                 "taken" if not genuine else kind, desk))["id"]
 
 
 def pay_bonus(conn: Connection, head_id, member_id, amount: int, why: str, now: datetime) -> None:
@@ -827,6 +845,8 @@ def _trader(conn: Connection, player_id, now: datetime) -> tuple[dict, dict]:
         raise EmpireError("You hold no seat in an open empire.")
     if seat["build"] != "asset_manager" and seat["head_player_id"] != player_id:
         raise EmpireError("Only the empire's Asset Managers, and its head, place its trades.")
+    if seat.get("frozen"):
+        raise EmpireError("The Risk Manager has frozen your trading for the empire. Ask them, or the head, to lift it.")
     conn.execute("SELECT 1 FROM empires WHERE id = %s FOR UPDATE", (seat["empire_id"],))
     return seat, state
 
@@ -931,6 +951,10 @@ def trade_shares(conn: Connection, player_id, *, ticker: str, side: str, kind: s
         for_task = _task_purchase(conn, seat, share["id"]) if side == "buy" else 0
         counted = value if quantity > for_task else 0                      # buying what the task calls for is outside the limit
         _within_trade_limit(conn, seat, state, counted, now)
+        from simulation import firm_risk
+        waiting = firm_risk.gate_trade(conn, seat, share, side, kind, quantity, limit_price, counted, state, now) if counted else None
+        if waiting is not None:
+            return waiting                                                 # it waits for the Risk Manager's desk
         try:
             done = exchange.place_order(conn, account=seat["account_id"], ticker=ticker, side=side, kind=kind, quantity=quantity,
                                         limit_price=limit_price, now=now)
@@ -987,6 +1011,15 @@ def divert(conn: Connection, player_id, amount: int, now: datetime) -> dict:
         if used + amount > limit:
             raise EmpireError(f"Your signing limit for the quarter is {_money(limit)}, of which {_money(used)} is used.")
         category, description = data.DISGUISES["head" if seat["head_player_id"] == player_id else seat["build"]]
+        if seat["empire_kind"] != "pension" and ledger.balance(conn, seat["account_id"]) < amount:
+            raise EmpireError("The empire does not have that much cash.")
+        from simulation import firm_money
+        waiting = firm_money.divert_needs_approval(conn, seat, amount, now)
+        if waiting is not None:
+            # Like any cost above the threshold, it waits for the Accountant's desk. The Accountant sees
+            # the heading it would go into the books under, and the amount: nothing that marks it out.
+            return {"book_id": None, "waiting": True, "approval_id": waiting["id"], "category": category, "amount": amount, "limit": limit,
+                    "used": used}
         try:
             ledger.transfer(conn, payer=seat["account_id"], receiver=ledger.player_account_id(conn, player_id), amount=amount,
                             kind="empire_expense", memo=f"{seat['empire_name']}: {category.lower()}", period=state["period"])
@@ -994,8 +1027,8 @@ def divert(conn: Connection, player_id, amount: int, now: datetime) -> dict:
             raise EmpireError("The empire does not have that much cash.") from None
         mine = careers.career(conn, player_id, seat["build"])
         book = _book(conn, seat["empire_id"], state["period"], category, description, amount, False, now, entered_by=player_id,
-                     thief_level=mine["level"] if mine else 1)
-        return {"book_id": book, "category": category, "amount": amount, "limit": limit, "used": used + amount}
+                     thief_level=mine["level"] if mine else 1, desk="head" if seat["head_player_id"] == player_id else seat["build"])
+        return {"book_id": book, "waiting": False, "category": category, "amount": amount, "limit": limit, "used": used + amount}
 
 
 def _prove(conn: Connection, empire: dict, book: dict, audit_id: int, now: datetime, reward_to=None) -> dict:
@@ -1010,8 +1043,10 @@ def _prove(conn: Connection, empire: dict, book: dict, audit_id: int, now: datet
     name = _one(conn, "SELECT display_name FROM players WHERE id = %s", (book["entered_by"],))["display_name"]
     _log(conn, empire["id"], f"An audit proved that {_money(book['amount'])} entered as \"{book['category']}\" in "
                              f"{clock.period_label(book['period'])} was taken by {name}.", now)
-    if empire["head_player_id"] is None or empire["head_player_id"] == book["entered_by"]:
-        _punish(conn, empire, case, now)
+    from simulation import firm_people
+    if (empire["head_player_id"] is None or empire["head_player_id"] == book["entered_by"]
+            or (empire["kind"] == "player" and firm_people.conduct(conn, empire["id"])["theft"] == "always_punish")):
+        _punish(conn, empire, case, now)          # the empire's code of conduct may say every proved theft is punished
     return case
 
 
@@ -1313,10 +1348,10 @@ def start_task(conn: Connection, head_id, now: datetime) -> dict:
 def _start_task(conn: Connection, empire: dict, period: int, now: datetime, started_by=None) -> dict:
     if empire["status"] != "active":
         raise EmpireError("The empire is not open yet.")
-    if _one(conn, "SELECT 1 FROM empire_tasks WHERE empire_id = %s AND status = 'open'", (empire["id"],)):
-        raise EmpireError("The empire already has a task in hand. Finish it first.")
-    if _one(conn, "SELECT 1 FROM empire_tasks WHERE empire_id = %s AND period = %s", (empire["id"], period)):
-        raise EmpireError("The empire has already started a task this quarter. One task a quarter.")
+    if _one(conn, "SELECT count(*) AS n FROM empire_tasks WHERE empire_id = %s AND status = 'open'", (empire["id"],))["n"] >= 3:
+        raise EmpireError("The empire already has three tasks in hand. Finish one first.")
+    if _one(conn, "SELECT 1 FROM empire_tasks WHERE empire_id = %s AND period = %s AND kind = 'investment'", (empire["id"], period)):
+        raise EmpireError("The empire has already started an investment task this quarter. One of each kind a quarter.")
     target = _target_for(conn, empire, period, now)
     if target is None:
         raise EmpireError("There is no company to look at this quarter.")
@@ -1354,6 +1389,8 @@ def take_step(conn: Connection, player_id, step_id: int, now: datetime) -> dict:
             raise EmpireError("That step is not waiting to be taken.")
         if step["build"] != seat["build"]:
             raise EmpireError(f"That step falls to {careers._a(BUILD_NAMES[step['build']])}.")
+        if step["assigned_to"] is not None and step["assigned_to"] != player_id:
+            raise EmpireError("The head has given that step to a colleague.")
         if step["objective_id"] and _one(conn, "SELECT 1 FROM objectives WHERE id = %s AND state = 'active'", (step["objective_id"],)):
             raise EmpireError("A colleague has already taken that step.")
         if _one(conn, "SELECT 1 FROM objectives WHERE terms ->> 'step_id' = %s", (str(step_id),)):
@@ -1397,7 +1434,7 @@ def step_result(conn: Connection, step_id: int, state: str, player_id, now: date
         if work and work["paid"] > 0 and step["build"] in data.DISGUISES:
             category, description = data.DISGUISES[step["build"]]
             _book(conn, step["empire_id"], careers.world_now(conn, now)["period"], category, description, work["paid"], True, now,
-                  entered_by=player_id, kind="step")
+                  entered_by=player_id, kind="step", desk=step["build"])
         _finish_step(conn, step, now, done_by=player_id)
     else:
         # Not passed: the step goes back, for a colleague or the staff to do.
@@ -1434,6 +1471,11 @@ def approve_step(conn: Connection, head_id, step_id: int, now: datetime) -> None
         step = _step(conn, step_id)
         if step is None or step["empire_id"] != empire["id"] or step["build"] != "head" or step["status"] != "current":
             raise EmpireError("There is nothing waiting for your approval.")
+        kind = _one(conn, "SELECT kind FROM empire_tasks WHERE id = %s", (step["task_id"],))["kind"]
+        if kind == "defend":
+            raise EmpireError("A defence needs your decision: hold, or sell, with your reason.")
+        if kind == "raise_money":
+            raise EmpireError("Raising money is signed through the empire's requests, once the paper has been read.")
         _finish_step(conn, step, now, done_by=head_id)
 
 
@@ -1489,6 +1531,8 @@ def _work_step(conn: Connection, step_id: int, now: datetime) -> bool:
             return False
         empire = _empire(conn, step["empire_id"], lock=True)
         task = _one(conn, "SELECT * FROM empire_tasks WHERE id = %s", (step["task_id"],))
+        if task["kind"] == "raise_money":
+            return False                                   # done by the desks' real decisions, never by the staff alone
         if step["build"] == "head":
             if empire["head_player_id"] is None:
                 _finish_step(conn, step, now)
@@ -1825,7 +1869,8 @@ def say(conn: Connection, player_id, body: str, now: datetime) -> None:
 def at_bell(conn: Connection, now: datetime) -> None:
     run_notices(conn, now)
     tick(conn, now)
-    from simulation import pensionfunds
+    from simulation import firm, pensionfunds
+    firm.at_bell(conn, now)
     pensionfunds.at_bell(conn, now)
 
 
@@ -1852,6 +1897,8 @@ def after_close(conn: Connection, period: int, now: datetime) -> None:
             if empire["head_player_id"] is None:
                 _computer_head(conn, empire, period, now)
     tick(conn, now)
+    from simulation import firm
+    firm.after_close(conn, period, now)
     # What each empire is worth as the quarter closes, written down for good: the line on the head's screen.
     for empire in _rows(conn, "SELECT * FROM empires WHERE status = 'active' AND kind <> 'pension' ORDER BY id"):
         have = worth(conn, empire, now)
@@ -1917,6 +1964,8 @@ def badge(conn: Connection, player_id, now: datetime) -> dict | None:
                               " AND offered_at IS NULL", (seat["empire_id"], player_id))["n"]
     waiting += _one(conn, "SELECT count(*) AS n FROM empire_resignations WHERE player_id = %s AND status = 'waiting' AND offered_at IS NOT NULL",
                     (player_id,))["n"]
+    from simulation import firm
+    waiting += firm.waiting(conn, seat, now)
     place = next((e["place"] for e in league(conn, now) if e["id"] == seat["empire_id"]), None)
     return {"name": seat["empire_name"], "place": place, "is_head": is_head, "waiting": waiting, "forming": seat["empire_status"] == "forming"}
 
