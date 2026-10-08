@@ -174,7 +174,7 @@ def test_selling_to_another_empire_and_listing_on_the_exchange(db):
     worth = private.value_of(db, seller["id"])
     with pytest.raises(empires.EmpireError, match="lowest price"):
         firm_owned.sell_to_empire(db, team["head"], seller["id"], worth, worth * 2, "sealed", LATER)
-    firm_owned.sell_to_empire(db, team["head"], seller["id"], worth, worth // 2, "auction", LATER)
+    firm_owned.sell_to_empire(db, team["head"], seller["id"], worth, worth * 9 // 10, "auction", LATER)
     sale = _one(db, "SELECT * FROM sale_processes WHERE company_id = %s AND status = 'open'", (seller["id"],))
     assert sale["seller_empire_id"] == empire["id"] and sale["seller_account"] == empire["account_id"]
     with pytest.raises(empires.EmpireError, match="seller"):
@@ -249,8 +249,14 @@ def test_rivals_answer_an_owned_companys_price_cut(db):
     firm_owned.set_dials(db, team["head"], company["id"], {"price_bps": 8500, "staff_bps": 10_000, "pay_rise_bps": 0, "marketing": 0, "technology": 0,
                                                            "maintenance_bps": 10_000, "payout_bps": 4000, "borrow": 0, "buy_assets": 0}, LATER)
     assert quarters.close_due_quarters(db, after_quarters(9)) == [9]
-    rivals = _dicts(db, "SELECT price_bps FROM companies WHERE sector = 'consumer' AND id <> %s", (company["id"],))
-    assert all(r["price_bps"] < BPS for r in rivals)                  # half way towards the cut
+    rivals = _dicts(db, "SELECT price_bps FROM companies WHERE sector = 'consumer' AND id <> %s AND status = 'trading'", (company["id"],))
+    sales = _dicts(db, "SELECT company_id, revenue FROM company_results r JOIN companies c ON c.id = r.company_id WHERE r.period = 9"
+                       " AND c.sector = 'consumer' AND c.status = 'trading'")
+    weight = min(max(next(r["revenue"] for r in sales if r["company_id"] == company["id"]), 0) * BPS * 2 // max(sum(max(r["revenue"], 0) for r in sales), 1), BPS)
+    if weight >= private.RIVAL_NOTICE_BPS:
+        assert all(r["price_bps"] < BPS for r in rivals)              # a company big enough is answered: half way towards the cut
+    else:
+        assert all(r["price_bps"] == BPS for r in rivals)             # a small one is not worth answering
     assert ledger.audit(db) == []
 
 

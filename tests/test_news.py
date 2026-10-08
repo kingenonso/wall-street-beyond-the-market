@@ -108,7 +108,7 @@ def test_a_flood_is_followed_by_its_bill_under_the_same_story(db):
     # The bill printed is the bill in the ledger.
     paid = db.execute("SELECT sum(e.amount) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
                       " JOIN companies c ON c.account_id = e.account_id WHERE t.kind = 'insurance_claim' AND e.amount > 0"
-                      " AND c.headquarters = %s", (data.LAGOS,)).fetchone()[0]
+                      " AND c.headquarters = %s AND c.listed", (data.LAGOS,)).fetchone()[0]       # private companies' losses are not reported
     assert after[0]["facts"]["paid"] == news.money_words(int(paid))
     assert _dicts(db, "SELECT 1 FROM news_items WHERE kind = 'insurance_claims' AND period = 2")
 

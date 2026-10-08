@@ -568,7 +568,7 @@ def test_one_player_at_the_same_instant_cannot_spend_the_same_cash_twice(db, con
         except exchange.ExchangeError:
             outcomes.append("refused")
 
-    tickers = [t for (t,) in db.execute("SELECT ticker FROM companies ORDER BY ticker LIMIT 5").fetchall()]
+    tickers = [t for (t,) in db.execute("SELECT ticker FROM companies WHERE listed ORDER BY ticker LIMIT 5").fetchall()]
     prices = {t: reference(db, t) for t in tickers}
     affordable = sum(1 for _ in range(1))                                               # only one such order can be afforded
     threads = [threading.Thread(target=rush, args=(t,)) for t in tickers]

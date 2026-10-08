@@ -52,7 +52,7 @@ def test_all_50_companies_exist_with_the_blueprint_names_and_sectors(db):
 
 def test_accounts_exist_for_companies_banks_government_and_the_prize_pool(db):
     kinds = Counter(k for (k,) in db.execute("SELECT kind FROM ledger_accounts").fetchall())
-    assert kinds["company"] == 50                 # includes the banks
+    assert kinds["company"] == 80                 # 50 listed (with the banks) and 30 private
     assert kinds["government"] == 1
     assert kinds["prize_pool"] == 1
     assert kinds["central_bank"] == 1
@@ -96,7 +96,7 @@ def test_every_company_has_statements_shares_owners_debts_and_a_rating(db):
             "SELECT sum(balance), count(*) FROM ledger_balances WHERE asset = %s AND balance > 0", (c["share_asset"],)
         ).fetchone()
         assert in_issue == held[0] > 0, c["name"]
-        assert held[1] == 3                        # founders, institutions, small investors
+        assert held[1] == (3 if c["listed"] else 1)  # founders, institutions, small investors; a private company: its founders
         assert report["figures"]["notes"]["shares_in_issue"] == in_issue
 
 
@@ -130,7 +130,7 @@ def test_creating_the_world_twice_changes_nothing(db):
     before = db.execute("SELECT count(*) FROM ledger_entries").fetchone()[0], ledger.amount_in_existence(db)
     assert genesis.create_world(db, WORLD_START) is False
     assert (db.execute("SELECT count(*) FROM ledger_entries").fetchone()[0], ledger.amount_in_existence(db)) == before
-    assert db.execute("SELECT count(*) FROM companies").fetchone()[0] == 50
+    assert db.execute("SELECT count(*) FROM companies WHERE listed").fetchone()[0] == 50
 
 
 def test_a_player_from_before_the_ledger_existed_is_given_an_account_and_starting_cash(db):
@@ -153,7 +153,7 @@ def test_a_player_from_before_the_ledger_existed_is_given_an_account_and_startin
 # ---------------------------------------------------------------------------
 
 def test_head_offices_are_spread_over_five_locations_including_aba_and_kano(db):
-    by_city = dict(db.execute("SELECT headquarters, count(*) FROM companies GROUP BY headquarters").fetchall())
+    by_city = dict(db.execute("SELECT headquarters, count(*) FROM companies WHERE listed GROUP BY headquarters").fetchall())
     assert set(by_city) == {"Lagos", "Abuja", "Port Harcourt", "Aba", "Kano"}
     assert by_city["Aba"] == 2 and by_city["Kano"] == 3
     homes = dict(db.execute("SELECT name, headquarters FROM companies").fetchall())
@@ -163,7 +163,7 @@ def test_head_offices_are_spread_over_five_locations_including_aba_and_kano(db):
 
 def test_two_companies_begin_the_game_already_in_default(db):
     rated = dict(db.execute(
-        "SELECT c.name, r.credit_rating FROM company_reports r JOIN companies c ON c.id = r.company_id WHERE r.period = 0"
+        "SELECT c.name, r.credit_rating FROM company_reports r JOIN companies c ON c.id = r.company_id WHERE r.period = 0 AND c.listed"
     ).fetchall())
     assert rated["Bonny Tide Shipping"] == "D" and rated["Kainji Textiles"] == "D"
     assert sorted(name for name, rating in rated.items() if rating == "D") == ["Bonny Tide Shipping", "Kainji Textiles"]
