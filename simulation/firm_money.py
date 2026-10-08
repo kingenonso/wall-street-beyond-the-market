@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from psycopg import Connection
 
 from simulation import banking, careers, clock, empires, firm, leagues, ledger
-from simulation.empires import BUILD_NAMES, EmpireError, _log, _money, _one, _open, _rows, _text
+from simulation.empires import EmpireError, _log, _money, _one, _open, _rows
 from simulation.money import BPS, apply_bps, naira
 
 DEBT_MOST_BPS = 5000                  # an empire may owe up to half of what it owns
@@ -31,6 +31,7 @@ LOAN_SPREAD_BPS = 400                 # a bank lends to an empire at the Central
 BOND_SPREAD_BPS = 250                 # the pension funds lend at two and a half points over it, for a bond
 BOND_LEAST_NAIRA = 50_000_000         # a bond issue is for at least this much
 LOAN_LEAST_NAIRA = 5_000_000
+STAKE_LEAST_NAIRA = 5_000_000         # a stake offer is for at least this much; a raising counts as done only once this much has come in
 TERMS = (4, 8)                        # quarters a loan or a bond runs
 STAKE_DAYS = 3                        # a stake offer stays open this many real days
 STAKE_MOST_BPS = 2500                 # a stake offer may raise up to a quarter of the empire's worth
@@ -107,11 +108,32 @@ def units_total(conn: Connection, empire_id) -> int:
 
 
 def unit_price(conn: Connection, empire: dict, now: datetime) -> int:
-    """What one unit of the empire is worth: what it is worth, shared over its units."""
+    """What one unit of the empire is worth, to the kobo, for showing. Units are bought and sold with
+    exact arithmetic (see `units_for` and `value_of`), never at this rounded figure."""
     ensure_units(conn, empire)
     total = units_total(conn, empire["id"])
     worth = empires.worth(conn, empire, now)["total"]
-    return max(worth // total, 1) if total else 1
+    return worth // total if total else 0
+
+
+def units_for(conn: Connection, empire: dict, amount: int, now: datetime) -> int:
+    """How many units money put in buys at today's worth, exactly: amount × units ÷ worth. Nobody
+    already in is diluted. Nothing is sold while the empire is worth nothing or less."""
+    ensure_units(conn, empire)
+    total = units_total(conn, empire["id"])
+    worth = empires.worth(conn, empire, now)["total"]
+    if not total:
+        return amount
+    if worth <= 0:
+        raise EmpireError("The empire is worth nothing or less: no units can be sold until it recovers.")
+    return amount * total // worth
+
+
+def value_of(conn: Connection, empire: dict, units: int, now: datetime) -> int:
+    """What some units are worth today, exactly: units × worth ÷ units in issue, and nothing below nought."""
+    total = units_total(conn, empire["id"])
+    worth = empires.worth(conn, empire, now)["total"]
+    return units * worth // total if total and worth > 0 else 0
 
 
 def _add_units(conn: Connection, empire: dict, player_id, units: int) -> None:
@@ -126,18 +148,16 @@ def capital_in(conn: Connection, empire: dict, player_id, amount: int, now: date
     """More capital put into an open empire buys units at today's price, so nobody already in is diluted."""
     if empire["kind"] != "player" or empire["status"] != "active" or amount <= 0:
         return
-    price = unit_price(conn, empire, now)
-    _add_units(conn, empire, player_id, amount // price)
+    _add_units(conn, empire, player_id, units_for(conn, empire, amount, now))
 
 
 def partners(conn: Connection, empire: dict, now: datetime) -> list[dict]:
     ensure_units(conn, empire)
     total = units_total(conn, empire["id"])
-    price = unit_price(conn, empire, now) if total else 0
     rows = _rows(conn, "SELECT u.player_id, u.units, p.display_name FROM empire_units u LEFT JOIN players p ON p.id = u.player_id"
                        " WHERE u.empire_id = %s AND u.units > 0 ORDER BY u.units DESC", (empire["id"],))
-    return [{"player_id": r["player_id"], "name": r["display_name"], "units": r["units"],
-             "share_bps": r["units"] * BPS // total if total else 0, "value": r["units"] * price} for r in rows]
+    return [{"player_id": r["player_id"], "name": r["display_name"] or "Outside investors", "units": r["units"],
+             "share_bps": r["units"] * BPS // total if total else 0, "value": value_of(conn, empire, r["units"], now)} for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -199,9 +219,12 @@ def design_raising(conn: Connection, player_id, kind: str, amount: int, quarters
         if kind == "bond" and amount < naira(BOND_LEAST_NAIRA):
             raise EmpireError(f"A bond issue is for at least {_money(naira(BOND_LEAST_NAIRA))}.")
         policy = _policy(conn, now)
+        if kind == "stake" and amount < naira(STAKE_LEAST_NAIRA):
+            raise EmpireError(f"A stake offer is for at least {_money(naira(STAKE_LEAST_NAIRA))}.")
+        if kind != "stake" and _one(conn, "SELECT 1 FROM empire_debts WHERE empire_id = %s AND status = 'defaulted'", (empire["id"],)):
+            raise EmpireError("The empire is in default on a debt. Nobody lends to it until that is paid.")
         terms = {"kind": kind, "amount": amount, "quarters": quarters if kind != "stake" else 0,
-                 "rate_bps": policy + (LOAN_SPREAD_BPS if kind == "loan" else BOND_SPREAD_BPS) if kind != "stake" else 0,
-                 "designed_by": str(player_id)}
+                 "rate_bps": policy + (LOAN_SPREAD_BPS if kind == "loan" else BOND_SPREAD_BPS) if kind != "stake" else 0}
         what = {"loan": "a bank loan", "bond": "a bond sold to the pension funds", "stake": "a stake in the empire"}[kind]
         title = f"Raise {_money(amount)} by {what}" + (f" over {quarters} quarters at {terms['rate_bps'] / 100:.2f}%" if kind != "stake" else "")
         approval = firm.ask(conn, empire, kind="raise_check", desk="accountant", asked_by=player_id, title=title, amount=amount, payload=terms,
@@ -284,12 +307,12 @@ def _raise_signed(conn: Connection, approval: dict, now: datetime) -> None:
     ledger.transfer(conn, payer=lender, receiver=empire["account_id"], amount=terms["amount"], kind="empire_borrowing",
                     memo=f"{empire['name']}: {terms['kind']} from {lender_name}", period=state["period"], reference=f"approval:{approval['id']}")
     debt = _one(conn, "INSERT INTO empire_debts (empire_id, kind, lender_account, lender_name, principal, outstanding, rate_bps, taken_period,"
-                      " due_period, document_id, traps, at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+                      " due_period, document_id, traps, signed_by, at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
                 (empire["id"], terms["kind"], lender, lender_name, terms["amount"], terms["amount"], rate, state["period"],
-                 state["period"] + terms["quarters"], doc["id"], doc["kept_traps"], now))
+                 state["period"] + terms["quarters"], doc["id"], doc["kept_traps"], empire["head_player_id"], now))
     _log(conn, empire["id"], f"The empire borrowed {_money(terms['amount'])} from {lender_name} at {rate / 100:.2f}% a year, "
                              f"to be repaid by {clock.period_label(debt['due_period'])}.", now)
-    for hook in RAISED:
+    for hook in firm.RAISED:
         hook(conn, empire, {"kind": terms["kind"], "amount": terms["amount"], "debt_id": debt["id"]}, now)
 
 
@@ -349,42 +372,71 @@ def covenant_test(conn: Connection, empire: dict, debt: dict, now: datetime) -> 
     return broken
 
 
-def _default(conn: Connection, empire: dict, debt: dict, owed: int, period: int, now: datetime) -> None:
-    """The empire cannot pay what is due: the lender takes what cash there is, and the head pays under a guarantee."""
+def _seize(conn: Connection, empire: dict, debt: dict, wanted: int, period: int, now: datetime) -> int:
+    """What cash cannot pay, the lender takes in shares, at today's prices, largest holding first."""
+    from simulation import exchange, marketview
+    prices = {s["id"]: s for s in marketview._shares(conn, exchange.session_of(now)[0])}
+    took = 0
+    for row in _rows(conn, "SELECT c.id, c.ticker, c.share_asset, b.balance AS shares FROM ledger_balances b JOIN companies c ON c.share_asset = b.asset"
+                           " WHERE b.account_id = %s AND b.balance > 0 ORDER BY b.balance DESC", (empire["account_id"],)):
+        if took >= wanted:
+            break
+        price = prices.get(row["id"], {}).get("price")
+        if not price:
+            continue
+        shares = min(row["shares"], -(-(wanted - took) // price))
+        ledger.transfer(conn, payer=empire["account_id"], receiver=debt["lender_account"], amount=shares, asset=row["share_asset"],
+                        kind="empire_default", memo=f"{empire['name']}: {shares:,} {row['ticker']} shares taken by {debt['lender_name']}", period=period)
+        took += min(shares * price, wanted - took)
+    return took
+
+
+def _default(conn: Connection, empire: dict, debt: dict, owed: int, period: int, now: datetime, *, interest: bool) -> None:
+    """The empire cannot pay what is due: the lender takes what cash there is, then shares; the head who
+    signed pays under a personal guarantee. What was due as interest is not taken off what is owed."""
     took = ledger.pay_up_to(conn, payer=empire["account_id"], receiver=debt["lender_account"], wanted=owed, kind="empire_default",
                             memo=f"{empire['name']}: what could be paid of a debt in default", period=period)
+    if took < owed:
+        took += _seize(conn, empire, debt, owed - took, period, now)
     left = owed - took
-    if left > 0 and "guarantee" in debt["traps"] and empire["head_player_id"]:
-        took += ledger.pay_up_to(conn, payer=ledger.player_account_id(conn, empire["head_player_id"]), receiver=debt["lender_account"],
+    guarantor = debt.get("signed_by")
+    if left > 0 and "guarantee" in debt["traps"] and guarantor and not debt.get("guarantee_called"):
+        took += ledger.pay_up_to(conn, payer=ledger.player_account_id(conn, guarantor), receiver=debt["lender_account"],
                                  wanted=min(left, debt["principal"] // 10), kind="empire_guarantee",
-                                 memo=f"{empire['name']}: the head's personal guarantee", period=period)
-    conn.execute("UPDATE empire_debts SET outstanding = greatest(outstanding - %s, 0), status = 'defaulted' WHERE id = %s", (took, debt["id"]))
-    leagues.award(conn, empire["id"], -5, f"Defaulted on a debt to {debt['lender_name']}", period, now, reference=f"default:{debt['id']}")
-    _log(conn, empire["id"], f"The empire could not pay {debt['lender_name']}: it is in default. {_money(took)} of {_money(owed)} was paid.", now)
-    if empire["head_player_id"]:
-        firm.ceo_note(conn, empire["head_player_id"], empire["id"], "default", f"The empire defaulted on a debt to {debt['lender_name']}.",
-                      period, now, good=False, reference=f"default:{debt['id']}")
+                                 memo=f"{empire['name']}: the personal guarantee of the head who signed", period=period)
+    paid_off = 0 if interest else took
+    conn.execute("UPDATE empire_debts SET outstanding = greatest(outstanding - %s, 0), status = CASE WHEN outstanding - %s <= 0 THEN 'repaid'"
+                 " ELSE 'defaulted' END WHERE id = %s", (paid_off, paid_off, debt["id"]))
+    if debt["status"] != "defaulted":
+        leagues.award(conn, empire["id"], -5, f"Defaulted on a debt to {debt['lender_name']}", period, now, reference=f"default:{debt['id']}")
+        if empire["head_player_id"]:
+            firm.ceo_note(conn, empire["head_player_id"], empire["id"], "default", f"The empire defaulted on a debt to {debt['lender_name']}.",
+                          period, now, good=False, reference=f"default:{debt['id']}")
+    _log(conn, empire["id"], f"The empire could not pay {debt['lender_name']} in full: it is in default. {_money(took)} of {_money(owed)} was taken.", now)
 
 
 def _close_debts(conn: Connection, empire: dict, period: int, now: datetime) -> None:
     """As a quarter closes: interest is paid, debts due are repaid, a called debt must be repaid now,
     and the promises are tested. A broken promise lets the lender call the debt for the next close."""
-    for debt in _rows(conn, "SELECT * FROM empire_debts WHERE empire_id = %s AND status IN ('open', 'called') ORDER BY id FOR UPDATE",
+    for debt in _rows(conn, "SELECT * FROM empire_debts WHERE empire_id = %s AND status IN ('open', 'called', 'defaulted') ORDER BY id FOR UPDATE",
                       (empire["id"],)):
         interest = _quarter_interest(debt)
         if interest:
             paid = ledger.pay_up_to(conn, payer=empire["account_id"], receiver=debt["lender_account"], wanted=interest, kind="empire_interest",
                                     memo=f"{empire['name']}: interest to {debt['lender_name']}", period=period)
+            if paid:
+                empires._book(conn, empire["id"], period, "Interest", f"Interest to {debt['lender_name']}", paid, True, now, kind="interest")
             if paid < interest:
-                _default(conn, empire, debt, interest - paid, period, now)
-                continue
-            empires._book(conn, empire["id"], period, "Interest", f"Interest to {debt['lender_name']}", interest, True, now, kind="interest")
-        if debt["status"] == "called" or debt["due_period"] <= period:
+                _default(conn, empire, debt, interest - paid, period, now, interest=True)
+                debt = _one(conn, "SELECT * FROM empire_debts WHERE id = %s", (debt["id"],))
+                if debt["status"] == "repaid":
+                    continue
+        if debt["status"] in ("called", "defaulted") or debt["due_period"] <= period:
             paid = ledger.pay_up_to(conn, payer=empire["account_id"], receiver=debt["lender_account"], wanted=debt["outstanding"],
                                     kind="empire_repayment", memo=f"{empire['name']}: repaid to {debt['lender_name']}", period=period)
             if paid < debt["outstanding"]:
                 conn.execute("UPDATE empire_debts SET outstanding = outstanding - %s WHERE id = %s", (paid, debt["id"]))
-                _default(conn, empire, {**debt, "outstanding": debt["outstanding"] - paid}, debt["outstanding"] - paid, period, now)
+                _default(conn, empire, {**debt, "outstanding": debt["outstanding"] - paid}, debt["outstanding"] - paid, period, now, interest=False)
             else:
                 conn.execute("UPDATE empire_debts SET outstanding = 0, status = 'repaid' WHERE id = %s", (debt["id"],))
                 _log(conn, empire["id"], f"The empire repaid {_money(debt['outstanding'])} to {debt['lender_name']}.", now)
@@ -419,11 +471,10 @@ def open_stake(conn: Connection, empire: dict, wanted: int, approval_id: int, do
         raise EmpireError(f"A stake offer may raise up to a quarter of the empire's worth: {_money(apply_bps(worth, STAKE_MOST_BPS))}.")
     if _one(conn, "SELECT 1 FROM empire_stake_offers WHERE empire_id = %s AND status = 'open'", (empire["id"],)):
         raise EmpireError("A stake offer is already open.")
-    price = unit_price(conn, empire, now)
-    if "cheap_units" in doc["kept_traps"]:
-        price = price                                       # the cheap units go to the organiser: counted when it closes
-    offer = _one(conn, "INSERT INTO empire_stake_offers (empire_id, wanted, unit_price, approval_id, opened_at, closes_at)"
-                       " VALUES (%s, %s, %s, %s, %s, %s) RETURNING *", (empire["id"], wanted, price, approval_id, now, now + timedelta(days=STAKE_DAYS)))
+    price = max(unit_price(conn, empire, now), 1)            # for showing: units are counted at each purchase from that moment's worth
+    offer = _one(conn, "INSERT INTO empire_stake_offers (empire_id, wanted, unit_price, approval_id, traps, opened_at, closes_at)"
+                       " VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *",
+                 (empire["id"], wanted, price, approval_id, doc["kept_traps"], now, now + timedelta(days=STAKE_DAYS)))
     _log(conn, empire["id"], f"The empire offered a stake in itself: up to {_money(wanted)}, open for {STAKE_DAYS} days to anybody.", now)
     return offer
 
@@ -443,10 +494,9 @@ def buy_stake(conn: Connection, player_id, offer_id: int, amount: int, now: date
         left = offer["wanted"] - offer["raised"]
         if amount > left:
             raise EmpireError(f"The offer has {_money(left)} left.")
-        units = amount // offer["unit_price"]
+        units = units_for(conn, empire, amount, now)                 # at this moment's worth: never at a stale price
         if units <= 0:
-            raise EmpireError(f"One unit costs {_money(offer['unit_price'])}.")
-        amount = units * offer["unit_price"]
+            raise EmpireError("That is too little to buy a unit.")
         try:
             ledger.transfer(conn, payer=ledger.player_account_id(conn, player_id), receiver=empire["account_id"], amount=amount,
                             kind="empire_capital", memo=f"{empire['name']}: a stake bought", period=state["period"], reference=f"stake:{offer_id}")
@@ -454,19 +504,34 @@ def buy_stake(conn: Connection, player_id, offer_id: int, amount: int, now: date
             raise EmpireError("You do not have that much cash.") from None
         conn.execute("INSERT INTO empire_capital (empire_id, player_id, amount, from_savings, at, period) VALUES (%s, %s, %s, 0, %s, %s)",
                      (empire["id"], player_id, amount, now, state["period"]))
-        ensure_units(conn, empire)
         _add_units(conn, empire, player_id, units)
+        conn.execute("INSERT INTO stake_buys (offer_id, player_id, units, paid, at) VALUES (%s, %s, %s, %s, %s)", (offer_id, player_id, units, amount, now))
         conn.execute("UPDATE empire_stake_offers SET raised = raised + %s WHERE id = %s", (amount, offer_id))
         return {"units": units, "paid": amount}
 
 
 def _close_stakes(conn: Connection, now: datetime) -> None:
     for offer in _rows(conn, "SELECT * FROM empire_stake_offers WHERE status = 'open' AND closes_at <= %s", (now,)):
-        conn.execute("UPDATE empire_stake_offers SET status = 'closed' WHERE id = %s", (offer["id"],))
+        empire = empires._empire(conn, offer["empire_id"])
+        first_call = offer["raised"] if "first_call" in offer["traps"] else 0
+        conn.execute("UPDATE empire_stake_offers SET status = 'closed', first_call_left = %s WHERE id = %s", (first_call, offer["id"]))
         _log(conn, offer["empire_id"], f"The stake offer closed: {_money(offer['raised'])} was put in.", now)
-        if offer["raised"]:
-            empire = empires._empire(conn, offer["empire_id"])
-            for hook in RAISED:
+        if "cheap_units" in offer["traps"] and offer["raised"]:
+            # A clause nobody struck out: the organiser of the offer (the pension funds, for a client) takes units for a tenth of
+            # what was raised, at half their worth. The partners already in are diluted by it.
+            buyer = ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
+            pays = min(offer["raised"] // 20, max(ledger.balance(conn, buyer), 0))
+            if pays > 0:
+                units = units_for(conn, empire, pays * 2, now)
+                ledger.transfer(conn, payer=buyer, receiver=empire["account_id"], amount=pays, kind="empire_capital",
+                                memo=f"{empire['name']}: units taken by the offer's organiser at half their worth",
+                                period=careers.world_now(conn, now)["period"], reference=f"stake:{offer['id']}:cheap")
+                conn.execute("INSERT INTO empire_units (empire_id, holder_account, player_id, units) VALUES (%s, %s, NULL, %s)"
+                             " ON CONFLICT (empire_id, holder_account) DO UPDATE SET units = empire_units.units + excluded.units",
+                             (empire["id"], buyer, units))
+                _log(conn, empire["id"], f"Under a clause nobody struck out, the offer's organiser took {units:,} units at half their worth.", now)
+        if offer["raised"] >= naira(STAKE_LEAST_NAIRA):
+            for hook in firm.RAISED:
                 hook(conn, empire, {"kind": "stake", "amount": offer["raised"]}, now)
 
 
@@ -502,6 +567,7 @@ def _dividend_check(conn: Connection, empire: dict, payload: dict, now: datetime
 
 def _dividend_carry(conn: Connection, empire: dict, resolution: dict, now: datetime) -> str:
     amount = resolution["payload"]["amount"]
+    _dividend_check(conn, empire, {"amount": amount}, now)              # checked again: the figures may have changed while the vote ran
     state = careers.world_now(conn, now)
     ensure_units(conn, empire)
     holders = _rows(conn, "SELECT holder_account, units FROM empire_units WHERE empire_id = %s AND units > 0", (empire["id"],))
@@ -511,6 +577,17 @@ def _dividend_carry(conn: Connection, empire: dict, resolution: dict, now: datet
     if ledger.balance(conn, empire["account_id"]) < amount:
         raise EmpireError("The empire has not that much cash.")
     share = {h["holder_account"]: amount * h["units"] // total for h in holders}
+    first = _one(conn, "SELECT * FROM empire_stake_offers WHERE empire_id = %s AND first_call_left > 0 ORDER BY id LIMIT 1 FOR UPDATE", (empire["id"],))
+    if first:
+        # A clause nobody struck out: the partners who came in by that offer are paid first, until they have their money back.
+        buys = _rows(conn, "SELECT player_id, sum(paid)::bigint AS paid FROM stake_buys WHERE offer_id = %s GROUP BY player_id", (first["id"],))
+        put = sum(b["paid"] for b in buys)
+        first_pay = min(amount, first["first_call_left"])
+        share = {ledger.player_account_id(conn, b["player_id"]): first_pay * b["paid"] // put for b in buys} if put else {}
+        rest = amount - sum(share.values())
+        for h in holders:
+            share[h["holder_account"]] = share.get(h["holder_account"], 0) + rest * h["units"] // total
+        conn.execute("UPDATE empire_stake_offers SET first_call_left = first_call_left - %s WHERE id = %s", (first_pay, first["id"]))
     paid = ledger.pay_split_up_to(conn, payer=empire["account_id"], amounts=share, kind="empire_dividend",
                                   memo=f"{empire['name']}: dividend to the partners", period=state["period"])
     conn.execute("INSERT INTO empire_payouts (empire_id, period, amount, units, resolution_id, at) VALUES (%s, %s, %s, %s, %s, %s)",
@@ -617,9 +694,15 @@ def _desk_of_book(seat: dict | None, kind: str, build: str | None = None) -> str
     return "head" if seat["head_player_id"] == seat["player_id"] else seat["build"]
 
 
+def needs_countersign(conn: Connection, empire_id, player_id, amount: int, period: int) -> bool:
+    """A cost waits for the Accountant's desk when, with what the member has already signed this quarter, it passes the threshold."""
+    return empires._spent(conn, empire_id, player_id, period) + amount > naira(EXPENSE_APPROVAL_NAIRA)
+
+
 def sign_cost(conn: Connection, player_id, purpose: str, amount: int, member_id, now: datetime) -> dict:
-    """A member signs a genuine cost for their desk: training for a member of the empire. Above the
-    threshold it waits for the Accountant's desk."""
+    """A member signs a genuine cost for their desk: training for a member of the empire. It goes into
+    the books under the desk's ordinary heading, as any cost of the desk does; above the threshold it
+    waits for the Accountant's desk, which sees the heading and the amount, as for any other cost."""
     with conn.transaction():
         state = _open(conn, now)
         seat, empire = firm._active(conn, player_id)
@@ -631,11 +714,15 @@ def sign_cost(conn: Connection, player_id, purpose: str, amount: int, member_id,
         member = empires.seat_of(conn, target)
         if member is None or member["empire_id"] != empire["id"]:
             raise EmpireError("Training is for a member of your empire.")
-        payload = {"purpose": purpose, "member_id": str(target), "desk": _desk_of_book(seat, "cost")}
-        title = f"Training for {firm._name(conn, target)}: {_money(amount)}"
-        if amount > naira(EXPENSE_APPROVAL_NAIRA):
-            approval = firm.ask(conn, empire, kind="expense", desk="accountant", asked_by=player_id, title=title, amount=amount,
-                                payload=payload, period=state["period"], now=now)
+        desk = _desk_of_book(seat, "cost")
+        category, description = empires.data.DISGUISES[desk]
+        payload = {"purpose": purpose, "member_id": str(target), "desk": desk, "category": category, "description": description}
+        limit, used = empires.signing_limit(conn, seat), empires._spent(conn, empire["id"], player_id, state["period"])
+        if used + amount > limit:
+            raise EmpireError(f"Your signing limit for the quarter is {_money(limit)}, of which {_money(used)} is used.")
+        if firm.player_run(empire) and needs_countersign(conn, empire["id"], player_id, amount, state["period"]):
+            approval = firm.ask(conn, empire, kind="expense", desk="accountant", asked_by=player_id, title=f"{category}: {_money(amount)}",
+                                amount=amount, payload=payload, period=state["period"], now=now)
             return {"waiting": True, "approval_id": approval["id"]}
         _pay_cost(conn, empire, player_id, amount, payload, state["period"], now)
         return {"waiting": False}
@@ -645,7 +732,7 @@ def _pay_cost(conn: Connection, empire: dict, player_id, amount: int, payload: d
     seat = empires.seat_of(conn, player_id)
     if seat is None or seat["empire_id"] != empire["id"]:
         raise EmpireError("Whoever signed it is no longer in the empire.")
-    limit, used = empires.signing_limit(conn, seat), _signed(conn, empire["id"], player_id, period)
+    limit, used = empires.signing_limit(conn, seat), empires._spent(conn, empire["id"], player_id, period, waiting=False)
     if used + amount > limit:
         raise EmpireError(f"The signing limit for the quarter is {_money(limit)}, of which {_money(used)} is used.")
     households = _one(conn, "SELECT account_id FROM households ORDER BY location LIMIT 1")
@@ -654,23 +741,17 @@ def _pay_cost(conn: Connection, empire: dict, player_id, amount: int, payload: d
                         memo=f"{empire['name']}: training", period=period)
     except ledger.InsufficientFunds:
         raise EmpireError("The empire has not that much cash.") from None
-    empires._book(conn, empire["id"], period, "Training", "Training courses for members", amount, True, now, entered_by=player_id,
-                  desk=payload.get("desk"))
+    category, description = empires.data.DISGUISES[payload.get("desk") or "head"]
+    empires._book(conn, empire["id"], period, category, description, amount, True, now, entered_by=player_id, desk=payload.get("desk"))
     member = payload["member_id"]
     mseat = empires.seat_of(conn, member)
     if mseat and mseat["empire_id"] == empire["id"]:
         trained = _one(conn, "SELECT coalesce(sum(amount), 0)::bigint AS n FROM empire_books WHERE empire_id = %s AND period = %s"
-                             " AND category = 'Training' AND genuine", (empire["id"], period))["n"]
+                             " AND kind = 'cost' AND genuine AND entered_by IS NOT NULL", (empire["id"], period))["n"]
         room = max(TRAINING_MOST_EXPERIENCE - (trained - amount) // naira(TRAINING_EXPERIENCE_PER_NAIRA), 0)
         gain = min(amount // naira(TRAINING_EXPERIENCE_PER_NAIRA), room)
         if gain:
             careers.add_experience(conn, member, mseat["build"], gain, now)
-
-
-def _signed(conn: Connection, empire_id, player_id, period: int) -> int:
-    """What a member has signed for this quarter, genuine or not: both come out of the same limit."""
-    return _one(conn, "SELECT coalesce(sum(amount), 0)::bigint AS n FROM empire_books WHERE empire_id = %s AND period = %s AND entered_by = %s"
-                      " AND kind IN ('cost', 'taken')", (empire_id, period, player_id))["n"]
 
 
 def _expense_view(conn: Connection, approval: dict, viewer_id, now: datetime) -> dict:
@@ -679,7 +760,7 @@ def _expense_view(conn: Connection, approval: dict, viewer_id, now: datetime) ->
     p = approval["payload"]
     desk = p.get("desk") or "head"
     period = approval["period"]
-    return {"heading": p.get("category", "Training"), "description": p.get("description", "Training courses for members"),
+    return {"heading": p.get("category"), "description": p.get("description"),
             "desk": firm.DESK_NAMES.get(desk, desk), "budget": budget_of(conn, approval["empire_id"], period, desk),
             "spent": spent_by(conn, approval["empire_id"], period, desk)}
 
@@ -699,7 +780,7 @@ def _divert_now(conn: Connection, empire: dict, approval: dict, now: datetime) -
     if seat is None or seat["empire_id"] != empire["id"]:
         raise EmpireError("Whoever signed it is no longer in the empire.")
     period = careers.world_now(conn, now)["period"]
-    limit, used = empires.signing_limit(conn, seat), _signed(conn, empire["id"], approval["asked_by"], period)
+    limit, used = empires.signing_limit(conn, seat), empires._spent(conn, empire["id"], approval["asked_by"], period, waiting=False)
     if used + approval["amount"] > limit:
         raise EmpireError(f"The signing limit for the quarter is {_money(limit)}.")
     try:
@@ -716,13 +797,14 @@ def divert_needs_approval(conn: Connection, seat: dict, amount: int, now: dateti
     """Called by the shadow feature: a cost above the threshold in an empire run by players goes to
     the Accountant's desk like any other. Returns the request, or None if it may go through at once."""
     empire = empires._empire(conn, seat["empire_id"])
+    state = careers.world_now(conn, now)
     # In an empire the computer runs, nobody sets budgets and the staff approve every cost: it goes straight through, as it always did.
-    if (empire["kind"] != "player" or empire["head_player_id"] is None or amount <= naira(EXPENSE_APPROVAL_NAIRA)
-            or seat["build"] == "accountant"):
+    # Otherwise the threshold counts what the member has already signed this quarter, so a cost split into pieces still waits;
+    # and an Accountant's own cost waits for the other Accountant, or for the head.
+    if empire["kind"] != "player" or empire["head_player_id"] is None or not needs_countersign(conn, empire["id"], seat["player_id"], amount, state["period"]):
         return None
     category, description = empires.data.DISGUISES["head" if seat["head_player_id"] == seat["player_id"] else seat["build"]]
     desk = "head" if seat["head_player_id"] == seat["player_id"] else seat["build"]
-    state = careers.world_now(conn, now)
     return firm.ask(conn, empire, kind="expense", desk="accountant", asked_by=seat["player_id"], title=f"{category}: {_money(amount)}",
                     amount=amount, payload={"category": category, "description": description, "desk": desk, "diverted": True},
                     period=state["period"], now=now)
@@ -767,10 +849,14 @@ def _bonus_pools(conn: Connection, empire: dict, period: int, now: datetime) -> 
         if spent >= row["amount"] or score < firm.DUTY_PASS or not members:
             continue
         pool = min(apply_bps(row["amount"] - spent, POOL_SHARE_BPS), room)
-        each = pool // len(members)
+        # A member whose contract promises a share of the desk's pool is paid that first; the rest is shared equally.
+        promised = {m: apply_bps(pool, c["bonus_bps"]) for m in members if (c := _one(conn, "SELECT bonus_bps FROM member_contracts WHERE empire_id = %s"
+                                                                                   " AND player_id = %s AND status = 'signed'", (empire["id"], m)))}
+        left = max(pool - sum(promised.values()), 0)
         for member in members:
+            each = promised.get(member, 0) + left // len(members)
             if each <= 0:
-                break
+                continue
             got = ledger.pay_up_to(conn, payer=empire["account_id"], receiver=ledger.player_account_id(conn, member), wanted=each,
                                    kind="empire_bonus", memo=f"{empire['name']}: the desk's pool for coming in under budget", period=period)
             if got:
@@ -809,6 +895,10 @@ def propose_bonuses(conn: Connection, player_id, shares: dict, now: datetime) ->
         approval = firm.ask(conn, empire, kind="bonus_pool", desk="head", asked_by=player_id, title=f"The quarter's bonus pool: {_money(total)}",
                             amount=total, payload={"shares": clean}, period=state["period"], now=now)
         return {"approval_id": approval["id"]}
+
+
+def _bonus_pool_view(conn: Connection, approval: dict, viewer_id, now: datetime) -> dict:
+    return {"lines": [{"name": firm._name(conn, member), "amount": amount} for member, amount in approval["payload"]["shares"].items()]}
 
 
 def _bonus_pool_execute(conn: Connection, approval: dict, now: datetime) -> None:
@@ -905,7 +995,6 @@ def view(conn: Connection, seat: dict, empire: dict, state: dict, now: datetime)
 # ---------------------------------------------------------------------------
 # Hooks
 # ---------------------------------------------------------------------------
-RAISED: list = []           # (conn, empire, {kind, amount, debt_id?}, now)
 CALLED: list = []           # (conn, empire, debt, broken, period, now)
 
 
@@ -931,7 +1020,8 @@ firm.EXECUTORS.update({"raise_check": _raise_checked, "raise_risk": _raise_riske
                        "expense": _expense_execute, "bonus_pool": _bonus_pool_execute})
 firm.REFUSERS.update({"raise_check": _raise_dropped, "raise_risk": _raise_dropped, "raise_sign": _raise_dropped})
 firm.STAFF_RULES.update({"raise_check": _staff_raise_rule, "raise_risk": _staff_raise_rule, "expense": _staff_expense_rule})
-firm.VIEWERS.update({"raise_check": _raise_view, "raise_risk": _raise_view, "raise_sign": _raise_view, "expense": _expense_view})
+firm.VIEWERS.update({"raise_check": _raise_view, "raise_risk": _raise_view, "raise_sign": _raise_view, "expense": _expense_view,
+                     "bonus_pool": _bonus_pool_view})
 firm.DOCUMENT_READ.append(_raise_read)
 firm.DOCUMENT_DROPPED.append(_raise_doc_dropped)
 firm.SCORECARD.append(_scorecard)

@@ -13,7 +13,7 @@ from datetime import datetime
 
 from psycopg import Connection
 
-from simulation import careers, clock, empires, exchange, firm, ledger, marketview
+from simulation import careers, clock, empires, exchange, firm
 from simulation.empires import EmpireError, _log, _money, _one, _open, _rows, _text
 from simulation.money import BPS, naira
 
@@ -57,11 +57,66 @@ def freeze(conn: Connection, player_id, member_id, frozen: bool, reason: str, no
         if not reason:
             raise EmpireError("Give your reason in writing.")
         conn.execute("UPDATE empire_seats SET frozen = %s WHERE id = %s", (frozen, target["id"]))
+        if frozen:
+            # Whatever the member had waiting for approval is dropped: a freeze stops trades already on their way, too.
+            conn.execute("UPDATE empire_approvals SET status = 'lapsed', reason = 'The member was frozen.', decided_at = %s"
+                         " WHERE empire_id = %s AND asked_by = %s AND kind IN ('trade', 'bond_trade') AND status = 'waiting'", (now, empire["id"], member_id))
         name = firm._name(conn, member_id)
         _log(conn, empire["id"], f"{name}'s trading for the empire was {'frozen' if frozen else 'unfrozen'}: {reason}", now)
         if not frozen and is_head and seat["build"] != "risk_manager":
-            firm.ceo_note(conn, player_id, empire["id"], "overrule", f"Lifted the Risk Manager's freeze on {name}'s trading: \"{reason}\"",
+            firm.ceo_note(conn, player_id, empire["id"], "unfreeze", f"Lifted the Risk Manager's freeze on {name}'s trading: \"{reason}\"",
                           state["period"], now, reference=f"unfreeze:{target['id']}:{now.isoformat()}")
+
+
+def _frozen(conn: Connection, seat_id) -> bool:
+    row = _one(conn, "SELECT frozen FROM empire_seats WHERE id = %s", (seat_id,))
+    return bool(row and row["frozen"])
+
+
+def gate_bond(conn: Connection, seat: dict, code: str, side: str, units: int, value: int, state: dict, now: datetime) -> dict | None:
+    """A bond trade for an empire run by players waits for the Risk Manager's desk when it passes the
+    limit for one trade, or would take the empire's cash below its policy."""
+    if seat["empire_kind"] != "player":
+        return None
+    if _frozen(conn, seat["id"]):
+        raise EmpireError("The Risk Manager has frozen your trading for the empire. Ask them, or the head, to lift it.")
+    if seat["head_player_id"] == seat["player_id"] or seat["build"] == "risk_manager":
+        return None
+    empire = empires._empire(conn, seat["empire_id"])
+    why = []
+    limit = firm.article(conn, empire["id"], "trade_limit_naira")
+    if limit and value > naira(limit):
+        why.append(f"it is above the limit of {_money(naira(limit))} for one trade")
+    if side == "buy":
+        from simulation import firm_money
+        rule, have = firm_money.policy(conn, empire["id"]), firm_money.mix(conn, empire, now)
+        if (have["cash"] - value) * BPS < rule["cash_least_bps"] * max(have["total"], 1):
+            why.append(f"it would break the treasury policy: cash would be less than {rule['cash_least_bps'] / 100:.0f}% of the empire")
+    if not why:
+        return None
+    desk = "risk_manager" if (firm.desk_members(conn, empire["id"], "risk_manager") or firm.desk_staffed(conn, empire["id"], "risk_manager")) else "head"
+    request = firm.ask(conn, empire, kind="bond_trade", desk=desk, asked_by=seat["player_id"],
+                       title=f"{'Buy' if side == 'buy' else 'Sell'} {units:,} of {code} for about {_money(value)}", amount=value,
+                       payload={"code": code, "side": side, "units": units, "why": why}, period=state["period"], now=now)
+    return {"waiting": True, "approval_id": request["id"], "why": why}
+
+
+def _bond_execute(conn: Connection, approval: dict, now: datetime) -> None:
+    from simulation import bonds
+    p = approval["payload"]
+    seat = empires.seat_of(conn, approval["asked_by"])
+    if seat is None or seat["empire_id"] != approval["empire_id"]:
+        raise EmpireError("Whoever asked is no longer in the empire.")
+    if _frozen(conn, seat["id"]):
+        raise EmpireError("The member has been frozen since: the trade is not carried out.")
+    state = careers.world_now(conn, now)
+    try:
+        done = bonds.trade(conn, account=seat["account_id"], code=p["code"], side=p["side"], units=p["units"], now=now)
+    except bonds.BondError as refused:
+        raise EmpireError(str(refused)) from None
+    empires._within_trade_limit(conn, seat, state, done["value"], now)
+    conn.execute("INSERT INTO empire_trades (empire_id, player_id, period, what, value, at) VALUES (%s, %s, %s, %s, %s, %s)",
+                 (seat["empire_id"], seat["player_id"], state["period"], f"{p['side']} {p['units']:,} of {p['code']} (approved)", done["value"], now))
 
 
 def gate_trade(conn: Connection, seat: dict, share: dict, side: str, kind: str, quantity: int, limit_price: int | None, value: int,
@@ -70,8 +125,7 @@ def gate_trade(conn: Connection, seat: dict, share: dict, side: str, kind: str, 
     does it need the Risk Manager's desk? Returns the request when it must wait."""
     if seat["empire_kind"] != "player":
         return None
-    row = _one(conn, "SELECT frozen FROM empire_seats WHERE id = %s", (seat["id"],))
-    if row and row["frozen"]:
+    if _frozen(conn, seat["id"]):
         raise EmpireError("The Risk Manager has frozen your trading for the empire. Ask them, or the head, to lift it.")
     if seat["head_player_id"] == seat["player_id"] or seat["build"] == "risk_manager":
         return None
@@ -109,6 +163,8 @@ def _trade_execute(conn: Connection, approval: dict, now: datetime) -> None:
     seat = empires.seat_of(conn, approval["asked_by"])
     if seat is None or seat["empire_id"] != approval["empire_id"]:
         raise EmpireError("Whoever asked is no longer in the empire.")
+    if _frozen(conn, seat["id"]):
+        raise EmpireError("The member has been frozen since: the trade is not carried out.")
     state = careers.world_now(conn, now)
     empires._within_trade_limit(conn, seat, state, approval["amount"], now)
     try:
@@ -185,8 +241,7 @@ def view(conn: Connection, seat: dict, empire: dict, state: dict, now: datetime)
                                                    and not firm.desk_members(conn, empire["id"], "risk_manager"))
     return {"reports": [{"day": r["day"], **r["figures"]} for r in reports], "now": figures(conn, empire, now),
             "trade_limit_naira": firm.article(conn, empire["id"], "trade_limit_naira"), "frozen": frozen, "you_set_limits": is_risk,
-            "members": [{"player_id": str(h["player_id"]), "name": h["display_name"]} for h in empires.humans(conn, empire["id"])
-                        if h["player_id"] != empire["head_player_id"]] if is_risk or empire["head_player_id"] == seat["player_id"] else [],
+            "frozen_seats": [r["id"] for r in _rows(conn, "SELECT id FROM empire_seats WHERE empire_id = %s AND frozen", (empire["id"],))],
             "you_frozen": bool(_one(conn, "SELECT frozen FROM empire_seats WHERE id = %s", (seat["id"],))["frozen"])}
 
 
@@ -194,9 +249,9 @@ def _bell(conn: Connection, now: datetime) -> None:
     _write_reports(conn, now)
 
 
-firm.EXECUTORS["trade"] = _trade_execute
-firm.VIEWERS["trade"] = _trade_view
-firm.STAFF_RULES["trade"] = _staff_trade_rule
+firm.EXECUTORS.update({"trade": _trade_execute, "bond_trade": _bond_execute})
+firm.VIEWERS.update({"trade": _trade_view, "bond_trade": _trade_view})
+firm.STAFF_RULES.update({"trade": _staff_trade_rule, "bond_trade": _staff_trade_rule})
 firm.OVERRULE_SETTLERS["trade"] = _settle_trade
 firm.ARTICLE_DEFAULTS["trade_limit_naira"] = TRADE_LIMIT_DEFAULT_NAIRA
 firm.BELL.append(_bell)

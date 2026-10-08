@@ -750,13 +750,18 @@ def staff_seat(conn: Connection, head_id, build: str, slot: int, staffed: bool, 
         _log(conn, empire["id"], f"Computer-run staff were {'hired for' if staffed else 'let go from'} {careers._a(BUILD_NAMES.get(build, build))} seat.", now)
 
 
-def _spent(conn: Connection, empire_id, player_id, period: int) -> int:
-    """What a member has signed for this quarter. It is counted across every empire: moving from
-    one empire to the next does not start the limit again. (A pension fund is counted on its own.)"""
+def _spent(conn: Connection, empire_id, player_id, period: int, *, waiting: bool = True) -> int:
+    """What a member has signed for this quarter, genuine or not: both come out of the same limit. It
+    is counted across every empire: moving from one empire to the next does not start the limit again.
+    (A pension fund is counted on its own.) Costs still waiting for the Accountant count too."""
     fund = _one(conn, "SELECT kind FROM empires WHERE id = %s", (empire_id,))["kind"] == "pension"
-    return _one(conn, "SELECT coalesce(sum(b.amount), 0)::bigint AS total FROM empire_books b JOIN empires e ON e.id = b.empire_id"
-                      " WHERE b.entered_by = %s AND b.period = %s AND b.kind = 'taken' AND (e.kind = 'pension') = %s"
-                      " AND (b.empire_id = %s OR NOT %s)", (player_id, period, fund, empire_id, fund))["total"]
+    signed = _one(conn, "SELECT coalesce(sum(b.amount), 0)::bigint AS total FROM empire_books b JOIN empires e ON e.id = b.empire_id"
+                        " WHERE b.entered_by = %s AND b.period = %s AND b.kind IN ('taken', 'cost') AND (e.kind = 'pension') = %s"
+                        " AND (b.empire_id = %s OR NOT %s)", (player_id, period, fund, empire_id, fund))["total"]
+    if waiting and not fund:
+        signed += _one(conn, "SELECT coalesce(sum(amount), 0)::bigint AS total FROM empire_approvals WHERE asked_by = %s AND kind = 'expense'"
+                             " AND status = 'waiting' AND period = %s", (player_id, period))["total"]
+    return signed
 
 
 def is_ceo(conn: Connection, player_id) -> bool:
@@ -977,6 +982,12 @@ def cancel_order(conn: Connection, player_id, order_id: int, now: datetime) -> d
 def trade_bonds(conn: Connection, player_id, *, code: str, side: str, units: int, now: datetime) -> dict:
     with conn.transaction():
         seat, state = _trader(conn, player_id, now)
+        line = next((b for b in bonds.listing(conn, now) if b["code"] == code), None) if seat["empire_kind"] == "player" else None
+        if line is not None and isinstance(units, int) and units > 0:
+            from simulation import firm_risk
+            waiting = firm_risk.gate_bond(conn, seat, code, side, units, (line["ask"] if side == "buy" else line["bid"]) * units, state, now)
+            if waiting is not None:
+                return waiting                                             # it waits for the Risk Manager's desk
         try:
             done = bonds.trade(conn, account=seat["account_id"], code=code, side=side, units=units, now=now)
         except bonds.BondError as refused:

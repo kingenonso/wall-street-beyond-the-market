@@ -212,7 +212,7 @@ def decide_defence(conn: Connection, head_id, step_id: int, choice: str, reason:
         price = next(s["price"] for s in marketview._shares(conn, exchange.session_of(now)[0]) if s["id"] == task["company_id"])
         conn.execute("UPDATE empire_tasks SET decision = %s WHERE id = %s", (firm._json({"choice": choice, "price": price, "reason": reason}), task["id"]))
         firm.sign_opinion(conn, head_id, "head", empire["id"], "defence", f"{'Hold' if choice == 'hold' else 'Sell'} the shares under pressure",
-                          {"choice": choice, "price": price, "company_id": str(task["company_id"])}, state["period"], state["period"], now)
+                          {"choice": choice, "price": price, "company_id": str(task["company_id"])}, state["period"], state["period"] + 1, now)
         empires._finish_step(conn, step, now, done_by=head_id)
 
 
@@ -242,8 +242,15 @@ def _on_decided(conn: Connection, approval: dict, seat: dict, now: datetime) -> 
         return
     empire = empires._empire(conn, approval["empire_id"])
     build = {"raise_check": "accountant", "raise_risk": "risk_manager", "raise_sign": "head"}.get(approval["kind"])
+    if build == "head" and approval["payload"].get("kind") == "stake":
+        return                                             # a stake offer is done only when the money has come in (see _on_raised)
     if build:
         _raise_step(conn, empire, build, approval["decided_by"] if approval["decided_as"] == "desk" or build == "head" else None, now)
+
+
+def _on_raised(conn: Connection, empire: dict, raised: dict, now: datetime) -> None:
+    if raised["kind"] == "stake":
+        _raise_step(conn, empire, "head", empire["head_player_id"], now)
 
 
 def _on_read(conn: Connection, empire: dict, doc: dict, now: datetime) -> None:
@@ -300,7 +307,7 @@ def pick(conn: Connection, head_id, approval_id: int, company_id, now: datetime)
                      (f"Picked company {company_id}", head_id, now, approval_id))
         firm.sign_opinion(conn, approval["asked_by"], "investment_banker", empire["id"], "shortlist", approval["title"],
                           {"picked": company_id, "price": approval["payload"]["prices"].get(company_id), "index": objectives.index_now(conn, now)},
-                          state["period"], state["period"], now)
+                          state["period"], state["period"] + 1, now)
         return {"task_id": task["id"]}
 
 
@@ -419,18 +426,22 @@ def _draw(conn: Connection, empire: dict, period: int, now: datetime) -> dict | 
     if kind == "inspection":
         costs = _one(conn, "SELECT coalesce(sum(amount), 0)::bigint AS n FROM empire_books WHERE empire_id = %s AND period = %s",
                      (empire["id"], period))["n"]
-        from simulation import firm_money
+        from simulation import corporate, firm_money
         breaches = firm_money.policy_breaches(conn, empire, now)
+        issued = {sid: sh["shares"] for sid, sh in shares.items()}
+        big = [h for h in held if h["shares"] * BPS >= 500 * max(issued.get(h["company_id"], 1), 1)]
+        filings = ("holdings_and_bids" if any(corporate.bid_for(conn, h["company_id"]) for h in big) else "holdings") if big else "none"
         return {"kind": kind, "body": "The financial regulator has sent an inspector. The Accountant must state the quarter's costs to date, the Lawyer "
                                       "the filings the empire is bound by, and the Risk Manager whether the empire is inside its own treasury policy.",
-                "payload": {"_costs": costs, "_inside": not breaches}}
+                "payload": {"_costs": costs, "_inside": not breaches, "_filings": filings}}
     h = valued[_roll(conn, "which_offer", empire["id"], day) % len(valued)]
     s = shares[h["company_id"]]
     premium = OFFER_PREMIUM_BPS[0] + _roll(conn, "premium", empire["id"], day) % (OFFER_PREMIUM_BPS[1] - OFFER_PREMIUM_BPS[0])
-    offer = s["price"] * (BPS + premium) // BPS
     value = _value_per_share(conn, h["company_id"])
+    # A buyer bids from the lower of the day's price and what the company is thought to be worth: a price pushed up for the day buys nothing.
+    offer = min(s["price"], s["reference"], value) * (BPS + premium) // BPS
     return {"kind": "deadline_offer", "body": f"A buyer offers {_money(offer)} a share for all {h['shares']:,} of the empire's {s['name']} ({s['ticker']}) shares: "
-                                              f"{premium / 100:.0f}% above today's price. The offer lapses in two days.",
+                                              f"{(offer - s['price']) * 100 / s['price']:+.0f}% against today's price. The offer lapses in two days.",
             "payload": {"company_id": str(h["company_id"]), "ticker": s["ticker"], "shares": h["shares"], "offer": offer, "price": s["price"],
                         "_value": value, "_best": "accept" if offer > value else "decline"}}
 
@@ -468,7 +479,7 @@ def _truth(h: dict, desk: str):
     if h["kind"] == "holding_collapse":
         return p["_cause"] if desk == "journalist" else p["_best"]
     if h["kind"] == "inspection":
-        return {"accountant": p["_costs"], "lawyer": "holdings_and_bids", "risk_manager": "inside" if p["_inside"] else "outside"}[desk]
+        return {"accountant": p["_costs"], "lawyer": p.get("_filings", "none"), "risk_manager": "inside" if p["_inside"] else "outside"}[desk]
     if desk == "investment_banker":
         return "above" if p["offer"] > (p["_value"] or 0) else "below"
     return p["_best"]
@@ -499,7 +510,7 @@ def _open_happenings(conn: Connection, now: datetime) -> None:
             spec = HAPPENINGS[drawn["kind"]]
             try:
                 with conn.transaction():
-                    h = _one(conn, "INSERT INTO empire_happenings (empire_id, kind, title, body, desks, payload, period, opened_at, due_at)"
+                    _one(conn, "INSERT INTO empire_happenings (empire_id, kind, title, body, desks, payload, period, opened_at, due_at)"
                                    " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
                              (empire["id"], drawn["kind"], spec["title"], drawn["body"], spec["desks"], firm._json(drawn["payload"]), period, now,
                               now + timedelta(hours=HAPPENING_HOURS)))
@@ -597,7 +608,8 @@ def _settle_happenings(conn: Connection, now: datetime) -> None:
             period = careers.world_now(conn, now)["period"]
             if h["kind"] == "loan_called":
                 debt = _one(conn, "SELECT * FROM empire_debts WHERE id = %s FOR UPDATE", (h["payload"]["debt_id"],))
-                if debt and debt["status"] == "called" and score >= firm.DUTY_PASS:
+                from simulation import firm_money
+                if debt and debt["status"] == "called" and score >= firm.DUTY_PASS and not firm_money.covenant_test(conn, empire, debt, now):
                     conn.execute("UPDATE empire_debts SET status = 'open', called_at = NULL, rate_bps = rate_bps + 100 WHERE id = %s", (debt["id"],))
                     outcome = "The desks' answer satisfied the lender: it will leave the loan in place, at a point more interest."
                 else:
@@ -613,8 +625,12 @@ def _settle_happenings(conn: Connection, now: datetime) -> None:
                 else:
                     outcome = "The inspection found nothing wrong."
             elif h["kind"] == "holding_collapse":
-                cost = h["payload"]["loss"]
-                outcome = f"The fall cost the empire {_money(cost)} on paper."
+                p = h["payload"]
+                price = next((x["price"] for x in marketview._shares(conn, exchange.session_of(now)[0]) if str(x["id"]) == p["company_id"]), p["reference"])
+                still = _one(conn, "SELECT coalesce(sum(shares), 0)::bigint AS n FROM share_owners WHERE account_id = %s AND company_id = %s",
+                             (empire["account_id"], p["company_id"]))["n"]
+                cost = min(p["loss"], min(still, p["shares"]) * max(p["reference"] - price, 0))
+                outcome = f"The fall cost the empire {_money(cost)} on the shares it still holds." if cost else "The price has come back: nothing was lost."
             else:
                 head = answers.get("head")
                 outcome = "The head accepted the offer." if head and head["choice"] == "accept" else "The offer lapsed."
@@ -634,7 +650,7 @@ def _settle_happenings(conn: Connection, now: datetime) -> None:
 
 
 def happenings_view(conn: Connection, seat: dict, empire: dict, now: datetime) -> list[dict]:
-    me, is_head = seat["player_id"], empire["head_player_id"] == seat["player_id"]
+    _me, is_head = seat["player_id"], empire["head_player_id"] == seat["player_id"]
     out = []
     for h in _rows(conn, "SELECT * FROM empire_happenings WHERE empire_id = %s ORDER BY (status = 'open') DESC, id DESC LIMIT 8", (empire["id"],)):
         answers = {a["desk"]: a for a in _rows(conn, "SELECT a.*, p.display_name FROM happening_answers a LEFT JOIN players p ON p.id = a.player_id"
@@ -690,7 +706,7 @@ def buy_cover(conn: Connection, player_id, kind: str, insurer_id, cover: int, no
         except ledger.InsufficientFunds:
             raise EmpireError(f"The premium for four quarters is {_money(premium)}. The empire has not the cash.") from None
         book = empires._book(conn, empire["id"], state["period"], "Insurance", f"Cover against {COVER[kind][0].lower()}", premium, True, now,
-                             entered_by=player_id, kind="cost", desk="risk_manager")
+                             kind="fee", desk="risk_manager")             # an empire's premium, not a member's signature: it is not counted against a signing limit
         conn.execute("INSERT INTO empire_cover (empire_id, kind, insurer_id, premium, cover, from_period, to_period, bought_by, at)"
                      " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                      (empire["id"], kind, insurer["id"], premium, cover, state["period"], state["period"] + COVER_QUARTERS - 1, player_id, now))
@@ -802,3 +818,5 @@ firm.OPINION_NAMES.update({"defence": "Defences decided", "shortlist": "Shortlis
 
 
 firm.RAISE_DESIGNED.append(_on_designed)
+
+firm.RAISED.append(_on_raised)

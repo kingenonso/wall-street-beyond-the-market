@@ -20,6 +20,7 @@ from simulation.empires import BUILD_NAMES, EmpireError, _log, _money, _one, _ro
 from simulation.firm import Duty
 from simulation.money import BPS, apply_bps, naira
 
+OPINION_SCORE = 60                       # a judgement is a pass when handed in; it earns the rest when the record shows it was right
 FILING_BPS = 500                         # a holding of 5% or more of a company's shares must be filed each quarter
 MISSED_FILING_FINE_BPS = 10              # each filing not made costs a tenth of one percent of the empire's worth
 DANGERS = {
@@ -246,7 +247,7 @@ def _am_vote_mark(ctx, t, answers):
     except corporate.CorporateError as refused:
         raise EmpireError(str(refused)) from None
     ok = len(words.get("why", "")) >= 10
-    return {"score": 100 if ok else 60, "lines": [{"label": "The vote was cast", "right": True, "answer": answers["vote"]}],
+    return {"score": 70 if ok else 60, "lines": [{"label": "The vote was cast", "right": True, "answer": answers["vote"]}],
             "words": "A vote with a reason on the record." if ok else "The vote was cast; the reason was too short to be of use.", "text": words}
 
 
@@ -281,7 +282,7 @@ def _am_idea_mark(ctx, t, answers):
     firm.sign_opinion(conn, ctx["player_id"], "asset_manager", empire["id"], "idea", f"{call.title()} {ticker}",
                       {"ticker": ticker, "call": call, "price": share["price"], "index": objectives.index_now(conn, ctx["now"])},
                       ctx["period"], ctx["period"] + 1, ctx["now"])
-    return {"score": 100, "lines": [{"label": "Brought to the committee", "right": True, "answer": f"{call} {ticker}"}],
+    return {"score": OPINION_SCORE, "lines": [{"label": "Brought to the committee", "right": True, "answer": f"{call} {ticker}"}],
             "words": "Your idea is with the head, and on your record. It is judged as the next quarter closes.", "text": words}
 
 
@@ -448,7 +449,7 @@ def _ib_shortlist_mark(ctx, t, answers):
         raise EmpireError("Pick three companies from the list.")
     from simulation import firm_tasks
     firm_tasks.shortlist(ctx["conn"], ctx["player_id"], [t["tickers"][p] for p in picks], words.get("case", ""), ctx["now"])
-    return {"score": 100, "lines": [{"label": "Brought to the board", "right": True, "answer": ", ".join(picks)}],
+    return {"score": OPINION_SCORE, "lines": [{"label": "Brought to the board", "right": True, "answer": ", ".join(picks)}],
             "words": "The shortlist is with the head.", "text": words}
 
 
@@ -541,7 +542,7 @@ def _rm_dangers_mark(ctx, t, answers):
     firm.sign_opinion(conn, ctx["player_id"], "risk_manager", empire["id"], "dangers", "The three biggest dangers",
                       {"dangers": [keys[p] for p in picks], "rate": careers.world_now(conn, ctx["now"])["policy_rate_bps"]},
                       ctx["period"], ctx["period"] + 1, ctx["now"])
-    return {"score": 100, "lines": [{"label": "Put to the board", "right": True, "answer": ", ".join(picks)}],
+    return {"score": OPINION_SCORE, "lines": [{"label": "Put to the board", "right": True, "answer": ", ".join(picks)}],
             "words": "On your record: the next quarter shows which came."}
 
 
@@ -710,7 +711,6 @@ def _hd_board_mark(ctx, t, answers):
     picks = answers.get("priorities")
     if not isinstance(picks, list) or not 1 <= len(picks) <= 2 or len(words.get("plan", "")) < 20:
         raise EmpireError("Choose the priorities and write the plan.")
-    from simulation import firm_money
     conn, empire = ctx["conn"], ctx["empire"]
     budgets = _one(conn, "SELECT count(*) AS n FROM empire_budgets WHERE empire_id = %s AND period = %s", (empire["id"], ctx["period"]))["n"]
     score = 50 + (25 if budgets else 0)

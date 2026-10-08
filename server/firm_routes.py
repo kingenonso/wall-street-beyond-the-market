@@ -23,12 +23,12 @@ from server.empire_routes import Words
 from server.main import _exchange_time, app, current_player
 from server.schemas import Request
 from simulation import careers, empires, exchange, firm
-from simulation import firm_money, firm_people, firm_risk, firm_tasks
+from simulation import firm_clients, firm_money, firm_people, firm_risk, firm_tasks
 
 MONEY = {"owned", "owed", "borrow_room", "principal", "outstanding", "interest_a_quarter", "value", "unit_price", "wanted", "raised", "opening",
          "closing", "cash", "shares", "bonds", "debt", "capital_in", "paid_out", "total_costs", "income_received", "profit", "dividend_room",
          "budget", "spent", "expense_threshold", "loan_least", "bond_least", "total", "amount", "cost", "covered", "cover", "claimed", "premium",
-         "most", "bonus", "matched", "owed_now", "owed_after", "offer", "price", "loss", "reference", "worth", "paid", "start_worth", "payout"}
+         "most", "bonus", "matched", "fee", "to_empire", "fee_least", "fee_most", "owed_now", "owed_after", "offer", "price", "loss", "reference", "worth", "paid", "start_worth", "payout"}
 BUILD = Literal["investment_banker", "asset_manager", "risk_manager", "accountant", "lawyer", "journalist"]
 DESK = Literal["investment_banker", "asset_manager", "risk_manager", "accountant", "lawyer", "journalist", "head"]
 Kobo = Annotated[int, Field(gt=0, le=1_000_000_000_000_000, strict=True)]
@@ -62,7 +62,8 @@ def wire(value, key: str | None = None):
 
 def _view(conn: Connection, player: dict) -> dict:
     now = _exchange_time(conn)
-    return {"firm": wire(firm.view(conn, player["id"], now)), "stake_offers": wire(firm_money.stake_offers(conn, now))}
+    return {"firm": wire(firm.view(conn, player["id"], now)), "stake_offers": wire(firm_money.stake_offers(conn, now)),
+            "bookkeeping": wire(firm_clients.view(conn, player["id"], now))}
 
 
 def _do(conn: Connection, player: dict, action, bucket: str = "firm", attempts: int = 40) -> dict:
@@ -84,8 +85,15 @@ def _do(conn: Connection, player: dict, action, bucket: str = "firm", attempts: 
 # What the website sends
 # ---------------------------------------------------------------------------
 
+Seat = Annotated[int, Field(ge=1, le=9_000_000_000_000_000_000, strict=True)]
+
+
+def _member(conn: Connection, seat_id: int | None):
+    return firm.seat_holder(conn, seat_id)["player_id"] if seat_id is not None else None
+
+
 class TitleRequest(Request):
-    member_id: UUID
+    seat_id: Seat
     title: Literal["deputy", "lead"]
 
 
@@ -121,7 +129,7 @@ class AnswersRequest(Request):
 
 
 class AssignRequest(Request):
-    member_id: UUID | None = None
+    seat_id: Seat | None = None
 
 
 class StrikeRequest(Request):
@@ -144,15 +152,15 @@ class BudgetsRequest(Request):
 
 class TrainingRequest(Request):
     amount_kobo: Kobo
-    member_id: UUID | None = None
+    seat_id: Seat | None = None
 
 
 class BonusPoolRequest(Request):
-    shares: dict[UUID, Kobo] = Field(min_length=1, max_length=12)
+    shares: dict[str, Kobo] = Field(min_length=1, max_length=12)          # seat number -> amount
 
 
 class ContractRequest(Request):
-    member_id: UUID
+    seat_id: Seat
     notice_days: int = Field(ge=0, le=14, strict=True)
     bonus_bps: int = Field(ge=0, le=2000, strict=True)
     non_compete: int = Field(ge=0, le=2, strict=True)
@@ -163,11 +171,11 @@ class SignRequest(Request):
 
 
 class MemberRequest(Request):
-    member_id: UUID
+    seat_id: Seat
 
 
 class PoachRequest(Request):
-    member_id: UUID
+    seat_id: Seat
     bonus_kobo: Kobo
     words: Words = Field(default="", max_length=400)
 
@@ -178,6 +186,21 @@ class MatchRequest(Request):
 
 class GoRequest(Request):
     go: bool
+
+
+class HireRequest(Request):
+    adviser_key: str = Field(pattern=r"^[0-9]{8}$")
+    fee_kobo: Kobo
+
+
+class DeliverRequest(Request):
+    net_kobo: int = Field(ge=-1_000_000_000_000_000, le=1_000_000_000_000_000, strict=True)
+    biggest: Words = Field(min_length=1, max_length=60)
+    note: Words = Field(default="", max_length=400)
+
+
+class RatingRequest(Request):
+    stars: int = Field(ge=1, le=5, strict=True)
 
 
 class StrategyRequest(Request):
@@ -225,7 +248,7 @@ class TradeLimitRequest(Request):
 
 
 class FreezeRequest(Request):
-    member_id: UUID
+    seat_id: Seat
     frozen: bool
     reason: Words = Field(min_length=1, max_length=300)
 
@@ -242,7 +265,7 @@ def my_firm(player: dict = Depends(current_player), conn: Connection = Depends(g
 
 @app.put("/api/firm/titles")
 def name_a_title(body: TitleRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _do(conn, player, lambda now: firm.name_title(conn, player["id"], body.member_id, body.title, now))
+    return _do(conn, player, lambda now: firm.name_title(conn, player["id"], _member(conn, body.seat_id), body.title, now))
 
 
 @app.put("/api/firm/requests/{approval_id}")
@@ -295,7 +318,7 @@ def hand_in_a_duty(body: AnswersRequest, duty_id: int = _id(), player: dict = De
 
 @app.put("/api/firm/duties/{duty_id}/given-to")
 def give_a_duty(body: AssignRequest, duty_id: int = _id(), player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _do(conn, player, lambda now: firm.assign_duty(conn, player["id"], duty_id, body.member_id, now))
+    return _do(conn, player, lambda now: firm.assign_duty(conn, player["id"], duty_id, _member(conn, body.seat_id), now))
 
 
 @app.put("/api/firm/papers/{document_id}")
@@ -326,19 +349,32 @@ def set_the_budgets(body: BudgetsRequest, player: dict = Depends(current_player)
 
 @app.post("/api/firm/training", status_code=status.HTTP_201_CREATED)
 def sign_for_training(body: TrainingRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _do(conn, player, lambda now: firm_money.sign_cost(conn, player["id"], "training", body.amount_kobo, body.member_id, now), "firm-money", 10)
+    return _do(conn, player, lambda now: firm_money.sign_cost(conn, player["id"], "training", body.amount_kobo, _member(conn, body.seat_id), now), "firm-money", 10)
 
 
 @app.post("/api/firm/bonus-pool", status_code=status.HTTP_201_CREATED)
 def propose_the_bonus_pool(body: BonusPoolRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _do(conn, player, lambda now: firm_money.propose_bonuses(conn, player["id"], {str(k): v for k, v in body.shares.items()}, now), "firm-money", 10)
+    def act(now):
+        shares = {}
+        for seat, amount in body.shares.items():
+            if not seat.isdigit() or len(seat) > 18:
+                raise empires.EmpireError("Name each member by their seat.")
+            shares[str(_member(conn, int(seat)))] = amount
+        return firm_money.propose_bonuses(conn, player["id"], shares, now)
+    return _do(conn, player, act, "firm-money", 10)
 
 
 # People
 @app.post("/api/firm/contracts", status_code=status.HTTP_201_CREATED)
 def offer_a_contract(body: ContractRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _do(conn, player, lambda now: firm_people.offer_contract(conn, player["id"], body.member_id, body.notice_days, body.bonus_bps,
+    return _do(conn, player, lambda now: firm_people.offer_contract(conn, player["id"], _member(conn, body.seat_id), body.notice_days, body.bonus_bps,
                                                                     body.non_compete, now))
+
+
+@app.put("/api/firm/contracts/{contract_id}/offer")
+def offer_a_drafted_contract(body: SignRequest, contract_id: int = _id(), player: dict = Depends(current_player),
+                             conn: Connection = Depends(get_connection)):
+    return _do(conn, player, lambda now: firm_people.send_contract(conn, player["id"], contract_id, body.sign, now))
 
 
 @app.put("/api/firm/contracts/{contract_id}")
@@ -348,7 +384,7 @@ def answer_a_contract(body: SignRequest, contract_id: int = _id(), player: dict 
 
 @app.post("/api/firm/apprentices", status_code=status.HTTP_201_CREATED)
 def take_an_apprentice(body: MemberRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _do(conn, player, lambda now: firm_people.take_apprentice(conn, player["id"], body.member_id, now))
+    return _do(conn, player, lambda now: firm_people.take_apprentice(conn, player["id"], _member(conn, body.seat_id), now))
 
 
 @app.delete("/api/firm/apprentices")
@@ -358,7 +394,7 @@ def end_the_apprenticeship(player: dict = Depends(current_player), conn: Connect
 
 @app.post("/api/firm/approaches", status_code=status.HTTP_201_CREATED)
 def approach_a_member(body: PoachRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _do(conn, player, lambda now: firm_people.poach(conn, player["id"], body.member_id, body.bonus_kobo, body.words, now), "firm-poach", 10)
+    return _do(conn, player, lambda now: firm_people.poach(conn, player["id"], _member(conn, body.seat_id), body.bonus_kobo, body.words, now), "firm-poach", 10)
 
 
 @app.put("/api/firm/approaches/{offer_id}/match")
@@ -394,7 +430,7 @@ def set_a_priority(body: PriorityRequest, task_id: int = _id(), player: dict = D
 
 @app.put("/api/firm/steps/{step_id}/given-to")
 def give_a_step(body: AssignRequest, step_id: int = _id(), player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _do(conn, player, lambda now: firm_tasks.assign_step(conn, player["id"], step_id, body.member_id, now))
+    return _do(conn, player, lambda now: firm_tasks.assign_step(conn, player["id"], step_id, _member(conn, body.seat_id), now))
 
 
 @app.put("/api/firm/steps/{step_id}/defence")
@@ -432,7 +468,35 @@ def set_the_trade_limit(body: TradeLimitRequest, player: dict = Depends(current_
 
 @app.put("/api/firm/freeze")
 def freeze_trading(body: FreezeRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _do(conn, player, lambda now: firm_risk.freeze(conn, player["id"], body.member_id, body.frozen, body.reason, now))
+    return _do(conn, player, lambda now: firm_risk.freeze(conn, player["id"], _member(conn, body.seat_id), body.frozen, body.reason, now))
+
+
+# Bookkeeping for outside clients
+@app.post("/api/bookkeeping", status_code=status.HTTP_201_CREATED)
+def hire_a_bookkeeper(body: HireRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _do(conn, player, lambda now: firm_clients.hire(conn, player["id"], body.adviser_key, body.fee_kobo, now), "firm-clients", 10)
+
+
+@app.delete("/api/bookkeeping/{engagement_id}")
+def cancel_a_bookkeeper(engagement_id: int = _id(), player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _do(conn, player, lambda now: firm_clients.cancel(conn, player["id"], engagement_id, now), "firm-clients", 10)
+
+
+@app.post("/api/bookkeeping/{engagement_id}/open")
+def open_a_clients_figures(engagement_id: int = _id(), player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _do(conn, player, lambda now: firm_clients.open_work(conn, player["id"], engagement_id, now), "firm-clients", 20)
+
+
+@app.post("/api/bookkeeping/{engagement_id}/report")
+def deliver_a_report(body: DeliverRequest, engagement_id: int = _id(), player: dict = Depends(current_player),
+                     conn: Connection = Depends(get_connection)):
+    return _do(conn, player, lambda now: firm_clients.deliver(conn, player["id"], engagement_id, body.net_kobo, body.biggest, body.note, now),
+               "firm-clients", 10)
+
+
+@app.put("/api/bookkeeping/{engagement_id}/rating")
+def rate_a_report(body: RatingRequest, engagement_id: int = _id(), player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _do(conn, player, lambda now: firm_clients.rate(conn, player["id"], engagement_id, body.stars, now), "firm-clients", 10)
 
 
 @app.get("/api/people/{player_id}/record")

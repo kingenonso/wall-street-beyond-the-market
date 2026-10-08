@@ -51,17 +51,20 @@ CREATE INDEX empire_approvals_waiting ON empire_approvals (empire_id) WHERE stat
 CREATE FUNCTION empire_approvals_guard() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF TG_OP = 'DELETE' THEN
-        RAISE EXCEPTION 'A decision is a permanent record.' USING ERRCODE = 'restrict_violation';
+        RAISE EXCEPTION 'A request is a permanent record.' USING ERRCODE = 'restrict_violation';
     END IF;
-    IF NEW.empire_id <> OLD.empire_id OR NEW.kind <> OLD.kind OR NEW.asked_by IS DISTINCT FROM OLD.asked_by OR NEW.amount <> OLD.amount
-       OR NEW.asked_at <> OLD.asked_at OR NEW.title <> OLD.title THEN
+    IF NEW.empire_id <> OLD.empire_id OR NEW.kind <> OLD.kind OR NEW.desk <> OLD.desk OR NEW.asked_by IS DISTINCT FROM OLD.asked_by
+       OR NEW.amount <> OLD.amount OR NEW.asked_at <> OLD.asked_at OR NEW.title <> OLD.title OR NEW.payload <> OLD.payload OR NEW.period <> OLD.period THEN
         RAISE EXCEPTION 'What was asked for is a permanent record.' USING ERRCODE = 'restrict_violation';
     END IF;
-    IF OLD.status IN ('approved', 'overruled', 'lapsed') AND NEW.status <> OLD.status THEN
+    IF OLD.status <> 'waiting' THEN
+        -- Once decided, nothing changes, except that a refusal may be overruled, once, without touching what the desk wrote.
+        IF OLD.status = 'refused' AND NEW.status = 'overruled' AND OLD.overruled_by IS NULL
+           AND NEW.reason IS NOT DISTINCT FROM OLD.reason AND NEW.decided_by IS NOT DISTINCT FROM OLD.decided_by
+           AND NEW.decided_as IS NOT DISTINCT FROM OLD.decided_as AND NEW.decided_at IS NOT DISTINCT FROM OLD.decided_at THEN
+            RETURN NEW;
+        END IF;
         RAISE EXCEPTION 'A decision is a permanent record.' USING ERRCODE = 'restrict_violation';
-    END IF;
-    IF OLD.status = 'refused' AND NEW.status NOT IN ('refused', 'overruled') THEN
-        RAISE EXCEPTION 'A refusal can only be overruled.' USING ERRCODE = 'restrict_violation';
     END IF;
     RETURN NEW;
 END;
@@ -220,7 +223,17 @@ CREATE TABLE ceo_records (                 -- what a head did. Permanent; it fol
 );
 CREATE UNIQUE INDEX ceo_records_once ON ceo_records (reference) WHERE reference IS NOT NULL;
 CREATE INDEX ceo_records_by_player ON ceo_records (player_id, id DESC);
-CREATE TRIGGER ceo_records_no_delete BEFORE DELETE ON ceo_records FOR EACH ROW EXECUTE FUNCTION records_forbid_change();
+CREATE FUNCTION ceo_records_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    -- What a head did is kept for good. Only how it turned out may be written, once, when it becomes known.
+    IF TG_OP = 'DELETE' OR OLD.good IS NOT NULL OR NEW.player_id <> OLD.player_id OR NEW.empire_id <> OLD.empire_id OR NEW.kind <> OLD.kind
+       OR NEW.words <> OLD.words OR NEW.reference IS DISTINCT FROM OLD.reference OR NEW.period <> OLD.period OR NEW.at <> OLD.at THEN
+        RAISE EXCEPTION 'The head''s record is permanent.' USING ERRCODE = 'restrict_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER ceo_records_guarded BEFORE UPDATE OR DELETE ON ceo_records FOR EACH ROW EXECUTE FUNCTION ceo_records_guard();
 
 CREATE TABLE empire_debts (                -- what an empire has borrowed
     id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -239,6 +252,7 @@ CREATE TABLE empire_debts (                -- what an empire has borrowed
     status      text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'called', 'repaid', 'defaulted')),
     called_at   timestamptz,
     breach_since integer,                                    -- the quarter a covenant was first found broken
+    signed_by   uuid REFERENCES players (id),                -- the head who signed: a personal guarantee falls on them
     at          timestamptz NOT NULL
 );
 CREATE INDEX empire_debts_open ON empire_debts (empire_id) WHERE status IN ('open', 'called');
@@ -259,8 +273,18 @@ CREATE TABLE empire_stake_offers (          -- an empire sells a stake in itself
     unit_price  bigint NOT NULL CHECK (unit_price > 0),      -- kobo for each unit, fixed when the offer opened
     approval_id bigint REFERENCES empire_approvals (id),
     status      text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
+    traps       text[] NOT NULL DEFAULT '{}',                -- clauses of its paper nobody struck out
+    first_call_left bigint NOT NULL DEFAULT 0,               -- under a first-call clause: what the new partners are still to be paid first
     opened_at   timestamptz NOT NULL,
     closes_at   timestamptz NOT NULL
+);
+
+CREATE TABLE stake_buys (                   -- who bought into a stake offer
+    offer_id    bigint NOT NULL REFERENCES empire_stake_offers (id),
+    player_id   uuid NOT NULL REFERENCES players (id),
+    units       bigint NOT NULL CHECK (units > 0),
+    paid        bigint NOT NULL CHECK (paid > 0),
+    at          timestamptz NOT NULL
 );
 
 CREATE TABLE empire_payouts (              -- dividends paid to the partners. Permanent.
@@ -343,7 +367,7 @@ CREATE TABLE member_contracts (            -- what a member agreed to on joining
     notice_days integer NOT NULL CHECK (notice_days BETWEEN 0 AND 14),
     bonus_bps   integer NOT NULL CHECK (bonus_bps BETWEEN 0 AND 2000),   -- a share of the desk's bonus pool promised to them
     non_compete integer NOT NULL CHECK (non_compete BETWEEN 0 AND 2),   -- quarters they may not join the empire's rival after leaving
-    status      text NOT NULL DEFAULT 'offered' CHECK (status IN ('offered', 'signed', 'refused', 'ended')),
+    status      text NOT NULL DEFAULT 'offered' CHECK (status IN ('drafted', 'offered', 'signed', 'refused', 'ended')),
     offered_by  uuid REFERENCES players (id),
     drafted_by  uuid REFERENCES players (id),                -- the Lawyer who drafted it
     offered_at  timestamptz NOT NULL,
@@ -352,7 +376,7 @@ CREATE TABLE member_contracts (            -- what a member agreed to on joining
     bars_until  integer,                                     -- the last quarter the non-compete binds, once ended
     bars_empire bigint REFERENCES empires (id)
 );
-CREATE UNIQUE INDEX member_contracts_one_live ON member_contracts (empire_id, player_id) WHERE status IN ('offered', 'signed');
+CREATE UNIQUE INDEX member_contracts_one_live ON member_contracts (empire_id, player_id) WHERE status IN ('drafted', 'offered', 'signed');
 
 CREATE TABLE empire_apprentices (
     empire_id   bigint NOT NULL REFERENCES empires (id),
@@ -424,6 +448,83 @@ CREATE TABLE empire_risk_reports (         -- what the Risk Manager's desk wrote
     UNIQUE (empire_id, day)
 );
 CREATE TRIGGER empire_risk_reports_permanent BEFORE UPDATE OR DELETE ON empire_risk_reports FOR EACH ROW EXECUTE FUNCTION records_forbid_change();
+
+-- Guards for the rest of the firm's records: what is decided, settled or signed stays as it was.
+CREATE FUNCTION empire_resolutions_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' OR OLD.status <> 'open' OR NEW.kind <> OLD.kind OR NEW.title <> OLD.title OR NEW.payload <> OLD.payload
+       OR NEW.empire_id <> OLD.empire_id OR NEW.proposed_by IS DISTINCT FROM OLD.proposed_by OR NEW.opened_at <> OLD.opened_at
+       OR NEW.closes_at <> OLD.closes_at THEN
+        RAISE EXCEPTION 'A vote that has been counted is a permanent record.' USING ERRCODE = 'restrict_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER empire_resolutions_guarded BEFORE UPDATE OR DELETE ON empire_resolutions FOR EACH ROW EXECUTE FUNCTION empire_resolutions_guard();
+
+CREATE FUNCTION empire_resolution_votes_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE still_open boolean;
+BEGIN
+    SELECT status = 'open' INTO still_open FROM empire_resolutions WHERE id = COALESCE(NEW.resolution_id, OLD.resolution_id);
+    IF NOT coalesce(still_open, false) THEN
+        RAISE EXCEPTION 'The votes cast in a counted vote are a permanent record.' USING ERRCODE = 'restrict_violation';
+    END IF;
+    IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER empire_resolution_votes_guarded BEFORE INSERT OR UPDATE OR DELETE ON empire_resolution_votes
+    FOR EACH ROW EXECUTE FUNCTION empire_resolution_votes_guard();
+
+CREATE FUNCTION empire_happenings_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' OR OLD.status = 'settled' OR NEW.payload <> OLD.payload OR NEW.kind <> OLD.kind OR NEW.empire_id <> OLD.empire_id
+       OR NEW.desks <> OLD.desks OR NEW.due_at <> OLD.due_at OR NEW.opened_at <> OLD.opened_at THEN
+        RAISE EXCEPTION 'An event, and how it was settled, is a permanent record.' USING ERRCODE = 'restrict_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER empire_happenings_guarded BEFORE UPDATE OR DELETE ON empire_happenings FOR EACH ROW EXECUTE FUNCTION empire_happenings_guard();
+
+CREATE FUNCTION empire_documents_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' OR NEW.clauses <> OLD.clauses OR NEW.empire_id <> OLD.empire_id OR NEW.kind <> OLD.kind OR NEW.title <> OLD.title
+       OR OLD.status IN ('signed', 'dropped') OR (OLD.status = 'reviewed' AND (NEW.status <> 'signed' OR NEW.struck <> OLD.struck
+       OR NEW.kept_traps <> OLD.kept_traps OR NEW.wrongly_struck <> OLD.wrongly_struck OR NEW.reviewed_by IS DISTINCT FROM OLD.reviewed_by)) THEN
+        RAISE EXCEPTION 'A paper, and how it was read, is a permanent record.' USING ERRCODE = 'restrict_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER empire_documents_guarded BEFORE UPDATE OR DELETE ON empire_documents FOR EACH ROW EXECUTE FUNCTION empire_documents_guard();
+
+CREATE FUNCTION empire_debts_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' OR OLD.status = 'repaid' OR NEW.empire_id <> OLD.empire_id OR NEW.kind <> OLD.kind
+       OR NEW.lender_account IS DISTINCT FROM OLD.lender_account OR NEW.lender_name <> OLD.lender_name OR NEW.principal <> OLD.principal
+       OR NEW.taken_period <> OLD.taken_period OR NEW.document_id IS DISTINCT FROM OLD.document_id OR NEW.traps <> OLD.traps
+       OR NEW.signed_by IS DISTINCT FROM OLD.signed_by OR NEW.at <> OLD.at OR NEW.outstanding > OLD.outstanding THEN
+        RAISE EXCEPTION 'A debt is a permanent record: what was borrowed, from whom and on what terms.' USING ERRCODE = 'restrict_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER empire_debts_guarded BEFORE UPDATE OR DELETE ON empire_debts FOR EACH ROW EXECUTE FUNCTION empire_debts_guard();
+
+CREATE FUNCTION member_contracts_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' OR NEW.empire_id <> OLD.empire_id OR NEW.player_id <> OLD.player_id OR NEW.notice_days <> OLD.notice_days
+       OR NEW.bonus_bps <> OLD.bonus_bps OR NEW.non_compete <> OLD.non_compete OR NEW.drafted_by IS DISTINCT FROM OLD.drafted_by
+       OR OLD.status IN ('refused', 'ended')
+       OR NOT ((OLD.status = NEW.status) OR (OLD.status = 'drafted' AND NEW.status IN ('offered', 'refused'))
+               OR (OLD.status = 'offered' AND NEW.status IN ('signed', 'refused')) OR (OLD.status = 'signed' AND NEW.status = 'ended')) THEN
+        RAISE EXCEPTION 'A contract is a permanent record.' USING ERRCODE = 'restrict_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER member_contracts_guarded BEFORE UPDATE OR DELETE ON member_contracts FOR EACH ROW EXECUTE FUNCTION member_contracts_guard();
 
 -- Tasks: up to three in hand at once, and one of each kind started in a quarter.
 DROP INDEX empire_tasks_one_open;

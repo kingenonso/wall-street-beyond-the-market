@@ -10,6 +10,7 @@ import {
   HeadRail, HeadWork, InvestmentBankerRail, InvestmentBankerWork, JournalistWork, LawyerWork, RiskManagerWork,
 } from "./Desks2";
 import { EmpireRail, EmpireWork } from "./Empire";
+import { FirmRail, FirmWork } from "./Firm";
 import { EconomyRail, EconomyWork } from "./Economy";
 import { MarketRail, MarketWork } from "./Market";
 import { NewsRail, NewsWork } from "./News";
@@ -103,6 +104,11 @@ export function App() {
     accent = "neutral";
     work = <EmpireWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <EmpireRail player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+  } else if (section === "firm") {
+    current = "firm";
+    accent = "neutral";
+    work = <FirmWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <FirmRail player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
   } else if (section === "head") {
     current = "head";
     accent = "gold";

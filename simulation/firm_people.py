@@ -46,7 +46,7 @@ def offer_contract(conn: Connection, player_id, member_id, notice_days: int, bon
     """The Lawyer drafts a member's contract (or the head, when the empire has no Lawyer). The head
     offers it. Here both happen at once when the head drafts; a Lawyer's draft goes to the head."""
     with conn.transaction():
-        state = _open(conn, now)
+        _open(conn, now)
         seat, empire = firm._active(conn, player_id)
         if not firm.player_run(empire):
             raise EmpireError("An empire run by the computer offers no contracts.")
@@ -60,15 +60,33 @@ def offer_contract(conn: Connection, player_id, member_id, notice_days: int, bon
             raise EmpireError("A Lawyer does not draft their own contract.")
         if not firm._whole(notice_days, 0, data.NOTICE_DAYS) or not firm._whole(bonus_bps, 0, 2000) or not firm._whole(non_compete, 0, 2):
             raise EmpireError(f"Notice of 0 to {data.NOTICE_DAYS} days; a share of the desk's pool of 0% to 20%; a non-compete of 0 to 2 quarters.")
+        status = "offered" if is_head else "drafted"           # a Lawyer's draft goes to the head, who decides whether to offer it
         try:
             with conn.transaction():
-                contract = _one(conn, "INSERT INTO member_contracts (empire_id, player_id, notice_days, bonus_bps, non_compete, offered_by, drafted_by,"
-                                      " offered_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
-                                (empire["id"], member_id, notice_days, bonus_bps, non_compete, empire["head_player_id"], player_id, now))
+                contract = _one(conn, "INSERT INTO member_contracts (empire_id, player_id, notice_days, bonus_bps, non_compete, status, offered_by,"
+                                      " drafted_by, offered_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+                                (empire["id"], member_id, notice_days, bonus_bps, non_compete, status, player_id if is_head else None, player_id, now))
         except errors.UniqueViolation:
-            raise EmpireError("That member already has a contract offered or signed. It must end first.") from None
-        careers._event(conn, member_id, member["build"], "contract", f"{empire['name']} offered you a contract.", now)
-        return {"id": contract["id"]}
+            raise EmpireError("That member already has a contract drafted, offered or signed. It must end first.") from None
+        if is_head:
+            careers._event(conn, member_id, member["build"], "contract", f"{empire['name']} offered you a contract.", now)
+        return {"id": contract["id"], "status": status}
+
+
+def send_contract(conn: Connection, head_id, contract_id: int, offer: bool, now: datetime) -> None:
+    """The head offers a contract the Lawyer drafted, or tears it up."""
+    with conn.transaction():
+        _open(conn, now)
+        empire = empires._head(conn, head_id)
+        contract = _one(conn, "SELECT * FROM member_contracts WHERE id = %s AND empire_id = %s FOR UPDATE", (contract_id, empire["id"]))
+        if contract is None or contract["status"] != "drafted":
+            raise EmpireError("There is no draft contract waiting for you.")
+        if contract["player_id"] == head_id:
+            raise EmpireError("A head does not offer a contract to themselves.")
+        conn.execute("UPDATE member_contracts SET status = %s, offered_by = %s, offered_at = %s WHERE id = %s",
+                     ("offered" if offer else "refused", head_id, now, contract_id))
+        if offer:
+            careers._event(conn, contract["player_id"], None, "contract", f"{empire['name']} offered you a contract.", now)
 
 
 def answer_contract(conn: Connection, player_id, contract_id: int, sign: bool, now: datetime) -> None:
@@ -106,7 +124,7 @@ def _vacated(conn: Connection, seat: dict, now: datetime) -> None:
         conn.execute("UPDATE member_contracts SET status = 'ended', ended_at = %s, bars_until = %s, bars_empire = %s WHERE id = %s",
                      (now, period + contract["non_compete"] if contract["non_compete"] else None, rival if contract["non_compete"] else None,
                       contract["id"]))
-    conn.execute("UPDATE member_contracts SET status = 'refused' WHERE empire_id = %s AND player_id = %s AND status = 'offered'",
+    conn.execute("UPDATE member_contracts SET status = 'refused' WHERE empire_id = %s AND player_id = %s AND status IN ('drafted', 'offered')",
                  (seat["empire_id"], seat["player_id"]))
     conn.execute("UPDATE empire_apprentices SET ended_at = %s WHERE empire_id = %s AND (mentor_id = %s OR apprentice_id = %s) AND ended_at IS NULL",
                  (now, seat["empire_id"], seat["player_id"], seat["player_id"]))
@@ -196,6 +214,9 @@ def poach(conn: Connection, head_id, member_id, bonus: int, words: str, now: dat
             raise EmpireError(f"Your empire has no free {BUILD_NAMES[their['build']]} seat.")
         if ledger.balance(conn, empire["account_id"]) < bonus:
             raise EmpireError("Your empire has not the cash for that bonus.")
+        room = _bonus_room(conn, empire, now)
+        if bonus > room:
+            raise EmpireError(f"A joining bonus is inside your bonus limit for the quarter: {_money(room)} is left.")
         try:
             with conn.transaction():
                 offer = _one(conn, "INSERT INTO poach_offers (from_empire, to_empire, player_id, build, bonus, words, at, match_by)"
@@ -206,6 +227,15 @@ def poach(conn: Connection, head_id, member_id, bonus: int, words: str, now: dat
             raise EmpireError("You already have an offer open to that member.") from None
         careers._event(conn, member_id, their["build"], "poached", f"{empire['name']} offered you {_money(bonus)} to join them.", now)
         return {"id": offer["id"]}
+
+
+def _bonus_room(conn: Connection, empire: dict, now: datetime) -> int:
+    period = careers.world_now(conn, now)["period"]
+    paid = _one(conn, "SELECT coalesce(sum(amount), 0)::bigint AS n FROM empire_books WHERE empire_id = %s AND period = %s AND kind IN ('bonus')",
+                (empire["id"], period))["n"]
+    fees = _one(conn, "SELECT coalesce(sum(amount), 0)::bigint AS n FROM empire_books WHERE empire_id = %s AND period = %s AND category = 'Transfer fees'",
+                (empire["id"], period))["n"]
+    return max(empires.bonus_limit(conn, empire, now) - paid - fees, 0)
 
 
 def match(conn: Connection, head_id, offer_id: int, bonus: int, now: datetime) -> None:
@@ -220,6 +250,8 @@ def match(conn: Connection, head_id, offer_id: int, bonus: int, now: datetime) -
             raise EmpireError("The two days to match have passed.")
         if not firm._whole(bonus, 1) or ledger.balance(conn, empire["account_id"]) < bonus:
             raise EmpireError("A bonus the empire has the cash for.")
+        if bonus > _bonus_room(conn, empire, now):
+            raise EmpireError(f"A bonus to stay is inside your bonus limit for the quarter: {_money(_bonus_room(conn, empire, now))} is left.")
         conn.execute("UPDATE poach_offers SET status = 'matched', matched = %s WHERE id = %s", (bonus, offer_id))
 
 
@@ -238,9 +270,16 @@ def answer_poach(conn: Connection, player_id, offer_id: int, go: bool, now: date
         home = empires._empire(conn, offer["to_empire"], lock=True)
         new = empires._empire(conn, offer["from_empire"], lock=True)
         if not go:
+            note = ""
             if offer["status"] == "matched" and offer["matched"]:
                 from simulation import firm_money
-                firm_money._pay_bonus_inside(conn, home, player_id, offer["matched"], "Bonus to stay, matching another empire's offer", now)
+                try:
+                    with conn.transaction():
+                        firm_money._pay_bonus_inside(conn, home, player_id, offer["matched"], "Bonus to stay, matching another empire's offer", now)
+                except EmpireError as short:
+                    note = f" The bonus to stay could not be paid: {short}"
+            if note:
+                _log(conn, home["id"], note.strip(), now)
             conn.execute("UPDATE poach_offers SET status = 'declined', decided_at = %s WHERE id = %s", (now, offer_id))
             _log(conn, home["id"], f"{firm._name(conn, player_id)} was approached by {new['name']} and stayed.", now)
             return {"moved": False}
@@ -252,9 +291,9 @@ def answer_poach(conn: Connection, player_id, offer_id: int, go: bool, now: date
         if _one(conn, "SELECT 1 FROM empire_cases WHERE player_id = %s AND status = 'open'", (player_id,)):
             raise EmpireError("A member with a theft case waiting cannot move until it is decided.")
         fee = offer["bonus"] if contract_of(conn, home["id"], player_id) else 0
-        if ledger.balance(conn, new["account_id"]) < offer["bonus"] + fee:
+        if ledger.balance(conn, new["account_id"]) < offer["bonus"] + fee or offer["bonus"] + fee > _bonus_room(conn, new, now):
             conn.execute("UPDATE poach_offers SET status = 'lapsed', decided_at = %s WHERE id = %s", (now, offer_id))
-            raise EmpireError(f"{new['name']} no longer has the cash for its offer.")
+            return {"moved": False, "lapsed": f"{new['name']} can no longer pay its offer (and any transfer fee) inside its cash and bonus limit."}
         empires._go(conn, seat, now, state["period"], "left")
         empires._may_join(conn, new, player, state["period"])
         barred(conn, new, player_id, state["period"])
@@ -361,14 +400,33 @@ def _leaver_units(conn: Connection, seat: dict, now: datetime) -> None:
     held = _one(conn, "SELECT units FROM empire_units WHERE empire_id = %s AND player_id = %s", (empire["id"], seat["player_id"]))
     if not held or not held["units"]:
         return
-    price = firm_money.unit_price(conn, empire, now)
+    if _one(conn, "SELECT 1 FROM empire_cases WHERE empire_id = %s AND player_id = %s AND status = 'open'", (empire["id"], seat["player_id"])):
+        return                                              # a member with a theft case waiting keeps their units until it is decided
+    value = firm_money.value_of(conn, empire, held["units"], now)
+    if value <= 0:
+        return
+    period = careers.world_now(conn, now)["period"]
+    # What a proved thief still owes the empire comes out of what their units are worth, before anything is paid.
+    owed = _one(conn, "SELECT coalesce(sum(debt_left), 0)::bigint AS n FROM empire_cases WHERE empire_id = %s AND player_id = %s AND status = 'punished'",
+                (empire["id"], seat["player_id"]))["n"]
+    kept = min(owed, value)
+    if kept:
+        for case in _rows(conn, "SELECT id, debt_left FROM empire_cases WHERE empire_id = %s AND player_id = %s AND status = 'punished' AND debt_left > 0"
+                                " ORDER BY id FOR UPDATE", (empire["id"], seat["player_id"])):
+            take = min(case["debt_left"], kept)
+            conn.execute("UPDATE empire_cases SET debt_left = debt_left - %s WHERE id = %s", (take, case["id"]))
+            kept -= take
+        kept = min(owed, value)
+    want = value - kept
     paid = ledger.pay_up_to(conn, payer=empire["account_id"], receiver=ledger.player_account_id(conn, seat["player_id"]),
-                            wanted=held["units"] * price, kind="empire_buy_back", memo=f"{empire['name']}: units bought back from a leaving partner",
-                            period=careers.world_now(conn, now)["period"])
-    bought = paid // price if price else 0
+                            wanted=want, kind="empire_buy_back", memo=f"{empire['name']}: units bought back from a leaving partner",
+                            period=period) if want > 0 else 0
+    # The units bought back are those the cash (and the debt set against them) actually paid for, exactly.
+    bought = held["units"] if paid >= want else held["units"] * (paid + kept) // value
     conn.execute("UPDATE empire_units SET units = units - %s WHERE empire_id = %s AND player_id = %s", (bought, empire["id"], seat["player_id"]))
-    if paid:
-        _log(conn, empire["id"], f"Under the constitution, the empire bought back {firm._name(conn, seat['player_id'])}'s units for {_money(paid)}.", now)
+    if paid or kept:
+        _log(conn, empire["id"], f"Under the constitution, the empire bought back {firm._name(conn, seat['player_id'])}'s units for {_money(paid)}"
+                                 + (f", after {_money(kept)} they owed the empire was set against them" if kept else "") + ".", now)
 
 
 # ---------------------------------------------------------------------------
@@ -448,16 +506,16 @@ def _confidence_failed(conn: Connection, resolution: dict, now: datetime) -> Non
         return
     firm.ceo_note(conn, head, empire["id"], "confidence", "Lost the yearly vote of confidence and stepped down as head.", resolution["period"], now,
                   good=False, reference=f"confidence:{resolution['id']}")
-    others = [h for h in empires.humans(conn, empire["id"]) if str(h["player_id"]) != str(head)]
+    accused = {r["player_id"] for r in _rows(conn, "SELECT player_id FROM empire_cases WHERE empire_id = %s AND status = 'open'", (empire["id"],))}
+    others = [h for h in empires.humans(conn, empire["id"]) if str(h["player_id"]) != str(head) and h["player_id"] not in accused]
     if not others:
         return
     named = firm.successor(conn, empire["id"], head)
     successor = next((h for h in others if h["player_id"] == named), None) or max(others, key=lambda h: h["experience"] or 0)
     # The old head keeps a seat if there is one for their build; otherwise they leave.
-    old = _one(conn, "SELECT build FROM players WHERE id = %s", (head,))
     conn.execute("UPDATE empires SET head_player_id = %s WHERE id = %s", (successor["player_id"], empire["id"]))
     _log(conn, empire["id"], f"The members lost confidence in the head. {successor['display_name']} became Acting Head until the members elect one."
-                             f" {firm._name(conn, head)} remains a member" + ("" if old else "") + ".", now)
+                             f" {firm._name(conn, head)} remains a member.", now)
 
 
 def scorecard(conn: Connection, empire: dict, now: datetime) -> dict:
@@ -485,8 +543,8 @@ def view(conn: Connection, seat: dict, empire: dict, state: dict, now: datetime)
     me = seat["player_id"]
     is_head = empire["head_player_id"] == me
     contracts = _rows(conn, "SELECT c.*, p.display_name FROM member_contracts c JOIN players p ON p.id = c.player_id WHERE c.empire_id = %s"
-                            " AND c.status IN ('offered', 'signed') ORDER BY c.id", (empire["id"],))
-    mine = [c for c in contracts if c["player_id"] == me]
+                            " AND c.status IN ('drafted', 'offered', 'signed') ORDER BY c.id", (empire["id"],))
+    mine = [c for c in contracts if c["player_id"] == me and c["status"] != "drafted"]
     may_see_all = is_head or seat["build"] == "lawyer"
     approaches_in = _rows(conn, "SELECT o.*, e.name AS from_name FROM poach_offers o JOIN empires e ON e.id = o.from_empire WHERE o.player_id = %s"
                                 " AND o.status IN ('open', 'matched') ORDER BY o.id", (me,))
@@ -501,8 +559,12 @@ def view(conn: Connection, seat: dict, empire: dict, state: dict, now: datetime)
 
     def contract_public(c):
         return {"id": c["id"], "name": c["display_name"], "status": c["status"], "notice_days": c["notice_days"], "bonus_bps": c["bonus_bps"],
-                "non_compete": c["non_compete"], "yours": c["player_id"] == me}
+                "non_compete": c["non_compete"], "yours": c["player_id"] == me, "to_offer": is_head and c["status"] == "drafted"}
+    others = _rows(conn, "SELECT s.id AS seat_id, s.build, p.display_name, e.name AS empire FROM empire_seats s JOIN players p ON p.id = s.player_id"
+                         " JOIN empires e ON e.id = s.empire_id WHERE e.status = 'active' AND e.kind <> 'pension' AND e.id <> %s"
+                         " AND (e.head_player_id IS NULL OR e.head_player_id <> s.player_id) ORDER BY e.name, s.build", (empire["id"],)) if is_head else []
     return {
+        "elsewhere": [{"seat_id": o["seat_id"], "name": o["display_name"], "build_name": BUILD_NAMES[o["build"]], "empire": o["empire"]} for o in others],
         "contracts": [contract_public(c) for c in (contracts if may_see_all else mine)],
         "can_draft": seat["build"] == "lawyer" or (is_head and not firm.desk_members(conn, empire["id"], "lawyer")),
         "approaches": [{"id": o["id"], "from": o["from_name"], "bonus": o["bonus"], "words": o["words"], "status": o["status"],

@@ -568,3 +568,26 @@ details.why p { margin-top: 8px; }
 .road-step.current .tracker-mark { border-color: var(--gold); color: var(--gold); font-weight: 700; }
 .road-step.done .tracker-mark { background: var(--up); border-color: var(--up); color: #06120c; font-weight: 700; }
 .tag-setting-solo, .tag-setting-empire, .tag-setting-live { border: 1px solid var(--border); }
+
+/* The firm (private equity stage, part 1). Shapes as well as colour: ▲ ▼ ▶ marks, dashed borders for what failed. */
+.duty { padding: 10px 0; border-top: 1px solid var(--border); }
+.duty:first-of-type { border-top: 0; }
+.duty-form { display: grid; gap: 10px; margin-top: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--raised); }
+.facts { display: grid; gap: 2px; padding: 8px 10px; border-left: 3px solid var(--border); margin: 6px 0; }
+.picks { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.pick { display: inline-flex; gap: 4px; align-items: center; font-weight: 400; }
+.panel-yours { border-color: var(--gold); }
+.panel-urgent { border-color: var(--gold); border-width: 2px; }
+.tag-due, .tag-waiting, .tag-open, .tag-offered, .tag-draft, .tag-current { color: var(--gold); border-color: var(--gold); }
+.tag-done, .tag-approved, .tag-signed, .tag-repaid, .tag-reviewed, .tag-settled { color: var(--up); border-color: rgba(91, 227, 164, 0.45); }
+.tag-missed, .tag-refused, .tag-lapsed, .tag-called, .tag-defaulted, .tag-overruled { color: var(--down); border-color: rgba(255, 177, 153, 0.5); border-style: dashed; }
+.small-input { max-width: 140px; }
+.clauses { padding-left: 20px; display: grid; gap: 6px; }
+.clause-trap { border-left: 3px dashed var(--down); padding-left: 8px; }
+.steps { padding-left: 18px; display: grid; gap: 4px; }
+.step-current { font-weight: 600; }
+.request, .vote, .paper, .debt, .task, .report { padding: 10px 0; border-top: 1px solid var(--border); }
+.request:first-of-type, .vote:first-of-type, .paper:first-of-type, .debt:first-of-type, .task:first-of-type { border-top: 0; }
+.propose { display: grid; gap: 8px; margin-top: 12px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+button.card { text-align: left; cursor: pointer; color: inherit; font: inherit; }

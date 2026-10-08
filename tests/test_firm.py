@@ -504,3 +504,86 @@ def test_a_duty_nobody_does_is_done_by_the_staff_or_missed_and_a_missed_one_cost
     assert missed
     points = _one(db, "SELECT sum(points)::int AS p FROM league_points WHERE empire_id = %s AND reference LIKE 'duty:%%'", (empire["id"],))["p"]
     assert points == -len(missed)
+
+
+# ---------------------------------------------------------------------------
+# After the independent review
+# ---------------------------------------------------------------------------
+
+def test_a_bookkeeper_reports_on_a_clients_money_and_the_fee_is_shared_with_their_empire(db):
+    empire, team = firm_of(db)
+    client, client_account = pro(db, "lawyer", "client", cash_naira=2_000_000)
+    ledger.transfer(db, payer=ledger.account_id(db, ledger.TREASURY), receiver=client_account, amount=naira(500_000), kind="test_cash",
+                    memo="Test: money in", period=9)
+    ledger.transfer(db, payer=client_account, receiver=ledger.account_id(db, ledger.TREASURY), amount=naira(120_000), kind="test_spend",
+                    memo="Test: money out", period=9)
+    from simulation import firm_clients
+    quarters.close_due_quarters(db, after_quarters(9))
+    now = after_quarters(9) + timedelta(hours=12)
+    seen = firm_clients.view(db, client, now)
+    key = next(a["key"] for a in seen["advisers"] if a["name"] == "ledgerman")
+    assert str(team["accountant"]) not in str(seen)
+    hired = firm_clients.hire(db, client, key, naira(100_000), now)
+    with pytest.raises(empires.EmpireError, match="already hired"):
+        firm_clients.hire(db, client, key, naira(100_000), now)
+    shown = firm_clients.open_work(db, team["accountant"], hired["id"], now)
+    assert "_truth" not in shown and shown["given"]
+    truth = _one(db, "SELECT report FROM client_engagements WHERE id = %s", (hired["id"],))["report"]["_truth"]
+    empire_cash = ledger.balance(db, empire["account_id"])
+    done = firm_clients.deliver(db, team["accountant"], hired["id"], truth["net"], truth["biggest"], "Spend less on shares.", now)
+    assert done["score"] == 100 and done["to_empire"] == naira(60_000)
+    assert ledger.balance(db, empire["account_id"]) == empire_cash + naira(60_000)
+    firm_clients.rate(db, client, hired["id"], 5, now)
+    with pytest.raises(empires.EmpireError):
+        firm_clients.rate(db, client, hired["id"], 1, now)
+    sound(db)
+
+
+def test_a_lawyers_draft_contract_waits_for_the_head_to_offer_it(db):
+    empire, team = firm_of(db)
+    draft = firm_people.offer_contract(db, team["lawyer"], team["journalist"], 0, 2000, 0, LATER)
+    assert draft["status"] == "drafted"
+    with pytest.raises(empires.EmpireError, match="no contract waiting"):
+        firm_people.answer_contract(db, team["journalist"], draft["id"], True, LATER)
+    firm_people.send_contract(db, team["head"], draft["id"], True, LATER)
+    firm_people.answer_contract(db, team["journalist"], draft["id"], True, LATER)
+    with pytest.raises(Exception):
+        db.execute("UPDATE member_contracts SET notice_days = 14 WHERE id = %s", (draft["id"],))
+
+
+def test_a_head_keeps_the_members_confidence_on_a_tie_or_when_nobody_votes(db):
+    empire, team = firm_of(db)
+    vote = firm.call_vote(db, empire, "confidence", "Confidence?", {"subject_id": str(team["head"])}, 9, LATER)
+    firm.vote(db, team["journalist"], vote["id"], False, LATER)
+    firm.vote(db, team["accountant"], vote["id"], True, LATER)
+    firm.at_bell(db, NOW9 + timedelta(hours=49))
+    assert _one(db, "SELECT status FROM empire_resolutions WHERE id = %s", (vote["id"],))["status"] == "passed"
+    assert empires._empire(db, empire["id"])["head_player_id"] == team["head"]
+
+
+def test_a_duty_opened_by_a_member_who_leaves_is_picked_up_by_a_colleague(db):
+    empire, team = firm_of(db)
+    other = member(db, empire, team["head"], "accountant", "second")
+    duty = duty_of(db, empire["id"], "ac_close")
+    firm.open_duty(db, team["accountant"], duty["id"], LATER)
+    empires.sack(db, team["head"], team["accountant"], LATER)
+    firm.open_duty(db, other, duty["id"], LATER)
+    assert firm.hand_in(db, other, duty["id"], right(db, duty["id"]), LATER)["score"] == 100
+
+
+def test_under_a_cheap_units_clause_the_organiser_takes_units_at_half_their_worth(db):
+    empire, team = firm_of(db)
+    asked = firm_money.design_raising(db, team["investment_banker"], "stake", naira(10_000_000), 0, LATER)
+    firm.decide(db, team["accountant"], asked["approval_id"], True, "", LATER)
+    firm.decide(db, team["risk_manager"], waiting(db, empire["id"], "raise_risk")["id"], True, "Fine.", LATER)
+    paper = _one(db, "SELECT * FROM empire_documents WHERE empire_id = %s AND status = 'draft'", (empire["id"],))
+    left_in = [c["code"] for c in paper["clauses"] if c["trap"] and c["code"] == "cheap_units"]
+    firm.review_document(db, team["lawyer"], paper["id"], [c["code"] for c in paper["clauses"] if c["trap"] and c["code"] != "cheap_units"], LATER)
+    firm.decide(db, team["head"], waiting(db, empire["id"], "raise_sign")["id"], True, "", LATER)
+    offer = _one(db, "SELECT * FROM empire_stake_offers WHERE empire_id = %s", (empire["id"],))
+    buyer, buyer_account = pro(db, "journalist", "investor", cash_naira=20_000_000)
+    firm_money.buy_stake(db, buyer, offer["id"], naira(10_000_000), LATER)
+    firm.at_bell(db, NOW9 + timedelta(days=4))
+    outsiders = _one(db, "SELECT units FROM empire_units WHERE empire_id = %s AND player_id IS NULL", (empire["id"],))
+    assert bool(outsiders) == bool(left_in)
+    sound(db)

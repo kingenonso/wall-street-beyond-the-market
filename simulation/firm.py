@@ -26,10 +26,9 @@ from typing import Callable
 from psycopg import Connection, errors
 from psycopg.types.json import Jsonb
 
-from simulation import careers, clock, empires, leagues
+from simulation import careers, empires, leagues
 from simulation import world_data as data
-from simulation.empires import BUILD_NAMES, EmpireError, _log, _money, _one, _open, _roll, _rows, _text
-from simulation.money import BPS, naira
+from simulation.empires import BUILD_NAMES, EmpireError, _log, _one, _open, _roll, _rows, _text
 
 APPROVAL_HOURS = 24                 # a desk has this long; then the request passes to the head
 DEPUTY_HOURS = 48                   # ...and after this long to the deputy as well
@@ -41,7 +40,7 @@ STAFF_CATCHES_BPS = 7000            # the staff's chance of catching each trap i
 DUTY_PASS = 60                      # a duty done at this score or better was done well
 DUTY_EXPERIENCE = 50                # what a duty done perfectly teaches, before rank
 OVERRULE_DESKS = ("risk_manager", "lawyer")
-REASON_KINDS = ("trade", "deal", "legal", "venture")       # a yes to these needs a written reason, as a no always does
+REASON_KINDS = ("trade", "bond_trade", "deal", "legal", "venture")       # a yes to these needs a written reason, as a no always does
 LEAGUE = {"duty_missed": -1, "well_run": 3}
 DESKS = (*data.EMPIRE_BUILDS, "head")
 DESK_NAMES = {**BUILD_NAMES, "head": "Head of the empire"}
@@ -79,6 +78,25 @@ def _whole(value, least: int = 0, most: int | None = None) -> bool:
 # ---------------------------------------------------------------------------
 # Who sits where
 # ---------------------------------------------------------------------------
+
+def seat_holder(conn: Connection, seat_id) -> dict:
+    """The player in a seat, and the seat. The website names colleagues by their seat, never by their player number."""
+    if not _whole(seat_id, 1):
+        raise EmpireError("There is nobody in that seat.")
+    row = _one(conn, "SELECT s.*, p.display_name FROM empire_seats s JOIN players p ON p.id = s.player_id WHERE s.id = %s", (seat_id,))
+    if row is None:
+        raise EmpireError("There is nobody in that seat.")
+    return row
+
+
+def roster(conn: Connection, empire_id, me) -> list[dict]:
+    """Who sits at each desk, by seat: what every member of the empire sees."""
+    return [{"seat_id": r["id"], "name": r["display_name"], "build": r["build"], "build_name": BUILD_NAMES[r["build"]], "you": r["player_id"] == me,
+             "is_head": r["is_head"]}
+            for r in _rows(conn, "SELECT s.id, s.build, s.player_id, p.display_name, (e.head_player_id = s.player_id) AS is_head FROM empire_seats s"
+                                 " JOIN players p ON p.id = s.player_id JOIN empires e ON e.id = s.empire_id WHERE s.empire_id = %s"
+                                 " ORDER BY s.build, s.slot", (empire_id,))]
+
 
 def desk_members(conn: Connection, empire_id, build: str) -> list:
     """The players on a desk. The head's desk is the head alone."""
@@ -178,24 +196,36 @@ def ask(conn: Connection, empire: dict, *, kind: str, desk: str, asked_by, title
                 (empire["id"], kind, desk, asked_by, title[:200], amount, _json(payload or {}), period, now))
 
 
+def concerned(approval: dict) -> set:
+    """Everybody a request is about: whoever asked, and whoever it would pay or name. None of them decides it."""
+    p = approval.get("payload") or {}
+    out = {str(approval["asked_by"])} if approval.get("asked_by") else set()
+    out |= {str(k) for k in (p.get("shares") or {})}
+    for key in ("member_id", "subject_id"):
+        if p.get(key):
+            out.add(str(p[key]))
+    return out
+
+
 def deciders(conn: Connection, approval: dict, now: datetime) -> dict:
-    """Who may decide a request at this moment, and in what capacity. Nobody decides their own.
+    """Who may decide a request at this moment, and in what capacity. Nobody decides their own, or one that pays them.
 
     The desk's own members may decide it at any time. Once the desk has had its day, or when the
     desk has nobody who may, the head may. After two days the deputy may as well."""
     empire = empires._empire(conn, approval["empire_id"])
-    asker, waited = approval["asked_by"], _hours(approval["asked_at"], now)
+    barred, waited = concerned(approval), _hours(approval["asked_at"], now)
     who: dict = {}
     if approval["desk"] != "head":
         for member in desk_members(conn, empire["id"], approval["desk"]):
-            if member != asker:
+            if str(member) not in barred:
                 who[member] = "desk"
     head, deputy = empire["head_player_id"], deputy_of(conn, empire["id"])
     staff_will = approval["desk"] != "head" and desk_staffed(conn, empire["id"], approval["desk"])
     head_turn = approval["desk"] == "head" or waited >= APPROVAL_HOURS or (not who and not staff_will)
-    if head and head != asker and head_turn:
+    head_may = head is not None and str(head) not in barred
+    if head_may and head_turn:
         who.setdefault(head, "head")
-    if deputy and deputy != asker and (waited >= DEPUTY_HOURS or (head_turn and (head is None or head == asker))):
+    if deputy and str(deputy) not in barred and (waited >= DEPUTY_HOURS or (head_turn and not head_may)):
         who.setdefault(deputy, "deputy")
     return who
 
@@ -225,8 +255,8 @@ def decide(conn: Connection, player_id, approval_id: int, approve: bool, reason:
             raise EmpireError("That request has already been decided.")
         role = deciders(conn, approval, now).get(player_id)
         if role is None:
-            raise EmpireError("That request is not yours to decide." if approval["asked_by"] != player_id
-                              else "Nobody decides their own request.")
+            raise EmpireError("Nobody decides their own request, or one that pays them." if str(player_id) in concerned(approval)
+                              else "That request is not yours to decide.")
         reason = _text(reason or "")[:400]
         if not reason and (not approve or approval["kind"] in REASON_KINDS):
             raise EmpireError("Give your reason in writing. It is kept on the record.")
@@ -440,7 +470,9 @@ def _count(conn: Connection, resolution: dict, now: datetime, final: bool = Fals
     elif not voters or no > len(voters) - needed:
         passed = False
     elif final:
-        if two_thirds:
+        if resolution["kind"] == "confidence":
+            passed = yes >= no                 # a head keeps the members' confidence unless more say no than yes: silence is not a vote against
+        elif two_thirds:
             passed = yes * 3 >= (yes + no) * 2 and yes > 0
         elif yes != no:
             passed = yes > no
@@ -580,6 +612,9 @@ def open_duty(conn: Connection, player_id, duty_id: int, now: datetime) -> dict:
                 raise EmpireError("There is nothing to do on that duty at this moment. Look again later in the quarter.")
             conn.execute("UPDATE desk_duties SET terms = %s, assigned_to = %s WHERE id = %s", (_json(terms), player_id, duty_id))
             duty = {**duty, "terms": terms}
+        elif duty["assigned_to"] is None:
+            # Whoever opened it has left the desk: a colleague picks it up, as it was set.
+            conn.execute("UPDATE desk_duties SET assigned_to = %s WHERE id = %s", (player_id, duty_id))
         return {"id": duty_id, "code": duty["code"], "title": DUTIES[duty["code"]].title, "terms": _public_terms(duty["terms"])}
 
 
@@ -703,7 +738,8 @@ def duties_view(conn: Connection, seat: dict, empire: dict, state: dict, now: da
         members = desk_members(conn, empire["id"], build)
         desks.append({"build": build, "name": DESK_NAMES[build], "yours": mine, "duties": duties, "scorecards": cards,
                       "lead": _name(conn, lead) if lead else None, "you_lead": lead == me,
-                      "members": [{"player_id": str(m) if (is_head or lead == me) else None, "name": _name(conn, m)} for m in members],
+                      "members": [{"seat_id": _one(conn, "SELECT id FROM empire_seats WHERE player_id = %s", (m,))["id"], "name": _name(conn, m)}
+                                  for m in members],
                       "staffed": desk_staffed(conn, empire["id"], build), "empty": not members and not desk_staffed(conn, empire["id"], build)})
     return {"desks": desks, "pass_mark": DUTY_PASS, "staff_score": STAFF_DUTY_SCORE}
 
@@ -866,6 +902,11 @@ def _settle_opinions(conn: Connection, period: int, now: datetime) -> None:
         verdict = settler(conn, opinion, period, now) if settler else ("void", "It could not be checked.")
         if verdict:
             settle_opinion(conn, opinion["id"], verdict[0], verdict[1], now)
+            if verdict[0] == "right":
+                # A call that turned out right teaches, as a duty done well does.
+                mine = careers.career(conn, opinion["player_id"], opinion["build"]) if opinion["build"] in BUILD_NAMES else None
+                if mine:
+                    careers.add_experience(conn, opinion["player_id"], opinion["build"], DUTY_EXPERIENCE * (1 + mine["rank"]), now)
 
 
 def track_record(conn: Connection, player_id) -> dict:
@@ -895,13 +936,14 @@ def ceo_record(conn: Connection, player_id) -> dict:
     rows = _rows(conn, "SELECT r.kind, r.words, r.good, r.period, r.at, e.name AS empire FROM ceo_records r JOIN empires e ON e.id = r.empire_id"
                        " WHERE r.player_id = %s ORDER BY r.id DESC LIMIT 40", (player_id,))
     return {"entries": rows, "good": sum(1 for r in rows if r["good"] is True), "bad": sum(1 for r in rows if r["good"] is False),
-            "overrules": sum(1 for r in rows if r["kind"] == "overrule"),
+            "overrules": sum(1 for r in rows if r["kind"] in ("overrule", "unfreeze")),
             "empires": sorted({r["empire"] for r in rows})}
 
 
 def _settle_overrules(conn: Connection, period: int, now: datetime) -> None:
     """Did what the head overruled turn out well? Looked at as each quarter closes, once it can be known."""
-    for note in _rows(conn, "SELECT r.id, r.reference FROM ceo_records r WHERE r.kind = 'overrule' AND r.good IS NULL AND r.period < %s", (period,)):
+    for note in _rows(conn, "SELECT r.id, r.reference FROM ceo_records r WHERE r.kind = 'overrule' AND r.good IS NULL AND r.period < %s"
+                            " AND r.reference LIKE 'approval:%%'", (period,)):
         approval = _one(conn, "SELECT * FROM empire_approvals WHERE id = %s", (int(note["reference"].split(":")[1]),))
         settler = OVERRULE_SETTLERS.get(approval["kind"]) if approval else None
         good = settler(conn, approval, period) if settler else None
@@ -915,8 +957,8 @@ def _settle_overrules(conn: Connection, period: int, now: datetime) -> None:
 
 def debt_of(conn: Connection, empire_id) -> int:
     """What an empire owes to its lenders and to the holders of its bonds."""
-    return _one(conn, "SELECT coalesce(sum(outstanding), 0)::bigint AS owed FROM empire_debts WHERE empire_id = %s AND status IN ('open', 'called')",
-                (empire_id,))["owed"]
+    return _one(conn, "SELECT coalesce(sum(outstanding), 0)::bigint AS owed FROM empire_debts WHERE empire_id = %s"
+                      " AND status IN ('open', 'called', 'defaulted')", (empire_id,))["owed"]
 
 
 # ---------------------------------------------------------------------------
@@ -936,6 +978,7 @@ SCORECARD: list[Callable] = []         # (conn, empire, build, period, card) -> 
 DOCUMENT_READ: list[Callable] = []     # (conn, empire, document, now)
 DOCUMENT_DROPPED: list[Callable] = []  # (conn, empire, document, now)
 RAISE_DESIGNED: list[Callable] = []    # (conn, empire, approval, now) : the Investment Banker has designed a way to raise money
+RAISED: list[Callable] = []            # (conn, empire, {kind, amount, debt_id?}, now) : money has come in
 
 
 def at_bell(conn: Connection, now: datetime) -> None:
@@ -994,6 +1037,7 @@ def view(conn: Connection, player_id, now: datetime) -> dict | None:
         "empire_id": empire["id"], "name": empire["name"], "player_run": player_run(empire), "is_head": is_head,
         "is_deputy": deputy == player_id, "deputy": _name(conn, deputy) if deputy else None, "your_build": seat["build"],
         "period": state["period"], "quarter_ends_at": state.get("ends_at"),
+        "roster": roster(conn, empire["id"], player_id),
         "approvals": approvals_view(conn, seat, empire, now),
         "resolutions": resolutions_view(conn, seat, empire, now),
         "duties": duties_view(conn, seat, empire, state, now),
@@ -1008,4 +1052,4 @@ def view(conn: Connection, player_id, now: datetime) -> dict | None:
 
 
 # The parts of the firm, each adding itself to the lists above.
-from simulation import firm_money, firm_people, firm_risk, firm_tasks, firm_duties  # noqa: E402,F401
+from simulation import firm_money, firm_people, firm_risk, firm_tasks, firm_duties, firm_clients  # noqa: E402,F401

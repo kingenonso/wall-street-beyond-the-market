@@ -90,7 +90,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     Stage 7 added resignation letters, counter-offers and the vote for a head (test_leaving.py), rank cases
     and reports of marking (test_mastery.py, test_rank_api.py). The private equity stage, part 1, added the firm: duties,
     requests, votes, papers, borrowing, budgets, contracts, poaching, tasks, events and cover (test_firm.py, test_firm_api.py),
-    and buying into another empire's stake offer: each acts on the player's own seat and moves money only through the ledger."""
+    buying into another empire's stake offer, and hiring a bookkeeper (test_firm_review.py): each acts on the player's own seat and moves money only through the ledger."""
     from server.main import app
 
     writes = sorted(
@@ -99,6 +99,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     )
     assert writes == [
         ("DELETE", "/api/bonds/swaps/{swap_id}"),
+        ("DELETE", "/api/bookkeeping/{engagement_id}"),
         ("DELETE", "/api/career/job"),
         ("DELETE", "/api/empire/application"),
         ("DELETE", "/api/empire/founding"),
@@ -121,6 +122,9 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/auth/signup"),
         ("POST", "/api/bonds/swaps"),
         ("POST", "/api/bonds/trade"),
+        ("POST", "/api/bookkeeping"),
+        ("POST", "/api/bookkeeping/{engagement_id}/open"),
+        ("POST", "/api/bookkeeping/{engagement_id}/report"),
         ("POST", "/api/career/retirement/pension"),
         ("POST", "/api/empire/ai-audit"),
         ("POST", "/api/empire/audits"),
@@ -169,6 +173,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/ranks/cases/{case_id}/hand-in"),
         ("POST", "/api/reports"),
         ("POST", "/api/stake-offers/{offer_id}"),
+        ("PUT", "/api/bookkeeping/{engagement_id}/rating"),
         ("PUT", "/api/career/bank"),
         ("PUT", "/api/career/build"),
         ("PUT", "/api/career/extra-saving"),
@@ -188,6 +193,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("PUT", "/api/firm/approaches/{offer_id}/match"),
         ("PUT", "/api/firm/budgets"),
         ("PUT", "/api/firm/contracts/{contract_id}"),
+        ("PUT", "/api/firm/contracts/{contract_id}/offer"),
         ("PUT", "/api/firm/duties/{duty_id}/given-to"),
         ("PUT", "/api/firm/freeze"),
         ("PUT", "/api/firm/papers/{document_id}"),
