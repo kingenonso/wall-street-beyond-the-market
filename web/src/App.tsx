@@ -7,7 +7,7 @@ import { CompaniesRail, CompaniesWork } from "./Companies";
 import { CompanyRail, CompanyWork } from "./Company";
 import { DeskRail, DeskWork } from "./Desk";
 import {
-  HeadRail, HeadWork, InvestmentBankerRail, InvestmentBankerWork, JournalistWork, LawyerWork, RiskManagerWork,
+  HeadRail, InvestmentBankerRail, InvestmentBankerWork, JournalistWork, LawyerWork, RiskManagerWork,
 } from "./Desks2";
 import { EmpireRail, EmpireWork } from "./Empire";
 import { FirmRail, FirmWork } from "./Firm";
@@ -99,21 +99,21 @@ export function App() {
     current = "build";
     work = <JournalistWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <BuildRail player={player} onLoggedOut={loggedOut} />;
-  } else if (section === "empire" || (section === "head" && !player.empire)) {
+  } else if ((section === "empire" || section === "head" || section === "firm") && player.empire && !player.empire.forming) {
+    // One section with tabs: the old addresses (#/head, #/firm) open its Overview and Desks tabs.
+    current = "empire";
+    accent = "neutral";
+    const tab = section === "head" ? "overview" : section === "firm" ? (item ?? "desks") : item;
+    work = <FirmWork key={tab ?? ""} player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} initialTab={tab} />;
+    rail = tab === "overview" || !tab
+      ? <HeadRail player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />
+      : tab === "warroom" ? <EmpireRail player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />
+      : <FirmRail player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+  } else if (section === "empire" || section === "head" || section === "firm") {
     current = "empire";
     accent = "neutral";
     work = <EmpireWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <EmpireRail player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
-  } else if (section === "firm") {
-    current = "firm";
-    accent = "neutral";
-    work = <FirmWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
-    rail = <FirmRail player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
-  } else if (section === "head") {
-    current = "head";
-    accent = "gold";
-    work = <HeadWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
-    rail = <HeadRail player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
   } else if (section === "work") {
     current = "work";
     work = <WorkWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;

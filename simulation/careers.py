@@ -56,7 +56,7 @@ BUILDS = {
         "employer_words": "the banks and the insurers, whose business is carrying risk",
     },
     "lawyer": {
-        "name": "Lawyer", "accent": "red", "track": "Law",
+        "name": "Legal Counsel", "accent": "red", "track": "Law",
         "work": "Contracts, due diligence, title checks, litigation and regulatory filings.",
         "earns": "Salary, legal fees, and case and transaction bonuses.",
         "cannot": "Change the financial terms of a deal.",
@@ -64,7 +64,7 @@ BUILDS = {
         "employer_words": "every company: each one keeps lawyers",
     },
     "journalist": {
-        "name": "Journalist", "accent": "blue", "track": "Journalism and research",
+        "name": "Financial Journalist", "accent": "blue", "track": "Journalism and research",
         "work": "Reporting, investigation, source work, and economic and company research.",
         "earns": "Salary from a media house, and bonuses for publication and investigation.",
         "cannot": "Declare someone guilty or change market data.",

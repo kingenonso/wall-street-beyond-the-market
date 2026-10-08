@@ -1,7 +1,7 @@
 """The firm's people: contracts, apprentices, poaching, the empire's own rules, and the head's year.
 
   contracts        notice, a promised share of the desk's pool, and a non-compete: drafted by the
-                   Lawyer, offered by the head, signed by the member, enforced by the game
+                   Legal Counsel, offered by the head, signed by the member, enforced by the game
   apprentices      a senior member takes a junior of the same build; both gain when the junior does well
   poaching         another empire's head offers a member a bonus to come over; the home empire has two
                    days to match; a member under contract moves only for a transfer fee
@@ -43,8 +43,8 @@ STRATEGIES = {
 # ---------------------------------------------------------------------------
 
 def offer_contract(conn: Connection, player_id, member_id, notice_days: int, bonus_bps: int, non_compete: int, now: datetime) -> dict:
-    """The Lawyer drafts a member's contract (or the head, when the empire has no Lawyer). The head
-    offers it. Here both happen at once when the head drafts; a Lawyer's draft goes to the head."""
+    """The Legal Counsel drafts a member's contract (or the head, when the empire has no Legal Counsel). The head
+    offers it. Here both happen at once when the head drafts; a Legal Counsel's draft goes to the head."""
     with conn.transaction():
         _open(conn, now)
         seat, empire = firm._active(conn, player_id)
@@ -52,15 +52,15 @@ def offer_contract(conn: Connection, player_id, member_id, notice_days: int, bon
             raise EmpireError("An empire run by the computer offers no contracts.")
         is_head, lawyers = empire["head_player_id"] == player_id, firm.desk_members(conn, empire["id"], "lawyer")
         if seat["build"] != "lawyer" and not (is_head and not lawyers):
-            raise EmpireError("Contracts are drafted by the empire's Lawyer (by the head only when there is no Lawyer).")
+            raise EmpireError("Contracts are drafted by the empire's Legal Counsel (by the head only when there is no Legal Counsel).")
         member = empires.seat_of(conn, member_id)
         if member is None or member["empire_id"] != empire["id"] or member_id == empire["head_player_id"]:
             raise EmpireError("A contract is for a member of your empire (not the head).")
         if member_id == player_id:
-            raise EmpireError("A Lawyer does not draft their own contract.")
+            raise EmpireError("A Legal Counsel does not draft their own contract.")
         if not firm._whole(notice_days, 0, data.NOTICE_DAYS) or not firm._whole(bonus_bps, 0, 2000) or not firm._whole(non_compete, 0, 2):
             raise EmpireError(f"Notice of 0 to {data.NOTICE_DAYS} days; a share of the desk's pool of 0% to 20%; a non-compete of 0 to 2 quarters.")
-        status = "offered" if is_head else "drafted"           # a Lawyer's draft goes to the head, who decides whether to offer it
+        status = "offered" if is_head else "drafted"           # a Legal Counsel's draft goes to the head, who decides whether to offer it
         try:
             with conn.transaction():
                 contract = _one(conn, "INSERT INTO member_contracts (empire_id, player_id, notice_days, bonus_bps, non_compete, status, offered_by,"
@@ -74,7 +74,7 @@ def offer_contract(conn: Connection, player_id, member_id, notice_days: int, bon
 
 
 def send_contract(conn: Connection, head_id, contract_id: int, offer: bool, now: datetime) -> None:
-    """The head offers a contract the Lawyer drafted, or tears it up."""
+    """The head offers a contract the Legal Counsel drafted, or tears it up."""
     with conn.transaction():
         _open(conn, now)
         empire = empires._head(conn, head_id)

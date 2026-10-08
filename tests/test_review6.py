@@ -382,7 +382,7 @@ def test_an_empires_name_is_plain_letters_so_that_it_cannot_pass_for_another(db)
         pensionfunds.open_fund(db, head, "Savаnnah Pensions", 10, NOW9)
 
 
-# 20. The "Others" line on the Lawyer's screen showed one fund's or empire's whole holding.
+# 20. The "Others" line on the Legal Counsel's screen showed one fund's or empire's whole holding.
 def test_what_one_fund_or_empire_holds_is_not_shown_on_its_own_line(db):
     fund, manager, _ = a_fund(db)
     give_shares(db, fund["account_id"], "ADF", 3_000_000)
@@ -409,7 +409,7 @@ def test_memberships_books_and_cases_are_guarded_in_the_database(db, monkeypatch
 
 # The smaller things.
 def test_smaller_things_the_reviewer_found(db, monkeypatch):
-    # A Lawyer in a computer-run empire can have a lawful pact signed: its head signs the draft at once. An unlawful one is refused.
+    # A Legal Counsel in a computer-run empire can have a lawful pact signed: its head signs the draft at once. An unlawful one is refused.
     one, two = computer_empire(db, 0), computer_empire(db, 1)
     counsel, _ = thief_in(db, one, "lawyer", "counsel")
     assert empires.draft_pact(db, counsel, two["id"], "alliance", "We stand together against all comers.", NOW9)["status"] == "signed"

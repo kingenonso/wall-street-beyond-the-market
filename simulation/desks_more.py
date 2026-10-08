@@ -1,4 +1,4 @@
-"""What the screens of the Investment Banker, the Risk Manager and the Lawyer show (design
+"""What the screens of the Investment Banker, the Risk Manager and the Legal Counsel show (design
 document, section 18), and the figures behind the CEO's screen.
 
 Everything here is worked out from what is public (filed accounts, market prices, notices) or
@@ -242,11 +242,11 @@ def risk_desk(conn: Connection, player_id, account, book: str, now: datetime) ->
 
 
 # ---------------------------------------------------------------------------
-# Lawyer
+# Legal Counsel
 # ---------------------------------------------------------------------------
 
 def lawyer_desk(conn: Connection, player_id, ticker: str | None, now: datetime) -> dict | None:
-    """The Lawyer's workspace on one company: who controls it, who would be paid first if it
+    """The Legal Counsel's workspace on one company: who controls it, who would be paid first if it
     failed, and the list of companies the rules are closing in on."""
     filed = _latest(conn)
     companies = _rows(conn, "SELECT c.id, c.ticker, c.name, c.share_asset, s.name AS sector, c.headquarters FROM companies c"

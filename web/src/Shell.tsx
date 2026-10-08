@@ -73,9 +73,8 @@ function sectionsFor(player: Player) {
     ...(player.build_name ? [{ path: "build", label: player.build_name }] : []),
     { path: "work", label: "Work" },
     ...(player.build_name ? [{ path: "rank", label: "Rank" }] : []),
-    ...(player.empire && !player.empire.forming ? [{ path: "head", label: player.empire.is_head ? "Head of empire" : "Empire overview" }] : []),
-    ...(player.empire && !player.empire.forming ? [{ path: "firm", label: "The firm", count: player.empire.waiting }] : []),
-    { path: "empire", label: player.empire ? "War Room" : "Empires" },
+    // One section for the empire: its overview, desks, requests, deals, companies and War Room are tabs inside it.
+    { path: "empire", label: player.empire ? "Empire" : "Empires", ...(player.empire && !player.empire.forming ? { count: player.empire.waiting } : {}) },
     { path: "market", label: "Market" },
     { path: "portfolio", label: "Portfolio" },
     { path: "news", label: "News" },

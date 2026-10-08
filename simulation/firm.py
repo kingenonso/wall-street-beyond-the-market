@@ -7,7 +7,7 @@ that comes round every quarter, and the desks depend on one another:
   approvals      one desk must say yes before something happens; a request never waits for ever
   resolutions    what the members vote on, and the empire's own rules that come of it
   duties         each desk's standing work for the quarter, marked by the server, and its scorecard
-  documents      papers the Lawyer reads before the head signs; some clauses are traps
+  documents      papers the Legal Counsel reads before the head signs; some clauses are traps
   opinions       what a member put their name to, checked later against what happened
   the record     what a head did, kept for good
 
@@ -44,6 +44,8 @@ REASON_KINDS = ("trade", "bond_trade", "deal", "legal", "venture")       # a yes
 LEAGUE = {"duty_missed": -1, "well_run": 3}
 DESKS = (*data.EMPIRE_BUILDS, "head")
 DESK_NAMES = {**BUILD_NAMES, "head": "Head of the empire"}
+# How each desk is headed on the screen. The Financial Journalist's place in an empire is its Intelligence desk.
+DESK_LABELS = {**DESK_NAMES, "journalist": "Intelligence desk (Financial Journalist)"}
 
 
 def _json(value):
@@ -273,14 +275,14 @@ def decide(conn: Connection, player_id, approval_id: int, approve: bool, reason:
 
 
 def overrule(conn: Connection, head_id, approval_id: int, reason: str, now: datetime) -> None:
-    """The head overrules the Risk Manager's or the Lawyer's refusal. It is carried out, and it goes
+    """The head overrules the Risk Manager's or the Legal Counsel's refusal. It is carried out, and it goes
     on the head's record for good: if it turns out badly, it counts against the head, not the desk."""
     with conn.transaction():
         state = _open(conn, now)
         empire = empires._head(conn, head_id)
         approval = _approval(conn, approval_id, empire["id"])
         if approval["status"] != "refused" or approval["desk"] not in OVERRULE_DESKS or approval["decided_as"] not in ("desk", "staff"):
-            raise EmpireError("Only a refusal by the Risk Manager's or the Lawyer's desk can be overruled.")
+            raise EmpireError("Only a refusal by the Risk Manager's or the Legal Counsel's desk can be overruled.")
         if _hours(approval["decided_at"], now) > OVERRULE_HOURS:
             raise EmpireError("That refusal has stood for two days. It is too late to overrule it; ask again.")
         reason = _text(reason or "")[:400]
@@ -736,7 +738,7 @@ def duties_view(conn: Connection, seat: dict, empire: dict, state: dict, now: da
         cards = _rows(conn, "SELECT period, duties, done, by_staff, missed, score, budget, spent, notes FROM desk_scores"
                             " WHERE empire_id = %s AND build = %s ORDER BY period DESC LIMIT 4", (empire["id"], build))
         members = desk_members(conn, empire["id"], build)
-        desks.append({"build": build, "name": DESK_NAMES[build], "yours": mine, "duties": duties, "scorecards": cards,
+        desks.append({"build": build, "name": DESK_LABELS[build], "yours": mine, "duties": duties, "scorecards": cards,
                       "lead": _name(conn, lead) if lead else None, "you_lead": lead == me,
                       "members": [{"seat_id": _one(conn, "SELECT id FROM empire_seats WHERE player_id = %s", (m,))["id"], "name": _name(conn, m)}
                                   for m in members],
@@ -745,7 +747,7 @@ def duties_view(conn: Connection, seat: dict, empire: dict, state: dict, now: da
 
 
 # ---------------------------------------------------------------------------
-# Documents: the Lawyer reads before the head signs
+# Documents: the Legal Counsel reads before the head signs
 # ---------------------------------------------------------------------------
 STRIKE_COST_WORDS = "Each fair clause struck out is one the other side charges for."
 
@@ -795,11 +797,11 @@ def _finish_review(conn: Connection, doc: dict, struck: list[str], reviewer, by_
 
 
 def review_document(conn: Connection, player_id, document_id: int, struck: list[str], now: datetime) -> dict:
-    """The Lawyer reads a paper and strikes out the clauses that would hurt the empire. A trap left
+    """The Legal Counsel reads a paper and strikes out the clauses that would hurt the empire. A trap left
     in stays in force. A fair clause struck out is one the other side charges for.
 
-    When the Lawyer's desk has had a day and done nothing, the head may read it instead (and after
-    two days the deputy): a head with no Lawyer signs at their own risk."""
+    When the Legal Counsel's desk has had a day and done nothing, the head may read it instead (and after
+    two days the deputy): a head with no Legal Counsel signs at their own risk."""
     with conn.transaction():
         state = _open(conn, now)
         seat, empire = _active(conn, player_id)
@@ -811,7 +813,7 @@ def review_document(conn: Connection, player_id, document_id: int, struck: list[
         is_head, is_deputy = empire["head_player_id"] == player_id, deputy_of(conn, empire["id"]) == player_id
         late_head = is_head and (waited >= APPROVAL_HOURS or (not lawyers and not desk_staffed(conn, empire["id"], "lawyer")))
         if seat["build"] != "lawyer" and not late_head and not (is_deputy and waited >= DEPUTY_HOURS):
-            raise EmpireError("A paper is read by the empire's Lawyers. If they have not read it in a day, the head may.")
+            raise EmpireError("A paper is read by the empire's Legal Counsel. If they have not read it in a day, the head may.")
         if not isinstance(struck, list) or any(not isinstance(code, str) for code in struck) or len(struck) > 40:
             raise EmpireError("Mark the clauses to strike out.")
         done = _finish_review(conn, doc, struck, player_id, False, now)
@@ -858,7 +860,7 @@ def read_document(conn: Connection, document_id) -> dict:
     """A paper that has been read, for the code that acts on it. Raises if nobody has read it yet."""
     doc = _one(conn, "SELECT * FROM empire_documents WHERE id = %s FOR UPDATE", (document_id,))
     if doc is None or doc["status"] not in ("reviewed", "signed"):
-        raise EmpireError("The paper has not been read yet. It is with the Lawyer's desk.")
+        raise EmpireError("The paper has not been read yet. It is with the Legal Counsel's desk.")
     return doc
 
 

@@ -88,7 +88,7 @@ def test_the_stage_test_every_desk_has_standing_work_that_is_marked_and_the_desk
     assert "_truth" not in opened["terms"] and opened["terms"]["asks"]
     done = firm.hand_in(db, team["accountant"], duty["id"], right(db, duty["id"]), LATER)
     assert done["score"] == 100 and done["experience"] > 0
-    # Raising money: the banker designs it, the Accountant checks, the Risk Manager approves, the Lawyer reads, the head signs.
+    # Raising money: the banker designs it, the Accountant checks, the Risk Manager approves, the Legal Counsel reads, the head signs.
     asked = firm_money.design_raising(db, team["investment_banker"], "bond", naira(60_000_000), 4, LATER)
     firm.decide(db, team["accountant"], asked["approval_id"], True, "", LATER)
     risk = waiting(db, empire["id"], "raise_risk")

@@ -492,7 +492,7 @@ def hire_the_ai_audit_of_my_fund(player: dict = Depends(current_player), conn: C
 
 
 # ---------------------------------------------------------------------------
-# The screens of the Investment Banker, the Risk Manager, the Lawyer and the head of an empire
+# The screens of the Investment Banker, the Risk Manager, the Legal Counsel and the head of an empire
 # ---------------------------------------------------------------------------
 
 DESK_MONEY = {"price", "market_value", "revenue", "net_profit", "ebitda", "borrowings", "equity", "total", "at_risk", "var", "shortfall",

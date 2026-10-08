@@ -41,7 +41,7 @@ def _cash(db, player):
 
 
 def _borrow(db, empire, team, amount_naira, kind="bond"):
-    """The banker designs, the Accountant checks, the Risk Manager agrees, the Lawyer strikes every trap, the head signs."""
+    """The banker designs, the Accountant checks, the Risk Manager agrees, the Legal Counsel strikes every trap, the head signs."""
     asked = firm_money.design_raising(db, team["investment_banker"], kind, naira(amount_naira), 4, LATER)
     firm.decide(db, team["accountant"], asked["approval_id"], True, "", LATER)
     firm.decide(db, team["risk_manager"], waiting(db, empire["id"], "raise_risk")["id"], True, "It can carry it.", LATER)
@@ -382,12 +382,12 @@ def test_f16_an_accountant_does_not_approve_a_cost_paid_for_themselves(db):
 
 
 # ---------------------------------------------------------------------------
-# 11. Acting for the head: a Lawyer offers a contract the head never saw
+# 11. Acting for the head: a Legal Counsel offers a contract the head never saw
 # ---------------------------------------------------------------------------
 
 def test_f17_a_lawyers_draft_contract_waits_for_the_head_to_offer_it(db):
-    """offer_contract() writes a Lawyer's draft straight in as offered by the head (offered_by = the head) and
-    the member may sign it at once. The head never sees it: a Lawyer can give a colleague a 0-day notice (so they
+    """offer_contract() writes a Legal Counsel's draft straight in as offered by the head (offered_by = the head) and
+    the member may sign it at once. The head never sees it: a Legal Counsel can give a colleague a 0-day notice (so they
     can leave for a rival at once) or a 20% share of the desk's pool, in the empire's name."""
     empire, team = firm_of(db)
     contract = firm_people.offer_contract(db, team["lawyer"], team["journalist"], 0, 2000, 0, LATER)

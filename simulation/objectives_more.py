@@ -1,5 +1,5 @@
 """Stage 6: the professional objectives of the Investment Banker, the Risk Manager, the
-Lawyer and the Journalist. They follow the same rules as the first twelve (see objectives.py):
+Legal Counsel and the Financial Journalist. They follow the same rules as the first twelve (see objectives.py):
 practical work from one learning module, judged by the server against the game's own records,
 paid by a named payer.
 """
@@ -1178,7 +1178,7 @@ o.TEMPLATES.update({t.code: t for t in (
 
 
 # ===========================================================================
-# Stage 7. A sixth piece of work for the Lawyer to do alone (Contracts), and the portfolio review
+# Stage 7. A sixth piece of work for the Legal Counsel to do alone (Contracts), and the portfolio review
 # that is part of the Asset Manager's rank case.
 # ===========================================================================
 

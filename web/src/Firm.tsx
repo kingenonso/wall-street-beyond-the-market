@@ -1,31 +1,34 @@
 // The empire as a working firm (private equity stage, part 1).
 // Every build has a desk: duties that come round every quarter, marked from the empire's own figures.
 // Requests go to the desk that must say yes, and never wait for ever. Members vote the big items and
-// the empire's own rules. The Lawyer reads every paper before the head signs. The banker raises money,
-// the Accountant closes the books, the Risk Manager sets limits, the Journalist briefs the head.
+// the empire's own rules. The Legal Counsel reads every paper before the head signs. The banker raises money,
+// the Accountant closes the books, the Risk Manager sets limits, the Financial Journalist briefs the head.
 // The website only asks: the server knows the player's seat, and marks everything.
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError, type Player } from "./api";
-import { asKobo } from "./Empire";
+import { CompaniesTab, DealsTab } from "./Deals";
+import { HeadWork } from "./Desks2";
+import { asKobo, EmpireWork } from "./Empire";
 import { formatCompact, formatNaira, formatPercent } from "./format";
 import { NumberTile } from "./Parts";
 import { Failed, Loading, Panel } from "./Shell";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-type Any = any;
+export type Any = any;
 type Props = { player: Player; onLoggedOut: () => void; onChanged: () => void };
 type Run = (method: "POST" | "PUT" | "DELETE", path: string, body?: unknown) => Promise<Any | null>;
-type Act = { busy: boolean; error: string | null; notice: string | null; run: Run };
+export type Act = { busy: boolean; error: string | null; notice: string | null; run: Run };
 
 const when = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleString("en-NG", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
-const pct = (bps: number | null | undefined) => (bps === null || bps === undefined ? "—" : formatPercent(bps, 1));
+export const pct = (bps: number | null | undefined) => (bps === null || bps === undefined ? "—" : formatPercent(bps, 1));
 const TABS = [
-  ["desks", "Desks"], ["requests", "Requests and votes"], ["money", "Money"], ["people", "People"],
-  ["work", "Work and events"], ["risk", "Risk"], ["board", "Board"],
+  ["overview", "Overview"], ["desks", "Desks"], ["requests", "Requests and votes"], ["deals", "Deals"], ["companies", "Companies"],
+  ["money", "Money"], ["people", "People"], ["work", "Work and events"], ["risk", "Risk"], ["board", "Board"], ["warroom", "War Room"],
 ] as const;
-type Tab = (typeof TABS)[number][0];
+export type Tab = (typeof TABS)[number][0];
+export const EMPIRE_TABS: readonly string[] = TABS.map(([key]) => key);
 
 async function call(method: string, path: string, body?: unknown): Promise<Any> {
   const response = await fetch(`/api${path}`, {
@@ -81,12 +84,12 @@ function useFirm(onLoggedOut: () => void, onChanged: () => void) {
 // Small parts
 // ---------------------------------------------------------------------------
 
-function Money({ kobo, compact = false }: { kobo: string | null | undefined; compact?: boolean }) {
+export function Money({ kobo, compact = false }: { kobo: string | null | undefined; compact?: boolean }) {
   if (kobo === null || kobo === undefined) return <span className="muted">—</span>;
   return <span className="mono">{compact ? formatCompact(kobo) : formatNaira(kobo)}</span>;
 }
 
-function Arrow({ up }: { up: boolean | null }) {
+export function Arrow({ up }: { up: boolean | null }) {
   if (up === null) return null;
   return <span className={up ? "change-up" : "change-down"} aria-label={up ? "good" : "bad"}>{up ? "▲" : "▼"} </span>;
 }
@@ -117,7 +120,7 @@ function SeatPicker({ roster, value, onChange, build, label = "Member", exceptYo
   );
 }
 
-function Fact({ fact }: { fact: Any }) {
+export function Fact({ fact }: { fact: Any }) {
   const value = fact.kind === "money" ? <Money kobo={fact.value} /> : fact.kind === "percent" ? <span className="mono">{pct(Number(fact.value))}</span>
     : fact.kind === "number" ? <span className="mono">{Number(fact.value).toLocaleString("en-NG")}</span> : <span>{String(fact.value)}</span>;
   return <div className="row"><span className="small">{fact.label}</span>{value}</div>;
@@ -127,7 +130,7 @@ function Fact({ fact }: { fact: Any }) {
 // A duty: open it, answer it, hand it in
 // ---------------------------------------------------------------------------
 
-function DutyForm({ duty, act }: { duty: Any; act: Act }) {
+export function DutyForm({ duty, act, path }: { duty: Any; act: Act; path?: string }) {
   const [answers, setAnswers] = useState<Record<string, Any>>({});
   const [result, setResult] = useState<Any>(null);
   const terms = duty.terms;
@@ -143,7 +146,7 @@ function DutyForm({ duty, act }: { duty: Any; act: Act }) {
       else if (ask.kind === "percent") out[ask.key] = Number(String(value ?? "").replace("%", "")) || 0;
       else out[ask.key] = value ?? (ask.kind === "pick" ? [] : "");
     }
-    const done = await act.run("POST", `/firm/duties/${duty.id}/hand-in`, { answers: out });
+    const done = await act.run("POST", path ?? `/firm/duties/${duty.id}/hand-in`, { answers: out });
     if (done) setResult(done.result);
   }
   return (
@@ -464,7 +467,7 @@ function MoneyTab({ f, act }: { f: Any; act: Act }) {
             <label className="answer"><span className="field-label">How much (₦)</span><input type="text" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
             {kind !== "stake" && <label className="answer"><span className="field-label">Over</span><select value={quarters} onChange={(e) => setQuarters(e.target.value)}>{m.limits.terms.map((t: number) => <option key={t} value={t}>{t} quarters</option>)}</select></label>}
             <button className="button-primary" disabled={act.busy || !asKobo(amount)}>Design it</button>
-            <span className="muted small">It goes to the Accountant, then the Risk Manager; the Lawyer reads the paper; the head signs.</span>
+            <span className="muted small">It goes to the Accountant, then the Risk Manager; the Legal Counsel reads the paper; the head signs.</span>
           </form>
         )}
       </Panel>
@@ -558,7 +561,7 @@ function People({ f, act }: { f: Any; act: Act }) {
           <MatchForm id={o.id} act={act} />
         </Panel>
       ))}
-      <Panel title="Contracts" aside="The Lawyer drafts; the head offers; the member signs. Enforced by the game">
+      <Panel title="Contracts" aside="The Legal Counsel drafts; the head offers; the member signs. Enforced by the game">
         {p.contracts.length === 0 && <p className="muted">No contracts yet.</p>}
         {p.contracts.map((c: Any) => (
           <div key={c.id} className="row"><span>{c.name}</span>
@@ -858,19 +861,27 @@ function needsYou(f: Any): { tag: string; title: string; tab: Tab }[] {
   for (const o of f.people.to_match) out.push({ tag: "MATCH", title: `${o.from} has approached ${o.member}`, tab: "people" });
   for (const c of f.people.contracts) if (c.yours && c.status === "offered") out.push({ tag: "CONTRACT", title: "A contract is waiting for your signature", tab: "people" });
   for (const d of f.duties.desks) for (const duty of d.duties) if (duty.yours) out.push({ tag: "DUTY", title: duty.title, tab: "desks" });
+  for (const s of f.deals?.sales ?? []) {
+    if (s.file?.can_sign_nda) out.push({ tag: "DEAL", title: `Sign the confidentiality agreement: ${s.company}`, tab: "deals" });
+    for (const step of s.file?.steps ?? []) if (step.yours) out.push({ tag: "CHECK", title: `${step.title}: ${s.company}`, tab: "deals" });
+  }
+  for (const i of f.deals?.invitations ?? []) if (i.status === "invited") out.push({ tag: "PARTNER", title: `${i.from} asks you to co-invest in ${i.company}`, tab: "deals" });
+  for (const r of f.owned?.rescues_waiting ?? []) out.push({ tag: "RESCUE", title: `A rescue plan for ${r.company}`, tab: "companies" });
+  for (const c of f.owned?.companies ?? []) if (c.loan?.broken?.length) out.push({ tag: "LOAN", title: `${c.name}: a promise to the bank is broken`, tab: "companies" });
   return out;
 }
 
-export function FirmWork({ player, onLoggedOut, onChanged }: Props) {
+export function FirmWork({ player, onLoggedOut, onChanged, initialTab }: Props & { initialTab?: string }) {
   const { data, loadError, reload, act } = useFirm(onLoggedOut, onChanged);
-  const [tab, setTab] = useState<Tab>("desks");
+  const [tab, setTabState] = useState<Tab>((EMPIRE_TABS.includes(initialTab ?? "") ? initialTab : "overview") as Tab);
+  const setTab = (next: Tab) => { setTabState(next); window.history.replaceState(null, "", `#/empire/${next}`); };
   if (!data && !loadError) return <Loading what="the firm" />;
   if (!data) return <Failed message={loadError ?? "Could not load the firm."} onRetry={reload} />;
   const f = data.firm;
   if (!f) {
     return (
-      <Panel title="The firm">
-        <p className="muted">The firm is the work inside an open empire. Take a seat in one first: see <a href="#/empire">Empires</a>.</p>
+      <Panel title="Your empire">
+        <p className="muted">This is the work inside an open empire. Take a seat in one first: see <a href="#/empire">Empires</a>.</p>
         <StakeOffers offers={data.stake_offers} act={act} />
         <Bookkeeping b={data.bookkeeping} act={act} />
       </Panel>
@@ -880,7 +891,7 @@ export function FirmWork({ player, onLoggedOut, onChanged }: Props) {
   return (
     <>
       <div className="work-head">
-        <h1>{f.name}: the firm</h1>
+        <h1>{f.name}</h1>
         <span className="muted small">{f.is_head ? "You are the head" : f.is_deputy ? "You are the deputy head" : `Your desk: ${f.roster.find((r: Any) => r.you)?.build_name ?? ""}`}{f.deputy && !f.is_deputy ? ` · deputy: ${f.deputy}` : ""}</span>
       </div>
       {act.error && <p className="error" role="alert">{act.error}</p>}
@@ -902,6 +913,10 @@ export function FirmWork({ player, onLoggedOut, onChanged }: Props) {
           <button key={key} role="tab" aria-selected={tab === key} className={tab === key ? "tab active" : "tab"} onClick={() => setTab(key)}>{label}</button>
         ))}
       </div>
+      {tab === "overview" && <HeadWork player={player} onLoggedOut={onLoggedOut} onChanged={onChanged} />}
+      {tab === "warroom" && <EmpireWork player={player} onLoggedOut={onLoggedOut} onChanged={onChanged} />}
+      {tab === "deals" && <DealsTab f={f} act={act} />}
+      {tab === "companies" && <CompaniesTab f={f} act={act} />}
       {tab === "desks" && <Desks f={f} act={act} />}
       {tab === "requests" && <Requests f={f} act={act} />}
       {tab === "money" && <MoneyTab f={f} act={act} />}
@@ -910,7 +925,6 @@ export function FirmWork({ player, onLoggedOut, onChanged }: Props) {
       {tab === "risk" && <RiskTab f={f} act={act} />}
       {tab === "board" && <Board f={f} />}
       {tab === "people" && <Bookkeeping b={data.bookkeeping} act={act} />}
-      <span hidden>{player.id}</span>
     </>
   );
 }

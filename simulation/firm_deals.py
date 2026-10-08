@@ -295,7 +295,7 @@ def _prepare(conn: Connection, step: str, sale: dict, empire_id) -> dict:
              fd.fact("Interest rate after the rise", rate, "percent"),
              *[fd.fact(f"{a['name']}: age / life (quarters), stated condition", f"{a['age_quarters']} / {a['life_quarters']}, "
                        f"{a['condition_bps'] // 100}%", "text") for a in register]],
-            [fd.q_number("cover", "Times covered (e.g. 1.84 as 18400... enter it in hundredths: 184)", money=False),
+            [fd.q_number("cover", "Times covered, in hundredths (for 1.84 times, type 184)", money=False),
              fd.q_percent("old", "Share of assets past three-fifths of their life (%)")],
             {"cover": cover // 100, "old": share},
             method="cover = EBITDA × 0.7 ÷ (loan × rate), in hundredths; old = assets with age ≥ 60% of life ÷ all assets")
@@ -1157,7 +1157,7 @@ def _file_view(conn: Connection, f: dict, sale: dict, seat: dict, empire: dict, 
     for s in _rows(conn, "SELECT s.*, p.display_name AS doer FROM deal_steps s LEFT JOIN players p ON p.id = s.done_by WHERE s.file_id = %s ORDER BY s.id",
                    (f["id"],)):
         mine = _desk_ok(conn, empire, seat, s["build"])
-        steps.append({"id": s["id"], "step": s["step"], "title": STEPS[s["step"]][1], "why": STEPS[s["step"]][2], "desk": firm.DESK_NAMES[s["build"]],
+        steps.append({"id": s["id"], "step": s["step"], "title": STEPS[s["step"]][1], "why": STEPS[s["step"]][2], "desk": firm.DESK_LABELS[s["build"]],
                       "status": s["status"], "score": s["score"], "found": s["found"], "by": s["doer"] or ("The staff" if s["by_staff"] else None),
                       "yours": mine and s["status"] == "due" and s["assigned_to"] in (None, me),
                       "terms": firm._public_terms(s["terms"]) if s["assigned_to"] == me and s["status"] == "due" else None})

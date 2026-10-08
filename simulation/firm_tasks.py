@@ -35,14 +35,14 @@ DEFEND_FALL_BPS = 1000              # a holding is under pressure when its price
 RAISE_STEPS = (
     ("investment_banker", None, "Design the raising: a loan, a bond or a stake", "The design, to the Accountant"),
     ("accountant", None, "Check what the empire can carry", "The check, to the Risk Manager"),
-    ("risk_manager", None, "Approve the risk", "The approval, to the Lawyer"),
+    ("risk_manager", None, "Approve the risk", "The approval, to the Legal Counsel"),
     ("lawyer", None, "Read the paper and strike out the traps", "The paper, to the head"),
     ("head", None, "Sign", "The money, in the empire's account"),
 )
 DEFEND_STEPS = (
     ("journalist", "jr_results", "Find out what is happening to the company", "A research note, to the Accountant"),
     ("accountant", "ac_ratios", "Check its accounts: is it still sound?", "A review, to the Risk Manager"),
-    ("risk_manager", "rm_stress", "What would a bad quarter do to it now?", "A risk assessment, to the Lawyer"),
+    ("risk_manager", "rm_stress", "What would a bad quarter do to it now?", "A risk assessment, to the Legal Counsel"),
     ("lawyer", "lw_control", "Who controls it, and is a bid in the way?", "An opinion, to the head"),
     ("head", None, "Decide: hold, or sell", "The decision, recorded and judged as the next quarter closes"),
 )
@@ -431,7 +431,7 @@ def _draw(conn: Connection, empire: dict, period: int, now: datetime) -> dict | 
         issued = {sid: sh["shares"] for sid, sh in shares.items()}
         big = [h for h in held if h["shares"] * BPS >= 500 * max(issued.get(h["company_id"], 1), 1)]
         filings = ("holdings_and_bids" if any(corporate.bid_for(conn, h["company_id"]) for h in big) else "holdings") if big else "none"
-        return {"kind": kind, "body": "The financial regulator has sent an inspector. The Accountant must state the quarter's costs to date, the Lawyer "
+        return {"kind": kind, "body": "The financial regulator has sent an inspector. The Accountant must state the quarter's costs to date, the Legal Counsel "
                                       "the filings the empire is bound by, and the Risk Manager whether the empire is inside its own treasury policy.",
                 "payload": {"_costs": costs, "_inside": not breaches, "_filings": filings}}
     h = valued[_roll(conn, "which_offer", empire["id"], day) % len(valued)]

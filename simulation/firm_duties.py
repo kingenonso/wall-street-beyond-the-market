@@ -566,7 +566,7 @@ def _settle_dangers(conn, opinion, period, now):
 
 
 # ---------------------------------------------------------------------------
-# The Lawyer's desk
+# The Legal Counsel's desk
 # ---------------------------------------------------------------------------
 
 def _holdings_pct(ctx) -> list[dict]:
@@ -634,7 +634,7 @@ def _lw_register(ctx):
 
 
 # ---------------------------------------------------------------------------
-# The Journalist's desk
+# The Intelligence desk
 # ---------------------------------------------------------------------------
 
 def _jr_intel(ctx):

@@ -569,7 +569,7 @@ function Pacts({ room, act }: { room: EmpireRoom; act: Act }) {
           {chosen && !chosen.legal && <p className="small change-down">▼ This kind of agreement is an offence. If it is uncovered, both empires lose trust, and the law stage will add penalties.</p>}
           <label className="answer"><span className="field-label">The terms: what each side must do</span><textarea rows={3} maxLength={400} value={terms} onChange={(event) => setTerms(event.target.value)} /></label>
           <button className="button-outline" disabled={act.busy || !to || terms.trim().length < 10}>Save the draft</button>
-          <p className="muted small">A pact is drafted by a Lawyer, signed by both heads, and can be broken by either side at any moment. Journalists can uncover it.</p>
+          <p className="muted small">A pact is drafted by a Legal Counsel, signed by both heads, and can be broken by either side at any moment. Financial Journalists can uncover it.</p>
         </form>
       )}
     </Panel>

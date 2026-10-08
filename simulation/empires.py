@@ -12,7 +12,7 @@ What is here:
   tasks and handoffs                       work that needs five builds, passed from one to the next
   the shadow feature                       a member can take the empire's money, disguised in its books
   audits                                   an Accountant's audit, the staff's audit, and the paid AI audit
-  secret pacts                             hidden agreements between empires, drafted by a Lawyer
+  secret pacts                             hidden agreements between empires, drafted by a Legal Counsel
   the War Room                             chat, the tracker, the decision log
 
 Nothing here makes money: every naira is moved from one account to another through the ledger.
@@ -1327,7 +1327,7 @@ INVESTMENT_STEPS = (
     ("investment_banker", "ib_multiples", "Value it: what are companies like it worth?",
      "A valuation, to the Risk Manager"),
     ("risk_manager", "rm_stress", "Stress its sales: what would a bad quarter do?",
-     "A risk assessment, to the Lawyer"),
+     "A risk assessment, to the Legal Counsel"),
     ("lawyer", "lw_control", "Check who controls it, and what a buyer would be bound by",
      "A legal opinion, to the head for approval"),
     ("head", None, "Approve the investment and its size", "An approved order, to the Asset Manager"),
@@ -1683,8 +1683,8 @@ objectives.TEMPLATES.update({t.code: t for t in (
 # ---------------------------------------------------------------------------
 
 def draft_pact(conn: Connection, player_id, to_empire: int, kind: str, terms: str, now: datetime) -> dict:
-    """A Lawyer with a seat drafts a pact with another empire. (Where the empire has no player as
-    Lawyer but has staff in the seat, its head may have the staff draft it.)"""
+    """A Legal Counsel with a seat drafts a pact with another empire. (Where the empire has no player as
+    Legal Counsel but has staff in the seat, its head may have the staff draft it.)"""
     with conn.transaction():
         state = _open(conn, now)
         seat = seat_of(conn, player_id, lock=True)
@@ -1696,7 +1696,7 @@ def draft_pact(conn: Connection, player_id, to_empire: int, kind: str, terms: st
                             (seat["empire_id"],))
         is_head = seat["head_player_id"] == player_id
         if seat["build"] != "lawyer" and not (is_head and staff_lawyer and not human_lawyer):
-            raise EmpireError("A pact is drafted by a Lawyer. Recruit one, or hire staff for the seat.")
+            raise EmpireError("A pact is drafted by a Legal Counsel. Recruit one, or hire staff for the seat.")
         if kind not in data.PACT_KINDS:
             raise EmpireError("Choose one of the kinds of pact.")
         other = _empire(conn, to_empire)
@@ -1717,7 +1717,7 @@ def draft_pact(conn: Connection, player_id, to_empire: int, kind: str, terms: st
                           " VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
                     (kind, legal, seat["empire_id"], to_empire, player_id if seat["build"] == "lawyer" else None, terms, state["period"], now))
         if mine["head_player_id"] is None:
-            # An empire the computer runs signs its Lawyer's lawful draft at once, and sends it to the other side.
+            # An empire the computer runs signs its Legal Counsel's lawful draft at once, and sends it to the other side.
             _propose(conn, pact, mine, state["period"], now)
             pact = _one(conn, "SELECT * FROM empire_pacts WHERE id = %s", (pact["id"],))
         return pact
@@ -1814,19 +1814,19 @@ def report_pact(conn: Connection, head_id, pact_id: int, now: datetime) -> None:
 
 
 def investigate(conn: Connection, player_id, empire_id: int, now: datetime) -> dict:
-    """A Journalist looks into an empire for hidden pacts: once a quarter. The chance of finding one
+    """A Financial Journalist looks into an empire for hidden pacts: once a quarter. The chance of finding one
     rises with level. An uncovered pact becomes public; an unlawful one costs both empires trust."""
     with conn.transaction():
         state = _open(conn, now)
         player = _one(conn, "SELECT build FROM players WHERE id = %s FOR UPDATE", (player_id,))
         if player["build"] != "journalist":
-            raise EmpireError("Only a Journalist can investigate an empire.")
+            raise EmpireError("Only a Financial Journalist can investigate an empire.")
         target = _empire(conn, empire_id)
         if target["kind"] == "pension":
             raise EmpireError("There is no such empire.")
         mine = seat_of(conn, player_id)
         if mine and mine["empire_id"] == empire_id:
-            raise EmpireError("A Journalist does not investigate the empire they sit in.")
+            raise EmpireError("A Financial Journalist does not investigate the empire they sit in.")
         level = careers.career(conn, player_id, "journalist")["level"]
         try:
             with conn.transaction():
@@ -1834,7 +1834,7 @@ def investigate(conn: Connection, player_id, empire_id: int, now: datetime) -> d
                              (player_id, state["period"], empire_id, now))
         except errors.UniqueViolation:
             raise EmpireError("You have already investigated an empire this quarter.") from None
-        # A pact the Journalist's own empire is party to is not theirs to "uncover".
+        # A pact the Financial Journalist's own empire is party to is not theirs to "uncover".
         hidden = _rows(conn, "SELECT * FROM empire_pacts WHERE status = 'signed' AND exposed_at IS NULL AND %s IN (from_empire, to_empire)"
                              " AND NOT (%s IN (from_empire, to_empire)) ORDER BY legal, id FOR UPDATE",
                        (empire_id, mine["empire_id"] if mine else -1))

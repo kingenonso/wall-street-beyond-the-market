@@ -362,7 +362,8 @@ def _route_score(conn: Connection, company_id, fares: dict) -> int:
         pair = (route["city_a"], route["city_b"])
         rivals = [f for (cid, p), f in fares.items() if p == pair and cid != company_id]
         against = sum(rivals) // len(rivals) if rivals else BPS
-        fare_factor = max(BPS - 15_000 * (route["fare_bps"] - against) // BPS, 2000)
+        own = fares.get((company_id, pair), route["fare_bps"])
+        fare_factor = max(BPS - 15_000 * (own - against) // BPS, 2000)
         score += _pair_weight(*pair) * fare_factor // BPS * min(route["planes"], 3)
     return score
 

@@ -3,7 +3,7 @@
   partners         an empire run by players is owned in units by those who put money in
   raising money    a loan from a bank, a bond sold to the pension funds, or a stake sold to anybody:
                    the Investment Banker designs it, the Accountant and the Risk Manager approve it,
-                   the Lawyer reads the paper, the head signs
+                   the Legal Counsel reads the paper, the head signs
   what is owed     interest every quarter, the promises tested every quarter, repayment when due
   dividends        the partners vote a payout of up to half the quarter's profit
   treasury policy  the members vote how the empire's money is split between cash, bonds and shares
@@ -195,7 +195,7 @@ def gearing_room(conn: Connection, empire: dict, now: datetime) -> int:
 
 def design_raising(conn: Connection, player_id, kind: str, amount: int, quarters: int, now: datetime) -> dict:
     """The Investment Banker designs a way to raise money for the empire. It goes to the Accountant's
-    desk to check what the empire can carry, then to the Risk Manager's, then the Lawyer reads the
+    desk to check what the empire can carry, then to the Risk Manager's, then the Legal Counsel reads the
     paper, then the head signs. Any of them may stop it."""
     with conn.transaction():
         state = _open(conn, now)
@@ -258,7 +258,7 @@ def _raise_checked(conn: Connection, approval: dict, now: datetime) -> None:
 
 
 def _raise_risked(conn: Connection, approval: dict, now: datetime) -> None:
-    """The Risk Manager's desk agrees: the paper is drawn up for the Lawyer to read."""
+    """The Risk Manager's desk agrees: the paper is drawn up for the Legal Counsel to read."""
     empire = empires._empire(conn, approval["empire_id"])
     terms = approval["payload"]
     pool = STAKE_CLAUSES if terms["kind"] == "stake" else LOAN_CLAUSES
