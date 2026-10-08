@@ -293,7 +293,7 @@ def test_nobody_is_paid_for_a_quarter_that_ended_before_they_were_hired(db):
 def test_an_employer_with_no_cash_owes_the_salary_and_pays_it_when_it_can(db):
     # Find an Accountant's employer that is out of cash.
     broke = _dicts(db, "SELECT c.ticker, c.account_id, c.id FROM companies c JOIN ledger_balances b ON b.account_id = c.account_id"
-                       " AND b.asset = 'NGN' WHERE b.balance = 0 LIMIT 1")
+                       " AND b.asset = 'NGN' WHERE b.balance = 0 AND c.listed LIMIT 1")          # players work for listed companies
     if not broke:
         company = _dicts(db, "SELECT ticker, account_id, id FROM companies WHERE ticker = 'KTX'")[0]
         ledger.transfer(db, payer=company["account_id"], receiver=ledger.account_id(db, ledger.TREASURY),

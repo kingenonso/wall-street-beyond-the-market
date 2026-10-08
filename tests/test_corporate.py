@@ -309,7 +309,9 @@ def test_a_split_gives_every_owner_more_shares_each_worth_less_and_nobody_gains(
     # Nobody is richer or poorer, the index does not move, and the price history is in today's shares.
     seen = marketview.portfolio(db, mine, later)
     held = next(h for h in seen["holdings"] if h["ticker"] == ticker)
-    assert held["shares"] == 500 * ratio and abs(seen["total"] - worth_before) <= worth_before // 200 + 500 * ratio
+    # (A dividend paid as the quarter closed is income, not a gain from the split: it is left out.)
+    dividends = ledger.received_in_period(db, mine, 2, kinds=("dividend",))
+    assert held["shares"] == 500 * ratio and abs(seen["total"] - dividends - worth_before) <= worth_before // 200 + 500 * ratio
     assert abs(index_now(db, later) - index_before) <= index_before // 200
     assert marketview.history(db, ticker)[0]["close"] == before_price // ratio
     assert marketview.history(db, ticker)[0]["volume"] == 100 * ratio

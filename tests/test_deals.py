@@ -12,6 +12,7 @@ from datetime import timedelta
 
 import pytest
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from simulation import empires, firm, firm_deals, firm_owned, ledger, private, quarters
 from simulation import world_data as data
@@ -70,9 +71,12 @@ def open_a_sale(db, company_ticker=None, mode="sealed"):
     return _one(db, "SELECT * FROM sale_processes WHERE id = %s", (sale_id,))
 
 
-def do_checks(db, empire, team, file_id, *, well=True, badly=()):
-    """Every desk does its check on the company; `well` answers with the truth (except the checks named in `badly`)."""
+def do_checks(db, empire, team, file_id, *, well=True, badly=(), skip=()):
+    """Every desk does its check on the company; `well` answers with the truth (except the checks named in `badly`).
+    The checks named in `skip` are not done at all (only the accounts, valuation and stress test are required)."""
     for step in _dicts(db, "SELECT * FROM deal_steps WHERE file_id = %s ORDER BY id", (file_id,)):
+        if step["step"] in skip:
+            continue
         who = team["lawyer" if step["build"] == "lawyer" else step["build"]]
         firm_deals.open_step(db, who, step["id"], LATER)
         answers = right_answers(db, step["id"]) if well and step["step"] not in badly else {k: 0 for k in truth(db, step["id"])}
@@ -253,13 +257,16 @@ def test_a_bid_that_loses_hands_back_every_kobo_held(db):
 
 def test_a_false_promise_is_claimed_against_the_money_held_back(db):
     empire, team = firm_of(db, n_cash=60_000_000_000)
-    dressed = _one(db, "SELECT c.ticker FROM private_profiles p JOIN companies c ON c.id = p.company_id WHERE p.secrets @> '[{\"code\": \"dressed_revenue\"}]'"
-                       " AND c.status = 'trading' AND NOT EXISTS (SELECT 1 FROM sale_processes s WHERE s.company_id = c.id AND s.status = 'open')"
-                       " ORDER BY c.ticker LIMIT 1")
-    sale = open_a_sale(db, dressed["ticker"])
+    # A tax bill the founders hid, which the registry would have shown, but the empire never read the registry.
+    target = _one(db, "SELECT c.* FROM companies c WHERE NOT c.listed AND c.status = 'trading' AND NOT EXISTS (SELECT 1 FROM sale_processes s"
+                      " WHERE s.company_id = c.id AND s.status = 'open') ORDER BY (SELECT base_revenue FROM company_results r WHERE r.company_id = c.id"
+                      " ORDER BY period DESC LIMIT 1), c.ticker LIMIT 1")
+    db.execute("UPDATE private_profiles SET secrets = %s WHERE company_id = %s",
+               (Jsonb([{"code": "hidden_debt", "bps": 0, "amount": million_naira(300), "from_period": None, "done": False}]), target["id"]))
+    sale = open_a_sale(db, target["ticker"])
     file_id = firm_deals.open_file(db, team["investment_banker"], sale["id"], LATER)["file_id"]
     firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
-    do_checks(db, empire, team, file_id, badly=("accounts",))          # the Accountant misses the dressed accounts
+    do_checks(db, empire, team, file_id, skip=("legal",))             # Legal Counsel never reads the registry
     draft = {t["code"]: t for t in firm_deals.terms_view(db, sale["id"], empire["id"])}
     firm_deals.mark_terms(db, team["lawyer"], file_id, {**{c: "strike" for c, t in draft.items() if t["escape"]}, "escrow": "ask"}, LATER)
     firm_deals.place_bid(db, team["head"], file_id, sale["asking"] * 13 // 10, 0, LATER)
@@ -267,15 +274,19 @@ def test_a_false_promise_is_claimed_against_the_money_held_back(db):
     deal = _one(db, "SELECT * FROM deals WHERE empire_id = %s", (empire["id"],))
     assert deal is not None
     when = after_quarters(9) + timedelta(hours=2)
-    seller_cash = ledger.balance(db, deal["seller_account"])
-    got = firm_deals.claim(db, team["lawyer"], deal["id"], "dressed_revenue", when)
-    assert got["paid"] > 0 and got["paid"] <= deal["escrow"] + seller_cash
-    assert _one(db, "SELECT escrow FROM deals WHERE id = %s", (deal["id"],))["escrow"] == max(deal["escrow"] - got["paid"], 0)
-    with pytest.raises(empires.EmpireError, match="has been made"):
-        firm_deals.claim(db, team["lawyer"], deal["id"], "dressed_revenue", when)
-    # The truth came out on taking over the books: the claim stands. One found before buying would not.
+    # Before the tax office's letter arrives, the empire does not know: no claim.
     with pytest.raises(empires.EmpireError, match="does not know"):
         firm_deals.claim(db, team["lawyer"], deal["id"], "hidden_debt", when)
+    assert quarters.close_due_quarters(db, after_quarters(10)) == [10]       # the hidden tax bill falls due
+    later = after_quarters(10) + timedelta(hours=2)
+    seller_cash = ledger.balance(db, deal["seller_account"])
+    got = firm_deals.claim(db, team["lawyer"], deal["id"], "hidden_debt", later)
+    assert got["paid"] == million_naira(300) and got["paid"] <= deal["escrow"] + seller_cash
+    assert _one(db, "SELECT escrow FROM deals WHERE id = %s", (deal["id"],))["escrow"] == max(deal["escrow"] - got["paid"], 0)
+    with pytest.raises(empires.EmpireError, match="has been made"):
+        firm_deals.claim(db, team["lawyer"], deal["id"], "hidden_debt", later)
+    with pytest.raises(empires.EmpireError, match="does not know"):
+        firm_deals.claim(db, team["lawyer"], deal["id"], "dressed_revenue", later)
     assert firm_deals.check_books(db) == [] and ledger.audit(db) == []
 
 

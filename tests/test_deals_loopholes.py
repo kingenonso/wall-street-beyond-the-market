@@ -96,7 +96,7 @@ def test_q4_a_head_cannot_sell_the_empires_company_far_below_its_worth(db):
 def test_q5_no_bid_far_above_the_companys_worth(db):
     empire, team, sale, file_id = ready(db)
     do_checks(db, empire, team, file_id)
-    with pytest.raises(empires.EmpireError, match="No board would let a price through"):
+    with pytest.raises(empires.EmpireError, match="No board would let a price"):
         firm_deals.place_bid(db, team["head"], file_id, sale["asking"] * 10, 0, LATER)
 
 
