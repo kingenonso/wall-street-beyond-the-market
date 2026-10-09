@@ -641,8 +641,9 @@ details.shadow summary { cursor: pointer; }
 .menu-flag { color: var(--gold); font-size: 12px; }
 
 /* Quick fixes: the quiet news pop-up. Small, at the bottom, gone on its own. */
+.news-toast-region { position: fixed; left: 16px; bottom: 16px; z-index: 40; }
 .news-toast {
-  position: fixed; left: 16px; bottom: 16px; z-index: 40; max-width: min(440px, calc(100vw - 32px));
+  max-width: min(440px, calc(100vw - 32px));
   display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 12px; border-radius: 10px;
   background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--gold);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); font-size: 13px; animation: toast-in 0.25s ease-out;
@@ -674,3 +675,6 @@ details.shadow summary { cursor: pointer; }
   width: 100%; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit;
 }
 .report-box { display: grid; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.check-line { display: flex; align-items: center; gap: 8px; }
+.check-line input { width: auto; margin: 0; }
+.report-box .step-actions { justify-content: flex-start; }

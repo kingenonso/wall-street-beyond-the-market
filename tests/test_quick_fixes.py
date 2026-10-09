@@ -87,6 +87,8 @@ def test_early_retirement_through_the_website(db, client, monkeypatch):
     assert client.put("/api/career/build", json={"build": "accountant"}).status_code == 200
     me = client.get("/api/me").json()
     savings(db, me["id"], 1_000_000)
+    refused = client.post("/api/career/retirement/pension", json={"early": True})
+    assert refused.status_code == 409 and "Early retirement opens at Level 35" in refused.json()["detail"]
     careers.add_experience(db, me["id"], "accountant", careers.experience_for(20), NOW9)
     master(db, me["id"], "accountant")
     monkeypatch.setattr(data, "EARLY_RETIREMENT_LEVEL", 20)
@@ -201,19 +203,43 @@ def test_two_players_write_to_each_other_and_only_they_see_it(db):
         messages.send(db, ada, "ada", "hi", NOW9)
 
 
-def test_a_block_stops_messages_both_ways_and_the_blocked_player_is_not_told_who(db):
+def test_a_block_stops_messages_reaching_the_blocker_and_the_blocked_player_is_never_told(db):
     ada, bola = person(db, "ada"), person(db, "bola")
     messages.send(db, ada, "bola", "One", NOW9)
     messages.block(db, bola, "ada", NOW9)
-    for sender, to in ((ada, "bola"), (bola, "ada")):
-        with pytest.raises(messages.MessageError, match="cannot write to this player"):
-            messages.send(db, sender, to, "Two", NOW9)
-    assert messages.thread(db, ada, "bola", NOW9)["blocked"] is False            # ada cannot see that bola blocked her
-    assert messages.thread(db, bola, "ada", NOW9)["blocked"] is True
-    assert messages.conversations(db, bola)["blocked"] == ["ada"] and messages.conversations(db, ada)["blocked"] == []
-    assert messages.unread_count(db, bola) == 0                                   # a blocked player's messages are not counted
-    messages.unblock(db, bola, "ada")
+    # Ada writes as usual: nothing tells her she is blocked, and nothing reaches Bola.
     messages.send(db, ada, "bola", "Two", NOW9)
+    seen_by_ada = messages.thread(db, ada, "bola", NOW9)
+    assert seen_by_ada["blocked"] is False and seen_by_ada["can_write"] is True
+    assert [m["body"] for m in seen_by_ada["messages"]] == ["One", "Two"]
+    assert [m["body"] for m in messages.thread(db, bola, "ada", NOW9)["messages"]] == ["One"]
+    assert messages.unread_count(db, bola) == 0
+    # Bola, who blocked her, is told plainly that it is his own block.
+    with pytest.raises(messages.MessageError, match="You have blocked this player"):
+        messages.send(db, bola, "ada", "Hi", NOW9)
+    assert messages.thread(db, bola, "ada", NOW9)["blocked"] is True and messages.thread(db, bola, "ada", NOW9)["can_write"] is False
+    assert messages.conversations(db, bola)["blocked"] == ["ada"] and messages.conversations(db, ada)["blocked"] == []
+    # Lifting the block lets new messages through; what was sent during the block stays unseen.
+    messages.unblock(db, bola, "ada")
+    messages.send(db, bola, "ada", "Hello again", NOW9)
+    messages.send(db, ada, "bola", "Three", NOW9)
+    assert [m["body"] for m in messages.thread(db, bola, "ada", NOW9)["messages"]] == ["One", "Hello again", "Three"]
+
+
+def test_a_message_that_arrives_while_a_conversation_is_open_stays_unread(db):
+    ada, bola = person(db, "ada"), person(db, "bola")
+    messages.send(db, ada, "bola", "First", NOW9)
+    shown = messages.thread(db, bola, "ada", NOW9)
+    late = messages.send(db, ada, "bola", "Second", NOW9)
+    # Marking read touches only what was shown: run the marking again with the first look's ids.
+    db.execute("UPDATE player_messages SET read_at = %s WHERE id = ANY(%s) AND read_at IS NULL",
+               (NOW9, [m["id"] for m in shown["messages"]]))
+    assert messages.unread_count(db, bola) == 1
+    assert _dicts(db, "SELECT read_at FROM player_messages WHERE id = %s", (late["id"],))[0]["read_at"] is None
+    # Clearing a conversation does not mark anything read for the sender to see.
+    messages.hide_conversation(db, bola, "ada", NOW9)
+    assert _dicts(db, "SELECT read_at FROM player_messages WHERE id = %s", (late["id"],))[0]["read_at"] is None
+    assert messages.unread_count(db, bola) == 0
 
 
 def test_limits_keep_anyone_from_flooding_others(db, monkeypatch):
@@ -297,7 +323,8 @@ def test_messages_through_the_website(db, client):
     theirs = thread["messages"][1]["id"]
     assert client.post("/api/messages/report", json={"message_id": thread["messages"][0]["id"]}).status_code == 409
     assert client.post("/api/messages/report", json={"message_id": theirs, "reason": "Rude", "block": True}).json()["blocked"] == ["bola"]
-    assert client.post("/api/messages", json={"to": "bola", "body": "again"}).status_code == 409
+    blocked = client.post("/api/messages", json={"to": "bola", "body": "again"})
+    assert blocked.status_code == 409 and "You have blocked" in blocked.json()["detail"]
     assert client.post("/api/messages/unblock", json={"name": "bola"}).json()["blocked"] == []
     assert client.post("/api/messages/clear", json={"name": "bola"}).json()["conversations"] == []
     assert client.get("/api/messages/with", params={"name": "nobody"}).status_code == 404

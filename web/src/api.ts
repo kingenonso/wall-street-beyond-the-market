@@ -844,7 +844,7 @@ export const api = {
   placeOrder: (order: NewOrder) =>
     request<{ order: Order; trades: PublicTrade[] }>("/market/orders", { method: "POST", body: JSON.stringify(order) }),
   cancelOrder: (id: number) => request<Order>(`/market/orders/${id}`, { method: "DELETE" }),
-  placeEmpireOrder: (order: NewOrder) => request<unknown>("/empire/orders", { method: "POST", body: JSON.stringify(order) }),
+  placeEmpireOrder: (order: NewOrder) => request<EmpireView & { notice?: string }>("/empire/orders", { method: "POST", body: JSON.stringify(order) }),
   tradeEmpireBond: (code: string, side: "buy" | "sell", units: number) =>
     request<EmpireView & { notice?: string }>("/empire/bonds", { method: "POST", body: JSON.stringify({ code, side, units }) }),
   cancelEmpireOrder: (id: number) => request<unknown>(`/empire/orders/${id}`, { method: "DELETE" }),

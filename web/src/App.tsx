@@ -19,7 +19,7 @@ import { useRoute } from "./hooks";
 import { ProfileRail, ProfileWork } from "./Profile";
 import { Panel, Shell } from "./Shell";
 import { RankRail, RankWork } from "./Rank";
-import { MessagesRail, MessagesWork } from "./Messages";
+import { MessagesRail, MessagesWork, partnerFrom } from "./Messages";
 import { WorkRail, WorkWork } from "./Work";
 import { useClock } from "./useClock";
 
@@ -136,7 +136,8 @@ export function App() {
     rail = <CareerRail player={player} onLoggedOut={loggedOut} />;
   } else if (section === "messages") {
     current = "messages";
-    work = <MessagesWork key={item ?? ""} with={item ? decodeURIComponent(item) : undefined} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    const other = partnerFrom(item);
+    work = <MessagesWork key={other ?? ""} with={other} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <MessagesRail />;
   } else if (section === "profile") {
     current = "profile";

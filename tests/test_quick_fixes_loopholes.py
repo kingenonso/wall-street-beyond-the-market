@@ -25,13 +25,14 @@ pytestmark = pytest.mark.world("eight")
 # 1. Can a player read messages between two other players?
 def test_q1_nobody_reads_a_conversation_they_are_not_in(db, client):
     ada, bola = person(db, "adaeze"), person(db, "bola")
-    messages.send(db, ada, "bola", "Our secret plan", NOW9)
+    sent = messages.send(db, ada, "bola", "Our secret plan", NOW9)
     assert join(client, ADULT).status_code == 201                                # "Ada", a third player
     for name in ("adaeze", "bola"):
         seen = client.get("/api/messages/with", params={"name": name})
         assert seen.status_code == 200 and seen.json()["messages"] == [] and "secret" not in seen.text
     assert client.get("/api/messages").json()["conversations"] == []
-    assert client.post("/api/messages/report", json={"message_id": 1}).status_code in (409,)
+    assert client.post("/api/messages/report", json={"message_id": sent["id"]}).status_code == 409
+    assert _dicts(db, "SELECT count(*) AS n FROM message_reports")[0]["n"] == 0
     assert messages.unread_count(db, bola) == 1                                  # reading as a stranger marked nothing read
 
 
@@ -41,11 +42,13 @@ def test_q2_a_block_or_a_report_is_never_shown_to_the_player_it_is_about(db):
     sent = messages.send(db, ada, "bola", "Hello", NOW9)
     messages.report(db, bola, sent["id"], "Spam", NOW9, and_block=True)
     seen = messages.thread(db, ada, "bola", NOW9)
-    assert seen["blocked"] is False and seen["messages"][0]["reported"] is False
+    assert seen["blocked"] is False and seen["can_write"] is True and seen["messages"][0]["reported"] is False
     assert messages.conversations(db, ada)["blocked"] == []
-    with pytest.raises(messages.MessageError) as refused:
-        messages.send(db, ada, "bola", "Hello?", NOW9)
-    assert "block" not in str(refused.value).lower() and "report" not in str(refused.value).lower()
+    # Writing again works exactly as before: the reply shape is the same as to anyone else.
+    again = messages.send(db, ada, "bola", "Hello?", NOW9)
+    assert set(again) == {"id", "mine", "body", "sent_at", "read", "reported"} and again["read"] is False
+    listed = messages.conversations(db, ada)["conversations"][0]
+    assert listed["blocked"] is False and listed["name"] == "bola"
 
 
 # 3. Can a player send a message as somebody else, or set its time, its reader or its state?
@@ -101,7 +104,8 @@ def test_q6_no_pop_up_shows_a_story_before_its_day(db, client):
     day = _a_day_with_news(db)
     future = _dicts(db, "SELECT period, day FROM news_items WHERE (period, day) > (%s, %s) ORDER BY period, day LIMIT 1",
                     (day["period"], day["day"]))
-    seen = news.alerts(db, day["period"], day["day"], (0, 1, 0))
+    seen = news.alerts(db, day["period"], day["day"], (0, 1, 0), limit=500)
+    assert len(seen["items"]) > 3
     assert all((i["period"], i["day"]) <= (day["period"], day["day"]) for i in seen["items"])
     if future:
         f = future[0]

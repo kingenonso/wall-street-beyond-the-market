@@ -15,10 +15,12 @@ function GroupTitle({ children }: { children: string }) {
 
 type Room = NonNullable<EmpireView["room"]>;
 
-function BondLine({ bond, mine, deskOpen, onDone, room }: {
+function BondLine({ bond, mine, deskOpen, onDone, room, paused = false }: {
   bond: Bond; mine?: BondHolding; deskOpen: boolean; onDone: (text: string) => void;
   /** Set when the player is trading for their empire, with its money. */
   room?: Room | null;
+  /** The switch is on the empire but empire trading is not available: nothing is sent. */
+  paused?: boolean;
 }) {
   const [units, setUnits] = useState("");
   const [busy, setBusy] = useState(false);
@@ -90,9 +92,9 @@ function BondLine({ bond, mine, deskOpen, onDone, room }: {
         <label className="small">How many{" "}
           <input inputMode="numeric" value={units} onChange={(e) => setUnits(e.target.value)} placeholder="0" aria-label={`How many of ${bond.name}`} />
         </label>
-        <button className="button-outline" disabled={busy || !canBuy} onClick={() => act("buy")}>Buy</button>
-        <button className="button-quiet" disabled={busy || !deskOpen || !(room ? room.bond_holdings.some((h) => h.code === bond.code) : mine)} onClick={() => act("sell")}>Sell</button>
-        {bond.kind === "convertible" && !room && <button className="button-quiet" disabled={busy || !mine} onClick={() => act("swap")}>Swap for shares</button>}
+        <button className="button-outline" disabled={busy || paused || !canBuy} onClick={() => act("buy")}>Buy</button>
+        <button className="button-quiet" disabled={busy || paused || !deskOpen || !(room ? room.bond_holdings.some((h) => h.code === bond.code) : mine)} onClick={() => act("sell")}>Sell</button>
+        {bond.kind === "convertible" && !room && <button className="button-quiet" disabled={busy || paused || !mine} onClick={() => act("swap")}>Swap for shares</button>}
         <span className="small muted">
           {wanted ? `${count(wanted)} cost ${formatNaira((BigInt(bond.ask_kobo) * BigInt(wanted)).toString())}` : ""}
           {bond.on_offer !== null && ` · ${count(bond.on_offer)} on offer`}
@@ -116,6 +118,7 @@ export function BondsWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void;
   const room = empire.data?.room && empire.data.room.status === "active" && empire.data.room.can_trade ? empire.data.room : null;
   const [forEmpire, setForEmpire] = useState(false);
   const empireRoom = forEmpire ? room : null;
+  const empireLost = forEmpire && room === null && !empire.loading;
   const [done, setDone] = useState<string | null>(null);
   if (desk.loading && !desk.data) return <Loading what="the bond desk" />;
   if (desk.error) return <Failed message={desk.error} onRetry={desk.reload} />;
@@ -138,6 +141,12 @@ export function BondsWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void;
             <button type="button" aria-pressed={!forEmpire} onClick={() => setForEmpire(false)}>Me</button>
             <button type="button" aria-pressed={forEmpire} onClick={() => setForEmpire(true)}>My empire: {room.name}</button>
           </div>
+        )}
+        {empireLost && (
+          <p className="small notice-line" role="alert">
+            ○ Trading for your empire is not available right now.{" "}
+            <button type="button" className="link-button" onClick={() => setForEmpire(false)}>Trade for me instead</button>
+          </p>
         )}
         {empireRoom && (
           <p className="small notice-line">
@@ -167,7 +176,7 @@ export function BondsWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void;
             <div key={title}>
               <GroupTitle>{title}</GroupTitle>
               <p className="small muted">{words}</p>
-              {rows.map((bond) => <BondLine key={bond.code} bond={bond} mine={mine.get(bond.code)} deskOpen={d.desk_open} onDone={finished} room={empireRoom} />)}
+              {rows.map((bond) => <BondLine key={bond.code} bond={bond} mine={mine.get(bond.code)} deskOpen={d.desk_open} onDone={finished} room={empireRoom} paused={empireLost} />)}
             </div>
           );
         })}

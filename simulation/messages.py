@@ -1,7 +1,7 @@
 """Messages between players (quick fixes, October 2026).
 
-A player writes to another by their display name. Either may block the other, and then neither can
-write to the other until the block is lifted. A player can report a message sent to them; three
+A player writes to another by their display name. Either may block the other. A blocked player is
+never told: what they write is taken as usual and simply never reaches the player who blocked them. A player can report a message sent to them; three
 different players reporting the same sender within a week leave that sender able only to answer
 people who wrote to them first, for that week.
 
@@ -61,11 +61,6 @@ def _other(conn: Connection, me, name: str) -> dict:
     return other
 
 
-def _blocked_either_way(conn: Connection, a, b) -> bool:
-    return bool(_one(conn, "SELECT 1 FROM player_blocks WHERE (blocker_id = %s AND blocked_id = %s)"
-                           " OR (blocker_id = %s AND blocked_id = %s)", (a, b, b, a)))
-
-
 def _limited_by_reports(conn: Connection, me, now: datetime) -> bool:
     found = _one(conn, "SELECT count(DISTINCT r.reporter_id) AS n FROM message_reports r"
                        " JOIN player_messages m ON m.id = r.message_id WHERE m.sender_id = %s AND r.at > %s",
@@ -84,8 +79,11 @@ def send(conn: Connection, me, to_name: str, body: str, now: datetime) -> dict:
         # One send at a time per player, so two at once cannot both slip under a limit.
         conn.execute("SELECT 1 FROM players WHERE id = %s FOR UPDATE", (me,))
         other = _other(conn, me, to_name)
-        if _blocked_either_way(conn, me, other["id"]):
-            raise MessageError("You cannot write to this player.")
+        if _one(conn, "SELECT 1 FROM player_blocks WHERE blocker_id = %s AND blocked_id = %s", (me, other["id"])):
+            raise MessageError("You have blocked this player. Unblock them first to write to them.")
+        # A block by the other player is never revealed: the message is taken as usual, and simply never
+        # reaches them. It counts towards every limit like any other.
+        silenced = bool(_one(conn, "SELECT 1 FROM player_blocks WHERE blocker_id = %s AND blocked_id = %s", (other["id"], me)))
         sent_hour = _one(conn, "SELECT count(*) AS n FROM player_messages WHERE sender_id = %s AND sent_at > %s",
                          (me, now - timedelta(hours=1)))["n"]
         if sent_hour >= data.MESSAGES_PER_HOUR:
@@ -112,8 +110,8 @@ def send(conn: Connection, me, to_name: str, body: str, now: datetime) -> dict:
         if in_a_row >= data.UNANSWERED_IN_A_ROW:
             raise MessageError(f"{other['display_name']} has not answered your last {data.UNANSWERED_IN_A_ROW} messages."
                                " Please wait for an answer.")
-        row = _one(conn, "INSERT INTO player_messages (sender_id, receiver_id, body, sent_at) VALUES (%s, %s, %s, %s)"
-                         " RETURNING id, body, sent_at", (me, other["id"], text, now))
+        row = _one(conn, "INSERT INTO player_messages (sender_id, receiver_id, body, sent_at, hidden_for_receiver)"
+                         " VALUES (%s, %s, %s, %s, %s) RETURNING id, body, sent_at", (me, other["id"], text, now, silenced))
         return {"id": row["id"], "mine": True, "body": row["body"], "sent_at": row["sent_at"], "read": False, "reported": False}
 
 
@@ -135,7 +133,8 @@ def conversations(conn: Connection, me) -> dict:
             SELECT DISTINCT ON (other_id) other_id, id, body, sent_at, sender_id FROM mine ORDER BY other_id, id DESC
         )
         SELECT p.display_name AS name, l.body, l.sent_at, l.sender_id = %(me)s AS mine,
-               (SELECT count(*) FROM mine u WHERE u.other_id = l.other_id AND u.receiver_id = %(me)s AND u.read_at IS NULL) AS unread,
+               (SELECT count(*) FROM mine u WHERE u.other_id = l.other_id AND u.receiver_id = %(me)s AND u.read_at IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM player_blocks b WHERE b.blocker_id = %(me)s AND b.blocked_id = u.other_id)) AS unread,
                EXISTS (SELECT 1 FROM player_blocks b WHERE b.blocker_id = %(me)s AND b.blocked_id = l.other_id) AS blocked
         FROM latest l JOIN players p ON p.id = l.other_id
         ORDER BY l.id DESC LIMIT 100
@@ -151,21 +150,25 @@ def thread(conn: Connection, me, name: str, now: datetime) -> dict:
     """The messages between the player and one other, oldest first (the last 200). Opening it marks
     the messages sent to the player as read."""
     other = _other(conn, me, name)
-    rows = _rows(conn, """
-        SELECT * FROM (
-            SELECT m.id, m.sender_id = %(me)s AS mine, m.body, m.sent_at, m.read_at IS NOT NULL AS read,
-                   EXISTS (SELECT 1 FROM message_reports r WHERE r.message_id = m.id AND r.reporter_id = %(me)s) AS reported
-            FROM player_messages m
-            WHERE (m.sender_id = %(me)s AND m.receiver_id = %(o)s AND NOT m.hidden_for_sender)
-               OR (m.sender_id = %(o)s AND m.receiver_id = %(me)s AND NOT m.hidden_for_receiver)
-            ORDER BY m.id DESC LIMIT 200
-        ) t ORDER BY id
-    """, {"me": me, "o": other["id"]})
-    conn.execute("UPDATE player_messages SET read_at = %s WHERE sender_id = %s AND receiver_id = %s AND read_at IS NULL",
-                 (now, other["id"], me))
+    with conn.transaction():
+        rows = _rows(conn, """
+            SELECT * FROM (
+                SELECT m.id, m.sender_id = %(me)s AS mine, m.body, m.sent_at, m.read_at IS NOT NULL AS read,
+                       EXISTS (SELECT 1 FROM message_reports r WHERE r.message_id = m.id AND r.reporter_id = %(me)s) AS reported
+                FROM player_messages m
+                WHERE (m.sender_id = %(me)s AND m.receiver_id = %(o)s AND NOT m.hidden_for_sender)
+                   OR (m.sender_id = %(o)s AND m.receiver_id = %(me)s AND NOT m.hidden_for_receiver)
+                ORDER BY m.id DESC LIMIT 200
+            ) t ORDER BY id
+        """, {"me": me, "o": other["id"]})
+        # Only what was just shown is marked read: a message that arrives a moment later stays unread.
+        shown = [m["id"] for m in rows if not m["mine"]]
+        if shown:
+            conn.execute("UPDATE player_messages SET read_at = %s WHERE sender_id = %s AND receiver_id = %s AND read_at IS NULL"
+                         " AND id = ANY(%s)", (now, other["id"], me, shown))
     i_blocked = bool(_one(conn, "SELECT 1 FROM player_blocks WHERE blocker_id = %s AND blocked_id = %s", (me, other["id"])))
-    return {"name": other["display_name"], "messages": rows, "blocked": i_blocked,
-            "can_write": not _blocked_either_way(conn, me, other["id"])}
+    # Whether the other player has blocked this one is never shown.
+    return {"name": other["display_name"], "messages": rows, "blocked": i_blocked, "can_write": not i_blocked}
 
 
 def block(conn: Connection, me, name: str, now: datetime) -> None:
@@ -200,5 +203,5 @@ def hide_conversation(conn: Connection, me, name: str, now: datetime) -> None:
     with conn.transaction():
         other = _other(conn, me, name)
         conn.execute("UPDATE player_messages SET hidden_for_sender = true WHERE sender_id = %s AND receiver_id = %s", (me, other["id"]))
-        conn.execute("UPDATE player_messages SET hidden_for_receiver = true, read_at = coalesce(read_at, %s)"
-                     " WHERE sender_id = %s AND receiver_id = %s", (now, other["id"], me))
+        conn.execute("UPDATE player_messages SET hidden_for_receiver = true WHERE sender_id = %s AND receiver_id = %s",
+                     (other["id"], me))

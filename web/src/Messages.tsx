@@ -7,6 +7,17 @@ import { api, ApiError, type ChatMessage, type Conversations, type Thread } from
 import { useLoad } from "./hooks";
 import { Failed, Loading, Panel } from "./Shell";
 
+/** The player named in an address such as #/messages/Ada%20Obi. A broken address names nobody. */
+export function partnerFrom(item: string | undefined): string | undefined {
+  if (!item) return undefined;
+  try {
+    const name = decodeURIComponent(item).trim();
+    return name && name.length <= 40 ? name : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 const when = (iso: string) => new Date(iso).toLocaleString("en-NG", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const go = (name?: string) => { window.location.hash = name ? `#/messages/${encodeURIComponent(name)}` : "#/messages"; };
 const problem = (error: unknown) => (error instanceof ApiError ? error.message : "Could not reach the server.");
@@ -41,7 +52,7 @@ function ReportBox({ message, onDone, onCancel }: { message: ChatMessage; onDone
     <div className="report-box">
       <label className="field-label" htmlFor={`reason-${message.id}`}>What is wrong with this message? (optional)</label>
       <input id={`reason-${message.id}`} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} />
-      <label className="small"><input type="checkbox" checked={block} onChange={(e) => setBlock(e.target.checked)} /> Also block this player</label>
+      <label className="small check-line"><input type="checkbox" checked={block} onChange={(e) => setBlock(e.target.checked)} /> Also block this player</label>
       <div className="step-actions">
         <button className="button-primary" disabled={busy} onClick={() => { setBusy(true); onDone(block, reason).finally(() => setBusy(false)); }}>Send the report</button>
         <button className="button-quiet" onClick={onCancel}>Cancel</button>
@@ -66,15 +77,18 @@ function ThreadView({ name, limits, onChanged, onLoggedOut }: {
   useEffect(() => { if (thread.data) onChanged(); }, [thread.data]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { end.current?.scrollIntoView?.({ block: "nearest" }); }, [thread.data]);
 
-  async function act(action: () => Promise<unknown>) {
+  /** Runs one request. True when it worked: only then is the box emptied or the page left. */
+  async function act(action: () => Promise<unknown>): Promise<boolean> {
     setBusy(true);
     setError(null);
     try {
       await action();
       thread.reload();
       onChanged();
+      return true;
     } catch (e) {
       setError(problem(e));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -98,14 +112,14 @@ function ThreadView({ name, limits, onChanged, onLoggedOut }: {
             </div>
             {reporting === m.id && (
               <ReportBox message={m} onCancel={() => setReporting(null)}
-                onDone={(block, reason) => act(() => api.reportMessage(m.id, reason, block)).then(() => setReporting(null))} />
+                onDone={(block, reason) => act(() => api.reportMessage(m.id, reason, block)).then((ok) => { if (ok) setReporting(null); })} />
             )}
           </div>
         ))}
         <div ref={end} />
       </div>
       {t.can_write ? (
-        <form className="compose" onSubmit={(e) => { e.preventDefault(); if (text.trim()) act(() => api.sendMessage(t.name, text)).then(() => setText("")); }}>
+        <form className="compose" onSubmit={(e) => { e.preventDefault(); if (text.trim()) act(() => api.sendMessage(t.name, text)).then((ok) => { if (ok) setText(""); }); }}>
           <label className="field-label" htmlFor="message-text">Your message</label>
           <textarea id="message-text" rows={3} maxLength={limits.max_chars} value={text} onChange={(e) => setText(e.target.value)} />
           <div className="row">
@@ -113,7 +127,7 @@ function ThreadView({ name, limits, onChanged, onLoggedOut }: {
             <button className="button-primary" disabled={busy || !text.trim()}>Send</button>
           </div>
         </form>
-      ) : <p className="muted small">○ Messages cannot pass between you and this player.</p>}
+      ) : <p className="muted small">⊘ You have blocked {t.name}. Unblock them to write.</p>}
       {error && <p className="error" role="alert">{error}</p>}
       <div className="step-actions">
         {t.blocked
@@ -121,7 +135,7 @@ function ThreadView({ name, limits, onChanged, onLoggedOut }: {
           : <button className="button-quiet" disabled={busy} onClick={() => act(() => api.blockPlayer(t.name))}>⊘ Block {t.name}</button>}
         {sureClear
           ? <span className="small">Clear this conversation from your list? {t.name} keeps their copy.{" "}
-              <button className="button-quiet" disabled={busy} onClick={() => act(() => api.clearConversation(t.name)).then(() => go())}>Yes, clear it</button>{" "}
+              <button className="button-quiet" disabled={busy} onClick={() => act(() => api.clearConversation(t.name)).then((ok) => { if (ok) go(); })}>Yes, clear it</button>{" "}
               <button className="button-quiet" onClick={() => setSureClear(false)}>No</button></span>
           : <button className="button-quiet" onClick={() => setSureClear(true)}>Clear conversation</button>}
       </div>
@@ -207,7 +221,7 @@ export function MessagesRail() {
     <Panel title="How messages work">
       <ul className="plain-list small">
         <li>▸ Write to any player by their display name.</li>
-        <li>▸ Blocking stops messages both ways. The other player is not told.</li>
+        <li>▸ Blocking means you no longer receive anything from that player. They are not told.</li>
         <li>▸ Report a message that is abusive. Three different players reporting someone in a week leaves them able only to answer people who wrote first, for that week.</li>
         <li>▸ To keep things calm: at most 30 messages an hour, 10 new people a day, and 3 messages in a row to someone who has not answered.</li>
         <li>▸ Never share passwords or real-world payment details. There is no real money in this game.</li>

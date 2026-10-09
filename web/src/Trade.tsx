@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { api, ApiError, type Holding, type Order, type Quote } from "./api";
 import { formatNaira, MARKET_LABEL } from "./format";
 import { useLoad } from "./hooks";
@@ -74,6 +74,13 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  // The switch was set to the empire but the empire cannot be traded for right now (a failed read, or the
+  // seat lost its trading): nothing is sent with the player's own money by mistake.
+  const empireLost = forEmpire && room === null && !empire.loading;
+  // An empire the computer runs deals only at a price the trader names.
+  useEffect(() => {
+    if (empireMode && room?.fair_dealing && kind === "market") setKind("limit");
+  }, [empireMode, room?.fair_dealing, kind]);
 
   if (!quote.data) return null;
   const q = quote.data;
@@ -104,11 +111,12 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
     if (count <= 0) return setProblem("Enter how many shares, as a whole number.");
     const limit = kind === "limit" ? toKobo(price) : null;
     if (kind === "limit" && limit === null) return setProblem("Enter your price in naira, for example 20.50.");
+    if (forEmpire && !empireMode) return setProblem("Trading for your empire is not available right now. Choose Me to trade with your own money.");
     setBusy(true);
     if (empireMode) {
       try {
-        await api.placeEmpireOrder({ ticker, side, kind, quantity: count, ...(limit !== null ? { limit_price_kobo: limit } : {}) });
-        setDone(`Sent for ${room?.name}: the order is placed with the empire's money, and what it buys belongs to the empire.`);
+        const view = await api.placeEmpireOrder({ ticker, side, kind, quantity: count, ...(limit !== null ? { limit_price_kobo: limit } : {}) });
+        setDone(view.notice ?? `Sent for ${room?.name}: the order is placed with the empire's money, and what it buys belongs to the empire.`);
         setQuantity("");
         refresh();
       } catch (failure) {
@@ -160,6 +168,12 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
           <button type="button" aria-pressed={!forEmpire} onClick={() => setForEmpire(false)}>Me</button>
           <button type="button" aria-pressed={forEmpire} onClick={() => setForEmpire(true)}>My empire: {room.name}</button>
         </div>
+      )}
+      {empireLost && (
+        <p className="small notice-line" role="alert">
+          ○ Trading for your empire is not available right now.{" "}
+          <button type="button" className="link-button" onClick={() => setForEmpire(false)}>Trade for me instead</button>
+        </p>
       )}
       {empireMode && room && (
         <p className="small notice-line">
@@ -223,7 +237,7 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
           )}
           {problem && <div className="error" role="alert">{problem}</div>}
           {done && <div className="notice" role="status">{done}</div>}
-          <button className="button-primary" type="submit" disabled={busy}>
+          <button className="button-primary" type="submit" disabled={busy || empireLost}>
             {busy ? "Sending…" : `${side === "buy" ? "Place buy order" : "Place sell order"}${empireMode ? " for the empire" : ""}`}
           </button>
           <p className="small muted">

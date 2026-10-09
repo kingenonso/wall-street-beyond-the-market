@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
 import { api, type NewsAlert, type NewsAlertMark, type Player } from "./api";
 import { formatCompact, formatLagosDate, formatLagosTime, MARKET_LABEL } from "./format";
 import { ProfilePicture } from "./icons";
@@ -74,29 +74,35 @@ function TopBar({ player, live, onLogout, onPlayer }: {
 function ProfileMenu({ player, onLogout, onPlayer }: { player: Player; onLogout: () => void; onPlayer?: (player: Player) => void }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const first = useRef<HTMLAnchorElement>(null);
   const waiting = player.rank_waiting || player.unread_messages > 0;
   useEffect(() => {
     if (!open) return;
+    first.current?.focus();
     const away = (event: MouseEvent) => { if (box.current && !box.current.contains(event.target as Node)) setOpen(false); };
-    const key = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setOpen(false); button.current?.focus(); }
+    };
     document.addEventListener("mousedown", away);
     document.addEventListener("keydown", key);
     return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", key); };
   }, [open]);
-  useEffect(() => {
-    const closeOnMove = () => setOpen(false);
-    window.addEventListener("hashchange", closeOnMove);
-    return () => window.removeEventListener("hashchange", closeOnMove);
-  }, []);
+  // Tabbing out of the menu closes it.
+  function leave(event: FocusEvent) {
+    if (box.current && !box.current.contains(event.relatedTarget as Node | null)) setOpen(false);
+  }
   function toggleNews() {
     api.setNewsAlerts(!player.news_alerts).then((p) => onPlayer?.(p)).catch(() => undefined);
   }
+  const close = () => setOpen(false);
   return (
-    <div className="profile-menu" ref={box}>
+    <div className="profile-menu" ref={box} onBlur={leave}>
       <button
+        ref={button}
         className="profile-button"
-        aria-haspopup="menu"
         aria-expanded={open}
+        aria-controls="profile-dropdown"
         aria-label={waiting ? "Your menu (something is waiting)" : "Your menu"}
         onClick={() => setOpen(!open)}
       >
@@ -104,27 +110,27 @@ function ProfileMenu({ player, onLogout, onPlayer }: { player: Player; onLogout:
         {waiting && <span className="waiting-dot" aria-hidden="true" />}
       </button>
       {open && (
-        <div className="profile-dropdown" role="menu">
+        <nav className="profile-dropdown" id="profile-dropdown" aria-label="Your menu">
           <div className="profile-dropdown-head">
             <span className="strong">{player.display_name}</span>
             {player.build_name && <span className="muted small">{player.build_name} · Level {player.level}</span>}
           </div>
-          <a role="menuitem" href="#/profile">Profile</a>
+          <a ref={first} href="#/profile" onClick={close}>Profile</a>
           {player.build_name && (
-            <a role="menuitem" href="#/rank">
+            <a href="#/rank" onClick={close}>
               Rank
               {player.rank_waiting && <span className="menu-flag">◆ a case is waiting</span>}
             </a>
           )}
-          <a role="menuitem" href="#/messages">
+          <a href="#/messages" onClick={close}>
             Messages
             {player.unread_messages > 0 && <span className="count" aria-label={`${player.unread_messages} unread`}>{player.unread_messages}</span>}
           </a>
-          <button role="menuitemcheckbox" aria-checked={player.news_alerts} onClick={toggleNews}>
+          <button aria-pressed={player.news_alerts} onClick={toggleNews}>
             News pop-ups <span className="muted small">{player.news_alerts ? "● On" : "○ Off"}</span>
           </button>
-          <button role="menuitem" onClick={onLogout}>Log out</button>
-        </div>
+          <button onClick={() => { close(); onLogout(); }}>Log out</button>
+        </nav>
       )}
     </div>
   );
@@ -172,26 +178,34 @@ function NewsToasts({ player, onPlayer }: { player: Player; onPlayer?: (player: 
     return () => window.clearInterval(timer);
   }, []);
 
+  // It stays while the pointer or the keyboard is on it, and fades seven seconds after.
+  const [held, setHeld] = useState(false);
   useEffect(() => {
-    if (!shown) return;
+    if (!shown || held) return;
     const timer = window.setTimeout(() => setShown(null), 7000);
     return () => window.clearTimeout(timer);
-  }, [shown]);
+  }, [shown, held]);
 
-  if (!shown || !on) return null;
+  // The live region is always there, so screen readers announce what is put into it.
   return (
-    <div className="news-toast" role="status" aria-live="polite" key={shown.key}>
-      <a href="#/news" className="plain-link news-toast-text" onClick={() => setShown(null)}>
+    <div className="news-toast-region" role="status" aria-live="polite">
+      {shown && on && (
+    <div className="news-toast" key={shown.key}
+         onMouseEnter={() => setHeld(true)} onMouseLeave={() => setHeld(false)}
+         onFocus={() => setHeld(true)} onBlur={() => setHeld(false)}>
+      <a href="#/news" className="plain-link news-toast-text" onClick={() => { setHeld(false); setShown(null); }}>
         <span className="news-toast-outlet">{shown.item.important ? "▲ " : ""}{shown.item.outlet}</span>
         <span className="news-toast-headline">{shown.item.headline}</span>
         {shown.more > 0 && <span className="muted small"> and {shown.more} more</span>}
       </a>
-      <button className="news-toast-button" aria-label="Close" title="Close" onClick={() => setShown(null)}>×</button>
+      <button className="news-toast-button" aria-label="Close" title="Close" onClick={() => { setHeld(false); setShown(null); }}>×</button>
       <button
         className="news-toast-button small"
         title="Turn news pop-ups off (you can turn them on again from the menu under your picture)"
-        onClick={() => { setShown(null); api.setNewsAlerts(false).then((p) => onPlayer?.(p)).catch(() => undefined); }}
+        onClick={() => { setHeld(false); setShown(null); api.setNewsAlerts(false).then((p) => onPlayer?.(p)).catch(() => undefined); }}
       >Mute</button>
+    </div>
+      )}
     </div>
   );
 }
