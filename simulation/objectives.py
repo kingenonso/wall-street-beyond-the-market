@@ -1473,19 +1473,23 @@ def how_to(template: Template) -> str | None:
     import ast
     import inspect
     import textwrap
-    found = None
+    texts: set[str] = set()
     for judge in (template.submit, template.bell, template.close):
-        if judge is None or found:
+        if judge is None:
             continue
         try:
             tree = ast.parse(textwrap.dedent(inspect.getsource(judge)))
         except (OSError, TypeError, SyntaxError):
             continue
         for node in ast.walk(tree):
-            if isinstance(node, ast.keyword) and node.arg == "method" and isinstance(node.value, ast.Constant) \
-                    and isinstance(node.value.value, str) and node.value.value.strip():
-                found = node.value.value.strip()
-                break
+            if isinstance(node, ast.keyword) and node.arg == "method":
+                if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                    if node.value.value.strip():
+                        texts.add(node.value.value.strip())
+                else:
+                    texts.add("\0")          # a method built from the work's own figures: never shown beforehand
+    # Only one fixed text, the same whatever the outcome, is safe to show before the work is done.
+    found = next(iter(texts)) if len(texts) == 1 and "\0" not in texts else None
     _HOW[template.code] = found
     return found
 

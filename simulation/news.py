@@ -723,17 +723,19 @@ def price_moves(conn: Connection, items: list[dict], start, now) -> dict:
     wanted = {t for item in items if 0 < len(item["tickers"]) <= 6 for t in item["tickers"]}
     if not wanted:
         return {}
+    quarter = timedelta(days=game_clock.REAL_DAYS_PER_QUARTER)
+    earliest = min(start + (i["period"] - 1) * quarter for i in items if 0 < len(i["tickers"]) <= 6)
     closes: dict = {}
+    # Only the days the stories need are read: from a fortnight before the oldest story's quarter.
     for row in _rows(conn, """
         SELECT DISTINCT ON (t.company_id, t.session_date) c.ticker, t.session_date, t.price / split_factor(t.company_id, t.id) AS price
         FROM market_trades t JOIN companies c ON c.id = t.company_id
-        WHERE c.ticker = ANY(%s) ORDER BY t.company_id, t.session_date, t.id DESC
-    """, (list(wanted),)):
+        WHERE c.ticker = ANY(%s) AND t.session_date >= %s ORDER BY t.company_id, t.session_date, t.id DESC
+    """, (list(wanted), (game_clock.to_lagos(earliest) - timedelta(days=14)).date())):
         closes.setdefault(row["ticker"], []).append((row["session_date"], int(row["price"])))
     current = {r["ticker"]: int(r["price"]) for r in _rows(conn, """
         SELECT c.ticker, coalesce(m.last_price, m.reference_price) AS price
         FROM market_instruments m JOIN companies c ON c.id = m.company_id WHERE c.ticker = ANY(%s)""", (list(wanted),))}
-    quarter = timedelta(days=game_clock.REAL_DAYS_PER_QUARTER)
     out: dict = {}
     for item in items:
         if not 0 < len(item["tickers"]) <= 6:

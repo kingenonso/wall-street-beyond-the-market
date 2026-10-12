@@ -114,7 +114,7 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
         </div>
         <MixBar label="What you own, by kind" parts={[
           { label: "Shares", value: Number(BigInt(p.shares_value_kobo) / 100n), color: "var(--info)", note: formatCompact(p.shares_value_kobo) },
-          { label: "Bonds and bills", value: Number(BigInt(p.bonds_value_kobo) / 100n), color: "#a996ff", note: formatCompact(p.bonds_value_kobo) },
+          { label: "Bonds and bills", value: Number(BigInt(p.bonds_value_kobo) / 100n), color: "var(--build-am)", note: formatCompact(p.bonds_value_kobo) },
           { label: "Cash", value: Number((BigInt(p.cash_kobo) + BigInt(p.held_for_orders_kobo)) / 100n), color: "var(--border-strong)", note: formatCompact((BigInt(p.cash_kobo) + BigInt(p.held_for_orders_kobo)).toString()) },
         ]} />
         <p className="muted small" style={{ marginTop: 8 }}>
@@ -123,10 +123,11 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
         </p>
       </Panel>
 
-      <Panel title="You against the market" aside={<Term word="BSX 50">both started at 100</Term>}>
+      <Panel title="What you own against the BSX 50" aside={<Term word="BSX 50">both started at 100</Term>}>
         {compare
           ? <CompareChart first={compare.you} second={compare.market} names={["You", "BSX 50"]} labels={compare.labels} />
           : <p className="muted small">This chart appears after two Closing Bells (22:00 Lagos time): what you own and the BSX 50, both started at 100, so you can see which grew faster.</p>}
+        {compare && <p className="muted small" style={{ marginTop: 6 }}>What you own includes salary, rewards and grants paid in, not only what your investments earned. To judge your investing alone, look at the gain or loss on each share below.</p>}
         {p.net_worth.length >= 2 && (
           <details style={{ marginTop: 10 }}>
             <summary className="small" style={{ cursor: "pointer", color: "var(--gold)" }}>What you own, in naira, day by day</summary>
@@ -142,7 +143,7 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
             You own no shares yet. Open the <a href="#/market">Market</a>, pick a company and place a buy order.
           </p>
         ) : (
-          <div className="scroll">
+          <div className="scroll" tabIndex={0}>
             <table>
               <thead>
                 <tr>

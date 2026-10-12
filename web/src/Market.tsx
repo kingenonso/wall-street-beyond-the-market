@@ -29,6 +29,8 @@ export function MarketWork({ tab = "", onLoggedOut, onChanged }: { tab?: string;
              className={tab === path ? "tab active" : "tab"}>{label}</a>
         ))}
       </div>
+      {/* Every market page has a main heading for screen readers; the shares page shows its own. */}
+      {tab !== "" && <h1 className="sr-only">Market: {TABS.find(([path]) => path === tab)?.[1] ?? "the market"}</h1>}
       {tab === "bonds" ? <BondsWork onLoggedOut={onLoggedOut} onChanged={onChanged} />
         : tab === "offers" ? <CorporateWork onLoggedOut={onLoggedOut} onChanged={onChanged} />
         : tab === "industries" ? <IndustriesWork onLoggedOut={onLoggedOut} />
@@ -45,11 +47,13 @@ const SORT_WORDS: Record<SortKey, string> = { ticker: "Code", name: "Company", p
 const RANGES: [string, number][] = [["A week (one quarter)", 7], ["Four weeks (one year)", 28], ["Everything", 9999]];
 
 /** The colour of a heat-map cell: green up, orange down, darker for a bigger move. The arrow carries it too. */
-function heat(bps: number, traded: boolean): string {
-  if (!traded || bps === 0) return "var(--raised)";
+function heat(bps: number, traded: boolean): { background: string; color: string } {
+  if (!traded || bps === 0) return { background: "var(--raised)", color: "var(--text)" };
   const strength = Math.min(1, Math.abs(bps) / 400);
-  const mix = Math.round(25 + strength * 55);
-  return `color-mix(in srgb, ${bps > 0 ? "var(--up)" : "var(--down)"} ${mix}%, var(--panel))`;
+  // The tint never goes past half, so the page's own text colour stays readable on every cell in both
+  // modes (at least 4.5 to 1); the ▲ ▼ beside each move carries the direction as well as the colour.
+  const mix = Math.round(12 + strength * 38);
+  return { background: `color-mix(in srgb, ${bps > 0 ? "var(--up)" : "var(--down)"} ${mix}%, var(--panel))`, color: "var(--text)" };
 }
 
 function SharesWork({ onLoggedOut }: { onLoggedOut: () => void }) {
@@ -144,7 +148,7 @@ function SharesWork({ onLoggedOut }: { onLoggedOut: () => void }) {
                 <div className="small" style={{ color: "var(--text-2)", marginBottom: 6 }}>{sector}</div>
                 <div className="heat-cells">
                   {inside.map((s) => (
-                    <a key={s.ticker} href={`#/companies/${s.ticker}`} className="heat-cell" style={{ background: heat(s.change_bps, s.volume > 0) }}
+                    <a key={s.ticker} href={`#/companies/${s.ticker}`} className="heat-cell" style={heat(s.change_bps, s.volume > 0)}
                        aria-label={`${s.name}: ${s.volume > 0 ? `${s.change_bps > 0 ? "up" : s.change_bps < 0 ? "down" : "unchanged"} ${(Math.abs(s.change_bps) / 100).toFixed(1)}% today` : "no trades yet today"}`}>
                       <span className="mono strong">{s.ticker}</span>
                       <span className="mono">{s.volume > 0 ? `${s.change_bps > 0 ? "▲" : s.change_bps < 0 ? "▼" : "–"}${(Math.abs(s.change_bps) / 100).toFixed(1)}%` : "–"}</span>
@@ -170,7 +174,7 @@ function SharesWork({ onLoggedOut }: { onLoggedOut: () => void }) {
           </label>
         </div>
         {problem && <div className="error" role="alert">{problem}</div>}
-        <div className="scroll">
+        <div className="scroll" tabIndex={0}>
           <table className="dense">
             <thead>
               <tr>

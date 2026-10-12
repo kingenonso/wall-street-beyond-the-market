@@ -390,7 +390,7 @@ export function OwnershipWork({ onLoggedOut }: { onLoggedOut: () => void }) {
         {controlled.length === 0 ? "No company has a controlling owner today." :
           `${controlled.length} of ${rows.length} companies have a controlling owner.`} A single player's holding is never listed.
       </p>
-      <div className="scroll">
+      <div className="scroll" tabIndex={0}>
         <table>
           <thead><tr><th scope="col">Company</th><th scope="col">Control</th></tr></thead>
           <tbody>

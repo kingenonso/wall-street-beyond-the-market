@@ -4,7 +4,7 @@ import { AreaChart } from "./Charts";
 import { changeBps, formatCompact, formatLagosDate, formatMillions, formatNaira, formatPercent, periodLabel } from "./format";
 import { shortDate } from "./Market";
 import { Term } from "./Term";
-import { useLoad } from "./hooks";
+import { useLoad, useNarrow } from "./hooks";
 import { FactsPanel, ResultsReportPanel } from "./Facts";
 import { InvestorPanel } from "./Investor";
 import { TradePanel } from "./Trade";
@@ -80,7 +80,7 @@ export function StatementTable({ name, reports }: { name: keyof typeof STATEMENT
   const value = (report: FiledReport, key: string): Kobo => report.figures[statement.section][key] ?? "0";
   const lines = statement.lines.filter((line) => !line.optional || reports.some((r) => value(r, line.key) !== "0"));
   return (
-    <div className="scroll">
+    <div className="scroll" tabIndex={0}>
       <table className="statement">
         <caption className="muted small">₦ millions. Figures in brackets are money going out.</caption>
         <thead>
@@ -189,7 +189,11 @@ function CompanyHeader({ company, onLoggedOut }: { company: Company; onLoggedOut
         {q && <span className="muted small">Can trade between {formatNaira(q.lowest_today_kobo)} and {formatNaira(q.highest_today_kobo)} today</span>}
         <span className="company-actions">
           <button className="button-quiet" disabled={busy} aria-pressed={watching} onClick={toggle}>{watching ? "★ Watching" : "☆ Watch"}</button>
-          <a className="button-quiet" href="#trade-panel">Trade ↓</a>
+          <button className="button-quiet" onClick={() => {
+            const panel = document.getElementById("trade-panel");
+            panel?.scrollIntoView({ behavior: "smooth", block: "start" });
+            panel?.querySelector<HTMLElement>("button, input")?.focus({ preventScroll: true });
+          }}>Trade ↓</button>
         </span>
       </div>
       <span className="muted small">
@@ -260,7 +264,7 @@ function WhyPricePanel({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: (
   );
 }
 
-function CompanyBody({ company, onLoggedOut }: { company: Company; onLoggedOut: () => void }) {
+function CompanyBody({ company, onLoggedOut, trade }: { company: Company; onLoggedOut: () => void; trade?: React.ReactNode }) {
   const [view, setView] = useState<CompanyTab>("overview");
   const [tab, setTab] = useState<keyof typeof STATEMENTS>("income");
   const trading = company.reports.filter((r) => r.period >= 1);
@@ -275,6 +279,7 @@ function CompanyBody({ company, onLoggedOut }: { company: Company; onLoggedOut: 
   return (
     <>
       <CompanyHeader company={company} onLoggedOut={onLoggedOut} />
+      {trade}
 
       <div className="underline-tabs" role="tablist" aria-label="About this company">
         {COMPANY_TABS.map(([key, label]) => (
@@ -335,11 +340,16 @@ function CompanyBody({ company, onLoggedOut }: { company: Company; onLoggedOut: 
   );
 }
 
-export function CompanyWork({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: () => void; onTraded?: () => void }) {
+export function CompanyWork({ ticker, onLoggedOut, onTraded }: { ticker: string; onLoggedOut: () => void; onTraded?: () => void }) {
   const { data, error, loading, reload } = useLoad(() => api.company(ticker), `company:${ticker}`, onLoggedOut);
+  // On a narrower screen the rail drops below the whole page, so the trading panel comes up under the price instead.
+  const narrow = useNarrow();
   if (loading && !data) return <Loading what="the company" />;
   if (error) return <Failed message={error} onRetry={reload} />;
-  return data ? <CompanyBody company={data} onLoggedOut={onLoggedOut} /> : null;
+  const trade = narrow
+    ? <div id="trade-panel"><TradePanel ticker={ticker} onLoggedOut={onLoggedOut} onTraded={onTraded ?? (() => undefined)} layout="rail" /></div>
+    : null;
+  return data ? <CompanyBody company={data} onLoggedOut={onLoggedOut} trade={trade} /> : null;
 }
 
 function CompanyNews({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: () => void }) {
@@ -366,9 +376,10 @@ function CompanyNews({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: () 
 
 /** Beside a company's page: trading it, and the latest news about it. */
 export function CompanyRail({ ticker, onLoggedOut, onTraded }: { ticker: string; onLoggedOut: () => void; onTraded?: () => void }) {
+  const narrow = useNarrow();
   return (
     <>
-      <div id="trade-panel"><TradePanel ticker={ticker} onLoggedOut={onLoggedOut} onTraded={onTraded ?? (() => undefined)} layout="rail" /></div>
+      {!narrow && <div id="trade-panel"><TradePanel ticker={ticker} onLoggedOut={onLoggedOut} onTraded={onTraded ?? (() => undefined)} layout="rail" /></div>}
       <CompanyNews ticker={ticker} onLoggedOut={onLoggedOut} />
     </>
   );

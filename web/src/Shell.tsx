@@ -46,6 +46,30 @@ function SoundButton({ player, onPlayer }: { player: Player; onPlayer?: (player:
   );
 }
 
+/** The volume: it follows the finger at once, and is saved once the player stops moving it. A late answer never undoes a newer choice. */
+function VolumeSlider({ player, onPlayer }: { player: Player; onPlayer?: (player: Player) => void }) {
+  const [value, setValue] = useState(player.sound_volume);
+  const sent = useRef(0);
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => { setValue(player.sound_volume); }, [player.sound_volume]);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  function move(next: number) {
+    setValue(next);
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => {
+      const mine = ++sent.current;
+      api.setSettings({ sound_volume: next }).then((p) => { if (mine === sent.current) onPlayer?.(p); }).catch(() => undefined);
+    }, 400);
+  }
+  return (
+    <label className="menu-volume">
+      <span>Volume</span>
+      <input type="range" min={0} max={100} step={10} value={value} disabled={!player.sound_on}
+             onChange={(e) => move(Number(e.target.value))} aria-valuetext={`${value} out of 100`} />
+    </label>
+  );
+}
+
 /** Zone 1 of the standard layout: the top bar. */
 function TopBar({ player, live, onLogout, onPlayer }: {
   player: Player; live: LiveClock | null; onLogout: () => void; onPlayer?: (player: Player) => void;
@@ -160,11 +184,7 @@ function ProfileMenu({ player, onLogout, onPlayer }: { player: Player; onLogout:
           <button aria-pressed={player.sound_on} onClick={() => change({ sound_on: !player.sound_on })}>
             Sound <span className="muted small">{player.sound_on ? "● On" : "○ Off"}</span>
           </button>
-          <label className="menu-volume">
-            <span>Volume</span>
-            <input type="range" min={0} max={100} step={10} value={player.sound_volume} disabled={!player.sound_on}
-                   onChange={(e) => change({ sound_volume: Number(e.target.value) })} aria-valuetext={`${player.sound_volume} out of 100`} />
-          </label>
+          <VolumeSlider player={player} onPlayer={onPlayer} />
           <button aria-pressed={player.theme === "light"} onClick={() => change({ theme: player.theme === "light" ? "dark" : "light" })}>
             Light mode <span className="muted small">{player.theme === "light" ? "● On" : "○ Off"}</span>
           </button>
@@ -317,7 +337,7 @@ function BottomBar({ player, current }: { player: Player; current: string }) {
       <a href="#/more" className={inMore ? "bar-item current" : "bar-item"} aria-current={current === "more" ? "page" : undefined}>
         <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">{BAR_ICONS.more}</svg>
         <span>More</span>
-        {(player.unread_messages > 0 || player.rank_waiting) && <span className="bar-dot" aria-label="something is waiting" />}
+        {(player.unread_messages > 0 || player.rank_waiting) && <span className="bar-dot" role="img" aria-label="something is waiting" />}
       </a>
     </nav>
   );
@@ -342,9 +362,7 @@ export function MoreWork({ player, onPlayer, onLogout }: { player: Player; onPla
         <div className="more-list">
           <button aria-pressed={player.news_alerts} onClick={() => api.setNewsAlerts(!player.news_alerts).then((p) => onPlayer?.(p)).catch(() => undefined)}>News pop-ups <span className="muted small">{player.news_alerts ? "● On" : "○ Off"}</span></button>
           <button aria-pressed={player.sound_on} onClick={() => change({ sound_on: !player.sound_on })}>Sound <span className="muted small">{player.sound_on ? "● On" : "○ Off"}</span></button>
-          <label className="menu-volume"><span>Volume</span>
-            <input type="range" min={0} max={100} step={10} value={player.sound_volume} disabled={!player.sound_on}
-                   onChange={(e) => change({ sound_volume: Number(e.target.value) })} aria-valuetext={`${player.sound_volume} out of 100`} /></label>
+          <VolumeSlider player={player} onPlayer={onPlayer} />
           <button aria-pressed={player.theme === "light"} onClick={() => change({ theme: player.theme === "light" ? "dark" : "light" })}>Light mode <span className="muted small">{player.theme === "light" ? "● On" : "○ Off"}</span></button>
           <button onClick={onLogout}>Log out</button>
         </div>
@@ -384,13 +402,31 @@ export function Shell({ player, live, current, onLogout, onPlayer, work, rail, a
   // The Closing Bell rings (if the player has sound on) when the market closes while they are here.
   const state = live?.clock.market_state;
   const was = useRef(state);
+  // Every row of tabs in the game: the left and right arrow keys move to the next tab and open it.
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (event.key !== "ArrowRight" && event.key !== "ArrowLeft" && event.key !== "Home" && event.key !== "End") return;
+      const tab = (event.target as HTMLElement | null)?.closest?.('[role="tab"]') as HTMLElement | null;
+      const list = tab?.closest('[role="tablist"]');
+      if (!tab || !list) return;
+      const tabs = Array.from(list.querySelectorAll<HTMLElement>('[role="tab"]')).filter((t) => !(t as HTMLButtonElement).disabled);
+      const at = tabs.indexOf(tab);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+        : (at + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+      event.preventDefault();
+      tabs[next].focus();
+      tabs[next].click();
+    };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  }, []);
   useEffect(() => {
     if (was.current === "open" && state === "closed") play("bell");
     was.current = state;
   }, [state]);
   return (
     <div className="app" data-accent={accent ?? player.accent ?? undefined}>
-      <a href="#main" className="skip-link">Skip to the page</a>
+      <a href="#main" className="skip-link" onClick={(e) => { e.preventDefault(); document.getElementById("main")?.focus(); }}>Skip to the page</a>
       <TopBar player={player} live={live} onLogout={onLogout} onPlayer={onPlayer} />
       <PriceTicker />
       <div className={wide ? "shell shell-wide" : "shell"}>

@@ -38,24 +38,44 @@ export const GLOSSARY: Record<string, { means: string; example?: string }> = {
 /** A word with a "?" beside it that opens the word's meaning. */
 export function Term({ word, children }: { word: keyof typeof GLOSSARY | string; children?: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [place, setPlace] = useState<{ left: number; top: number; width: number } | null>(null);
   const id = useId();
   const box = useRef<HTMLSpanElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  // The meaning floats above the page, kept inside the screen, so a table that scrolls sideways never cuts it off.
+  function toggle() {
+    if (open) { setOpen(false); return; }
+    const r = button.current?.getBoundingClientRect();
+    if (r) {
+      const width = Math.min(300, window.innerWidth - 24);
+      const left = Math.max(12, Math.min(r.left, window.innerWidth - width - 12));
+      const below = r.bottom + 6;
+      setPlace({ left, top: below + 140 > window.innerHeight ? Math.max(12, r.top - 146) : below, width });
+    }
+    setOpen(true);
+  }
   const entry = GLOSSARY[word];
   useEffect(() => {
     if (!open) return;
     const away = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
     const key = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const shut = () => setOpen(false);
     document.addEventListener("mousedown", away);
     document.addEventListener("keydown", key);
-    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", key); };
+    window.addEventListener("scroll", shut, true);
+    window.addEventListener("resize", shut);
+    return () => {
+      document.removeEventListener("mousedown", away); document.removeEventListener("keydown", key);
+      window.removeEventListener("scroll", shut, true); window.removeEventListener("resize", shut);
+    };
   }, [open]);
   if (!entry) return <>{children ?? word}</>;
   return (
     <span className="term" ref={box}>
       {children ?? word}
-      <button type="button" className="term-q" aria-expanded={open} aria-controls={id} aria-label={`What does “${word}” mean?`} onClick={() => setOpen(!open)}>?</button>
+      <button ref={button} type="button" className="term-q" aria-expanded={open} aria-controls={id} aria-label={`What does “${word}” mean?`} onClick={toggle}>?</button>
       {open && (
-        <span id={id} role="note" className="term-pop">
+        <span id={id} role="note" className="term-pop" style={place ? { left: place.left, top: place.top, width: place.width } : undefined}>
           <span className="strong">{word}</span>: {entry.means}
           {entry.example && <span className="muted"> For example: {entry.example}</span>}
         </span>

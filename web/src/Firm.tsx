@@ -854,18 +854,17 @@ function Board({ f }: { f: Any }) {
 // ---------------------------------------------------------------------------
 
 const BUILD_COLOUR: Record<string, string> = {
-  asset_manager: "#a996ff", accountant: "#4fc38a", investment_banker: "#6db3ff", risk_manager: "#ff9f45", lawyer: "#dfe5ee", journalist: "#d08cf0",
+  asset_manager: "var(--build-am)", accountant: "var(--build-ac)", investment_banker: "var(--build-ib)", risk_manager: "var(--build-rm)",
+  lawyer: "var(--build-lc)", journalist: "var(--build-fj)",
 };
 
 /** The empire's seats, each coloured by its member's build, with the empty seats shown dashed. */
 function Seats({ roster }: { roster: Any[] }) {
-  const total = Math.max(13, roster.length);
+  // An empire has no fixed number of seats: every member is shown, and one open seat says there is room for more.
   return (
-    <Panel title="Seats" aside={`${roster.length} of ${total} filled`}>
+    <Panel title="Members" aside={`${roster.length} ${roster.length === 1 ? "member" : "members"}`}>
       <ul className="seat-grid">
-        {Array.from({ length: total }, (_, i) => {
-          const r = roster[i];
-          if (!r) return <li key={i} className="seat seat-empty"><span aria-hidden="true">+</span><span className="sr-only">An empty seat</span><span className="muted small">empty</span></li>;
+        {roster.map((r, i) => {
           const colour = BUILD_COLOUR[r.build] ?? "var(--muted)";
           return (
             <li key={i} className="seat" style={{ borderColor: colour }}>
@@ -875,8 +874,9 @@ function Seats({ roster }: { roster: Any[] }) {
             </li>
           );
         })}
+        <li className="seat seat-empty"><span aria-hidden="true">+</span><span className="muted small">Room for more members: there is no fixed number of seats</span></li>
       </ul>
-      <p className="muted small">The colour of each seat is its member’s build. Dashed seats are empty.</p>
+      <p className="muted small">The colour of each seat is its member’s build, and the build is written under the name.</p>
     </Panel>
   );
 }

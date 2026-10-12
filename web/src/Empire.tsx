@@ -108,9 +108,9 @@ function Directory({ view, player, act }: { view: EmpireView; player: Player; ac
         {d.divisions.map((division) => (
           <div key={division.division}>
             <div className="why-title">DIVISION {division.division}</div>
-            <div className="scroll">
+            <div className="scroll" tabIndex={0}>
               <table>
-                <thead><tr><th scope="col" className="num">Place</th><th scope="col">Empire</th><th scope="col">Run by</th><th scope="col" className="num">Points</th><th scope="col" className="num">Worth</th><th scope="col" className="num">Players</th><th scope="col" className="num">Trust</th><th scope="col"></th></tr></thead>
+                <thead><tr><th scope="col" className="num">Place</th><th scope="col">Empire</th><th scope="col">Run by</th><th scope="col" className="num">Points</th><th scope="col" className="num">Worth</th><th scope="col" className="num">Players</th><th scope="col" className="num">Trust</th><th scope="col"><span className="sr-only">Action</span></th></tr></thead>
                 <tbody>
                   {division.empires.map((row) => {
                     const entry = d.league.find((e) => e.id === row.id);
@@ -290,9 +290,9 @@ function Seats({ room, act }: { room: EmpireRoom; act: Act }) {
   const [bonus, setBonus] = useState<string | null>(null);
   return (
     <Panel title="Seats and the chain of command" aside={`${room.humans} players · ${room.seats.filter((s) => s.staffed).length} staff`}>
-      <div className="scroll">
+      <div className="scroll" tabIndex={0}>
         <table>
-          <thead><tr><th scope="col">Build</th><th scope="col">Held by</th><th scope="col" className="num">Level</th>{room.is_head && <th scope="col" className="num">May sign for, a quarter</th>}<th scope="col"></th></tr></thead>
+          <thead><tr><th scope="col">Build</th><th scope="col">Held by</th><th scope="col" className="num">Level</th>{room.is_head && <th scope="col" className="num">May sign for, a quarter</th>}<th scope="col"><span className="sr-only">Action</span></th></tr></thead>
           <tbody>
             {room.seats.map((seat) => (
               <tr key={`${seat.build}${seat.slot}`} className={seat.you ? "row-chosen" : undefined}>
@@ -384,7 +384,7 @@ function Treasury({ room, act, onLoggedOut }: { room: EmpireRoom; act: Act; onLo
         <NumberTile label="Bonds and bills" value={formatCompact(room.bonds_value_kobo)} />
       </div>
       {(room.holdings.length > 0 || room.bond_holdings.length > 0) && (
-        <div className="scroll">
+        <div className="scroll" tabIndex={0}>
           <table>
             <thead><tr><th scope="col">Held</th><th scope="col" className="num">Number</th><th scope="col" className="num">Value</th></tr></thead>
             <tbody>
@@ -431,9 +431,9 @@ function Books({ room, act }: { room: EmpireRoom; act: Act }) {
     <Panel title="The books" aside="Every payment out of the empire that is not a trade">
       {room.books.length === 0 && <p className="muted small">Nothing has been paid out yet.</p>}
       {room.books.length > 0 && (
-        <div className="scroll">
+        <div className="scroll" tabIndex={0}>
           <table>
-            <thead><tr><th scope="col">Quarter</th><th scope="col">Entered as</th><th scope="col" className="num">Amount</th><th scope="col"></th></tr></thead>
+            <thead><tr><th scope="col">Quarter</th><th scope="col">Entered as</th><th scope="col" className="num">Amount</th><th scope="col"><span className="sr-only">Action</span></th></tr></thead>
             <tbody>
               {room.books.slice(0, 25).map((entry) => (
                 <tr key={entry.id}>

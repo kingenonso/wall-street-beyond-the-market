@@ -3,6 +3,7 @@ import { changeBps, formatCompact, formatPercent } from "./format";
 import { useLoad } from "./hooks";
 import { Change, Failed, Loading, Panel } from "./Shell";
 import { LineChart, naira } from "./TrendChart";
+import { Term } from "./Term";
 
 const people = (count: number) => count.toLocaleString("en-NG");
 
@@ -57,7 +58,7 @@ function PricesPanel({ economy }: { economy: Economy }) {
     <Panel title="Prices and the Central Bank" aside={economy.period_label ?? undefined}>
       <div className="tiles">
         <div className="tile">
-          <div className="muted small">Prices, over the past year</div>
+          <div className="muted small"><Term word="Inflation">Prices, over the past year</Term></div>
           <div className="mono figure-small">{percentOf(prices.inflation_bps)}</div>
           <div className="small muted">
             {inBand ? "Inside" : prices.inflation_bps > prices.inflation_high_bps ? "▲ Above" : "▼ Below"} the Central Bank's
@@ -65,7 +66,7 @@ function PricesPanel({ economy }: { economy: Economy }) {
           </div>
         </div>
         <div className="tile">
-          <div className="muted small">Central Bank interest rate</div>
+          <div className="muted small"><Term word="Policy rate">Central Bank interest rate</Term></div>
           <div className="mono figure-small">{percentOf(prices.policy_rate_bps)}</div>
           <div className="small muted">
             {rateMove === 0 ? "– Unchanged" : `${rateMove > 0 ? "▲ Up" : "▼ Down"} from ${percentOf(prices.previous_rate_bps)}`}
@@ -95,7 +96,7 @@ function PricesPanel({ economy }: { economy: Economy }) {
         raises its interest rate, which makes every loan dearer and slows borrowing and spending. When they rise slower, it
         cuts. Prices today are {percentOf(prices.price_index_bps - 10000)} above where they stood when the world began.
       </p>
-      <div className="scroll">
+      <div className="scroll" tabIndex={0}>
         <table>
           <thead>
             <tr>
@@ -167,7 +168,7 @@ function Body({ economy }: { economy: Economy }) {
       <PricesPanel economy={economy} />
 
       <Panel title="Households, by location" aside={`${latest.period_label}, per quarter`}>
-        <div className="scroll">
+        <div className="scroll" tabIndex={0}>
           <table>
             <thead>
               <tr>
@@ -201,7 +202,7 @@ function Body({ economy }: { economy: Economy }) {
       </Panel>
 
       <Panel title="Where household income came from" aside={latest.period_label}>
-        <div className="scroll">
+        <div className="scroll" tabIndex={0}>
           <table>
             <thead>
               <tr>

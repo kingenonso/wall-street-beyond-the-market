@@ -20,7 +20,7 @@ export function toKobo(text: string): number | null {
 export function Book({ quote }: { quote: Quote }) {
   const rows = Math.max(quote.bids.length, quote.offers.length, 1);
   return (
-    <div className="scroll">
+    <div className="scroll" tabIndex={0}>
       <table className="book">
         <thead>
           <tr>

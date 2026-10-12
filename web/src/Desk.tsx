@@ -129,7 +129,7 @@ function NeedsYouNow({ cards }: { cards: Card[] }) {
               <span className="card-tag">{card.tag}</span>
               <span className="mono muted">{card.when}</span>
             </div>
-            <h3>{card.title}</h3>
+            <h2 className="h3-look">{card.title}</h2>
             <p className="muted">{card.text}</p>
             <a className={index === 0 ? "button-primary" : "button-outline"} href={card.href}>{card.action}</a>
           </article>
@@ -147,7 +147,7 @@ function Movers({ companies, quarter }: { companies: CompanySummary[]; quarter: 
   const rows = [...ranked.slice(0, 3), ...ranked.slice(-3)];
   return (
     <Panel title={`Biggest moves in sales, ${quarter}`} aside={<a href="#/companies">All {companies.length} companies</a>}>
-      <div className="scroll">
+      <div className="scroll" tabIndex={0}>
         <table>
           <thead>
             <tr>
@@ -237,7 +237,7 @@ export function DeskWork({ player, live, onLoggedOut }: { player: Player; live: 
         {movements.loading && <Loading what="your account" />}
         {movements.error && <Failed message={movements.error} onRetry={movements.reload} />}
         {movements.data && (
-          <div className="scroll">
+          <div className="scroll" tabIndex={0}>
             <table>
               <thead>
                 <tr>
@@ -314,7 +314,7 @@ function WatchTable({ onLoggedOut }: { onLoggedOut: () => void }) {
       {list.length === 0 ? (
         <p className="muted small">Nothing yet. Press ☆ beside a company on the Market page, or on its own page, to keep an eye on it here.</p>
       ) : (
-        <div className="scroll">
+        <div className="scroll" tabIndex={0}>
           <table className="dense">
             <thead><tr><th scope="col">Code</th><th scope="col">Company</th><th scope="col" className="num">Price</th><th scope="col" className="num">Today</th><th scope="col">Last 5 days</th></tr></thead>
             <tbody>

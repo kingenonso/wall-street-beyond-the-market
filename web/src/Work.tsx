@@ -5,7 +5,7 @@ import { useState } from "react";
 import { api, ApiError, type Kobo, type Objective, type ObjectiveBoard, type ObjectiveField, type ObjectiveOffer, type Player, type Setting, type Skill } from "./api";
 import { formatNaira } from "./format";
 import { useLoad } from "./hooks";
-import { Calculator } from "./Calculator";
+import { appendFigure, Calculator } from "./Calculator";
 import { ProgressTracker, SkillTree, STATE_WORDS, progressWords } from "./Parts";
 import { Failed, Loading, Panel } from "./Shell";
 
@@ -32,7 +32,7 @@ export function AnswerField({ field, value, onChange }: { field: ObjectiveField;
   if (field.kind === "classify") {
     const chosen: Record<string, string> = value ?? {};
     return (
-      <div className="scroll">
+      <div className="scroll" tabIndex={0}>
         <table>
           <caption className="field-label">{field.label}</caption>
           <thead><tr><th scope="col">Movement</th><th scope="col" className="num">₦ million</th><th scope="col">Heading</th></tr></thead>
@@ -350,6 +350,11 @@ export function unitWarning(field: ObjectiveField, typed: string, given: { kobo?
   return null;
 }
 
+function objective_can_tour(board: ObjectiveBoard, id: number): boolean {
+  const o = board.active.find((x) => x.id === id);
+  return !!o && o.can_hand_in && o.terms.fields.length > 0;
+}
+
 const TOUR = [
   { at: "figures", text: "These are the company’s own figures, in millions of naira. Tap one and it goes into the calculator, so you never retype a number." },
   { at: "question", text: "One question at a time. The unit is beside the box. If an answer looks like the wrong unit, you are warned, but never told the answer." },
@@ -370,6 +375,7 @@ export function WorkFocus({ id, player, onLoggedOut, onChanged, onPlayer }: {
   const [giveUp, setGiveUp] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tour, setTour] = useState<number | null>(player.tour_done ? null : 0);
+  const [howOpen, setHowOpen] = useState(!player.tour_done);
   const [rules, setRules] = useState(false);
   if (board.loading && !board.data) return <Loading what="your work" />;
   if (board.error || !board.data) return <Failed message={board.error ?? "Could not load your work."} onRetry={board.reload} />;
@@ -380,7 +386,7 @@ export function WorkFocus({ id, player, onLoggedOut, onChanged, onPlayer }: {
   const field = fields[Math.min(step, Math.max(0, fields.length - 1))];
   const last = step >= fields.length - 1;
   const finishTour = () => { setTour(null); api.setSettings({ tour_done: true }).then(onPlayer).catch(() => undefined); };
-  const at = tour !== null ? TOUR[tour].at : null;
+  const at = tour !== null && objective_can_tour(board.data, id) ? TOUR[tour].at : null;
 
   async function handIn() {
     const answers = answersFrom(fields, typed);
@@ -432,7 +438,7 @@ export function WorkFocus({ id, player, onLoggedOut, onChanged, onPlayer }: {
           </div>
           {terms.given.length === 0 && <p className="muted small">This work is done in the market, not from figures.</p>}
           {terms.given.map((line) => line.kobo !== undefined ? (
-            <button key={line.label} type="button" className="figure-button" onClick={() => setSum(sum + inMillions(line.kobo!).replace(/,/g, ""))}
+            <button key={line.label} type="button" className="figure-button" onClick={() => setSum(appendFigure(sum, inMillions(line.kobo!).replace(/,/g, "")))}
                     aria-label={`${line.label}: ${inMillions(line.kobo)} million naira. Tap to use in the calculator.`}>
               <span>{line.label}</span><span className="mono">{inMillions(line.kobo)}</span>
             </button>
@@ -453,7 +459,7 @@ export function WorkFocus({ id, player, onLoggedOut, onChanged, onPlayer }: {
             <section className={at === "question" || at === "hand-in" ? "panel focus-question tour-on" : "panel focus-question"} aria-labelledby="focus-q">
               <div className="lbl">Question {step + 1} of {fields.length}</div>
               <h1 id="focus-q" className="focus-q">{field.label}</h1>
-              <details className="how-card" open={!player.tour_done}>
+              <details className="how-card" open={howOpen} onToggle={(e) => setHowOpen((e.currentTarget as HTMLDetailsElement).open)}>
                 <summary>How to do this</summary>
                 <p className="small">{objective.idea}</p>
                 {objective.how && <p className="small"><strong>The method:</strong> {objective.how}</p>}
@@ -507,9 +513,9 @@ export function WorkFocus({ id, player, onLoggedOut, onChanged, onPlayer }: {
               <h2 id="focus-calc" style={{ marginBottom: 10 }}>Calculator</h2>
               <Calculator text={sum} setText={setSum}
                           onUse={field && field.kind !== "choice" && field.kind !== "classify" && field.kind !== "ticker"
-                            ? (v) => setTyped((was) => ({ ...was, [field.key]: String(Math.round((field.kind === "percent" && Math.abs(v) < 1 ? v * 100 : v) * 100) / 100) }))
+                            ? (v) => setTyped((was) => ({ ...was, [field.key]: String(Math.round(v * 100) / 100) }))
                             : undefined}
-                          useLabel={field?.kind === "percent" ? "Put this in my answer (as a percentage)" : "Put this in my answer"} />
+                          percent={field?.kind === "percent"} />
             </section>
           )}
 
@@ -521,8 +527,8 @@ export function WorkFocus({ id, player, onLoggedOut, onChanged, onPlayer }: {
         </div>
       </div>
 
-      {tour !== null && (
-        <div className="tour" role="dialog" aria-label={`First-time walkthrough, step ${tour + 1} of ${TOUR.length}`} aria-live="polite">
+      {tour !== null && objective.can_hand_in && fields.length > 0 && (
+        <div className="tour" role="region" aria-label={`First-time walkthrough, step ${tour + 1} of ${TOUR.length}`} aria-live="polite">
           <div className="lbl">First time · step {tour + 1} of {TOUR.length}</div>
           <p>{TOUR[tour].text}</p>
           <div className="button-row" style={{ justifyContent: "space-between" }}>

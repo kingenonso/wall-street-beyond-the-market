@@ -60,9 +60,9 @@ function BankChoice({ career, act, onLoggedOut }: { career: Career; act: ReturnT
         for a day earns nothing, and the quarter you join in is not counted. A weaker bank pays more to keep its customers.
         You can move once a quarter.
       </p>
-      <div className="scroll">
+      <div className="scroll" tabIndex={0}>
         <table>
-          <thead><tr><th scope="col">Bank</th><th scope="col">Head office</th><th scope="col">Credit rating</th><th scope="col" className="num">Pays on savings, a year</th><th scope="col"></th></tr></thead>
+          <thead><tr><th scope="col">Bank</th><th scope="col">Head office</th><th scope="col">Credit rating</th><th scope="col" className="num">Pays on savings, a year</th><th scope="col"><span className="sr-only">Action</span></th></tr></thead>
           <tbody>
             {(banks.data ?? []).map((bank) => (
               <tr key={bank.ticker} className={bank.yours ? "row-chosen" : undefined}>
@@ -96,9 +96,9 @@ function EmployerChoice({ career, act, onLoggedOut }: { career: Career; act: Ret
         A new professional starts in a salaried job. The pay is the same wherever you go, so choose by the company: one that is
         behind on its bills may pay you late.
       </p>
-      <div className="scroll">
+      <div className="scroll" tabIndex={0}>
         <table>
-          <thead><tr><th scope="col">Company</th><th scope="col">Industry</th><th scope="col">Head office</th><th scope="col">Rating</th><th scope="col" className="num">Places</th><th scope="col"></th></tr></thead>
+          <thead><tr><th scope="col">Company</th><th scope="col">Industry</th><th scope="col">Head office</th><th scope="col">Rating</th><th scope="col" className="num">Places</th><th scope="col"><span className="sr-only">Action</span></th></tr></thead>
           <tbody>
             {shown.map((row) => (
               <tr key={row.ticker} className={row.yours ? "row-chosen" : undefined}>
@@ -134,7 +134,7 @@ function Payslips({ career }: { career: Career }) {
   if (career.payslips.length === 0) return null;
   return (
     <Panel title="Payslips" aside="One for each quarter">
-      <div className="scroll">
+      <div className="scroll" tabIndex={0}>
         <table>
           <thead><tr><th scope="col">Quarter</th><th scope="col">Employer</th><th scope="col" className="num">Salary</th><th scope="col" className="num">Tax</th><th scope="col" className="num">Living costs</th><th scope="col" className="num">Saved</th><th scope="col" className="num">Take-home</th></tr></thead>
           <tbody>
@@ -234,7 +234,7 @@ function Retirement({ career, act }: { career: Career; act: ReturnType<typeof us
       )}
 
       {savings.entries.length > 0 && (
-        <div className="scroll">
+        <div className="scroll" tabIndex={0}>
           <table>
             <thead><tr><th scope="col">Quarter</th><th scope="col" className="num">You paid in</th><th scope="col" className="num">Employer paid in</th><th scope="col" className="num">The fund earned</th><th scope="col" className="num">Pension paid</th><th scope="col" className="num">Savings</th></tr></thead>
             <tbody>

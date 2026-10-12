@@ -37,7 +37,7 @@ export function Story({ item, lead = false }: { item: NewsItem; lead?: boolean }
             <span className="card-tag">{item.outlet.toUpperCase()}{lead ? " · LEAD STORY" : ""}</span>
             <span className="mono muted">{newsDate(item)}</span>
           </div>
-          <h3>{item.headline}</h3>
+          <h2 className="h3-look">{item.headline}</h2>
           <p className="muted">{item.body}</p>
           {item.tickers.length > 0 && item.tickers.length <= 6 && (
             <div className="chips">

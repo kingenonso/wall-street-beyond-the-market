@@ -17,7 +17,7 @@ function HeatMap({ industries }: { industries: Industry[] }) {
   const total = industries.reduce((sum, s) => sum + Number(BigInt(s.market_value_kobo) / 100n), 0) || 1;
   return (
     <div>
-      <div className="heat" role="list" aria-label="Every company, sized by what it is worth and tinted by today's move">
+      <div className="heat" role="group" aria-label="Every company, sized by what it is worth and tinted by today's move">
         {industries.map((sector) => {
           const value = Number(BigInt(sector.market_value_kobo) / 100n);
           return (
@@ -28,7 +28,7 @@ function HeatMap({ industries }: { industries: Industry[] }) {
                   const size = Number(BigInt(c.market_value_kobo) / 100n);
                   const arrow = c.change_bps > 0 ? "▲" : c.change_bps < 0 ? "▼" : "–";
                   return (
-                    <a key={c.ticker} role="listitem" href={`#/companies/${c.ticker}`} className="heat-tile"
+                    <a key={c.ticker} href={`#/companies/${c.ticker}`} className="heat-tile"
                        style={{ flexGrow: Math.max(size / (value || 1) * 100, 6), background: tint(c.change_bps) }}
                        onMouseEnter={() => setHover(c)} onMouseLeave={() => setHover(null)} onFocus={() => setHover(c)} onBlur={() => setHover(null)}
                        aria-label={`${c.name}: ${c.change_bps > 0 ? "up" : c.change_bps < 0 ? "down" : "unchanged"} ${(Math.abs(c.change_bps) / 100).toFixed(1)}% today, worth ${formatCompact(c.market_value_kobo)}`}>
@@ -65,7 +65,7 @@ export function IndustriesWork({ onLoggedOut }: { onLoggedOut: () => void }) {
       </Panel>
 
       <Panel title="Growth by industry" aside="Sales over the past year against the year before, as filed">
-        <div className="scroll">
+        <div className="scroll" tabIndex={0}>
           <table>
             <thead>
               <tr>

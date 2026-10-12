@@ -780,6 +780,8 @@ function readableError(detail: unknown): string {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  // Anything that changes something may change prices: the shared market answer is asked for again.
+  if (options.method && options.method !== "GET") marketShared = null;
   const response = await fetch(`/api${path}`, {
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
@@ -812,6 +814,19 @@ export type Conversations = {
 export type ChatMessage = { id: number; mine: boolean; body: string; sent_at: string; read: boolean; reported: boolean };
 export type Thread = { name: string; messages: ChatMessage[]; blocked: boolean; can_write: boolean };
 
+/** Several parts of one screen show the market (the desk's tiles, its watchlist, the rail). They share one
+ * answer for a few seconds instead of each asking the server. */
+let marketShared: { at: number; answer: Promise<Market> } | null = null;
+function sharedMarket(): Promise<Market> {
+  const now = Date.now();
+  if (!marketShared || now - marketShared.at > 10_000) {
+    const answer = request<Market>("/market");
+    marketShared = { at: now, answer };
+    answer.catch(() => { if (marketShared?.answer === answer) marketShared = null; });
+  }
+  return marketShared.answer;
+}
+
 export const api = {
   me: () => request<Player>("/me"),
   movements: () => request<Movement[]>("/me/movements?limit=10"),
@@ -841,7 +856,7 @@ export const api = {
     query.set("limit", String(filter.limit ?? 60));
     return request<News>(`/news?${query}`);
   },
-  market: () => request<Market>("/market"),
+  market: () => sharedMarket(),
   portfolio: () => request<Portfolio>("/market/portfolio"),
   watchlist: () => request<Watched[]>("/market/watchlist"),
   watch: (ticker: string, alerts: { alert_above_kobo?: number; alert_below_kobo?: number } = {}) =>

@@ -2,7 +2,7 @@
 // Ctrl K (or ⌘K) puts the cursor in it from anywhere. Arrow keys move through the suggestions,
 // Enter opens one, Escape closes the list. It only ever moves the player around the game's own pages.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { api, type Player, type Ticker } from "./api";
 import { formatNaira } from "./format";
 
@@ -88,11 +88,13 @@ export function CommandBar({ player, compact = false }: { player: Player; compac
   const [shares, setShares] = useState<Ticker["shares"]>([]);
   const input = useRef<HTMLInputElement>(null);
   const loaded = useRef(false);
+  const uid = useId().replace(/:/g, "");
+  const inputId = `command-input-${uid}`, listId = `command-list-${uid}`;
 
   // Ctrl K or ⌘K from anywhere puts the cursor here.
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k" && input.current && input.current.offsetParent !== null) {
         event.preventDefault();
         input.current?.focus();
         input.current?.select();
@@ -129,14 +131,14 @@ export function CommandBar({ player, compact = false }: { player: Player; compac
   let lastGroup = "";
   return (
     <form role="search" className={compact ? "command command-compact" : "command"} onSubmit={(e) => { e.preventDefault(); go(results[active]); }}>
-      <label htmlFor="command-input" className="sr-only">Search or jump to a company, a page or an action</label>
+      <label htmlFor={inputId} className="sr-only">Search or jump to a company, a page or an action</label>
       <svg className="command-icon" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
       </svg>
       <input
-        ref={input} id="command-input" type="search" autoComplete="off" spellCheck={false}
-        role="combobox" aria-expanded={shown} aria-controls="command-list" aria-autocomplete="list"
-        aria-activedescendant={shown && results[active] ? `cmd-${results[active].id}` : undefined}
+        ref={input} id={inputId} type="search" autoComplete="off" spellCheck={false}
+        role="combobox" aria-expanded={shown} aria-controls={listId} aria-autocomplete="list"
+        aria-activedescendant={shown && results[active] ? `cmd-${uid}-${results[active].id}` : undefined}
         placeholder="Search: a company, a page, an action…"
         value={query}
         onFocus={() => { load(); setOpen(true); }}
@@ -146,7 +148,7 @@ export function CommandBar({ player, compact = false }: { player: Player; compac
       />
       <kbd className="command-key" aria-hidden="true">Ctrl K</kbd>
       {shown && (
-        <ul id="command-list" role="listbox" aria-label="Suggestions" className="command-list">
+        <ul id={listId} role="listbox" aria-label="Suggestions" className="command-list">
           {results.map((item, i) => {
             const head = item.group !== lastGroup ? item.group : null;
             lastGroup = item.group;
@@ -154,7 +156,7 @@ export function CommandBar({ player, compact = false }: { player: Player; compac
               <li key={item.id} role="none">
                 {head && <div className="command-group" aria-hidden="true">{head}</div>}
                 <div
-                  id={`cmd-${item.id}`} role="option" aria-selected={i === active}
+                  id={`cmd-${uid}-${item.id}`} role="option" aria-selected={i === active}
                   className={i === active ? "command-option active" : "command-option"}
                   onMouseDown={(e) => { e.preventDefault(); go(item); }}
                   onMouseEnter={() => setActive(i)}

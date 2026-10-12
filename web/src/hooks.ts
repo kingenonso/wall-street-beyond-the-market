@@ -53,3 +53,19 @@ export function useLoad<T>(ask: () => Promise<T>, key: string, onLoggedOut: () =
   }, [key, reload]);
   return { ...state, reload };
 }
+
+/** True while the screen is narrower than the given width, so a page can move a panel nearer the top. */
+export function useNarrow(width = 1150): boolean {
+  const query = `(max-width: ${width}px)`;
+  const read = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches;
+  const [narrow, setNarrow] = useState<boolean>(read);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const list = window.matchMedia(query);
+    const change = () => setNarrow(list.matches);
+    change();
+    list.addEventListener("change", change);
+    return () => list.removeEventListener("change", change);
+  }, [query]);
+  return narrow;
+}
