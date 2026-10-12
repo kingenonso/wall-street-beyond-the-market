@@ -128,7 +128,7 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
 
     exchange.open_market(conn, now)                   # start the day, run the auction if it is due
     seed = world["fortune_seed"]
-    who = accounts(conn)
+    who = accounts(conn)  # noqa
     worth = valuation.latest(conn)
     shares = _rows(conn, "SELECT c.id, c.ticker, c.sector, c.headquarters FROM market_instruments m"
                          " JOIN companies c ON c.id = m.company_id ORDER BY c.ticker")
@@ -136,11 +136,22 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
     mood = _mood_from_todays_news(conn, shares, world["last_closed_period"] + 1, today.day_of_quarter) if today else {}
     day_number = day.toordinal()
     placed = 0
+    from simulation import abroad
+    foreign_tilt = abroad.tilt_now(conn)
+    # How much more the foreign investors may push today: worked out once, and lowered as they trade.
+    foreign_budget = abroad.day_budget_left(conn, who[abroad.FOREIGN], day) if abroad.FOREIGN in who else 0
+    foreign_left = foreign_budget
+    first_new_trade = _rows(conn, "SELECT coalesce(max(id), 0) AS id FROM market_trades")[0]["id"] if foreign_budget > 0 else 0
 
     from simulation import corporate                  # (it needs this module's neighbours too)
     open_bids = {b["target_company_id"]: b for b in _rows(conn, "SELECT * FROM takeovers WHERE status = 'open'")}
 
     for company in shares:
+        if foreign_budget > 0:
+            foreign_left = foreign_budget - _rows(
+                conn, "SELECT coalesce(sum(price * quantity), 0)::bigint AS v FROM market_trades WHERE id > %s"
+                      " AND (buyer_account_id = %s OR seller_account_id = %s)",
+                (first_new_trade, who[abroad.FOREIGN], who[abroad.FOREIGN]))[0]["v"]
         value = worth.get(company["id"])
         if value is None:
             continue
@@ -163,6 +174,8 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
             # What each investor thinks the share is worth today, before the day's price limits are applied.
             views: dict = {}
             for code in data.INVESTORS:
+                if code not in who:
+                    continue                        # (a world made before foreign investors existed)
                 label, own_view, margin, orders, size_percent = data.INVESTORS[code]
                 account = who[code]
                 book = books.get(account)
@@ -180,6 +193,10 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
                 pressure = _within(carried + todays)
                 view = fortune_bps(seed, f"investor:{code}:{share['ticker']}", day_number, "view", own_view)
                 news, cause = mood.get(share["company_id"], (0, None)) if code == "investors:public" else (0, None)
+                if code == abroad.FOREIGN and foreign_tilt and foreign_left > 0:
+                    # Keen to bring money in (or to take it out) this quarter, until they have traded their share of the day:
+                    # after that their orders only wait.
+                    view += foreign_tilt
                 wanted_centre = value["value_per_share"] * (BPS + view) // BPS * (BPS + news) // BPS * (BPS + pressure) // BPS
                 views[code] = (wanted_centre, carried, todays, net_sold, news, cause)
 
@@ -202,7 +219,7 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
                     low, high = exchange.price_limits(limit)
 
             # Not always in the same order, so no one investor always gets the first word.
-            turn = sorted(data.INVESTORS, key=lambda code: fortune_bps(seed, f"turn:{code}:{share['ticker']}", day_number, "order", 10_000))
+            turn = sorted(views, key=lambda code: fortune_bps(seed, f"turn:{code}:{share['ticker']}", day_number, "order", 10_000))
             for code in turn:
                 label, own_view, margin, orders, size_percent = data.INVESTORS[code]
                 account = who[code]
@@ -222,6 +239,8 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
                 bids, offers = ladder(centre, margin, orders, low, high)
                 quantity = max(one_order // centre, 1)
                 wanted = {("buy", price): quantity for price in bids} | {("sell", price): quantity for price in offers}
+                if code == abroad.FOREIGN and foreign_left <= 0:
+                    wanted = {}                     # they have traded their share of the day: their orders come off until tomorrow
                 mine = _rows(conn, "SELECT * FROM market_orders WHERE company_id = %s AND account_id = %s AND status = 'open'"
                                    " ORDER BY id FOR UPDATE", (share["company_id"], account))
                 standing = {(o["side"], o["limit_price"]): o["remaining"] for o in mine}

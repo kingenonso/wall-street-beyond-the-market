@@ -55,7 +55,7 @@ def test_q2_the_method_is_the_same_for_everybody_and_holds_no_figures_of_the_wor
 
 # 3. Can the price move shown beside a story come from a story that is not out yet, or from hidden prices?
 def test_q3_moves_come_only_with_stories_already_out_and_from_public_prices(db, client):
-    trade_days(db, "IDC")
+    traded = trade_days(db)
     assert join(client, ADULT).status_code == 201
     seen = client.get("/api/news", params={"limit": 120}).json()["items"]
     assert all(set(i["moves"]) <= set(i["tickers"]) for i in seen)
@@ -70,7 +70,7 @@ def test_q3_moves_come_only_with_stories_already_out_and_from_public_prices(db, 
     elapsed = now - start
     period = elapsed // quarter + 1
     today = int((elapsed - (period - 1) * quarter) / quarter * clock.GAME_DAYS_PER_QUARTER) + 1
-    tomorrow = {"period": period, "day": today + 2, "tickers": ["IDC"]}
+    tomorrow = {"period": period, "day": today + 2, "tickers": [traded]}
     assert news.price_moves(db, [tomorrow], start, now) == {}
     later = now + timedelta(days=3650)
     assert news.price_moves(db, [tomorrow], start, later)                      # the same story, once out, does show one
@@ -121,7 +121,7 @@ def test_q7_the_database_itself_refuses_settings_out_of_range(db):
 
 # 8. Can the small trend lines show a price that has not happened, or a private company's?
 def test_q8_the_trend_lines_are_only_real_closes_of_listed_shares(db):
-    trade_days(db, "IDC")
+    trade_days(db)
     closes = marketview.recent_closes(db)
     listed = {r["id"] for r in _dicts(db, "SELECT company_id AS id FROM market_instruments")}
     assert set(closes) <= listed

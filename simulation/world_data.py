@@ -476,6 +476,9 @@ INVESTORS = {
     "investors:institutions": ("Pension funds",      100,       50,      3,    150),
     "investors:public":       ("Small investors",    250,       40,      3,    100),
     "investors:founders":     ("Founders",            50,      300,      2,    200),
+    # The economy upgrade: foreign investors. Small, so that they move prices without swamping
+    # everybody else; on top of their own view they price shares up when they want to bring money in.
+    "investors:foreign":      ("Foreign investors",  100,      150,      1,     15),
 }
 MARKET_PAUSE_FALL_BPS = 500        # trading pauses when the whole market falls 5% in a day...
 MARKET_PAUSE_MINUTES = 30          # ...for half an hour, once a day
@@ -733,3 +736,84 @@ UNANSWERED_IN_A_ROW = 3                # messages to someone who has not answere
 REPORTS_TO_BE_LIMITED = 3              # different players reporting one sender within a week...
 REPORT_WINDOW_DAYS = 7                 # ...and the sender may only answer people who wrote first, for that week
 MESSAGE_REPORT_MAX_CHARS = 300
+
+# ---------------------------------------------------------------------------
+# Economy upgrade (owner, 12 October 2026): 1,000 consumer groups, and the rest of the world.
+# ---------------------------------------------------------------------------
+CONSUMER_GROUPS = 1_000                # split between the five locations by population (Lagos 350, Kano 200, ...)
+# Five income levels: the share of a location's groups at each level, and what one group at that
+# level earns against a middle-income group.
+INCOME_BANDS = ("low", "lower_middle", "middle", "upper_middle", "high")
+INCOME_BAND_NAMES = {"low": "Low income", "lower_middle": "Lower-middle income", "middle": "Middle income",
+                     "upper_middle": "Upper-middle income", "high": "High income"}
+INCOME_BAND_GROUPS_PERCENT = (30, 25, 22, 15, 8)
+INCOME_BAND_EARNS_BPS = (4_000, 7_000, 10_000, 18_000, 40_000)
+# How much of what they have to live on each level spends, against the households' usual habit
+# (poorer households spend nearly all of it; the richest save much more).
+INCOME_BAND_SPENDS_BPS = (11_400, 11_000, 10_400, 9_500, 7_700)
+# How much of their savings each level dips into, against the usual habit.
+INCOME_BAND_DIPS_BPS = (13_000, 11_500, 10_000, 9_000, 7_000)
+# What each level spends more or less on than the average household (10000 = the same).
+# Necessities weigh more for poorer households; travel, hotels, property and finance for richer ones.
+INCOME_BAND_TASTES: dict[str, tuple[int, ...]] = {
+    #                 low    l-mid   mid   u-mid   high
+    "consumer":      (13_000, 12_000, 10_000, 8_500, 7_000),
+    "agriculture":   (14_000, 12_000, 10_000, 8_000, 6_000),
+    "power":         (11_000, 10_500, 10_000, 9_500, 9_000),
+    "transport":     (12_000, 11_000, 10_000, 9_000, 8_500),
+    "telecoms":      (10_500, 10_500, 10_000, 9_500, 9_500),
+    "oil_gas":       (10_500, 10_500, 10_000, 9_500, 9_500),
+    "banking":       (6_000, 8_000, 10_000, 12_000, 14_000),
+    "insurance":     (4_000, 7_000, 10_000, 13_000, 16_000),
+    "real_estate":   (6_000, 8_000, 10_000, 12_500, 15_000),
+    "media":         (8_000, 9_000, 10_000, 11_000, 12_000),
+    "hospitality":   (4_000, 6_500, 10_000, 14_000, 18_000),
+    "aviation":      (2_000, 5_000, 10_000, 15_000, 21_000),
+}
+GROUP_TASTE_SPREAD_BPS = 1_000         # each group's own taste differs from its level's by up to a tenth either way
+GROUP_SAVINGS_TILT = 13_000            # richer groups hold more of the savings: shares follow earnings to the power 1.3
+GROUP_MOVE_BPS = 60                    # a group thinks of moving about once in 170 quarters by itself (and often stays)...
+GROUP_MOVE_PER_JOBS_BPS = 2            # ...more often when jobs at home grow slower than in the country (per point of difference)
+GROUP_MOVE_TOWARD_JOBS_BPS = 1_500     # where it goes: bigger places draw more, and each point of faster job growth there draws 15% more
+GROUP_MOVES_MOST = 15                  # never more than this many groups move in one quarter
+# The rest of the world (a simple version; the crises stage builds on it).
+OIL_START_CENTS = 7_500                # $75 a barrel (a game figure)
+OIL_RETURN_BPS = 1_500                 # the oil price drifts this far back towards its usual level each quarter...
+OIL_SWING_BPS = 900                    # ...and swings up to 9% a quarter by itself, more when events hit supply
+OIL_EVENT_MULTIPLE = 1                 # an event that moves energy prices at home moves the world oil price by as much
+OIL_LIMITS_CENTS = (2_500, 20_000)     # between $25 and $200 a barrel
+FX_START = 150_000                     # ₦1,500.00 to one US dollar (in hundredths of a naira; a game figure)
+WORLD_INFLATION_BPS = 250              # prices abroad rise 2.5% a year
+WORLD_RATE_BPS = 400                   # and lending abroad pays 4% a year
+FX_ANCHOR_BPS = 1_000                  # the naira closes a tenth of the gap to its usual value (what prices at home and abroad say) each quarter
+FX_OIL_BPS = 2_500                     # a 10% rise in oil strengthens the naira by 2.5%...
+FX_TRADE_BPS = 500                     # ...a trade surplus as large as a quarter's imports strengthens it by 5%...
+FX_RESERVE_BPS = 300                   # ...and the rest of the world holding fewer naira than usual strengthens it a little
+FX_RATE_BPS = 2_000                    # interest rates above the neutral level strengthen it a little
+FX_SWING_BPS = 250                     # and it swings up to 2.5% a quarter by itself
+FX_MOST_MOVE_BPS = 1_500               # never more than 15% in one quarter
+# Only goods can be bought abroad: power, phone lines, transport, banking and the like are bought at home.
+IMPORTABLE_SUPPLIES = ("manufacturing", "oil_gas", "agriculture", "cement", "consumer")
+# What each kind of company buys from abroad, as a share of the goods it buys.
+IMPORT_SHARE_BPS: dict[str, int] = {
+    "manufacturing": 2_500, "aviation": 3_500, "telecoms": 3_000, "power": 2_000, "oil_gas": 1_500,
+    "consumer": 1_500, "cement": 1_500, "shipping": 2_000, "transport": 2_000, "agriculture": 800,
+    "real_estate": 1_200, "media": 1_500, "hospitality": 1_200, "banking": 800, "insurance": 500,
+}
+IMPORT_SWITCH_BPS = 8_000              # when goods abroad are 10% dearer, companies buy 8% less of them there (and more at home)
+EXPORT_SWITCH_BPS = 10_000             # and buyers abroad buy 10% more farm produce and factory goods when the naira is 10% cheaper
+IMPORT_PRICE_WEIGHT_BPS = 800          # imported goods are this much of what households pay for: a weaker naira raises prices
+OIL_EXPORT_SHARE_BPS = 7_500           # oil and gas earn three quarters of what the country sells abroad on day one...
+NON_OIL_EXPORTS = {"agriculture": 6_000, "manufacturing": 4_000}   # ...farms and factories the rest
+OIL_ROYALTY_BPS = 2_000                # the Government takes a fifth of what oil sold abroad brings in
+ABROAD_RESERVE_QUARTERS = 4            # the rest of the world starts with four quarters' imports in naira
+ABROAD_MOST_SPEND_BPS = 6_000          # and spends at most 60% of what it holds in naira in one quarter
+FOREIGN_START_SHARE_BPS = 1_000        # foreign investors' usual stake: a tenth of what the rest of the world holds in naira
+FOREIGN_CARRY_BPS = 1_500              # each point of extra return over abroad moves what they want to hold by 15%
+FOREIGN_WANT_LIMITS_BPS = (2_000, 25_000)
+FOREIGN_MOVE_BPS = 5_000               # they close half the gap to what they want each quarter
+FOREIGN_TILT_PER_CARRY_BPS = 2_000     # ...and price shares up or down by 20% of their extra return (as a share of a year)...
+FOREIGN_MOST_TILT_BPS = 150            # ...at most 1.5%
+FOREIGN_DAY_SHARE_BPS = 500            # they trade at most about 5% of a day's trading: once their buying or selling today
+                                       # reaches 5% of what everybody else traded on an average recent day, they only wait
+FOREIGN_DAY_LEAST_NAIRA = 2_000_000    # (in a new market with little trading yet, they may still trade this much a day)

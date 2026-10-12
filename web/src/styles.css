@@ -949,3 +949,7 @@ table.dense th[scope="row"] { white-space: nowrap; }
 
 /* Links inside sentences are underlined, so they are found without relying on colour (redesign accessibility check). */
 :where(p, li, td, .small, .muted, .why-title, .bond, nav[aria-label="Breadcrumb"]) a:not([class]) { text-decoration: underline; text-underline-offset: 2px; }
+
+/* The economy upgrade: two small charts side by side (oil, the naira), one column on phones. */
+.two-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 900px) { .two-charts { grid-template-columns: minmax(0, 1fr); } }

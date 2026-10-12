@@ -32,6 +32,8 @@ from server.schemas import (
     CompanySummary,
     ConfirmEmailRequest,
     EconomyQuarter,
+    AbroadSummary,
+    ConsumersSummary,
     EconomyResponse,
     HouseholdGroup,
     LocationEffect,
@@ -633,7 +635,20 @@ def economy(_: dict = Depends(current_player), conn: Connection = Depends(get_co
                 money_growth_bps=reading["money_growth_bps"], output_growth_bps=reading["output_growth_bps"],
             )
 
+    from simulation import abroad as _abroad, consumers as _consumers
+    has_groups = world is not None and conn.execute("SELECT 1 FROM consumer_groups LIMIT 1").fetchone() is not None
+    consumers_now = None
+    if has_groups:
+        summary = _consumers.public_summary(conn, period)
+        consumers_now = ConsumersSummary(
+            period=period, bands=summary["bands"], mindsets=summary["mindsets"], moves=summary["moves"],
+            moved=summary["moved"], moved_total=sum(h["groups"] for h in summary["moved_history"]))
+    abroad_now = None
+    if world is not None and conn.execute("SELECT 1 FROM abroad_results LIMIT 1").fetchone() is not None:
+        view = _abroad.public(conn)
+        abroad_now = AbroadSummary(**{**view, "history": view["history"][-13:], "trade": view["trade"][-12:]})
     return EconomyResponse(
+        consumers=consumers_now, abroad=abroad_now,
         prices=prices, macro_history=macro_history, money_watch=watch,
         period=period, period_label=clock.period_label(period) if period else None,
         money_in_existence_kobo=money,

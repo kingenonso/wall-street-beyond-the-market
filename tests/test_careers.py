@@ -15,7 +15,7 @@ from psycopg.rows import dict_row
 
 from simulation import careers, clock, ledger, objectives, quarters
 from simulation import world_data as data
-from simulation.money import BPS, naira
+from simulation.money import BPS, apply_bps, naira
 from tests.conftest import TEST_DATABASE_URL, after_quarters, money_accounted_for
 from tests.test_market import trader
 
@@ -385,7 +385,7 @@ def test_part_of_every_salary_is_saved_and_the_employer_adds_more(db):
     quarters.close_due_quarters(db, after_quarters(9))
     slip = _dicts(db, "SELECT * FROM payslips WHERE player_id = %s", (player,))[0]
     entry = _dicts(db, "SELECT * FROM retirement_entries WHERE player_id = %s", (player,))[0]
-    assert entry["paid_in_by_you"] == slip["pension_yours"] == slip["gross"] * 8 // 100
+    assert entry["paid_in_by_you"] == slip["pension_yours"] == apply_bps(slip["gross"], 800)      # 8%, to the nearest kobo
     assert entry["paid_in_by_employer"] == slip["pension_employer"] == slip["gross"] // 10
     assert entry["closing"] == entry["paid_in_by_you"] + entry["paid_in_by_employer"] and entry["fund"] == "balanced"
     # It is a claim on the pension funds, not cash: the player cannot spend it.

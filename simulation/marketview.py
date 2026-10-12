@@ -283,7 +283,7 @@ def shareholders(conn: Connection, company_id, asset: str) -> list[dict]:
     owners = _rows(conn, "SELECT a.kind, a.code, a.name, o.shares FROM share_owners o JOIN ledger_accounts a ON a.id = o.account_id"
                          " WHERE o.company_id = %s", (company_id,))
     enough_players = _rows(conn, "SELECT count(*) AS n FROM players")[0]["n"] >= MIN_PLAYERS_SHOWN
-    groups = {"Founders": 0, "Pension funds": 0, "Small investors": 0, "Players": 0, "Others": 0}
+    groups = {"Founders": 0, "Pension funds": 0, "Small investors": 0, "Foreign investors": 0, "Players": 0, "Others": 0}
     for owner in owners:
         if owner["code"] == ledger.INVESTORS_FOUNDERS:
             groups["Founders"] += owner["shares"]
@@ -291,6 +291,8 @@ def shareholders(conn: Connection, company_id, asset: str) -> list[dict]:
             groups["Pension funds"] += owner["shares"]
         elif owner["code"] == ledger.INVESTORS_PUBLIC:
             groups["Small investors"] += owner["shares"]
+        elif owner["code"] == "investors:foreign":
+            groups["Foreign investors"] += owner["shares"]
         elif owner["kind"] == "player":
             # While players are few, their shares are counted with the small investors, so that
             # no line shows one player's holding.

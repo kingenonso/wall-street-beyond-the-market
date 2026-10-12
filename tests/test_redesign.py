@@ -20,10 +20,15 @@ from tests.test_careers import NOW9, professional
 pytestmark = pytest.mark.world("eight")
 
 
-def trade_days(db, ticker="IDC", days=6):
-    """Real trades on several days in a row, each a little above the last, so a share has closing prices."""
+def trade_days(db, ticker=None, days=6):
+    """Real trades on several days in a row, each a little above the last, so a share has closing prices.
+    It uses a share whose last trading day was before these days (some shares trade during the quarter closes,
+    which move their trading day on), or the share asked for. Returns the share's code."""
     from simulation import exchange
     from tests.test_market import OPEN, place, reference, trader
+    if ticker is None:
+        ticker = db.execute("SELECT c.ticker FROM market_instruments m JOIN companies c ON c.id = m.company_id"
+                            " WHERE m.session_date < %s AND m.last_price IS NULL ORDER BY c.ticker LIMIT 1", (OPEN.date(),)).fetchone()[0]
     seller = trader(db, f"seller{ticker.lower()}", shares=100_000, ticker=ticker)
     buyer = trader(db, f"buyer{ticker.lower()}", cash_naira=50_000_000, ticker=ticker)
     price = reference(db, ticker)
@@ -116,7 +121,7 @@ def test_how_to_do_this_is_the_general_method_and_never_the_answer(db):
 # ---------------------------------------------------------------------------
 
 def test_each_share_carries_its_last_five_closes(db, client):
-    trade_days(db, "IDC")
+    trade_days(db)
     assert join(client, ADULT).status_code == 201
     shares = client.get("/api/market").json()["shares"]
     with_closes = [s for s in shares if s["closes"]]
@@ -148,7 +153,7 @@ def test_work_in_hand_is_counted_for_the_dot_on_work(db, client):
 def test_a_storys_price_move_runs_from_the_last_close_before_it_to_the_price_now(db):
     world = _dicts(db, "SELECT world_start, weeks_ahead FROM world_state")[0]
     start = clock.effective_start(world["world_start"], world["weeks_ahead"])
-    traded = trade_days(db, "IDC")
+    traded = trade_days(db)
     days = marketview.history(db, traded)
     story_day = days[-1]["session_date"]                       # a story that came out on the last trading day
     moment = datetime.combine(story_day, datetime.min.time(), tzinfo=timezone(timedelta(hours=1))) + timedelta(hours=13)

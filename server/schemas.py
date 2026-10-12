@@ -306,6 +306,70 @@ class MoneyWatch(BaseModel):
     output_growth_bps: int
 
 
+class ConsumerBand(BaseModel):
+    band: str
+    name: str
+    groups: int
+    income: Kobo
+    spending: Kobo
+    cash: Kobo
+    debt: Kobo
+
+
+class ConsumerMindset(BaseModel):
+    mindset: str
+    groups: int
+    spending: Kobo
+
+
+class ConsumerMove(BaseModel):
+    from_location: str
+    to_location: str
+    groups: int
+
+
+class ConsumersSummary(BaseModel):
+    """The 1,000 consumer groups, only ever added up."""
+    period: int
+    bands: list[ConsumerBand]
+    mindsets: list[ConsumerMindset]
+    moves: list[ConsumerMove]
+    moved: int
+    moved_total: int
+
+
+class AbroadRate(BaseModel):
+    period: int
+    period_label: str
+    oil_cents: int
+    fx: int
+
+
+class AbroadQuarter(BaseModel):
+    period: int
+    period_label: str
+    exports: Kobo
+    oil_exports: Kobo
+    imports: Kobo
+    oil_royalty: Kobo
+    foreign_inflow: Kobo
+    foreign_bought: Kobo
+    foreign_sold: Kobo
+    foreign_holdings: Kobo
+    reason: str
+
+
+class AbroadSummary(BaseModel):
+    """The rest of the world: this quarter's oil price and exchange rate (set at the last close), and the record."""
+    oil_cents: int
+    fx: int
+    previous_oil_cents: int | None
+    previous_fx: int | None
+    reason: str
+    history: list[AbroadRate]
+    trade: list[AbroadQuarter]
+
+
 class EconomyResponse(BaseModel):
     period: int
     period_label: str | None
@@ -317,6 +381,8 @@ class EconomyResponse(BaseModel):
     prices: PricesAndRates | None = None       # none before the first quarter has closed
     macro_history: list[MacroQuarter] = []     # oldest first
     money_watch: MoneyWatch | None = None
+    consumers: ConsumersSummary | None = None      # the economy upgrade
+    abroad: AbroadSummary | None = None
 
 
 class NewsItem(BaseModel):

@@ -132,7 +132,7 @@ def yearly_change_bps(conn: Connection, column: str, period: int, now: int, *, s
 
 def close_quarter(conn: Connection, period: int, seed: str, *, company_sales: int, household_spending: int,
                   money: int, commodity_events: dict[str, int], premium_index_bps: int,
-                  confidence_bps: int, rate_extra_bps: int) -> dict:
+                  confidence_bps: int, rate_extra_bps: int, energy_bps: int | None = None, import_push_bps: int = 0) -> dict:
     """Measure the economy at the end of a quarter, set the next interest rate, and record both."""
     prev = state(conn, period - 1)
     first = state(conn, 1)
@@ -147,6 +147,8 @@ def close_quarter(conn: Connection, period: int, seed: str, *, company_sales: in
         drifted = before + apply_bps(prev["price_index_bps"] - before, data.COMMODITY_RETURN_BPS)
         swing = fortune_bps(seed, f"commodity:{name}", period, "price", data.COMMODITY_SWING_BPS)
         now = max(apply_bps(apply_bps(drifted, BPS + swing), BPS + commodity_events.get(name, 0)), 1000)
+        if name == "energy" and energy_bps is not None:
+            now = energy_bps                   # energy is the world oil price in naira (the economy upgrade)
         commodities[name] = now
         push += (now - before) * BPS // before * weight // BPS       # its share of the general price level
 
@@ -156,6 +158,8 @@ def close_quarter(conn: Connection, period: int, seed: str, *, company_sales: in
     # they go faster when demand outruns supply and slower when it falls short.
     expected = apply_bps(prev["price_index_bps"], data.INFLATION_TARGET_BPS // 4)
     prices = prev["price_index_bps"] + expected + apply_bps(justified - prev["price_index_bps"], data.PRICE_ADJUST_BPS)
+    # A weaker naira makes what is bought abroad dearer (the economy upgrade).
+    push += import_push_bps
     prices = max(prices + apply_bps(prev["price_index_bps"], push), 1000)
 
     quarter_rise = (prices - prev["price_index_bps"]) * BPS // prev["price_index_bps"]

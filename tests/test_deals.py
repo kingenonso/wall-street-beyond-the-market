@@ -96,11 +96,13 @@ def test_thirty_private_companies_trade_in_the_economy_but_are_not_on_the_exchan
     sectors = {c["sector"] for c in private_ones}
     assert {"aviation", "hospitality", "shipping"} <= sectors
     founders = ledger.account_id(db, ledger.INVESTORS_FOUNDERS)
+    funds = ledger.account_id(db, ledger.INVESTORS_INSTITUTIONS)
     for c in private_ones:
-        # Owned by their founders (or an empire that bought them); never on the exchange.
+        # Owned by their founders, an empire that bought them, or the pension funds (which bid for companies put up
+        # for sale too, and can win); never on the exchange.
         assert not _one(db, "SELECT 1 FROM market_instruments WHERE company_id = %s", (c["id"],))
         holders = _dicts(db, "SELECT account_id FROM ledger_balances WHERE asset = %s AND balance > 0", (c["share_asset"],))
-        assert holders and all(h["account_id"] == founders or _one(db, "SELECT 1 FROM empires WHERE account_id = %s", (h["account_id"],))
+        assert holders and all(h["account_id"] in (founders, funds) or _one(db, "SELECT 1 FROM empires WHERE account_id = %s", (h["account_id"],))
                                for h in holders)
         # They sell to households and other companies, pay wages and tax, every quarter.
         r = _one(db, "SELECT * FROM company_results WHERE company_id = %s AND period = 8", (c["id"],))

@@ -28,6 +28,7 @@ from simulation import clock, events
 from simulation import world_data as data
 from simulation.money import BPS
 from simulation.news_kinds import BY_NAME, OUTLETS
+from simulation.news_wordings import abroad as _abroad
 from simulation.news_wordings import capital as _capital
 from simulation.news_wordings import deals as _deals
 from simulation.news_wordings import dealmaking as _dealmaking
@@ -37,7 +38,7 @@ from simulation.news_wordings import places as _places
 from simulation.news_wordings import results as _results
 
 WORDINGS: dict[str, dict[str, list[tuple[str, str]]]] = {
-    **_places.WORDINGS, **_happenings.WORDINGS, **_economy.WORDINGS, **_results.WORDINGS, **_capital.WORDINGS, **_deals.WORDINGS, **_dealmaking.WORDINGS,
+    **_abroad.WORDINGS, **_places.WORDINGS, **_happenings.WORDINGS, **_economy.WORDINGS, **_results.WORDINGS, **_capital.WORDINGS, **_deals.WORDINGS, **_dealmaking.WORDINGS,
 }
 
 # How a kind of business reads in the middle of a sentence.
@@ -322,7 +323,7 @@ def _rate_news(conn: Connection, period: int, now: dict) -> None:
     )
 
 
-def _price_news(conn: Connection, period: int, before: dict, now: dict, moves: dict[str, int]) -> None:
+def _price_news(conn: Connection, period: int, before: dict, now: dict, moves: dict[str, int], oil_told: bool = False) -> None:
     low = data.INFLATION_TARGET_BPS - data.INFLATION_BAND_BPS
     high = data.INFLATION_TARGET_BPS + data.INFLATION_BAND_BPS
     inflation, previous = now["inflation_bps"], before["inflation_bps"]
@@ -355,12 +356,53 @@ def _price_news(conn: Connection, period: int, before: dict, now: dict, moves: d
                "target": percent(data.INFLATION_TARGET_BPS), "band": f"{percent(low)} to {percent(high)}", "driver": driver},
     )
     for name, change in moves.items():
+        if name == "energy" and oil_told:
+            continue                              # energy follows the world oil price, which has news of its own
         if abs(change) >= COMMODITY_NEWS_BPS:
             publish(
                 conn, period=period + 1, day=DAY_ECONOMY, kind="commodity_up" if change > 0 else "commodity_down",
                 story=f"commodity:{name}", facts={"commodity": COMMODITY_WORDS[name], "size": percent(change)},
                 sectors=[data.COMMODITIES[name][0]], boost=(abs(change) - 1200) // 200,
             )
+
+
+OIL_NEWS_BPS = 800                 # the oil price 8% up or down on the quarter
+NAIRA_NEWS_BPS = 300               # the naira 3% weaker or stronger
+FOREIGN_NEWS_BPS = 2000            # foreign investors bringing in or taking out a fifth of what they hold
+
+
+def _dollars(cents: int) -> str:
+    return f"${cents / 100:,.2f}"
+
+
+def _naira_rate(fx: int) -> str:
+    return f"₦{fx / 100:,.0f}"
+
+
+def _abroad_news(conn: Connection, period: int, row: dict, now: dict) -> None:
+    """The oil price, the naira and foreign investors: news when they moved enough to matter."""
+    earlier = _rows(conn, "SELECT oil_cents, fx FROM abroad_results WHERE period = %s", (period - 1,))
+    if not earlier:
+        return
+    was = earlier[0]
+    oil_change = (row["oil_cents"] - was["oil_cents"]) * BPS // was["oil_cents"]
+    if abs(oil_change) >= OIL_NEWS_BPS:
+        publish(conn, period=period + 1, day=DAY_ECONOMY, kind="oil_up" if oil_change > 0 else "oil_down", story="oil",
+                facts={"price": f"{_dollars(row['oil_cents'])} a barrel", "previous": _dollars(was["oil_cents"]),
+                       "change": percent(abs(oil_change))},
+                sectors=["oil_gas"], locations=[data.PORT_HARCOURT], boost=(abs(oil_change) - 1500) // 200)
+    fx_change = (row["fx"] - was["fx"]) * BPS // was["fx"]
+    if abs(fx_change) >= NAIRA_NEWS_BPS:
+        cause = row["reason"].removeprefix("The naira moved mostly on ").rstrip(".")
+        publish(conn, period=period + 1, day=DAY_ECONOMY, kind="naira_weaker" if fx_change > 0 else "naira_stronger",
+                story="naira", facts={"rate": _naira_rate(row["fx"]), "previous": _naira_rate(was["fx"]),
+                                      "change": percent(abs(fx_change)), "cause": cause},
+                boost=(abs(fx_change) - 600) // 100)
+    held = row["foreign_cash"] + row["foreign_shares"] - row["foreign_inflow"]
+    if held > 0 and abs(row["foreign_inflow"]) * BPS // held >= FOREIGN_NEWS_BPS:
+        publish(conn, period=period + 1, day=DAY_ECONOMY + 1, kind="foreign_buying" if row["foreign_inflow"] > 0 else "foreign_selling",
+                story="foreign_money", facts={"amount": money_words(abs(row["foreign_inflow"])),
+                                              "rate": percent(now["next_policy_rate_bps"])})
 
 
 def _watch_news(conn: Connection, period: int, watch: dict) -> None:
@@ -644,7 +686,7 @@ def _company_news(conn: Connection, period: int, results: list[tuple[dict, dict]
 
 def for_results(conn: Connection, period: int, *, before: dict, now: dict, watch: dict, happening: list[dict],
                 companies: list[dict], results: list[tuple[dict, dict]], damages: dict, claims_paid: int,
-                policy_rate_bps: int) -> None:
+                policy_rate_bps: int, abroad_now: dict | None = None) -> None:
     """Write the news of a quarter that has just closed. It is dated in the first days of the next quarter."""
     moves = {
         name: (now[column] - before[column]) * BPS // before[column]
@@ -657,7 +699,9 @@ def for_results(conn: Connection, period: int, *, before: dict, now: dict, watch
     _held_back = gathered = []
     try:
         _rate_news(conn, period, now)
-        _price_news(conn, period, before, now, moves)
+        _price_news(conn, period, before, now, moves, oil_told=abroad_now is not None)
+        if abroad_now is not None:
+            _abroad_news(conn, period, abroad_now, now)
         _watch_news(conn, period, watch)
         _economy_news(conn, period, before, now, policy_rate_bps)
         # A private company's accounts are not published, so its quarter is not news.

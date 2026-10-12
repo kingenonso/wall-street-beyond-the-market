@@ -298,7 +298,8 @@ def test_what_borrowing_costs_the_government_comes_out_of_what_it_spends(db):
     spent = _dicts(db, "SELECT coalesce(-sum(e.amount), 0)::bigint AS total FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
                        " WHERE e.account_id = %s AND e.amount < 0 AND t.period = 1 AND t.kind IN ('government_purchase', 'government_wages')",
                    (treasury,))[0]["total"]
-    collected = ledger.received_in_period(db, treasury, 1, kinds=("company_tax", "debt_interest", "share_trade", "exchange_surplus"))
+    # (The economy upgrade: the Government's share of oil sold abroad is part of what it collects.)
+    collected = ledger.received_in_period(db, treasury, 1, kinds=("company_tax", "debt_interest", "share_trade", "exchange_surplus", "oil_royalty"))
     coupons = _dicts(db, "SELECT coalesce(-sum(e.amount), 0)::bigint AS total FROM ledger_entries e JOIN ledger_transactions t"
                          " ON t.id = e.transaction_id WHERE e.account_id = %s AND e.amount < 0 AND t.period = 1 AND t.kind = 'bond_coupon'",
                      (treasury,))[0]["total"]
