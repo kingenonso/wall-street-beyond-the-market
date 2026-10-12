@@ -710,3 +710,46 @@ def alerts(conn: Connection, period_now: int, day_now: int, after: tuple[int, in
         ORDER BY period DESC, day DESC, importance DESC, id DESC LIMIT 200
     """, {"pn": period_now, "dn": day_now, "p": p, "d": d, "top": top})
     return {"items": found[:limit], "more": max(0, len(found) - limit), "mark": mark}
+
+
+def price_moves(conn: Connection, items: list[dict], start, now) -> dict:
+    """For each story about at most six companies: how each company's share price has moved since the
+    story came out, from the last close before that day to the price now. Public prices only; a share
+    that had not traded before the story has no move to show. Keyed by (period, day, ticker)."""
+    from bisect import bisect_left
+    from datetime import timedelta
+
+    from simulation import clock as game_clock
+    wanted = {t for item in items if 0 < len(item["tickers"]) <= 6 for t in item["tickers"]}
+    if not wanted:
+        return {}
+    quarter = timedelta(days=game_clock.REAL_DAYS_PER_QUARTER)
+    earliest = min(start + (i["period"] - 1) * quarter for i in items if 0 < len(i["tickers"]) <= 6)
+    closes: dict = {}
+    # Only the days the stories need are read: from a fortnight before the oldest story's quarter.
+    for row in _rows(conn, """
+        SELECT DISTINCT ON (t.company_id, t.session_date) c.ticker, t.session_date, t.price / split_factor(t.company_id, t.id) AS price
+        FROM market_trades t JOIN companies c ON c.id = t.company_id
+        WHERE c.ticker = ANY(%s) AND t.session_date >= %s ORDER BY t.company_id, t.session_date, t.id DESC
+    """, (list(wanted), (game_clock.to_lagos(earliest) - timedelta(days=14)).date())):
+        closes.setdefault(row["ticker"], []).append((row["session_date"], int(row["price"])))
+    current = {r["ticker"]: int(r["price"]) for r in _rows(conn, """
+        SELECT c.ticker, coalesce(m.last_price, m.reference_price) AS price
+        FROM market_instruments m JOIN companies c ON c.id = m.company_id WHERE c.ticker = ANY(%s)""", (list(wanted),))}
+    out: dict = {}
+    for item in items:
+        if not 0 < len(item["tickers"]) <= 6:
+            continue
+        moment = start + (item["period"] - 1) * quarter + quarter * (item["day"] - 1) / game_clock.GAME_DAYS_PER_QUARTER
+        if moment > now:
+            continue
+        day = game_clock.to_lagos(moment).date()
+        for ticker in item["tickers"]:
+            days = closes.get(ticker, [])
+            at = bisect_left([d for d, _ in days], day)
+            if at == 0 or ticker not in current:
+                continue
+            before = days[at - 1][1]
+            if before > 0:
+                out[(item["period"], item["day"], ticker)] = (current[ticker] - before) * 10_000 // before
+    return out

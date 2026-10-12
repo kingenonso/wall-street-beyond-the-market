@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, ApiError, type Bond, type BondHolding, type Corporate, type EmpireView, type Offer, type Takeover, type Vote } from "./api";
 import { formatCompact, formatNaira, formatPercent } from "./format";
 import { useLoad } from "./hooks";
+import { play } from "./sound";
 import { Change, Failed, Loading, Panel, Rating } from "./Shell";
 
 const count = (n: number) => n.toLocaleString("en-NG");
@@ -45,6 +46,7 @@ function BondLine({ bond, mine, deskOpen, onDone, room, paused = false }: {
         onDone(`${count(wanted)} of ${bond.name} will be swapped for ${count(wanted * (bond.conversion_shares ?? 0))} shares when the quarter closes.`);
       } else {
         const done = await api.tradeBond(bond.code, what, wanted);
+        play("trade");
         onDone(`${what === "buy" ? "Bought" : "Sold"} ${count(done.units)} of ${done.name} at ${formatNaira(done.price_kobo)} each: ${formatNaira(done.value_kobo)} in all.`);
       }
       setUnits("");
@@ -388,7 +390,7 @@ export function OwnershipWork({ onLoggedOut }: { onLoggedOut: () => void }) {
         {controlled.length === 0 ? "No company has a controlling owner today." :
           `${controlled.length} of ${rows.length} companies have a controlling owner.`} A single player's holding is never listed.
       </p>
-      <div className="scroll">
+      <div className="scroll" tabIndex={0}>
         <table>
           <thead><tr><th scope="col">Company</th><th scope="col">Control</th></tr></thead>
           <tbody>

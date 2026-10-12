@@ -1457,6 +1457,43 @@ def _payer(conn, ctx, template: Template, terms: dict) -> dict | None:
     return {"account": company["account_id"], "name": company["name"], "why": why, "company_id": company["id"]}
 
 
+_HOW: dict[str, str | None] = {}
+
+
+def how_to(template: Template) -> str | None:
+    """The professional method for a piece of work, in words: the same text the debrief shows afterwards
+    under "The professional method". It is general advice written for every player alike, never the
+    answer, so it can be shown before the work is started ("How to do this", the redesign).
+    It is read once from the judging code of the piece of work and kept."""
+    if template.code in _HOW:
+        return _HOW[template.code]
+    if template.base and template.base in TEMPLATES and template.base != template.code:
+        _HOW[template.code] = how_to(TEMPLATES[template.base])
+        return _HOW[template.code]
+    import ast
+    import inspect
+    import textwrap
+    texts: set[str] = set()
+    for judge in (template.submit, template.bell, template.close):
+        if judge is None:
+            continue
+        try:
+            tree = ast.parse(textwrap.dedent(inspect.getsource(judge)))
+        except (OSError, TypeError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.keyword) and node.arg == "method":
+                if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                    if node.value.value.strip():
+                        texts.add(node.value.value.strip())
+                else:
+                    texts.add("\0")          # a method built from the work's own figures: never shown beforehand
+    # Only one fixed text, the same whatever the outcome, is safe to show before the work is done.
+    found = next(iter(texts)) if len(texts) == 1 and "\0" not in texts else None
+    _HOW[template.code] = found
+    return found
+
+
 def _public(objective: dict) -> dict:
     """An objective as its own player may see it. Nothing here gives away an answer before it is judged."""
     template = TEMPLATES[objective["template"]]
@@ -1467,7 +1504,7 @@ def _public(objective: dict) -> dict:
         progress["book_value"] = objective["progress"]["book"]["value"]
     return {
         "id": objective["id"], "template": objective["template"], "module": objective["module"], "title": objective["title"],
-        "kind": template.kind, "idea": template.idea, "terms": terms, "reward": objective["reward"],
+        "kind": template.kind, "idea": template.idea, "how": how_to(template), "terms": terms, "reward": objective["reward"],
         "setting": objective["setting"], "setting_name": data.SETTINGS[objective["setting"]], "track": objective["track"],
         "experience": objective["experience"], "payer": objective["payer_name"], "accepted_at": objective["accepted_at"],
         "state": objective["state"], "progress": progress, "submission": objective["submission"],
@@ -1534,6 +1571,7 @@ def board(conn: Connection, player_id, now: datetime) -> dict:
     in_hand = {o["template"] for o in rows if o["state"] == "active"}
     for template in (t for t in TEMPLATES.values() if t.build in tracks and t.listed):
         offer = {"template": template.code, "module": template.module, "title": template.title, "idea": template.idea,
+                 "how": how_to(template),
                  "kind": template.kind, "level": template.level, "reward": _reward(template, ctx["wage_index_bps"]),
                  "experience": _experience(template, mine), "available": False, "why_not": None, "payer": None, "client": None,
                  "setting": template.setting, "setting_name": data.SETTINGS[template.setting], "track": template.build,

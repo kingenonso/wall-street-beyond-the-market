@@ -23,7 +23,7 @@ export function CompaniesWork({ onLoggedOut }: { onLoggedOut: () => void }) {
       {error && <Failed message={error} onRetry={reload} />}
       {data?.sectors.map((sector) => (
         <Panel key={sector.code} title={sector.name} aside={`${sector.companies.length} companies`}>
-          <div className="scroll">
+          <div className="scroll" tabIndex={0}>
             <table className="companies">
               <thead>
                 <tr>

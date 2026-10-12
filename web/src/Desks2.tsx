@@ -97,7 +97,7 @@ export function InvestmentBankerWork({ player, onLoggedOut }: Props) {
           <NumberTile label={`Profit, ${d.period_label}`} value={formatCompact(d.net_profit_kobo)} note={`on sales of ${formatCompact(d.revenue_kobo)}`} />
           <NumberTile label="Credit rating" value={<Rating value={d.rating} />} note={<a href={`#/companies/${d.ticker}`}>Company page</a>} />
         </div>
-        <div className="scroll">
+        <div className="scroll" tabIndex={0}>
           <table>
             <thead><tr><th scope="col">Valuation multiple</th><th scope="col" className="num">{d.ticker}</th><th scope="col" className="num">Companies like it (middle)</th><th scope="col" className="num">Price that would imply</th></tr></thead>
             <tbody>
@@ -140,7 +140,7 @@ export function InvestmentBankerWork({ player, onLoggedOut }: Props) {
       </Panel>
 
       <Panel title="Comparable companies" aside={d.sector}>
-        <div className="scroll">
+        <div className="scroll" tabIndex={0}>
           <table>
             <thead><tr><th scope="col">Company</th><th scope="col">Rating</th><th scope="col" className="num">Value</th><th scope="col" className="num">÷ profit</th><th scope="col" className="num">÷ owners' money</th><th scope="col" className="num">÷ EBITDA</th></tr></thead>
             <tbody>
@@ -248,7 +248,7 @@ export function RiskManagerWork({ player, onLoggedOut }: Props) {
       <Panel title="Top exposures" aside="Largest first">
         {d.exposures.length === 0 && <p className="muted small">Nothing is held but cash.</p>}
         {d.exposures.length > 0 && (
-          <div className="scroll">
+          <div className="scroll" tabIndex={0}>
             <table>
               <thead><tr><th scope="col">Exposure</th><th scope="col">Rating</th><th scope="col">Risk level</th><th scope="col" className="num">Value</th><th scope="col" className="num">Of the book</th></tr></thead>
               <tbody>
@@ -339,7 +339,7 @@ export function LawyerWork({ player, onLoggedOut }: Props) {
         ))}
         {d.bid && <p className="small"><span className="card-tag">TAKEOVER</span> An offer of {formatNaira(d.bid.price_kobo)} a share is open{d.bid.hostile ? ", against the board's advice" : ""}. It closes with {d.bid.closes_label}. A buyer needs more than half the shares to take control.</p>}
         <div className="why-title">RISKS: WHO IS PAID FIRST IF IT FAILS ({d.period_label.toUpperCase()}, AS FILED)</div>
-        <div className="scroll">
+        <div className="scroll" tabIndex={0}>
           <table>
             <thead><tr><th scope="col" className="num">Rank</th><th scope="col">Who</th><th scope="col" className="num">Owed</th><th scope="col">Why there</th></tr></thead>
             <tbody>

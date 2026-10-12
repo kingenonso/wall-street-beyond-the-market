@@ -126,6 +126,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("DELETE", "/api/stakes/{programme_id}"),
         ("PATCH", "/api/me/news-alerts"),
         ("PATCH", "/api/me/profile-icon"),
+        ("PATCH", "/api/me/settings"),
         ("POST", "/api/auth/confirm-email"),
         ("POST", "/api/auth/login"),
         ("POST", "/api/auth/logout"),

@@ -153,7 +153,7 @@ export function InvestorPanel({ ticker, onLoggedOut }: { ticker: string; onLogge
           </div>
           {a.schedule.length > 0 ? (
             <>
-              <div className="scroll">
+              <div className="scroll" tabIndex={0}>
                 <table>
                   <thead>
                     <tr>

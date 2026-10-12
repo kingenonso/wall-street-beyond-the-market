@@ -81,7 +81,8 @@ def test_about_forty_percent_is_taken_and_every_kobo_is_accounted_for():
 
 
 def test_levels_come_from_experience_and_stop_at_twenty_until_rank_cases_exist():
-    assert careers.level_for(0) == 1 and careers.level_for(59) == 1 and careers.level_for(60) == 2
+    # Levels 1-10 come twice as fast since the redesign (owner, 12 October 2026): Level 2 needs 30, not 60.
+    assert careers.level_for(0) == 1 and careers.level_for(29) == 1 and careers.level_for(30) == 2
     assert careers.level_for(careers.experience_for(20)) == 20
     assert careers.level_for(10 ** 9) == data.LEVEL_CAP == 20
     for level in range(1, 20):

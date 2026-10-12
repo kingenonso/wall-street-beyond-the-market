@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { api, type Company, type FiledReport, type Kobo } from "./api";
-import { changeBps, formatCompact, formatLagosDate, formatMillions, formatPercent, periodLabel } from "./format";
-import { useLoad } from "./hooks";
+import { AreaChart } from "./Charts";
+import { changeBps, formatCompact, formatLagosDate, formatMillions, formatNaira, formatPercent, periodLabel } from "./format";
+import { shortDate } from "./Market";
+import { Term } from "./Term";
+import { useLoad, useNarrow } from "./hooks";
 import { FactsPanel, ResultsReportPanel } from "./Facts";
 import { InvestorPanel } from "./Investor";
 import { TradePanel } from "./Trade";
@@ -77,7 +80,7 @@ export function StatementTable({ name, reports }: { name: keyof typeof STATEMENT
   const value = (report: FiledReport, key: string): Kobo => report.figures[statement.section][key] ?? "0";
   const lines = statement.lines.filter((line) => !line.optional || reports.some((r) => value(r, line.key) !== "0"));
   return (
-    <div className="scroll">
+    <div className="scroll" tabIndex={0}>
       <table className="statement">
         <caption className="muted small">₦ millions. Figures in brackets are money going out.</caption>
         <thead>
@@ -151,7 +154,118 @@ function WhySales({ latest, previous }: { latest: FiledReport; previous?: FiledR
   );
 }
 
-function CompanyBody({ company, onLoggedOut, onTraded }: { company: Company; onLoggedOut: () => void; onTraded: () => void }) {
+type CompanyTab = "overview" | "accounts" | "investors" | "about";
+const COMPANY_TABS: [CompanyTab, string][] = [["overview", "Overview"], ["accounts", "Accounts"], ["investors", "For investors"], ["about", "About it"]];
+const CHART_RANGES: [string, number][] = [["A week (one quarter)", 7], ["Four weeks (one year)", 28], ["Everything", 9999]];
+
+/** The company's name, price and today's move, with its rating and a watch button. */
+function CompanyHeader({ company, onLoggedOut }: { company: Company; onLoggedOut: () => void }) {
+  const quote = useLoad(() => api.quote(company.ticker), `quote:${company.ticker}`, onLoggedOut);
+  const watched = useLoad(api.watchlist, "watchlist", onLoggedOut);
+  const [busy, setBusy] = useState(false);
+  const latest = company.reports[company.reports.length - 1];
+  const watching = (watched.data ?? []).some((w) => w.ticker === company.ticker);
+  const q = quote.data;
+  const price = q ? q.last_price_kobo ?? q.reference_price_kobo : null;
+  const move = q && q.last_price_kobo ? changeBps(q.last_price_kobo, q.reference_price_kobo) : null;
+  async function toggle() {
+    setBusy(true);
+    try { await (watching ? api.unwatch(company.ticker) : api.watch(company.ticker)); } catch { /* the star simply stays as it was */ }
+    watched.reload();
+    setBusy(false);
+  }
+  return (
+    <div className="company-head">
+      <nav aria-label="Breadcrumb" className="small muted"><a href="#/companies">Companies</a> › {company.sector} › {company.name}</nav>
+      <div className="company-title">
+        <h1>{company.name}</h1>
+        <span className="ticker mono">{company.ticker}</span>
+        <Rating value={latest.credit_rating} />
+        <span className="muted small">{company.sector} · head office in {company.headquarters}</span>
+      </div>
+      <div className="company-price">
+        {price && <span className="mono figure">{formatNaira(price)}</span>}
+        {q && (q.last_price_kobo ? <Change bps={move} /> : <span className="muted small">not yet traded</span>)}
+        {q && <span className="muted small">Can trade between {formatNaira(q.lowest_today_kobo)} and {formatNaira(q.highest_today_kobo)} today</span>}
+        <span className="company-actions">
+          <button className="button-quiet" disabled={busy} aria-pressed={watching} onClick={toggle}>{watching ? "★ Watching" : "☆ Watch"}</button>
+          <button className="button-quiet" onClick={() => {
+            const panel = document.getElementById("trade-panel");
+            panel?.scrollIntoView({ behavior: "smooth", block: "start" });
+            panel?.querySelector<HTMLElement>("button, input")?.focus({ preventScroll: true });
+          }}>Trade ↓</button>
+        </span>
+      </div>
+      <span className="muted small">
+        {latest.period === 0 ? "Opening balance sheet" : `Latest filing: ${latest.period_label}`}
+        {latest.amended && <span className="amended"> · Amended filing, version {latest.version}</span>}
+      </span>
+    </div>
+  );
+}
+
+/** The share price day by day, with how many shares traded, over a chosen stretch. */
+function PriceChartPanel({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: () => void }) {
+  const days = useLoad(() => api.priceHistory(ticker), `history:${ticker}`, onLoggedOut);
+  const [range, setRange] = useState(28);
+  const shown = (days.data ?? []).slice(-range);
+  const naira = (v: number) => `₦${v.toFixed(2)}`;
+  return (
+    <Panel>
+      <div className="panel-head">
+        <h2>Price, day by day</h2>
+        <div className="range-buttons" role="group" aria-label="How far back">
+          {CHART_RANGES.map(([label, n]) => <button key={n} aria-pressed={range === n} onClick={() => setRange(n)}>{label}</button>)}
+        </div>
+      </div>
+      {shown.length >= 2 ? (
+        <AreaChart
+          points={shown.map((d) => ({ label: shortDate(d.session_date), value: Number(d.close_kobo) / 100, volume: d.volume }))}
+          format={naira} baseline={Number(shown[0].close_kobo) / 100} baselineLabel={`its close on ${shortDate(shown[0].session_date)}`}
+          label={`Closing price from ${naira(Number(shown[0].close_kobo) / 100)} on ${shortDate(shown[0].session_date)} to ${naira(Number(shown[shown.length - 1].close_kobo) / 100)}. Bars below: shares traded each day.`} />
+      ) : <p className="muted small">The chart appears after two days of trading.</p>}
+      {shown.length >= 2 && <p className="muted small" style={{ marginTop: 6 }}>Bars at the bottom: how many shares changed hands each day.</p>}
+    </Panel>
+  );
+}
+
+/** The key figures an investor looks at, each with its meaning in plain words. */
+function PlainFacts({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: () => void }) {
+  const { data: a } = useLoad(() => api.analysis(ticker), `analysis:${ticker}`, onLoggedOut);
+  if (!a) return null;
+  const times = (v: number | null) => (v === null ? "n/a" : `${v.toFixed(1)}`);
+  return (
+    <div className="fact-grid">
+      <div className="fact"><span className="lbl"><Term word="Market value" /></span><span className="fact-value">{formatCompact(a.market_value_kobo)}</span><span className="muted small">What the whole company is worth on the exchange.</span></div>
+      <div className="fact"><span className="lbl"><Term word="P/E" /></span><span className="fact-value">{times(a.price_to_profit)}</span><span className="muted small">{a.price_to_profit === null ? "It made no profit over the past year." : `The price is ${a.price_to_profit.toFixed(1)} years of today’s profit.`}</span></div>
+      <div className="fact"><span className="lbl"><Term word="Dividend" /></span><span className="fact-value">{formatPercent(a.dividend_yield_bps)} a year</span><span className="muted small">Cash paid to owners, per ₦100 of shares.</span></div>
+      <div className="fact"><span className="lbl">Profit, past year</span><span className="fact-value">{formatCompact(a.yearly_profit_kobo)}</span><span className="muted small">After tax, over the last four quarters.</span></div>
+      <div className="fact"><span className="lbl">Sales, past year</span><span className="fact-value">{formatCompact(a.yearly_sales_kobo)}</span><span className="muted small">What customers paid it over four quarters.</span></div>
+      <div className="fact"><span className="lbl">Owners’ funds a share</span><span className="fact-value">{formatNaira(a.book_per_share_kobo)}</span><span className="muted small">What owners would have if it sold everything and paid every debt.</span></div>
+    </div>
+  );
+}
+
+/** Why the price is where it is, in plain reasons. */
+function WhyPricePanel({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: () => void }) {
+  const { data: w } = useLoad(() => api.why(ticker), `why:${ticker}`, onLoggedOut);
+  if (!w) return null;
+  return (
+    <Panel title="Why the price is where it is">
+      <p className="small">{w.move_bps !== 0 && <><Change bps={w.move_bps} />{" "}</>}{w.summary}</p>
+      {w.reasons.length > 0 && <ul className="reasons">{w.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>}
+      {w.valuation_reasons.length > 0 && (
+        <>
+          <p className="small muted">What changed investors’ view of its worth at its {w.valuation_label} results:</p>
+          <ul className="reasons">{w.valuation_reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>
+        </>
+      )}
+    </Panel>
+  );
+}
+
+function CompanyBody({ company, onLoggedOut, trade }: { company: Company; onLoggedOut: () => void; trade?: React.ReactNode }) {
+  const [view, setView] = useState<CompanyTab>("overview");
   const [tab, setTab] = useState<keyof typeof STATEMENTS>("income");
   const trading = company.reports.filter((r) => r.period >= 1);
   const latest = company.reports[company.reports.length - 1];
@@ -164,69 +278,78 @@ function CompanyBody({ company, onLoggedOut, onTraded }: { company: Company; onL
 
   return (
     <>
-      <div className="work-head">
-        <div>
-          <a href="#/companies" className="small">← All companies</a>
-          <h1>{company.name} <span className="ticker mono">{company.ticker}</span></h1>
-          <span className="muted small">{company.sector} · Head office in {company.headquarters}</span>
-        </div>
-        <span className="muted small">
-          {latest.period === 0 ? "Opening balance sheet" : `Latest filing: ${latest.period_label}`}
-          {latest.amended && <span className="amended"> · Amended filing, version {latest.version}</span>}
-        </span>
+      <CompanyHeader company={company} onLoggedOut={onLoggedOut} />
+      {trade}
+
+      <div className="underline-tabs" role="tablist" aria-label="About this company">
+        {COMPANY_TABS.map(([key, label]) => (
+          <button key={key} role="tab" aria-selected={view === key} className={view === key ? "active" : undefined} onClick={() => setView(key)}>{label}</button>
+        ))}
       </div>
 
-      <TradePanel ticker={company.ticker} onLoggedOut={onLoggedOut} onTraded={onTraded} />
+      {view === "overview" && (
+        <>
+          <PriceChartPanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
+          <PlainFacts ticker={company.ticker} onLoggedOut={onLoggedOut} />
+          <WhyPricePanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
+          {trading.length === 0 ? (
+            <Panel>
+              <p className="muted">
+                This company has not traded yet. Its first quarterly results are filed when {periodLabel(1)} ends, one real week
+                after the world opens. Its opening balance sheet is under Accounts.
+              </p>
+            </Panel>
+          ) : (
+            <Panel title="Sales and profit" aside="As filed, by quarter">
+              <div className="tiles">
+                <Tile label="Sales" now={latest.figures.income_statement.revenue} before={compare?.figures.income_statement.revenue} against={against} />
+                <Tile label="EBITDA" now={latest.figures.income_statement.ebitda} before={compare?.figures.income_statement.ebitda} against={against} />
+                <Tile label="Net profit" now={latest.figures.income_statement.net_profit} before={compare?.figures.income_statement.net_profit} against={against} />
+                <Tile label="Cash" now={latest.figures.balance_sheet.cash} before={compare?.figures.balance_sheet.cash} against={against} />
+              </div>
+              <TrendChart reports={trading} />
+              <WhySales latest={latest} previous={previous?.period >= 1 ? previous : undefined} />
+            </Panel>
+          )}
+          <ResultsReportPanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
+        </>
+      )}
 
-      <FactsPanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
-
-      <InvestorPanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
-
-      <ResultsReportPanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
-
-      {trading.length === 0 ? (
+      {view === "accounts" && (
         <Panel>
-          <p className="muted">
-            This company has not traded yet. Its first quarterly results are filed when {periodLabel(1)} ends, one real week
-            after the world opens. Its opening balance sheet is below.
-          </p>
-        </Panel>
-      ) : (
-        <Panel title="Sales and profit" aside="As filed, by quarter">
-          <div className="tiles">
-            <Tile label="Sales" now={latest.figures.income_statement.revenue} before={compare?.figures.income_statement.revenue} against={against} />
-            <Tile label="EBITDA" now={latest.figures.income_statement.ebitda} before={compare?.figures.income_statement.ebitda} against={against} />
-            <Tile label="Net profit" now={latest.figures.income_statement.net_profit} before={compare?.figures.income_statement.net_profit} against={against} />
-            <Tile label="Cash" now={latest.figures.balance_sheet.cash} before={compare?.figures.balance_sheet.cash} against={against} />
+          <div className="tabs tabs-inline" role="tablist" aria-label="Statements">
+            {(Object.keys(STATEMENTS) as (keyof typeof STATEMENTS)[]).map((name) => (
+              <button key={name} role="tab" aria-selected={tab === name} className={tab === name ? "tab active" : "tab"} onClick={() => setTab(name)}>
+                {STATEMENTS[name].title}
+              </button>
+            ))}
           </div>
-          <TrendChart reports={trading} />
-          <WhySales latest={latest} previous={previous?.period >= 1 ? previous : undefined} />
+          {shown.length === 0 ? <p className="muted">Nothing to show until the first quarter ends.</p> : <StatementTable name={tab} reports={shown} />}
         </Panel>
       )}
 
-      <Panel>
-        <div className="tabs tabs-inline" role="tablist" aria-label="Statements">
-          {(Object.keys(STATEMENTS) as (keyof typeof STATEMENTS)[]).map((name) => (
-            <button key={name} role="tab" aria-selected={tab === name} className={tab === name ? "tab active" : "tab"} onClick={() => setTab(name)}>
-              {STATEMENTS[name].title}
-            </button>
-          ))}
-        </div>
-        {shown.length === 0 ? (
-          <p className="muted">Nothing to show until the first quarter ends.</p>
-        ) : (
-          <StatementTable name={tab} reports={shown} />
-        )}
-      </Panel>
+      {view === "investors" && (
+        <>
+          <FactsPanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
+          <InvestorPanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
+        </>
+      )}
+
+      {view === "about" && <CompanyAbout company={company} />}
     </>
   );
 }
 
-export function CompanyWork({ ticker, onLoggedOut, onTraded }: { ticker: string; onLoggedOut: () => void; onTraded: () => void }) {
+export function CompanyWork({ ticker, onLoggedOut, onTraded }: { ticker: string; onLoggedOut: () => void; onTraded?: () => void }) {
   const { data, error, loading, reload } = useLoad(() => api.company(ticker), `company:${ticker}`, onLoggedOut);
+  // On a narrower screen the rail drops below the whole page, so the trading panel comes up under the price instead.
+  const narrow = useNarrow();
   if (loading && !data) return <Loading what="the company" />;
   if (error) return <Failed message={error} onRetry={reload} />;
-  return data ? <CompanyBody company={data} onLoggedOut={onLoggedOut} onTraded={onTraded} /> : null;
+  const trade = narrow
+    ? <div id="trade-panel"><TradePanel ticker={ticker} onLoggedOut={onLoggedOut} onTraded={onTraded ?? (() => undefined)} layout="rail" /></div>
+    : null;
+  return data ? <CompanyBody company={data} onLoggedOut={onLoggedOut} trade={trade} /> : null;
 }
 
 function CompanyNews({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: () => void }) {
@@ -251,14 +374,24 @@ function CompanyNews({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: () 
   );
 }
 
-export function CompanyRail({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: () => void }) {
-  const { data } = useLoad(() => api.company(ticker), `company:${ticker}`, onLoggedOut);
-  if (!data) return null;
+/** Beside a company's page: trading it, and the latest news about it. */
+export function CompanyRail({ ticker, onLoggedOut, onTraded }: { ticker: string; onLoggedOut: () => void; onTraded?: () => void }) {
+  const narrow = useNarrow();
+  return (
+    <>
+      {!narrow && <div id="trade-panel"><TradePanel ticker={ticker} onLoggedOut={onLoggedOut} onTraded={onTraded ?? (() => undefined)} layout="rail" /></div>}
+      <CompanyNews ticker={ticker} onLoggedOut={onLoggedOut} />
+    </>
+  );
+}
+
+/** Everything else about the company: its rating, its people and places, who it sells to and buys from, its debts. */
+function CompanyAbout({ company: data }: { company: Company }) {
   const latest = data.reports[data.reports.length - 1];
   const notes = latest.figures.notes;
   return (
     <>
-      <CompanyNews ticker={ticker} onLoggedOut={onLoggedOut} />
+
 
       <Panel title="Credit rating">
         <div className="headline"><Rating value={latest.credit_rating} /></div>

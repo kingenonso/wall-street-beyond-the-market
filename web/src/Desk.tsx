@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 import { api, type CompanySummary, type NewsItem, type Player, type Watched } from "./api";
 import { ClosingBellPanel } from "./Bell";
-import { WatchlistPanel } from "./Market";
+import { shortDate } from "./Market";
+import { AreaChart, Sparkline } from "./Charts";
+import { Term } from "./Term";
 import { GrantPanel } from "./Portfolio";
 import { newsDate } from "./News";
 import { formatCompact, formatCountdown, formatLagosDay, formatLagosTime, formatNaira, MARKET_LABEL } from "./format";
@@ -17,6 +19,30 @@ function cardsFor(player: Player, latestQuarter: string | null, live: LiveClock 
   const all = count ? `All ${count}` : "All the";
   // A decision only this player can make comes before anything else.
   const cards: Card[] = [...decisions];
+  if (player.rank_waiting) {
+    cards.unshift({
+      tag: "◆ RANK CASE", when: player.build_name ? `Level ${player.level}` : "",
+      title: "A rank case is waiting for you",
+      text: "Your modules are mastered, so you can sit the case that takes you past your level gate. Or you have one in hand to finish.",
+      action: "Open your rank", href: "#/rank",
+    });
+  }
+  if (player.unread_messages > 0) {
+    cards.push({
+      tag: "● MESSAGES", when: `${player.unread_messages} unread`,
+      title: player.unread_messages === 1 ? "A player wrote to you" : `${player.unread_messages} messages waiting`,
+      text: "Read and answer from your messages. You can block anyone who bothers you.",
+      action: "Read your messages", href: "#/messages",
+    });
+  }
+  if (player.build && player.employer && player.work_in_hand === 0) {
+    cards.push({
+      tag: "○ WORK", when: "This quarter",
+      title: "Take on a piece of work",
+      text: "Your employer pays a quarter's salary only to staff who finish at least one piece of work in it.",
+      action: "See work you can start", href: "#/work",
+    });
+  }
   // A professional's first need is a build, a bank and an employer: nothing else can be earned without them.
   if (!player.build) {
     cards.unshift({
@@ -103,7 +129,7 @@ function NeedsYouNow({ cards }: { cards: Card[] }) {
               <span className="card-tag">{card.tag}</span>
               <span className="mono muted">{card.when}</span>
             </div>
-            <h3>{card.title}</h3>
+            <h2 className="h3-look">{card.title}</h2>
             <p className="muted">{card.text}</p>
             <a className={index === 0 ? "button-primary" : "button-outline"} href={card.href}>{card.action}</a>
           </article>
@@ -121,7 +147,7 @@ function Movers({ companies, quarter }: { companies: CompanySummary[]; quarter: 
   const rows = [...ranked.slice(0, 3), ...ranked.slice(-3)];
   return (
     <Panel title={`Biggest moves in sales, ${quarter}`} aside={<a href="#/companies">All {companies.length} companies</a>}>
-      <div className="scroll">
+      <div className="scroll" tabIndex={0}>
         <table>
           <thead>
             <tr>
@@ -183,36 +209,27 @@ export function DeskWork({ player, live, onLoggedOut }: { player: Player; live: 
   const items = news.data?.items ?? [];
   const recent = items.filter((item) => item.period === items[0].period && item.day >= items[0].day - 2);
   const top = recent.reduce<NewsItem | null>((best, item) => (!best || item.importance > best.importance ? item : best), null);
-  const seen = new Set<string>();
-  const headlines = items.filter((item) => {
-    const key = `${item.story}|${item.kind}|${item.period}`;
-    return item === top || seen.has(key) ? false : (seen.add(key), true);
-  }).slice(0, 6);
+
 
   return (
     <>
       <NeedsYouNow cards={cardsFor(player, quarter, live, status.data?.companies ?? null, top && top.importance >= 60 ? top : null, alerts, decisions)} />
 
+      <MoneyTiles player={player} onLoggedOut={onLoggedOut} />
+
+      <WatchTable onLoggedOut={onLoggedOut} />
+
       <GrantPanel onLoggedOut={onLoggedOut} onChanged={() => undefined} />
 
       <ClosingBellPanel onLoggedOut={onLoggedOut} brief />
-
-      {headlines.length > 0 && (
-        <Panel title="Latest news" aside={<a href="#/news">All news</a>}>
-          {headlines.map((item, index) => (
-            <div key={index} className="news-line">
-              <div className="small muted"><span className="mono">{newsDate(item)}</span> · {item.outlet}</div>
-              <div className="strong">{item.headline}</div>
-            </div>
-          ))}
-        </Panel>
-      )}
 
       {quarter && companies.data && (
         <Movers companies={companies.data.sectors.flatMap((s) => s.companies)} quarter={quarter} />
       )}
 
       <Panel title="Your account" aside="Every naira in and out, newest first">
+        <details open={false}>
+        <summary className="small" style={{ cursor: "pointer", color: "var(--gold)", marginBottom: 8 }}>Show every naira in and out</summary>
         <div className="headline">
           <span className="mono figure">{formatNaira(player.cash.amount_kobo)}</span>
           <span className="muted">cash</span>
@@ -220,7 +237,7 @@ export function DeskWork({ player, live, onLoggedOut }: { player: Player; live: 
         {movements.loading && <Loading what="your account" />}
         {movements.error && <Failed message={movements.error} onRetry={movements.reload} />}
         {movements.data && (
-          <div className="scroll">
+          <div className="scroll" tabIndex={0}>
             <table>
               <thead>
                 <tr>
@@ -248,8 +265,94 @@ export function DeskWork({ player, live, onLoggedOut }: { player: Player; live: 
             </table>
           </div>
         )}
+        </details>
       </Panel>
     </>
+  );
+}
+
+/** Four figures across the desk: what the player owns, their cash, their shares and bonds, their retirement savings. */
+function MoneyTiles({ player, onLoggedOut }: { player: Player; onLoggedOut: () => void }) {
+  const portfolio = useLoad(api.portfolio, "portfolio", onLoggedOut);
+  const career = useLoad(api.career, "desk-career", onLoggedOut);
+  const p = portfolio.data;
+  const last = p && p.net_worth.length ? p.net_worth[p.net_worth.length - 1].total_kobo : null;
+  const moved = p && last ? BigInt(p.total_kobo) - BigInt(last) : null;
+  const invested = p ? (BigInt(p.shares_value_kobo) + BigInt(p.bonds_value_kobo)).toString() : null;
+  const retirement = career.data?.retirement?.value_kobo ?? null;
+  const days = (p?.net_worth ?? []).slice(-30);
+  return (
+    <>
+      <div className="tiles money-tiles">
+        <div className="tile"><div className="lbl"><Term word="Net worth">What you own</Term></div>
+          <div className="mono figure-small">{p ? formatCompact(p.total_kobo) : "…"}</div>
+          <div className="small">{moved === null ? <span className="muted">first figure at tonight’s Closing Bell</span>
+            : <span className={`mono change-${moved > 0n ? "up" : moved < 0n ? "down" : "flat"}`}>{moved > 0n ? "▲" : moved < 0n ? "▼" : "–"} {formatCompact((moved < 0n ? -moved : moved).toString())} since the last bell</span>}</div></div>
+        <div className="tile"><div className="lbl">Cash</div><div className="mono figure-small">{formatCompact(player.cash.amount_kobo)}</div><div className="small muted">money you can spend now</div></div>
+        <div className="tile"><div className="lbl">Shares and bonds</div><div className="mono figure-small">{invested ? formatCompact(invested) : "…"}</div><div className="small muted">at today’s prices · <a href="#/portfolio">portfolio</a></div></div>
+        <div className="tile"><div className="lbl">Retirement savings</div><div className="mono figure-small">{retirement ? formatCompact(retirement) : "–"}</div><div className="small muted">{retirement ? "locked until retirement" : "starts with your first salary"}</div></div>
+      </div>
+      {days.length >= 2 && (
+        <Panel title="What you own, day by day">
+          <AreaChart points={days.map((d) => ({ label: shortDate(d.session_date), value: Number(BigInt(d.total_kobo) / 100n) }))}
+                     format={(v) => formatCompact((BigInt(Math.round(v)) * 100n).toString())} height={150} color="var(--gold)"
+                     label={`What you own went from ${formatCompact(days[0].total_kobo)} to ${formatCompact(days[days.length - 1].total_kobo)} over ${days.length} Closing Bells.`} />
+        </Panel>
+      )}
+    </>
+  );
+}
+
+/** The watchlist as a dense table, with each share's last five days as a small line. */
+function WatchTable({ onLoggedOut }: { onLoggedOut: () => void }) {
+  const watched = useLoad(api.watchlist, "watchlist", onLoggedOut);
+  const market = useLoad(api.market, "market", onLoggedOut);
+  const list = watched.data ?? [];
+  const closes = new Map((market.data?.shares ?? []).map((s) => [s.ticker, s.closes.map(Number)]));
+  return (
+    <Panel title="Your watchlist" aside={<a href="#/market">Open the market</a>}>
+      {list.length === 0 ? (
+        <p className="muted small">Nothing yet. Press ☆ beside a company on the Market page, or on its own page, to keep an eye on it here.</p>
+      ) : (
+        <div className="scroll" tabIndex={0}>
+          <table className="dense">
+            <thead><tr><th scope="col">Code</th><th scope="col">Company</th><th scope="col" className="num">Price</th><th scope="col" className="num">Today</th><th scope="col">Last 5 days</th></tr></thead>
+            <tbody>
+              {list.map((w) => (
+                <tr key={w.ticker} className={w.reached ? "row-alert" : undefined}>
+                  <td className="mono strong"><a href={`#/companies/${w.ticker}`}>{w.ticker}</a></td>
+                  <th scope="row">{w.name}{w.reached && <div className="small">{w.reached === "above" ? "▲ Reached" : "▼ Fell to"} your price</div>}</th>
+                  <td className="num mono">{formatNaira(w.price_kobo)}</td>
+                  <td className="num"><Change bps={w.change_bps} /></td>
+                  <td><Sparkline values={closes.get(w.ticker) ?? []} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+/** The latest stories, one line each. */
+function LatestNews({ onLoggedOut }: { onLoggedOut: () => void }) {
+  const news = useLoad(() => api.news({ limit: 20 }), "desk-news", onLoggedOut);
+  const seen = new Set<string>();
+  const items = (news.data?.items ?? []).filter((item) => {
+    const key = `${item.story}|${item.kind}|${item.period}`;
+    return seen.has(key) ? false : (seen.add(key), true);
+  }).slice(0, 4);
+  if (items.length === 0) return null;
+  return (
+    <Panel title="Latest news" aside={<a href="#/news">All news</a>}>
+      {items.map((item, index) => (
+        <a key={index} href="#/news" className="news-line plain-link" style={{ display: "block" }}>
+          <div className="lbl" style={{ fontSize: 10 }}>{item.outlet} · {newsDate(item)}</div>
+          <div className="small">{item.headline}</div>
+        </a>
+      ))}
+    </Panel>
   );
 }
 
@@ -267,6 +370,20 @@ const SESSIONS = [
   { state: "open", name: "Open", hours: "12:00 to 22:00" },
   { state: "closed", name: "Closed", hours: "22:00 to 11:30" },
 ] as const;
+
+/** The BSX 50 today, and how many shares rose and fell. */
+function MarketToday({ onLoggedOut }: { onLoggedOut: () => void }) {
+  const { data } = useLoad(api.market, "market", onLoggedOut);
+  if (!data) return null;
+  const traded = data.shares.filter((s) => s.volume > 0);
+  const up = traded.filter((s) => s.change_bps > 0).length, down = traded.filter((s) => s.change_bps < 0).length;
+  return (
+    <Panel title="BSX 50 today">
+      <div className="headline"><span className="mono figure-small">{data.index.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span><Change bps={traded.length ? data.index_change_bps : null} /></div>
+      <p className="small">{traded.length ? `${up} shares up ▲, ${down} down ▼, ${traded.length - up - down} unchanged.` : "Nothing has traded yet today."}</p>
+    </Panel>
+  );
+}
 
 export function DeskRail({ player, live, onLoggedOut }: { player: Player; live: LiveClock | null; onLoggedOut: () => void }) {
   const date = live?.clock.game_date;
@@ -293,7 +410,9 @@ export function DeskRail({ player, live, onLoggedOut }: { player: Player; live: 
         </p>
       </Panel>
 
-      <WatchlistPanel onLoggedOut={onLoggedOut} />
+      <MarketToday onLoggedOut={onLoggedOut} />
+
+      <LatestNews onLoggedOut={onLoggedOut} />
 
       <Panel title="Game calendar">
         {date ? (

@@ -25,6 +25,12 @@ export type Player = {
   rank_waiting: boolean;
   news_alerts: boolean;
   unread_messages: number;
+  /** The redesign: the player's own look and sound, and whether the first-time tour has been seen. */
+  theme: "dark" | "light";
+  sound_on: boolean;
+  sound_volume: number;
+  tour_done: boolean;
+  work_in_hand: number;
 };
 export type EmpireBadge = { name: string; place: number | null; is_head: boolean; waiting: number; forming: boolean };
 
@@ -91,6 +97,8 @@ export type Setting = "solo" | "empire" | "live";
 export type Milestone = { label: string; points: number; earned: boolean };
 export type Objective = {
   id: number; template: string; module: string; title: string; kind: "hand_in" | "market"; idea: string;
+  /** The professional method, never the answer: "How to do this". */
+  how?: string | null;
   terms: {
     client?: { ticker: string; name: string }; situation: string; task: string[]; pass_when: string; deadline: string;
     given: { label: string; kobo?: Kobo; text?: string }[]; fields: ObjectiveField[]; notes?: string[];
@@ -108,7 +116,7 @@ export type Objective = {
   judged_at: string | null; paid_kobo: Kobo; can_hand_in: boolean;
 };
 export type ObjectiveOffer = {
-  template: string; module: string; title: string; idea: string; kind: "hand_in" | "market"; level: number; reward_kobo: Kobo;
+  template: string; module: string; title: string; idea: string; how?: string | null; kind: "hand_in" | "market"; level: number; reward_kobo: Kobo;
   experience: number; available: boolean; why_not: string | null; payer: string | null;
   client: { ticker: string; name: string } | null; situation: string | null; pass_when: string | null; deadline: string | null;
   practise_again: boolean; setting: Setting; setting_name: string; track: string;
@@ -347,6 +355,8 @@ export type NewsItem = {
   body: string;
   tickers: string[];
   locations: string[];
+  /** The redesign: each named company's share price move since the story came out, in hundredths of a percent. */
+  moves: Record<string, number>;
 };
 
 export type News = { outlets: string[]; items: NewsItem[] };
@@ -420,6 +430,8 @@ export type MarketShare = {
   volume: number;
   market_value_kobo: Kobo;
   credit_rating: string | null;
+  /** The redesign: the last five closing prices, oldest first. */
+  closes: Kobo[];
 };
 
 export type Market = {
@@ -476,7 +488,7 @@ export type Ticker = {
   closing_rush: boolean;
   index: number;
   index_change_bps: number;
-  shares: { ticker: string; price_kobo: Kobo; change_bps: number; traded_today: boolean }[];
+  shares: { ticker: string; name: string; sector: string; price_kobo: Kobo; change_bps: number; traded_today: boolean }[];
 };
 
 export type BellMover = { ticker: string; name: string; close_kobo: Kobo; change_bps: number };
@@ -768,6 +780,8 @@ function readableError(detail: unknown): string {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  // Anything that changes something may change prices: the shared market answer is asked for again.
+  if (options.method && options.method !== "GET") marketShared = null;
   const response = await fetch(`/api${path}`, {
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
@@ -800,11 +814,26 @@ export type Conversations = {
 export type ChatMessage = { id: number; mine: boolean; body: string; sent_at: string; read: boolean; reported: boolean };
 export type Thread = { name: string; messages: ChatMessage[]; blocked: boolean; can_write: boolean };
 
+/** Several parts of one screen show the market (the desk's tiles, its watchlist, the rail). They share one
+ * answer for a few seconds instead of each asking the server. */
+let marketShared: { at: number; answer: Promise<Market> } | null = null;
+function sharedMarket(): Promise<Market> {
+  const now = Date.now();
+  if (!marketShared || now - marketShared.at > 10_000) {
+    const answer = request<Market>("/market");
+    marketShared = { at: now, answer };
+    answer.catch(() => { if (marketShared?.answer === answer) marketShared = null; });
+  }
+  return marketShared.answer;
+}
+
 export const api = {
   me: () => request<Player>("/me"),
   movements: () => request<Movement[]>("/me/movements?limit=10"),
   setProfileIcon: (profile_icon: ProfileIcon) =>
     request<Player>("/me/profile-icon", { method: "PATCH", body: JSON.stringify({ profile_icon }) }),
+  setSettings: (settings: Partial<Pick<Player, "theme" | "sound_on" | "sound_volume" | "tour_done">>) =>
+    request<Player>("/me/settings", { method: "PATCH", body: JSON.stringify(settings) }),
   setNewsAlerts: (on: boolean) => request<Player>("/me/news-alerts", { method: "PATCH", body: JSON.stringify({ on }) }),
   newsAlerts: (mark: NewsAlertMark | null) =>
     request<NewsAlerts>(mark ? `/news/alerts?period=${mark.period}&day=${mark.day}&top=${mark.top}` : "/news/alerts"),
@@ -827,7 +856,7 @@ export const api = {
     query.set("limit", String(filter.limit ?? 60));
     return request<News>(`/news?${query}`);
   },
-  market: () => request<Market>("/market"),
+  market: () => sharedMarket(),
   portfolio: () => request<Portfolio>("/market/portfolio"),
   watchlist: () => request<Watched[]>("/market/watchlist"),
   watch: (ticker: string, alerts: { alert_above_kobo?: number; alert_below_kobo?: number } = {}) =>

@@ -177,6 +177,10 @@ def _player_response(conn: Connection, row: dict) -> PlayerResponse:
         rank_waiting=bool(mine and _rank_waiting(conn, row["id"], mine)),
         news_alerts=row.get("news_alerts", True),
         unread_messages=messages.unread_count(conn, row["id"]),
+        theme=row.get("theme", "dark"), sound_on=row.get("sound_on", True),
+        sound_volume=row.get("sound_volume", 30), tour_done=row.get("tour_done", False),
+        work_in_hand=conn.execute("SELECT count(*) AS n FROM objectives WHERE player_id = %s AND state = 'active'", (row["id"],)).fetchone()["n"]
+        if mine else 0,
     )
 
 
@@ -682,11 +686,13 @@ def read_news(
         return NewsResponse(outlets=papers, items=[])
     period_now = (today.year - 1) * clock.QUARTERS_PER_YEAR + today.quarter
     found = news.visible(conn, period_now, today.day_of_quarter, limit=limit, outlet=code, ticker=ticker)
+    moves = news.price_moves(conn, found, clock.effective_start(world["world_start"], world["weeks_ahead"]), datetime.now(timezone.utc))
     return NewsResponse(outlets=papers, items=[
         NewsItem(
             period=r["period"], period_label=clock.period_label(r["period"]), day=r["day"],
             outlet=news_kinds.OUTLETS[r["outlet"]], kind=r["kind"], story=r["story"], importance=r["importance"],
             headline=r["headline"], body=r["body"], tickers=r["tickers"], locations=r["locations"],
+            moves={t: moves[(r["period"], r["day"], t)] for t in r["tickers"] if (r["period"], r["day"], t) in moves},
         ) for r in found
     ])
 
@@ -721,6 +727,7 @@ def _exchange_time(conn: Connection) -> datetime:
 def market(_: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     """The whole market: every share's price and today's move, and the BSX 50 index."""
     seen = marketview.overview(conn, _exchange_time(conn))
+    closes = marketview.recent_closes(conn)
     return MarketResponse(
         market_state=seen["state"], paused_until=seen["paused_until"], index=seen["index"] / 100,
         index_change_bps=seen["index_change_bps"], market_value_kobo=seen["market_value"], volume=seen["volume"],
@@ -728,6 +735,7 @@ def market(_: dict = Depends(current_player), conn: Connection = Depends(get_con
         shares=[MarketShare(
             ticker=s["ticker"], name=s["name"], sector=s["sector"], price_kobo=s["price"], traded=s["last_price"] is not None,
             change_bps=s["change_bps"], volume=s["volume"], market_value_kobo=s["market_value"], credit_rating=s["rating"],
+            closes=closes.get(s["id"], []),
         ) for s in seen["shares"]],
         index_history=[IndexPoint(session_date=p["session_date"], level=p["level"] / 100) for p in seen["index_history"]],
     )
@@ -879,7 +887,7 @@ def price_ticker(_: dict = Depends(current_player), conn: Connection = Depends(g
     return TickerResponse(
         market_state=seen["state"], closing_rush=clock.in_closing_rush(now), index=seen["index"] / 100,
         index_change_bps=seen["index_change_bps"],
-        shares=[TickerShare(ticker=s["ticker"], price_kobo=s["price"], change_bps=s["change_bps"],
+        shares=[TickerShare(ticker=s["ticker"], name=s["name"], sector=s["sector"], price_kobo=s["price"], change_bps=s["change_bps"],
                             traded_today=s["volume"] > 0) for s in seen["shares"]],
     )
 
@@ -1440,7 +1448,7 @@ def _terms_as_text(value):
 def _objective(row: dict) -> ObjectiveRow:
     return ObjectiveRow(
         id=row["id"], template=row["template"], module=row["module"], title=row["title"], kind=row["kind"], idea=row["idea"],
-        terms=_terms_as_text(row["terms"]), reward_kobo=row["reward"], experience=row["experience"], payer=row["payer"],
+        how=row.get("how"), terms=_terms_as_text(row["terms"]), reward_kobo=row["reward"], experience=row["experience"], payer=row["payer"],
         accepted_at=row["accepted_at"], state=row["state"], progress=row["progress"], submission=row["submission"],
         submitted_at=row["submitted_at"], result=row["result"], judged_at=row["judged_at"], paid_kobo=row["paid"],
         can_hand_in=row["can_hand_in"], setting=row["setting"], setting_name=row["setting_name"], track=row["track"])
@@ -1535,3 +1543,4 @@ from server import rank_routes  # noqa: E402,F401
 from server import firm_routes  # noqa: E402,F401
 from server import deal_routes, dealmaking_routes  # noqa: E402,F401
 from server import message_routes  # noqa: E402,F401
+from server import settings_routes  # noqa: E402,F401

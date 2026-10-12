@@ -5,6 +5,8 @@ import { useLoad } from "./hooks";
 import { Change, Failed, Loading, Panel } from "./Shell";
 import { shortDate } from "./Market";
 import { SingleLine } from "./TrendChart";
+import { CompareChart, MixBar } from "./Charts";
+import { Term } from "./Term";
 
 /** The starting grant, paid in parts as the player does real things. Asking also collects any part that is due. */
 export function GrantPanel({ onLoggedOut, onChanged }: { onLoggedOut: () => void; onChanged: () => void }) {
@@ -30,6 +32,18 @@ export function GrantPanel({ onLoggedOut, onChanged }: { onLoggedOut: () => void
 
 const shares = (count: number) => count.toLocaleString("en-NG");
 
+/** One holding's share of all the player's shares, as a bar and a figure. */
+function ShareBar({ part, whole }: { part: string; whole: string }) {
+  const total = BigInt(whole);
+  const pct = total > 0n ? Number((BigInt(part) * 1000n) / total) / 10 : 0;
+  return (
+    <span className="share-of">
+      <span className="share-of-track" aria-hidden="true"><span style={{ width: `${Math.min(100, pct)}%` }} /></span>
+      <span className="mono small">{pct.toFixed(0)}%</span>
+    </span>
+  );
+}
+
 /** A gain or a loss in naira, with an arrow so that it reads without colour. */
 function Gain({ kobo }: { kobo: string }) {
   const value = BigInt(kobo);
@@ -46,6 +60,7 @@ function describe(order: Order): string {
 
 export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void; onChanged: () => void }) {
   const portfolio = useLoad(api.portfolio, "portfolio", onLoggedOut);
+  const market = useLoad(api.market, "market", onLoggedOut);
   const orders = useLoad(api.myOrders, "orders", onLoggedOut);
   const [problem, setProblem] = useState<string | null>(null);
   if (portfolio.loading && !portfolio.data) return <Loading what="your portfolio" />;
@@ -53,6 +68,15 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
   if (!portfolio.data) return null;
   const p = portfolio.data;
   const waiting = (orders.data ?? []).filter((o) => o.status === "open");
+  const lastTwo = p.net_worth.length >= 1 ? p.net_worth[p.net_worth.length - 1].total_kobo : null;
+  // What the player owns and the BSX 50 on the same Closing Bells, both started at 100.
+  const levels = new Map((market.data?.index_history ?? []).map((d) => [d.session_date, d.level]));
+  const shared = p.net_worth.filter((d) => levels.has(d.session_date) && BigInt(d.total_kobo) > 0n);
+  const compare = shared.length >= 2 ? {
+    you: shared.map((d) => Number(BigInt(d.total_kobo) / 100n)),
+    market: shared.map((d) => levels.get(d.session_date)!),
+    labels: [shortDate(shared[0].session_date), shortDate(shared[shared.length - 1].session_date)] as [string, string],
+  } : null;
   const finished = (orders.data ?? []).filter((o) => o.status !== "open").slice(0, 8);
 
   async function cancel(id: number) {
@@ -76,55 +100,40 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
 
       <GrantPanel onLoggedOut={onLoggedOut} onChanged={onChanged} />
 
-      <Panel title="Your advisory summary" aside="A reading of how your money is placed. Observations, never tips">
-        <ul className="reasons advice">{p.advice.map((line) => <li key={line}>{line}</li>)}</ul>
-      </Panel>
-
-      <Panel title="What you are worth">
-        {p.net_worth.length >= 2 ? (
-          <SingleLine name="What you are worth" format={(v) => formatCompact((BigInt(Math.round(v)) * 100n).toString())}
-                      data={p.net_worth.map((d) => ({ label: shortDate(d.session_date), value: Number(BigInt(d.total_kobo) / 100n) }))} />
-        ) : (
-          <p className="muted small">A chart of what you are worth appears here after your first Closing Bell (22:00 Lagos time).</p>
-        )}
-        <div className="tiles">
-          <div className="tile">
-            <div className="muted small">In all</div>
-            <div className="mono figure-small">{formatNaira(p.total_kobo)}</div>
-            <div className="small muted">cash, shares and bonds together</div>
+      <Panel>
+        <div className="panel-head">
+          <div>
+            <h2><Term word="Net worth">Everything you own</Term></h2>
+            <div className="mono figure" style={{ marginTop: 4 }}>{formatNaira(p.total_kobo)}</div>
           </div>
-          <div className="tile">
-            <div className="muted small">Cash you can use</div>
-            <div className="mono figure-small">{formatNaira(p.cash_kobo)}</div>
-            <div className="small muted">
-              {BigInt(p.held_for_orders_kobo) > 0n ? `plus ${formatNaira(p.held_for_orders_kobo)} held for your buy orders` : "none held for orders"}
-            </div>
-          </div>
-          <div className="tile">
-            <div className="muted small">Your shares</div>
-            <div className="mono figure-small">{formatNaira(p.shares_value_kobo)}</div>
-            <div className="small muted">at today's prices</div>
-          </div>
-          <div className="tile">
-            <div className="muted small">Your bonds and bills</div>
-            <div className="mono figure-small">{formatNaira(p.bonds_value_kobo)}</div>
-            <div className="small muted"><a href="#/market/bonds">at their fair value</a></div>
-          </div>
-          <div className="tile">
-            <div className="muted small">Dividends received</div>
-            <div className="mono figure-small">{formatNaira(p.dividends_kobo)}</div>
-            <div className="small muted">since you began</div>
+          <div className="summary-moves">
+            {lastTwo && <div><div className="lbl">Since the last Closing Bell</div><Gain kobo={(BigInt(p.total_kobo) - BigInt(lastTwo)).toString()} /></div>}
+            <div><div className="lbl">Dividends received</div><span className="mono">{formatNaira(p.dividends_kobo)}</span></div>
+            {BigInt(p.realised_kobo) !== 0n && <div><div className="lbl">On shares sold</div><Gain kobo={p.realised_kobo} /></div>}
           </div>
         </div>
-        {BigInt(p.held_for_offers_kobo) + BigInt(p.offered_to_bidders_kobo) > 0n && (
-          <p className="small">
-            Held by the exchange for <a href="#/market/offers">offers you have answered</a>:{" "}
-            {BigInt(p.held_for_offers_kobo) > 0n && <>{formatNaira(p.held_for_offers_kobo)} in cash for new shares. </>}
-            {BigInt(p.offered_to_bidders_kobo) > 0n && <>{formatNaira(p.offered_to_bidders_kobo)} of shares offered to a bidder.</>}
-          </p>
-        )}
-        {BigInt(p.realised_kobo) !== 0n && (
-          <p className="small">On shares you have already sold, after fees: <Gain kobo={p.realised_kobo} /></p>
+        <MixBar label="What you own, by kind" parts={[
+          { label: "Shares", value: Number(BigInt(p.shares_value_kobo) / 100n), color: "var(--info)", note: formatCompact(p.shares_value_kobo) },
+          { label: "Bonds and bills", value: Number(BigInt(p.bonds_value_kobo) / 100n), color: "var(--build-am)", note: formatCompact(p.bonds_value_kobo) },
+          { label: "Cash", value: Number((BigInt(p.cash_kobo) + BigInt(p.held_for_orders_kobo)) / 100n), color: "var(--border-strong)", note: formatCompact((BigInt(p.cash_kobo) + BigInt(p.held_for_orders_kobo)).toString()) },
+        ]} />
+        <p className="muted small" style={{ marginTop: 8 }}>
+          Cash you can use now: {formatNaira(p.cash_kobo)}{BigInt(p.held_for_orders_kobo) > 0n ? `, plus ${formatNaira(p.held_for_orders_kobo)} held for your buy orders` : ""}.
+          {BigInt(p.held_for_offers_kobo) + BigInt(p.offered_to_bidders_kobo) > 0n && <> Held for <a href="#/market/offers">offers you have answered</a>: {formatNaira((BigInt(p.held_for_offers_kobo) + BigInt(p.offered_to_bidders_kobo)).toString())}.</>}
+        </p>
+      </Panel>
+
+      <Panel title="What you own against the BSX 50" aside={<Term word="BSX 50">both started at 100</Term>}>
+        {compare
+          ? <CompareChart first={compare.you} second={compare.market} names={["You", "BSX 50"]} labels={compare.labels} />
+          : <p className="muted small">This chart appears after two Closing Bells (22:00 Lagos time): what you own and the BSX 50, both started at 100, so you can see which grew faster.</p>}
+        {compare && <p className="muted small" style={{ marginTop: 6 }}>What you own includes salary, rewards and grants paid in, not only what your investments earned. To judge your investing alone, look at the gain or loss on each share below.</p>}
+        {p.net_worth.length >= 2 && (
+          <details style={{ marginTop: 10 }}>
+            <summary className="small" style={{ cursor: "pointer", color: "var(--gold)" }}>What you own, in naira, day by day</summary>
+            <SingleLine name="What you are worth" format={(v) => formatCompact((BigInt(Math.round(v)) * 100n).toString())}
+                        data={p.net_worth.map((d) => ({ label: shortDate(d.session_date), value: Number(BigInt(d.total_kobo) / 100n) }))} />
+          </details>
         )}
       </Panel>
 
@@ -134,7 +143,7 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
             You own no shares yet. Open the <a href="#/market">Market</a>, pick a company and place a buy order.
           </p>
         ) : (
-          <div className="scroll">
+          <div className="scroll" tabIndex={0}>
             <table>
               <thead>
                 <tr>
@@ -146,6 +155,7 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
                   <th scope="col" className="num">They cost you</th>
                   <th scope="col" className="num">Gain or loss</th>
                   <th scope="col" className="num">Dividends</th>
+                  <th scope="col"><Term word="Concentration">Share of your shares</Term></th>
                 </tr>
               </thead>
               <tbody>
@@ -162,6 +172,7 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
                     <td className="num mono">{formatNaira(h.cost_kobo)}</td>
                     <td className="num"><Gain kobo={h.gain_kobo} /></td>
                     <td className="num mono">{formatNaira(h.dividends_kobo)}</td>
+                    <td><ShareBar part={h.value_kobo} whole={p.shares_value_kobo} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -204,17 +215,27 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
   );
 }
 
-export function PortfolioRail() {
+export function PortfolioRail({ onLoggedOut }: { onLoggedOut: () => void }) {
+  const { data } = useLoad(api.portfolio, "portfolio", onLoggedOut);
   return (
-    <Panel title="Reading this page">
-      <ul className="reasons">
-        <li>A share is worth its latest price on the exchange. That can change every minute the market is open.</li>
-        <li>A gain or loss on shares you still hold is only on paper until you sell.</li>
-        <li>Companies that make a profit usually pay part of it to their owners each quarter. That is a dividend, and it arrives as cash.</li>
-        <li>Cash held for a buy order comes back in full if you cancel the order.</li>
-        <li>The advisory summary points at what a careful investor would look at. It never tells you what to buy or sell.</li>
-        <li>What you are worth is written down each day when the Closing Bell rings, and charted from those figures.</li>
-      </ul>
-    </Panel>
+    <>
+      {data && data.advice.length > 0 && (
+        <Panel title="Your money, in plain words" aside="Observations, never tips">
+          <ul className="reasons advice">{data.advice.map((line) => <li key={line}>{line}</li>)}</ul>
+        </Panel>
+      )}
+      <Panel>
+        <details>
+          <summary className="strong" style={{ cursor: "pointer" }}>? Reading this page</summary>
+          <ul className="reasons" style={{ marginTop: 10 }}>
+            <li>A share is worth its latest price on the exchange. That can change every minute the market is open.</li>
+            <li>A gain or loss on shares you still hold is only on paper until you sell.</li>
+            <li>Companies that make a profit usually pay part of it to their owners each quarter. That is a dividend, and it arrives as cash.</li>
+            <li>Cash held for a buy order comes back in full if you cancel the order.</li>
+            <li>What you own is written down each day when the Closing Bell rings, and charted from those figures.</li>
+          </ul>
+        </details>
+      </Panel>
+    </>
   );
 }

@@ -161,9 +161,9 @@ export function AssetManagerWork({ player, onLoggedOut, onChanged }: Props) {
       <Panel title="Holdings" aside={<a href="#/portfolio">Full portfolio</a>}>
         {holdings.length === 0 && held.length === 0 && <p className="muted small">Nothing held yet. Use the trading console below, or the <a href="#/market/bonds">Bonds and bills</a> page.</p>}
         {holdings.length > 0 && (
-          <div className="scroll">
+          <div className="scroll" tabIndex={0}>
             <table>
-              <thead><tr><th scope="col">Share</th><th scope="col" className="num">Held</th><th scope="col" className="num">Price</th><th scope="col" className="num">Today</th><th scope="col" className="num">Value</th><th scope="col" className="num">Gain since bought</th><th scope="col"></th></tr></thead>
+              <thead><tr><th scope="col">Share</th><th scope="col" className="num">Held</th><th scope="col" className="num">Price</th><th scope="col" className="num">Today</th><th scope="col" className="num">Value</th><th scope="col" className="num">Gain since bought</th><th scope="col"><span className="sr-only">Action</span></th></tr></thead>
               <tbody>
                 {holdings.map((h) => (
                   <tr key={h.ticker}>
@@ -181,7 +181,7 @@ export function AssetManagerWork({ player, onLoggedOut, onChanged }: Props) {
           </div>
         )}
         {held.length > 0 && (
-          <div className="scroll">
+          <div className="scroll" tabIndex={0}>
             <table>
               <thead><tr><th scope="col">Bond or bill</th><th scope="col">Kind</th><th scope="col" className="num">Held</th><th scope="col" className="num">Return a year</th><th scope="col" className="num">Value</th></tr></thead>
               <tbody>
@@ -315,7 +315,7 @@ export function AccountantWork({ player, onLoggedOut }: Props) {
 
       {latest && (
         <Panel title="Key ratios" aside="Worked out from the filed figures">
-          <div className="scroll">
+          <div className="scroll" tabIndex={0}>
             <table className="statement">
               <thead><tr><th scope="col">Ratio</th>{reports.map((r) => <th key={r.period} scope="col" className="num">{r.period_label}</th>)}</tr></thead>
               <tbody>
@@ -334,7 +334,7 @@ export function AccountantWork({ player, onLoggedOut }: Props) {
 
       {latest && (
         <Panel title="Tax position" aside={`Company tax is ${d.tax_rate_bps / 100}% of profit before tax`}>
-          <div className="scroll">
+          <div className="scroll" tabIndex={0}>
             <table className="statement">
               <thead><tr><th scope="col">₦ millions</th>{reports.map((r) => <th key={r.period} scope="col" className="num">{r.period_label}</th>)}</tr></thead>
               <tbody>
@@ -369,9 +369,9 @@ export function AccountantWork({ player, onLoggedOut }: Props) {
       <Panel title="Compliance watch" aside="Companies behind on what they owe, from their latest filings">
         {d.watch.length === 0 && <p className="muted small">✓ Every company is up to date with its bills and its lenders.</p>}
         {d.watch.length > 0 && (
-          <div className="scroll">
+          <div className="scroll" tabIndex={0}>
             <table>
-              <thead><tr><th scope="col">Company</th><th scope="col">Rating</th><th scope="col" className="num">Bills unpaid</th><th scope="col" className="num">Debt past its date</th><th scope="col" className="num">Cash</th><th scope="col"></th></tr></thead>
+              <thead><tr><th scope="col">Company</th><th scope="col">Rating</th><th scope="col" className="num">Bills unpaid</th><th scope="col" className="num">Debt past its date</th><th scope="col" className="num">Cash</th><th scope="col"><span className="sr-only">Action</span></th></tr></thead>
               <tbody>
                 {d.watch.map((w) => (
                   <tr key={w.ticker}>
