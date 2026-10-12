@@ -129,7 +129,7 @@ def establish(conn: Connection, head_id, property_id: int, now: datetime) -> dic
                 raise PropertyError("The headquarters is already there.")
             cost = hq["spent"] // 10
             _pay(conn, empire, cost, p["city"], "Moving the headquarters", state["period"], now)
-            conn.execute("UPDATE headquarters SET property_id = %s, spent = spent + %s, condition = %s, warnings = 0, collapsed_period = NULL"
+            conn.execute("UPDATE headquarters SET property_id = %s, spent = spent + %s, condition = %s, warnings = 0, collapsed_period = NULL, homeless = false"
                          " WHERE empire_id = %s", (property_id, cost, max(p["condition"], 60), empire["id"]))
             empires._log(conn, empire["id"], f"The empire moved its headquarters to {p['name']}, {p['city']}.", now)
         sync_seats(conn, empire["id"])
@@ -180,6 +180,20 @@ def approve_upkeep(conn: Connection, head_id, approve: bool, now: datetime) -> N
         conn.execute("UPDATE headquarters SET upkeep_approved = %s WHERE empire_id = %s", (approve, empire["id"]))
 
 
+def lost_building(conn: Connection, property_id: int, new_owner, period: int, now: datetime) -> None:
+    """The headquarters' building was sold to somebody else (a forced sale for unpaid tax or a mortgage):
+    its benefits stop and its extra seats freeze until the empire moves the headquarters to a building it owns."""
+    from simulation import empires
+    for hq in _rows(conn, "SELECT q.*, e.account_id FROM headquarters q JOIN empires e ON e.id = q.empire_id WHERE q.property_id = %s",
+                    (property_id,)):
+        if hq["account_id"] == new_owner:
+            continue
+        conn.execute("UPDATE headquarters SET collapsed_period = %s, homeless = true WHERE empire_id = %s", (period, hq["empire_id"]))
+        sync_seats(conn, hq["empire_id"])
+        empires._log(conn, hq["empire_id"], "The headquarters' building was sold at the Auction House. Its benefits stop and its extra seats "
+                                            "are frozen until the head moves the headquarters to a building the empire owns.", now)
+
+
 def rebuild(conn: Connection, head_id, now: datetime) -> dict:
     from simulation import careers, empires
     with conn.transaction():
@@ -188,6 +202,8 @@ def rebuild(conn: Connection, head_id, now: datetime) -> dict:
         hq = of(conn, empire["id"])
         if hq is None or hq["collapsed_period"] is None:
             raise PropertyError("The headquarters is standing.")
+        if hq["homeless"] or prop.share_of(conn, hq["property_id"], empire["account_id"]) < BPS:
+            raise PropertyError("The empire no longer owns that building. Move the headquarters to a building it owns.")
         p = prop._property(conn, hq["property_id"], lock=True)
         cost = prop.build_cost(p)
         _pay(conn, empire, cost, p["city"], "Rebuilding the headquarters", state["period"], now)
@@ -271,7 +287,7 @@ def view(conn: Connection, empire: dict, now: datetime) -> dict:
     return {**base, "headquarters": {
         "building": hq["building"], "property_id": hq["property_id"], "city": hq["city"], "district": hq["district"],
         "level": level, "spent": hq["spent"], "condition": hq["condition"], "warnings": hq["warnings"],
-        "standing": standing(hq), "collapsed": hq["collapsed_period"] is not None,
+        "standing": standing(hq), "collapsed": hq["collapsed_period"] is not None, "homeless": hq["homeless"],
         "upkeep_asked": hq["upkeep_asked"], "upkeep_approved": hq["upkeep_approved"], "upkeep": hq["spent"] * data.HQ_UPKEEP_BPS // BPS,
         "bonus_bps": bonus_bps(conn, empire["id"]), "city_bonus_bps": 2 * bonus_bps(conn, empire["id"]),
         "city_words": data.HQ_CITY_WORDS[hq["city"]], "industries": list(data.HQ_CITY_INDUSTRIES[hq["city"]]),

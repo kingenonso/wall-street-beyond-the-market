@@ -89,7 +89,8 @@ def list_for_quarter(conn: Connection, period: int, now: datetime, seed: str) ->
         fair = _fair(conn, c["id"])
         low, high = data.AUCTION_RESERVE_BPS
         reserve = fair * int(low + (high - low) * _uniform(seed, f"reserve:{c['id']}", period)) // BPS
-        opens = now + week * n / max(count, 1)
+        # (Spread over the week, each ending before the next quarter's close.)
+        opens = now + (week - timedelta(hours=data.AUCTION_HOURS + 1)) * n / max(count, 1)
         opened.append(_open_auction(conn, c["id"], c["account_id"], "listing", reserve, fair * 7 // 10, fair, opens, period - 1))
     return opened
 
@@ -420,6 +421,15 @@ def _release_partners(conn: Connection, auction_id: int, period: int, keep=None)
         conn.execute("UPDATE auction_partners SET status = 'released', held = 0 WHERE id = %s", (p["id"],))
 
 
+def _unsold(conn: Connection, a: dict, now: datetime, period: int, words: str) -> None:
+    for b in _rows(conn, "SELECT * FROM auction_bids WHERE auction_id = %s AND status = 'live'", (a["id"],)):
+        conn.execute("UPDATE auction_bids SET status = 'lost' WHERE id = %s", (b["id"],))
+        _release(conn, b, period, "The auction ended unsold: the bid's cash is handed back")
+    _release_partners(conn, a["id"], period)
+    conn.execute("UPDATE auctions SET status = 'unsold', settled_at = %s, period = %s WHERE id = %s", (now, period, a["id"]))
+    _event(conn, a["id"], now, a["price"], words)
+
+
 def _settle(conn: Connection, a: dict, now: datetime) -> None:
     state = _state(conn, now)
     period = state["period"]
@@ -427,15 +437,18 @@ def _settle(conn: Connection, a: dict, now: datetime) -> None:
     p = _one(conn, "SELECT * FROM properties WHERE id = %s FOR UPDATE", (a["property_id"],))
     win = _one(conn, "SELECT * FROM auction_bids WHERE id = %s", (a["leader"],)) if a["leader"] else None
     if win is None or a["price"] is None or a["price"] < a["reserve"]:
-        for b in _rows(conn, "SELECT * FROM auction_bids WHERE auction_id = %s AND status = 'live'", (a["id"],)):
-            conn.execute("UPDATE auction_bids SET status = 'lost' WHERE id = %s", (b["id"],))
-            _release(conn, b, period, "The auction ended unsold: the bid's cash is handed back")
-        _release_partners(conn, a["id"], period)
-        conn.execute("UPDATE auctions SET status = 'unsold', settled_at = %s WHERE id = %s", (now, a["id"]))
-        _event(conn, a["id"], now, a["price"], "It did not reach the seller's lowest price, and is not sold.")
+        _unsold(conn, a, now, period, "It did not reach the seller's lowest price, and is not sold.")
         return
     price = a["price"]
+    if not win["computer"] and win["mortgage_bps"]:
+        bank_account = _one(conn, "SELECT account_id FROM companies WHERE id = %s", (win["mortgage_bank"],))["account_id"]
+        if ledger.balance(conn, bank_account) < price * win["mortgage_bps"] // BPS:
+            # The bank cannot pay out the loan it promised: the sale fails, and everybody's cash goes back.
+            _unsold(conn, a, now, period, "The winner's bank could not pay out the mortgage. It is not sold.")
+            return
     buyer = win["bidder"]
+    # (The seller's mortgage, read before the buyer's own new one is written.)
+    sellers_mortgage = prop.mortgage_on(conn, p["id"])
     label = f"{p['name']} (auction {a['id']})"
     partner = _one(conn, "SELECT * FROM auction_partners WHERE auction_id = %s AND bidder = %s AND partner = %s AND status = 'agreed'",
                    (a["id"], buyer, win["partner"])) if win["partner"] else None
@@ -447,10 +460,7 @@ def _settle(conn: Connection, a: dict, now: datetime) -> None:
         try:
             ledger.transfer(conn, payer=buyer, receiver=held, amount=price, kind="capital_spending", memo=f"Bought at auction: {label}", period=period)
         except ledger.InsufficientFunds:
-            conn.execute("UPDATE auction_bids SET status = 'lost' WHERE id = %s", (win["id"],))
-            conn.execute("UPDATE auctions SET status = 'unsold', settled_at = %s WHERE id = %s", (now, a["id"]))
-            _release_partners(conn, a["id"], period)
-            _event(conn, a["id"], now, price, "The winner could not pay. It is not sold.")
+            _unsold(conn, a, now, period, "The winner could not pay. It is not sold.")
             return
     else:
         if win["held"] > own_part:
@@ -491,7 +501,7 @@ def _settle(conn: Connection, a: dict, now: datetime) -> None:
         if tax_part:
             ledger.pay_up_to(conn, payer=h["account_id"], receiver=treasury, wanted=tax_part, kind="property_tax",
                              memo=f"Unpaid tax on {p['name']}, from its sale", period=period)
-    m = prop.mortgage_on(conn, p["id"])
+    m = sellers_mortgage
     if m is not None:
         bank = _one(conn, "SELECT account_id, name FROM companies WHERE id = %s", (m["bank_company_id"],))
         got = ledger.pay_up_to(conn, payer=m["borrower"], receiver=bank["account_id"], wanted=m["outstanding"], kind="mortgage_repayment",
@@ -509,8 +519,11 @@ def _settle(conn: Connection, a: dict, now: datetime) -> None:
                      (p["id"], partner["partner"], win["partner_bps"], period, partner_part))
     conn.execute("UPDATE properties SET tax_owed = 0, book_value = %s, upkeep = true WHERE id = %s",
                  (price if win["computer"] else 0, p["id"]))
-    conn.execute("UPDATE auctions SET status = 'sold', settled_at = %s WHERE id = %s", (now, a["id"]))
+    conn.execute("UPDATE auctions SET status = 'sold', settled_at = %s, period = %s WHERE id = %s", (now, period, a["id"]))
     _event(conn, a["id"], now, price, f"Sold for {money(price)}.")
+    # 4. A building sold from under an empire's headquarters (a forced sale): the headquarters must move.
+    from simulation import headquarters
+    headquarters.lost_building(conn, p["id"], buyer, period, now)
 
 
 # ---------------------------------------------------------------------------

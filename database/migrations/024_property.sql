@@ -157,7 +157,7 @@ CREATE TABLE property_checks (
 
 CREATE TABLE headquarters (
     empire_id     bigint PRIMARY KEY REFERENCES empires (id),
-    property_id   integer NOT NULL UNIQUE REFERENCES properties (id),
+    property_id   integer NOT NULL REFERENCES properties (id),
     level         smallint NOT NULL DEFAULT 1 CHECK (level BETWEEN 1 AND 120),
     spent         bigint NOT NULL DEFAULT 0,                     -- on its levels
     condition     smallint NOT NULL DEFAULT 100 CHECK (condition BETWEEN 0 AND 100),
@@ -165,8 +165,10 @@ CREATE TABLE headquarters (
     upkeep_asked  boolean NOT NULL DEFAULT false,                -- the Risk Manager has asked for it
     warnings      smallint NOT NULL DEFAULT 0,
     collapsed_period integer,
+    homeless      boolean NOT NULL DEFAULT false,                -- its building was sold from under it: it must move
     since         timestamptz NOT NULL
 );
+CREATE UNIQUE INDEX headquarters_one_a_building ON headquarters (property_id) WHERE NOT homeless;
 
 -- A bigger headquarters adds seats: more than two for a build.
 ALTER TABLE empire_seats DROP CONSTRAINT IF EXISTS empire_seats_slot_check;

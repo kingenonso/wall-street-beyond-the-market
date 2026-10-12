@@ -29,6 +29,7 @@ from psycopg.types.json import Jsonb
 from simulation import careers, empires, leagues
 from simulation import world_data as data
 from simulation.empires import BUILD_NAMES, EmpireError, _log, _one, _open, _roll, _rows, _text
+from simulation.money import BPS
 
 APPROVAL_HOURS = 24                 # a desk has this long; then the request passes to the head
 DEPUTY_HOURS = 48                   # ...and after this long to the deputy as well
@@ -639,6 +640,8 @@ def hand_in(conn: Connection, player_id, duty_id: int, answers: dict, now: datet
                      (score, player_id, _json(answers), _json(result), now, duty_id))
         mine = careers.career(conn, player_id, seat["build"])
         gained = DUTY_EXPERIENCE * score // 100 * (1 + (mine["rank"] if mine else 0))
+        from simulation import headquarters                       # a fine headquarters teaches more (Stage 8)
+        gained = gained * (BPS + headquarters.bonus_bps(conn, empire["id"])) // BPS
         if gained and mine:
             careers.add_experience(conn, player_id, seat["build"], gained, now)
         done = {**duty, "status": "done", "score": score, "done_by": player_id, "answers": answers, "result": result}

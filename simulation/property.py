@@ -34,7 +34,7 @@ from __future__ import annotations
 import hashlib
 import math
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from psycopg import Connection
 from psycopg.rows import dict_row
@@ -436,7 +436,11 @@ def close(conn: Connection, world, period: int, now: datetime, seed: str, measur
         auctions.force_sale(conn, pid, "tax", period, now)
     for pid in repossess:
         auctions.force_sale(conn, pid, "repossession", period, now)
-    auctions.list_for_quarter(conn, period + 1, now, seed)
+    # (Listings run from the moment the quarter ended, so a world catching up on several closes lists each
+    # quarter's lots in that quarter's own week, and those whose week has passed are settled at the next close.)
+    world_row = _one(conn, "SELECT world_start, weeks_ahead FROM world_state")
+    ended = clock.effective_start(world_row["world_start"], world_row["weeks_ahead"]) + timedelta(days=clock.REAL_DAYS_PER_QUARTER * period)
+    auctions.list_for_quarter(conn, period + 1, min(ended, now), seed)
 
     _district_news(conn, period)
     record(conn, period, rate, paid_rent=paid_rent, taxed=taxed, kept=kept)
