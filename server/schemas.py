@@ -121,6 +121,12 @@ class PlayerResponse(BaseModel):
     rank_waiting: bool = False
     news_alerts: bool = True
     unread_messages: int = 0
+    # The redesign: the player's own look and sound, and whether they have seen the first-time tour.
+    theme: str = "dark"
+    sound_on: bool = True
+    sound_volume: int = 30
+    tour_done: bool = False
+    work_in_hand: int = 0          # pieces of work taken on and not yet handed in
 
 
 class MovementResponse(BaseModel):
@@ -325,6 +331,8 @@ class NewsItem(BaseModel):
     body: str
     tickers: list[str]
     locations: list[str]
+    # The redesign: how each named company's share price has moved since the story came out.
+    moves: dict[str, int] = {}
 
 
 class NewsResponse(BaseModel):
@@ -434,6 +442,7 @@ class MarketShare(BaseModel):
     volume: int                        # shares traded today
     market_value_kobo: Kobo            # the whole company at this price
     credit_rating: str | None
+    closes: list[Kobo] = []            # the redesign: its last five closing prices, oldest first
 
 
 class IndexPoint(BaseModel):
@@ -556,6 +565,8 @@ class WatchedShare(BaseModel):
 
 class TickerShare(BaseModel):
     ticker: str
+    name: str = ""          # the redesign's command bar finds a company by its name as well as its code
+    sector: str = ""
     price_kobo: Kobo
     change_bps: int
     traded_today: bool      # false: nobody has bought or sold it today, so there is no move to show
@@ -1150,6 +1161,7 @@ class ObjectiveRow(BaseModel):
     title: str
     kind: str
     idea: str
+    how: str | None = None             # the professional method, never the answer
     terms: dict
     reward_kobo: Kobo
     experience: int
@@ -1173,6 +1185,7 @@ class ObjectiveOffer(BaseModel):
     module: str
     title: str
     idea: str
+    how: str | None = None             # the professional method, never the answer (the redesign's "How to do this")
     kind: str
     level: int
     reward_kobo: Kobo

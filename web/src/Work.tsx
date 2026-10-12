@@ -2,10 +2,11 @@
 // The website only shows and asks. The server sets the terms, judges and pays.
 
 import { useState } from "react";
-import { api, ApiError, type Kobo, type Objective, type ObjectiveBoard, type ObjectiveField, type ObjectiveOffer, type Player, type Setting } from "./api";
+import { api, ApiError, type Kobo, type Objective, type ObjectiveBoard, type ObjectiveField, type ObjectiveOffer, type Player, type Setting, type Skill } from "./api";
 import { formatNaira } from "./format";
 import { useLoad } from "./hooks";
-import { ProgressTracker, SkillTree, StateTag, progressWords } from "./Parts";
+import { Calculator } from "./Calculator";
+import { ProgressTracker, SkillTree, STATE_WORDS, progressWords } from "./Parts";
 import { Failed, Loading, Panel } from "./Shell";
 
 /** A company figure in millions of naira, to two places: what the work is done from. */
@@ -141,137 +142,68 @@ function Debrief({ objective }: { objective: Objective }) {
   );
 }
 
-function ActiveCard({ objective, onChanged, onError }: { objective: Objective; onChanged: (finished?: number) => void; onError: (message: string) => void }) {
-  const [typed, setTyped] = useState<Record<string, any>>({});
-  const [busy, setBusy] = useState(false);
-  const [sure, setSure] = useState(false);
-  const terms = objective.terms;
-
-  async function act(action: () => Promise<unknown>) {
-    setBusy(true);
-    try { await action(); onChanged(objective.id); }
-    catch (problem) { onError(problem instanceof ApiError ? problem.message : "Could not reach the server. Please try again."); }
-    finally { setBusy(false); }
-  }
-  function handIn() {
-    const answers = answersFrom(terms.fields, typed);
-    if (typeof answers === "string") return onError(answers);
-    void act(() => api.handIn(objective.id, answers));
-  }
-
-  return (
-    <Panel title={objective.title} aside={<>{objective.module} · {formatNaira(objective.reward_kobo)} from {objective.payer}</>} className="objective">
-      <div className="small"><span className={`tag tag-setting-${objective.setting}`}>{SETTING_MARK[objective.setting]} {objective.setting_name}</span>{terms.setting_note ? <span className="muted"> {terms.setting_note}</span> : null}</div>
-      {terms.hand_in_by && <p className="small change-down">▼ Hand in by {new Date(terms.hand_in_by).toLocaleString("en-NG", { weekday: "short", hour: "2-digit", minute: "2-digit" })}. A late paper does not pass.</p>}
-      <p>{terms.situation}</p>
-      <div className="why-title">WHAT TO DO</div>
-      <ul className="reasons">{terms.task.map((line) => <li key={line}>{line}</li>)}</ul>
-      {terms.notes && terms.notes.length > 0 && <ul className="reasons">{terms.notes.map((line) => <li key={line}>{line}</li>)}</ul>}
-      {terms.given.length > 0 && (
-        <>
-          <div className="why-title">FROM THE RECORDS{terms.client ? <> · <a href={`#/companies/${terms.client.ticker}`}>{terms.client.name}</a></> : null}</div>
-          {terms.given.map((line) => (
-            <div key={line.label} className="row">
-              <span>{line.label}</span>
-              <span className="mono">{line.kobo !== undefined ? `${inMillions(line.kobo)} m` : line.text}</span>
-            </div>
-          ))}
-          {terms.given.some((line) => line.kobo !== undefined) && <p className="muted small">Figures are in millions of naira.</p>}
-        </>
-      )}
-      <div className="row"><span className="muted">Passed when</span><span className="align-right">{terms.pass_when}</span></div>
-      <div className="row"><span className="muted">Deadline</span><span className="align-right">{terms.deadline}</span></div>
-      <div className="row"><span className="muted">Where it stands</span><span className="align-right">{progressWords(objective)}</span></div>
-
-      {objective.can_hand_in && terms.fields.length > 0 && (
-        <form className="hand-in" onSubmit={(event) => { event.preventDefault(); handIn(); }}>
-          <div className="why-title">YOUR WORK</div>
-          <div className="answers">
-            {terms.fields.map((field) => (
-              <AnswerField key={field.key} field={field} value={typed[field.key]} onChange={(value) => setTyped((was) => ({ ...was, [field.key]: value }))} />
-            ))}
-          </div>
-          <div className="step-actions">
-            <button className="button-primary" disabled={busy}>Hand it in</button>
-            <span className="muted small">It can be handed in once. Check it first.</span>
-          </div>
-        </form>
-      )}
-      <div className="step-actions">
-        {sure
-          ? <span className="small">Giving it up counts as work not passed. <button className="button-quiet" disabled={busy} onClick={() => act(() => api.giveUp(objective.id))}>Yes, give it up</button> <button className="button-quiet" onClick={() => setSure(false)}>Keep it</button></span>
-          : <button className="button-quiet" onClick={() => setSure(true)}>Give this work up</button>}
-      </div>
-    </Panel>
-  );
-}
-
-function OfferRow({ offer, canTake, onTake, busy }: { offer: ObjectiveOffer; canTake: boolean; onTake: () => void; busy: boolean }) {
-  return (
-    <div className="definition">
-      <div className="row">
-        <span className="strong">{offer.title} <span className="ticker">{offer.kind === "hand_in" ? "prepare and hand in" : "act in the market"}</span></span>
-        <span className="mono">{formatNaira(offer.reward_kobo)} · {offer.experience} exp</span>
-      </div>
-      <div className="muted small">{offer.module} · {offer.idea}</div>
-      {offer.available ? (
-        <>
-          <p className="small">{offer.situation}</p>
-          <div className="small"><span className="muted">Passed when:</span> {offer.pass_when}</div>
-          {offer.payer && <div className="small"><span className="muted">Paid by:</span> {offer.payer}{offer.setting === "empire" ? " (your empire, out of its own cash)" : offer.client ? <> (the client, <a href={`#/companies/${offer.client.ticker}`}>{offer.client.ticker}</a>)</> : " (your employer, as performance pay)"}</div>}
-          {offer.practise_again && <div className="small change-down">▼ Your last attempt at this module was not passed. Practise it again.</div>}
-          <div className="step-actions">
-            <button className="button-outline" disabled={!canTake || busy} onClick={onTake}>Take this work on</button>
-            {!canTake && <span className="muted small">You have three pieces of work in hand. Finish one first.</span>}
-          </div>
-        </>
-      ) : <div className="small muted">○ {offer.why_not}</div>}
-    </div>
-  );
-}
-
 const SETTING_WORDS: Record<Setting, string> = {
-  solo: "Work you do alone, for a client or your employer. Passing it makes the module learned. Each module can be worked in one setting a quarter: alone, with your empire, or in the weekend challenge.",
-  empire: "The same skill, done for your empire and paid by it. Passing it makes the module practised, and adds to the empire's league points. Each module can be worked in one setting a quarter.",
-  live: "The same skill against the clock, in a challenge open to everybody at once. It pays and teaches one and a half times as much. Passing it makes the module proven.",
+  solo: "Work you do alone, for a client or your employer. Passing it makes the module learned.",
+  empire: "The same skill, done for your empire and paid by it. Passing it makes the module practised, and adds to the empire's league points.",
+  live: "The weekend challenge: the same skill against the clock, open to everybody at once, from Friday 18:00 to Sunday 22:00 (Lagos). It pays and teaches one and a half times as much. Passing it makes the module proven.",
 };
 
-function Offers({ data, busy, onTake }: { data: ObjectiveBoard; busy: boolean; onTake: (template: string) => void }) {
-  const [setting, setSetting] = useState<Setting>("solo");
-  const [track, setTrack] = useState(data.tracks[0]?.track ?? "");
-  const offers = data.offers.filter((offer) => offer.setting === setting && offer.track === track);
-  const weekend = data.weekend;
-  const day = (iso: string) => new Date(iso).toLocaleString("en-NG", { weekday: "long", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Lagos" });
+const SETTING_SHORT: Record<Setting, string> = { solo: "alone", empire: "for your empire", live: "weekend challenge" };
+const UNIT_WORDS: Record<string, string> = { millions: "₦ million", percent: "%", times: "times (×)", naira: "₦", number: "", ticker: "" };
+
+/** Three stars for a module: ★ passed alone, ★★ with your empire, ★★★ in a weekend challenge. */
+export function Stars({ skill }: { skill?: Skill }) {
+  const n = skill ? [skill.learned, skill.practised, skill.proven].filter(Boolean).length : 0;
+  return <span className="stars" aria-label={`${n} of 3 stars in this module`}>{"★".repeat(n)}<span className="stars-empty">{"☆".repeat(3 - n)}</span></span>;
+}
+
+/** The long rules, kept behind a "?" so the page stays short. */
+function Rules({ data }: { data: ObjectiveBoard }) {
   return (
-    <Panel title="Work on offer" aside="One setting of each module a quarter">
-      <p className="muted small">
-        No question papers here. Each piece is practical work from one learning module, and each module's work comes in three
-        settings. The server judges the result against the game's own records, and the named payer pays out of its own cash.
-      </p>
-      {data.tracks.length > 1 && (
-        <div className="choice" role="group" aria-label="Which syllabus map">
-          {data.tracks.map((t) => <button key={t.track} type="button" aria-pressed={track === t.track} onClick={() => setTrack(t.track)}>{t.name}</button>)}
+    <Panel title="How work works">
+      <ul className="reasons">
+        <li>Each piece of work is practical work from one learning module. The server judges it against the game’s own records, and the named payer pays out of its own cash.</li>
+        <li>Each module comes in three settings: <strong>{SETTING_MARK.solo} alone</strong> (passing makes it learned, ★), <strong>{SETTING_MARK.empire} for your empire</strong> (practised, ★★), and <strong>{SETTING_MARK.live} the weekend challenge</strong> (proven, ★★★). One setting of each module a quarter.</li>
+        <li>You can hold {data.limit} pieces at once. The terms are fixed the moment you start.</li>
+        <li>Work you prepare can be handed in once. Work in the market is judged on what you actually hold when the Closing Bell rings.</li>
+        <li>A piece not passed costs its reward and nothing else. Five not passed in any ten opens a performance review.</li>
+        <li>Afterwards you see the worked answer: plain words first, then the professional method, then the arithmetic.</li>
+        <li>{SETTING_WORDS.live}</li>
+      </ul>
+    </Panel>
+  );
+}
+
+function StatusTag({ kind, children }: { kind: "ready" | "progress" | "done" | "failed" | "locked"; children: React.ReactNode }) {
+  const mark = { ready: "●", progress: "◐", done: "✓", failed: "✕", locked: "○" }[kind];
+  return <span className={`status status-${kind}`}>{mark} {children}</span>;
+}
+
+function OfferCard({ offer, skill, canTake, onTake, busy }: { offer: ObjectiveOffer; skill?: Skill; canTake: boolean; onTake: () => void; busy: boolean }) {
+  const [how, setHow] = useState(false);
+  return (
+    <article className="work-card">
+      <div className="work-card-top">
+        <StatusTag kind="ready">Ready · {SETTING_SHORT[offer.setting]}</StatusTag>
+        <span className="mono strong">{formatNaira(offer.reward_kobo)}</span>
+      </div>
+      <h3>{offer.title}</h3>
+      <div className="muted small">{offer.module} · {offer.experience} experience · <Stars skill={skill} /></div>
+      {offer.practise_again && <div className="small change-down">▼ Your last attempt at this module was not passed. Practise it again.</div>}
+      {how && (
+        <div className="how-card" role="region" aria-label="How to do this">
+          <p className="small">{offer.idea}</p>
+          {offer.how && <p className="small"><strong>The method:</strong> {offer.how}</p>}
+          {offer.pass_when && <p className="small muted">Passed when: {offer.pass_when}</p>}
+          <p className="small muted">This is the method, not the answer. The worked answer comes after you hand in.</p>
         </div>
       )}
-      <div className="choice" role="group" aria-label="Setting">
-        {(["solo", "empire", "live"] as Setting[]).map((code) => (
-          <button key={code} type="button" aria-pressed={setting === code} onClick={() => setSetting(code)}>
-            {SETTING_MARK[code]} {data.settings[code]}{code === "live" ? (weekend.open ? " · ● open now" : " · closed") : ""}
-          </button>
-        ))}
+      <div className="work-card-actions">
+        <button className="button-primary" disabled={!canTake || busy} onClick={onTake}>Start</button>
+        <button className="button-quiet" aria-expanded={how} onClick={() => setHow(!how)}>How to do this</button>
       </div>
-      <p className="small">{SETTING_WORDS[setting]}</p>
-      {setting === "live" && (
-        <p className={weekend.open ? "saved" : "muted small"}>
-          {weekend.open ? `● The weekend challenge is open until ${day(weekend.closes)} (Lagos time). Each piece must be handed in within ${weekend.hours} hours of taking it on.`
-            : `○ The next weekend challenge opens on ${day(weekend.opens)} and closes on ${day(weekend.closes)} (Lagos time).`}
-        </p>
-      )}
-      {setting === "empire" && data.in_empire && <p className="muted small">{data.empire_work.done} of {data.empire_work.most} pieces of empire work used this quarter.</p>}
-      {offers.map((offer) => (
-        <OfferRow key={offer.template} offer={offer} canTake={data.active.length < data.limit} busy={busy} onTake={() => onTake(offer.template)} />
-      ))}
-    </Panel>
+      {!canTake && <p className="muted small">You hold the most pieces at once. Finish one first.</p>}
+    </article>
   );
 }
 
@@ -280,14 +212,28 @@ export function WorkWork({ player, onLoggedOut, onChanged }: { player: Player; o
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
+  const [rules, setRules] = useState(false);
+  const [setting, setSetting] = useState<Setting | "all">("all");
+  const [track, setTrack] = useState<string>("");
   if (board.loading && !board.data) return <Loading what="your work" />;
   if (board.error || !board.data) return <Failed message={board.error ?? "Could not load your work."} onRetry={board.reload} />;
   const data = board.data;
-  const changed = (finished?: number) => { setError(null); if (finished) setOpen(finished); board.reload(); onChanged(); };
+  const changed = () => { setError(null); board.reload(); onChanged(); };
+  const myTrack = track || data.tracks[0]?.track || "";
+  const skillOf = new Map(data.skills.map((sk) => [`${sk.track}|${sk.module}`, sk]));
+  const offers = data.offers.filter((o) => o.track === myTrack);
+  const ready = offers.filter((o) => o.available && (setting === "all" || o.setting === setting));
+  const later = offers.filter((o) => !o.available && o.setting === "solo");
+  const weekend = data.weekend;
+  const day = (iso: string) => new Date(iso).toLocaleString("en-NG", { weekday: "long", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Lagos" });
 
   async function take(template: string) {
     setBusy(true); setError(null);
-    try { await api.takeWork(template); changed(); }
+    try {
+      const started = await api.takeWork(template);
+      changed();
+      if (started.kind === "hand_in") window.location.hash = `#/work/${started.id}`;
+    }
     catch (problem) { setError(problem instanceof ApiError ? problem.message : "Could not reach the server. Please try again."); }
     finally { setBusy(false); }
   }
@@ -295,9 +241,13 @@ export function WorkWork({ player, onLoggedOut, onChanged }: { player: Player; o
   return (
     <>
       <div className="work-head">
-        <h1>Your work</h1>
-        <span className="muted small">{data.active.length} of {data.limit} in hand · {data.coverage.learned} of {data.coverage.modules} modules learned · <a href="#/rank">Rank</a></span>
+        <h1>Work</h1>
+        <span className="button-row">
+          <span className="muted small">{data.active.length} of {data.limit} in hand</span>
+          <button className="button-quiet" aria-expanded={rules} onClick={() => setRules(!rules)}>? How work works</button>
+        </span>
       </div>
+      {rules && <Rules data={data} />}
       {!player.build && (
         <Panel title="Choose a build first">
           <p>Work is given to a professional. <a href="#/career">Choose your build, your bank and your employer</a> and the work on offer appears here.</p>
@@ -306,44 +256,314 @@ export function WorkWork({ player, onLoggedOut, onChanged }: { player: Player; o
       {player.build && !data.ready && <Panel><p>{data.why} <a href="#/career">Go to your career</a>.</p></Panel>}
       {error && <p className="error" role="alert">{error}</p>}
 
-      {data.active.map((objective) => <ActiveCard key={objective.id} objective={objective} onChanged={changed} onError={setError} />)}
+      {data.active.length > 0 && (
+        <section aria-labelledby="in-progress">
+          <h2 id="in-progress" className="lbl" style={{ marginBottom: 8 }}>In progress</h2>
+          <div className="work-list">
+            {data.active.map((o) => (
+              <article key={o.id} className="work-card work-card-active">
+                <div className="work-card-top">
+                  <StatusTag kind="progress">In progress · due {o.terms.deadline}</StatusTag>
+                  <span className="mono strong">{formatNaira(o.reward_kobo)}</span>
+                </div>
+                <h3>{o.title}</h3>
+                <div className="muted small">{o.module} · {SETTING_SHORT[o.setting]} · {progressWords(o)}</div>
+                <div className="work-card-actions"><a className="button-primary" href={`#/work/${o.id}`}>{o.kind === "hand_in" ? "Continue" : "Open"}</a></div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
 
-      {data.offers.length > 0 && <Offers data={data} busy={busy} onTake={take} />}
+      {data.offers.length > 0 && (
+        <section aria-labelledby="ready-now">
+          <div className="work-head" style={{ marginBottom: 8 }}>
+            <h2 id="ready-now" className="lbl">Ready to start</h2>
+            <span className="muted small">Only work you can start now</span>
+          </div>
+          {data.tracks.length > 1 && (
+            <div className="filter-row" role="group" aria-label="Which syllabus map">
+              {data.tracks.map((t) => <button key={t.track} className="filter-chip" aria-pressed={myTrack === t.track} onClick={() => setTrack(t.track)}>{t.name}</button>)}
+            </div>
+          )}
+          <div className="filter-row" role="group" aria-label="Setting">
+            <button className="filter-chip" aria-pressed={setting === "all"} onClick={() => setSetting("all")}>All</button>
+            {(["solo", "empire", "live"] as Setting[]).map((code) => (
+              <button key={code} className="filter-chip" aria-pressed={setting === code} onClick={() => setSetting(code)}>
+                {SETTING_MARK[code]} {SETTING_SHORT[code]}{code === "live" ? (weekend.open ? " · ● open" : " · closed") : ""}
+              </button>
+            ))}
+          </div>
+          {setting === "live" && !weekend.open && <p className="muted small">○ The next weekend challenge opens on {day(weekend.opens)} (Lagos time).</p>}
+          {setting === "empire" && data.in_empire && <p className="muted small">{data.empire_work.done} of {data.empire_work.most} pieces of empire work used this quarter.</p>}
+          {ready.length === 0 ? <p className="muted small">Nothing in this setting can be started right now. {later.length > 0 ? "See what is coming up below." : ""}</p> : (
+            <div className="work-list">
+              {ready.map((offer) => (
+                <OfferCard key={offer.template} offer={offer} skill={skillOf.get(`${offer.track}|${offer.module}`)} canTake={data.active.length < data.limit} busy={busy} onTake={() => take(offer.template)} />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {data.finished.length > 0 && (
-        <Panel title="Finished work" aside="Open one to see why">
+        <Panel title="Done" aside="Open one to see the worked answer">
           {data.finished.map((objective) => (
             <div key={objective.id} className="definition">
               <button className="row row-button" onClick={() => setOpen(open === objective.id ? null : objective.id)} aria-expanded={open === objective.id}>
-                <span><StateTag state={objective.state} /> <span className="strong">{objective.title}</span> <span className="muted small">{objective.module} · {SETTING_MARK[objective.setting]} {objective.setting_name.toLowerCase()}</span></span>
-                <span className="mono">{objective.state === "passed" ? `+ ${formatNaira(objective.paid_kobo)}` : "—"}</span>
+                <span>
+                  {objective.state === "passed" ? <StatusTag kind="done">Done</StatusTag> : <StatusTag kind="failed">{STATE_WORDS[objective.state]}</StatusTag>}{" "}
+                  <span className="strong">{objective.title}</span> <span className="muted small">{objective.module} · {SETTING_SHORT[objective.setting]}</span>
+                </span>
+                <span className="mono">{objective.result ? `${objective.result.score}/100 · ` : ""}{objective.state === "passed" ? `+ ${formatNaira(objective.paid_kobo)}` : "—"}</span>
               </button>
               {open === objective.id && <Debrief objective={objective} />}
             </div>
           ))}
         </Panel>
       )}
+
+      {later.length > 0 && (
+        <details className="panel">
+          <summary className="strong" style={{ cursor: "pointer" }}>Coming up: {later.length} more {later.length === 1 ? "piece" : "pieces"} of work open as you grow <span className="muted">(show)</span></summary>
+          <ul className="reasons" style={{ marginTop: 10 }}>
+            {later.map((o) => <li key={o.template}><strong>{o.title}</strong> · {o.why_not}</li>)}
+          </ul>
+        </details>
+      )}
     </>
+  );
+}
+
+/** A unit check that never gives the answer away: it only says when a figure looks like it is in the wrong unit. */
+export function unitWarning(field: ObjectiveField, typed: string, given: { kobo?: Kobo }[]): string | null {
+  const v = Number(String(typed).replace(/,/g, "").trim());
+  if (!typed || !Number.isFinite(v) || v === 0) return null;
+  if (field.kind === "percent" && Math.abs(v) < 1 && String(typed).includes(".")) {
+    return `▲ This answer is in percent. ${typed} means less than one percent. If you worked out a fraction, multiply it by 100.`;
+  }
+  if (field.kind === "millions") {
+    const biggest = Math.max(0, ...given.filter((g) => g.kobo !== undefined).map((g) => Math.abs(Number(BigInt(g.kobo!)) / 1e8)));
+    if (biggest > 0 && Math.abs(v) > biggest * 1000) return "▲ Figures here are in millions of naira. Your answer looks like it is in naira: divide by 1,000,000.";
+  }
+  if (field.kind === "times" && Math.abs(v) >= 100) return "▲ This answer is a number of times, such as 2.5. Did you write a percentage?";
+  return null;
+}
+
+const TOUR = [
+  { at: "figures", text: "These are the company’s own figures, in millions of naira. Tap one and it goes into the calculator, so you never retype a number." },
+  { at: "question", text: "One question at a time. The unit is beside the box. If an answer looks like the wrong unit, you are warned, but never told the answer." },
+  { at: "calculator", text: "The calculator does the arithmetic. When the sum is right, put it straight into your answer." },
+  { at: "hand-in", text: "Check your answers, then hand them in. It can be handed in once. Afterwards you see the worked answer." },
+];
+
+/** One piece of work, one question at a time, with the figures beside it and a calculator. */
+export function WorkFocus({ id, player, onLoggedOut, onChanged, onPlayer }: {
+  id: number; player: Player; onLoggedOut: () => void; onChanged: () => void; onPlayer: (player: Player) => void;
+}) {
+  const board = useLoad(api.objectives, "objectives", onLoggedOut);
+  const [typed, setTyped] = useState<Record<string, any>>({});
+  const [step, setStep] = useState(0);
+  const [sum, setSum] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sure, setSure] = useState(false);
+  const [giveUp, setGiveUp] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [tour, setTour] = useState<number | null>(player.tour_done ? null : 0);
+  const [rules, setRules] = useState(false);
+  if (board.loading && !board.data) return <Loading what="your work" />;
+  if (board.error || !board.data) return <Failed message={board.error ?? "Could not load your work."} onRetry={board.reload} />;
+  const objective = board.data.active.find((o) => o.id === id) ?? board.data.finished.find((o) => o.id === id);
+  if (!objective) return <Panel><p>This piece of work is not yours, or it has gone. <a href="#/work">Back to Work</a>.</p></Panel>;
+  const terms = objective.terms;
+  const fields = terms.fields;
+  const field = fields[Math.min(step, Math.max(0, fields.length - 1))];
+  const last = step >= fields.length - 1;
+  const finishTour = () => { setTour(null); api.setSettings({ tour_done: true }).then(onPlayer).catch(() => undefined); };
+  const at = tour !== null ? TOUR[tour].at : null;
+
+  async function handIn() {
+    const answers = answersFrom(fields, typed);
+    if (typeof answers === "string") { setError(answers); return; }
+    setBusy(true); setError(null);
+    try { await api.handIn(objective!.id, answers); board.reload(); onChanged(); setSure(false); }
+    catch (problem) { setError(problem instanceof ApiError ? problem.message : "Could not reach the server. Please try again."); }
+    finally { setBusy(false); }
+  }
+
+  if (objective.state !== "active") {
+    return (
+      <>
+        <a href="#/work" className="small">← Back to Work</a>
+        <Panel title={objective.title}><Debrief objective={objective} /></Panel>
+      </>
+    );
+  }
+
+  const unitOf = field && "kind" in field ? UNIT_WORDS[field.kind] ?? "" : "";
+  const warning = field && field.kind !== "choice" && field.kind !== "classify" ? unitWarning(field, typed[field.key] ?? "", terms.given) : null;
+
+  return (
+    <div className="focus">
+      <div className="focus-bar">
+        <a href="#/work" className="button-quiet">← Back to Work</a>
+        <div className="focus-title">
+          <div className="strong">{objective.title}</div>
+          <div className="muted small">{objective.module} · {formatNaira(objective.reward_kobo)} from {objective.payer} · due {terms.deadline}</div>
+        </div>
+        {fields.length > 0 && (
+          <ol className="focus-dots" aria-label={`Question ${step + 1} of ${fields.length}`}>
+            {fields.map((f, i) => (
+              <li key={f.key}><button className={i === step ? "dot now" : typed[f.key] !== undefined && typed[f.key] !== "" ? "dot done" : "dot"}
+                        aria-label={`Question ${i + 1}${i === step ? ", now" : typed[f.key] ? ", answered" : ""}`} onClick={() => setStep(i)} /></li>
+            ))}
+          </ol>
+        )}
+        <button className="button-quiet" aria-expanded={rules} onClick={() => setRules(!rules)}>? Rules</button>
+      </div>
+      {rules && <Rules data={board.data} />}
+      {terms.hand_in_by && <p className="small change-down">▼ Hand in by {new Date(terms.hand_in_by).toLocaleString("en-NG", { weekday: "short", hour: "2-digit", minute: "2-digit" })}. A late paper does not pass.</p>}
+
+      <div className="focus-grid">
+        <section className={at === "figures" ? "panel tour-on" : "panel"} aria-labelledby="focus-figures">
+          <div className="panel-head">
+            <h2 id="focus-figures">{terms.client ? <a href={`#/companies/${terms.client.ticker}`}>{terms.client.name}</a> : "From the records"}</h2>
+            <span className="muted small">₦ millions · tap a figure to use it</span>
+          </div>
+          {terms.given.length === 0 && <p className="muted small">This work is done in the market, not from figures.</p>}
+          {terms.given.map((line) => line.kobo !== undefined ? (
+            <button key={line.label} type="button" className="figure-button" onClick={() => setSum(sum + inMillions(line.kobo!).replace(/,/g, ""))}
+                    aria-label={`${line.label}: ${inMillions(line.kobo)} million naira. Tap to use in the calculator.`}>
+              <span>{line.label}</span><span className="mono">{inMillions(line.kobo)}</span>
+            </button>
+          ) : (
+            <div key={line.label} className="row"><span>{line.label}</span><span>{line.text}</span></div>
+          ))}
+          <details className="why" style={{ marginTop: 12 }}>
+            <summary>The situation and what to do</summary>
+            <p className="small">{terms.situation}</p>
+            <ul className="reasons">{terms.task.map((t) => <li key={t}>{t}</li>)}</ul>
+            {terms.notes && <ul className="reasons">{terms.notes.map((t) => <li key={t}>{t}</li>)}</ul>}
+            <p className="small muted">Passed when: {terms.pass_when}</p>
+          </details>
+        </section>
+
+        <div className="focus-side">
+          {objective.can_hand_in && field ? (
+            <section className={at === "question" || at === "hand-in" ? "panel focus-question tour-on" : "panel focus-question"} aria-labelledby="focus-q">
+              <div className="lbl">Question {step + 1} of {fields.length}</div>
+              <h1 id="focus-q" className="focus-q">{field.label}</h1>
+              <details className="how-card" open={!player.tour_done}>
+                <summary>How to do this</summary>
+                <p className="small">{objective.idea}</p>
+                {objective.how && <p className="small"><strong>The method:</strong> {objective.how}</p>}
+                <p className="small muted">This is the method, not the answer. The worked answer comes after you hand in.</p>
+              </details>
+              {field.kind === "choice" || field.kind === "classify" ? (
+                <AnswerField field={field} value={typed[field.key]} onChange={(v) => setTyped((was) => ({ ...was, [field.key]: v }))} />
+              ) : (
+                <div>
+                  <label htmlFor={`answer-${field.key}`} className="field-label">Your answer</label>
+                  <div className="unit-input">
+                    {field.kind === "naira" && <span className="unit unit-before" aria-hidden="true">₦</span>}
+                    <input id={`answer-${field.key}`} type="text" inputMode={field.kind === "ticker" ? "text" : "decimal"}
+                           maxLength={field.kind === "ticker" ? 3 : 18} value={typed[field.key] ?? ""} aria-describedby={warning ? `warn-${field.key}` : undefined}
+                           className={warning ? "warned" : undefined}
+                           onChange={(e) => setTyped((was) => ({ ...was, [field.key]: field.kind === "ticker" ? e.target.value.toUpperCase() : e.target.value }))} />
+                    {unitOf && field.kind !== "naira" && <span className="unit">{unitOf}</span>}
+                  </div>
+                  {warning && <p id={`warn-${field.key}`} role="status" className="unit-warning">{warning}</p>}
+                </div>
+              )}
+              {error && <p className="error" role="alert">{error}</p>}
+              <div className="step-actions">
+                <span className="button-row">
+                  {step > 0 && <button className="button-quiet" onClick={() => setStep(step - 1)}>← Back</button>}
+                  {!last && <button className="button-primary" onClick={() => setStep(step + 1)}>Next question →</button>}
+                  {last && !sure && <button className="button-primary" onClick={() => setSure(true)}>Hand it in</button>}
+                </span>
+              </div>
+              {last && sure && (
+                <div className="confirm">
+                  <p className="small">Check your answers first: it can be handed in once.</p>
+                  <ul className="reasons small">{fields.map((f) => <li key={f.key}>{f.label}: <span className="mono">{typeof typed[f.key] === "object" ? "chosen" : typed[f.key] || "— not answered"}</span></li>)}</ul>
+                  <span className="button-row">
+                    <button className="button-primary" disabled={busy} onClick={handIn}>{busy ? "Handing in…" : "Yes, hand it in"}</button>
+                    <button className="button-quiet" onClick={() => setSure(false)}>Not yet</button>
+                  </span>
+                </div>
+              )}
+            </section>
+          ) : (
+            <Panel title="Where it stands">
+              <p>{progressWords(objective)}</p>
+              <p className="small muted">{terms.pass_when}</p>
+              {objective.kind === "market" && <p className="small">This work is done by trading. <a href="#/market">Open the market</a>.</p>}
+            </Panel>
+          )}
+
+          {fields.length > 0 && objective.can_hand_in && (
+            <section className={at === "calculator" ? "panel tour-on" : "panel"} aria-labelledby="focus-calc">
+              <h2 id="focus-calc" style={{ marginBottom: 10 }}>Calculator</h2>
+              <Calculator text={sum} setText={setSum}
+                          onUse={field && field.kind !== "choice" && field.kind !== "classify" && field.kind !== "ticker"
+                            ? (v) => setTyped((was) => ({ ...was, [field.key]: String(Math.round((field.kind === "percent" && Math.abs(v) < 1 ? v * 100 : v) * 100) / 100) }))
+                            : undefined}
+                          useLabel={field?.kind === "percent" ? "Put this in my answer (as a percentage)" : "Put this in my answer"} />
+            </section>
+          )}
+
+          <div className="step-actions">
+            {giveUp
+              ? <span className="small">Giving it up counts as work not passed. <button className="button-quiet" disabled={busy} onClick={() => { setBusy(true); api.giveUp(objective.id).then(() => { board.reload(); onChanged(); window.location.hash = "#/work"; }).catch((p) => setError(p instanceof ApiError ? p.message : "Could not reach the server.")).finally(() => setBusy(false)); }}>Yes, give it up</button> <button className="button-quiet" onClick={() => setGiveUp(false)}>Keep it</button></span>
+              : <button className="button-quiet" onClick={() => setGiveUp(true)}>Give this work up</button>}
+          </div>
+        </div>
+      </div>
+
+      {tour !== null && (
+        <div className="tour" role="dialog" aria-label={`First-time walkthrough, step ${tour + 1} of ${TOUR.length}`} aria-live="polite">
+          <div className="lbl">First time · step {tour + 1} of {TOUR.length}</div>
+          <p>{TOUR[tour].text}</p>
+          <div className="button-row" style={{ justifyContent: "space-between" }}>
+            <button className="button-quiet" onClick={finishTour}>Skip the tour</button>
+            {tour < TOUR.length - 1
+              ? <button className="button-primary" onClick={() => setTour(tour + 1)}>Next →</button>
+              : <button className="button-primary" onClick={finishTour}>Got it</button>}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
 export function WorkRail({ player, onLoggedOut }: { player: Player; onLoggedOut: () => void }) {
   const board = useLoad(api.objectives, `objectives-rail:${player.cash.amount_kobo}:${player.level}`, onLoggedOut);
+  const data = board.data;
   return (
     <>
-      {board.data && board.data.skills.length > 0 && (
-        <SkillTree skills={board.data.skills} tracks={board.data.tracks} />
+      {data && data.tracks.map((track) => {
+        const skills = data.skills.filter((sk) => sk.track === track.track);
+        const missing = skills.reduce((n, sk) => n + [sk.learned, sk.practised, sk.proven].filter((x) => !x).length, 0);
+        return (
+          <Panel key={track.track} title={`Your modules: ${track.name}`}>
+            <p className="muted small">★ passed alone · ★★ with your empire · ★★★ in a weekend challenge</p>
+            {skills.map((sk) => (
+              <div key={sk.module} className="row">
+                <span>{sk.open ? "" : "○ "}{sk.module}{!sk.open && <span className="muted small"> · Level {sk.level}</span>}</span>
+                <Stars skill={sk} />
+              </div>
+            ))}
+            <p className="small" style={{ marginTop: 8 }}>{missing === 0 ? "◆ Every module at ★★★." : <>◆ All at ★★★ opens your next rank case: <strong>{missing} {missing === 1 ? "star" : "stars"} to go.</strong></>}</p>
+          </Panel>
+        );
+      })}
+      {data && data.skills.length > 0 && (
+        <details className="panel">
+          <summary className="strong" style={{ cursor: "pointer" }}>The full syllabus map</summary>
+          <div style={{ marginTop: 10 }}><SkillTree skills={data.skills} tracks={data.tracks} /></div>
+        </details>
       )}
-      <Panel title="How work is judged">
-        <ul className="reasons">
-          <li>The terms are fixed the moment you take a piece of work on.</li>
-          <li>Each setting draws its own client and its own numbers, so the same answers never fit twice.</li>
-          <li>Work you prepare can be handed in once. Work in the market is judged on what you actually hold when the Closing Bell rings.</li>
-          <li>A piece of work not passed costs its reward and nothing else.</li>
-          <li>Five not passed in any ten opens a performance review. You are told why and how to recover.</li>
-          <li>Afterwards you are shown why: plain words first, then the professional method, then the arithmetic.</li>
-        </ul>
-      </Panel>
     </>
   );
 }

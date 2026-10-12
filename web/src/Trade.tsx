@@ -2,7 +2,10 @@ import { useEffect, useState, type FormEvent } from "react";
 import { api, ApiError, type Holding, type Order, type Quote } from "./api";
 import { formatNaira, MARKET_LABEL } from "./format";
 import { useLoad } from "./hooks";
+import { DepthBars } from "./Charts";
 import { Change, Panel } from "./Shell";
+import { Term } from "./Term";
+import { play } from "./sound";
 
 const shares = (count: number) => count.toLocaleString("en-NG");
 
@@ -53,11 +56,14 @@ function describe(order: Pick<Order, "side" | "quantity" | "remaining" | "limit_
 }
 
 /** Buy or sell one company's shares, and see your own orders in it. */
-export function TradePanel({ ticker, onLoggedOut, onTraded }: {
+export function TradePanel({ ticker, onLoggedOut, onTraded, layout = "wide" }: {
   ticker: string;
   onLoggedOut: () => void;
   onTraded: () => void;
+  /** "rail": one narrow column beside a company's page, with the waiting orders as bars. */
+  layout?: "wide" | "rail";
 }) {
+  const rail = layout === "rail";
   const quote = useLoad(() => api.quote(ticker), `quote:${ticker}`, onLoggedOut);
   const why = useLoad(() => api.why(ticker), `why:${ticker}`, onLoggedOut);
   const orders = useLoad(api.myOrders, "orders", onLoggedOut);
@@ -132,6 +138,7 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
         ticker, side, kind, quantity: count, ...(limit !== null ? { limit_price_kobo: limit } : {}),
       });
       const traded = result.trades.reduce((sum, trade) => sum + trade.quantity, 0);
+      if (traded > 0) play("trade");
       const verb = side === "buy" ? "bought" : "sold";
       if (result.order.status === "filled") setDone(`Done: you ${verb} ${shares(traded)} shares.`);
       else if (result.order.status === "open" && traded > 0)
@@ -163,10 +170,12 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
   return (
     <Panel title="Trade this share" aside={`Broad Street Exchange · ${MARKET_LABEL[q.market_state]}`}>
       {room && (
-        <div className="choice trade-for" role="group" aria-label="Trade for">
-          <span className="field-label">Trade for</span>
-          <button type="button" aria-pressed={!forEmpire} onClick={() => setForEmpire(false)}>Me</button>
-          <button type="button" aria-pressed={forEmpire} onClick={() => setForEmpire(true)}>My empire: {room.name}</button>
+        <div className="trade-for-block">
+          <div className="lbl" id={`trade-for-${ticker}`}>Trade for</div>
+          <div className="seg" role="group" aria-labelledby={`trade-for-${ticker}`}>
+            <button type="button" aria-pressed={!forEmpire} onClick={() => setForEmpire(false)}>Me</button>
+            <button type="button" aria-pressed={forEmpire} onClick={() => setForEmpire(true)}>My empire{rail ? "" : `: ${room.name}`}</button>
+          </div>
         </div>
       )}
       {empireLost && (
@@ -183,17 +192,17 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
           {" "}What you buy belongs to the empire, not to you.
         </p>
       )}
-      <div className="tiles">
-        <div className="tile">
+      <div className={rail ? "tiles tiles-rail" : "tiles"}>
+        {!rail && <div className="tile">
           <div className="muted small">{q.last_price_kobo ? "Last price" : "Listing price (not yet traded)"}</div>
           <div className="mono figure-small">{formatNaira(q.last_price_kobo ?? q.reference_price_kobo)}</div>
           <div className="small muted">a share</div>
-        </div>
-        <div className="tile">
+        </div>}
+        {!rail && <div className="tile">
           <div className="muted small">Today it can trade between</div>
           <div className="mono figure-small">{formatNaira(q.lowest_today_kobo)} – {formatNaira(q.highest_today_kobo)}</div>
           <div className="small muted">a tenth either side of yesterday's last price</div>
-        </div>
+        </div>}
         <div className="tile">
           <div className="muted small">{empireMode ? "The empire owns" : "You own"}</div>
           <div className="mono figure-small">{shares(empireMode ? empireHeld : (holding?.shares ?? 0) + (holding?.held_for_orders ?? 0))}</div>
@@ -203,11 +212,11 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
         </div>
       </div>
 
-      <div className="trade-grid">
+      <div className={rail ? "trade-rail" : "trade-grid"}>
         <form className="trade-form" onSubmit={submit}>
-          <div className="choice" role="group" aria-label="Buy or sell">
-            <button type="button" aria-pressed={side === "buy"} onClick={() => setSide("buy")}>Buy</button>
-            <button type="button" aria-pressed={side === "sell"} onClick={() => setSide("sell")}>Sell</button>
+          <div className="seg" role="group" aria-label="Buy or sell" style={{ marginBottom: 10 }}>
+            <button type="button" className="seg-buy" aria-pressed={side === "buy"} onClick={() => setSide("buy")}>▲ Buy</button>
+            <button type="button" className="seg-sell" aria-pressed={side === "sell"} onClick={() => setSide("sell")}>▼ Sell</button>
           </div>
           <div className="choice" role="group" aria-label="Price">
             <button type="button" aria-pressed={kind === "limit"} onClick={() => setKind("limit")}>At my price</button>
@@ -249,8 +258,12 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
         </form>
 
         <div>
-          <div className="why-title">WHO IS WAITING</div>
-          <Book quote={q} />
+          <div className="why-title">WHO IS WAITING <Term word="Order book"><span className="sr-only">the order book</span></Term></div>
+          {rail
+            ? <DepthBars format={formatNaira}
+                         sellers={q.offers.slice(0, 5).map((l) => ({ price: l.price_kobo, quantity: l.quantity }))}
+                         buyers={q.bids.slice(0, 5).map((l) => ({ price: l.price_kobo, quantity: l.quantity }))} />
+            : <Book quote={q} />}
           {!open && (q.bids.length > 0 || q.offers.length > 0) && (
             <p className="muted small">
               These orders are waiting for the opening auction. Until then a buyer's price may be above a seller's:
@@ -282,7 +295,7 @@ export function TradePanel({ ticker, onLoggedOut, onTraded }: {
         </div>
       </div>
 
-      {why.data && (
+      {why.data && !rail && (
         <div className="why-box">
           <div className="why-title">WHY IS THE PRICE WHERE IT IS?</div>
           <p className="small">

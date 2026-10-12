@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Player } from "./api";
 import { Auth } from "./Auth";
 import { AccountantRail, AccountantWork, AssetManagerRail, AssetManagerWork, BuildRail } from "./BuildDesk";
@@ -17,10 +17,11 @@ import { NewsRail, NewsWork } from "./News";
 import { PortfolioRail, PortfolioWork } from "./Portfolio";
 import { useRoute } from "./hooks";
 import { ProfileRail, ProfileWork } from "./Profile";
-import { Panel, Shell } from "./Shell";
+import { MoreWork, Panel, SearchWork, Shell } from "./Shell";
+import { play, setSoundSettings, unlockOnFirstTouch } from "./sound";
 import { RankRail, RankWork } from "./Rank";
 import { MessagesRail, MessagesWork, partnerFrom } from "./Messages";
-import { WorkRail, WorkWork } from "./Work";
+import { WorkFocus, WorkRail, WorkWork } from "./Work";
 import { useClock } from "./useClock";
 
 export function App() {
@@ -44,6 +45,25 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [player === null || player === undefined, refreshPlayer]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The player's own look and sound follow them to every device.
+  useEffect(() => { unlockOnFirstTouch(); }, []);
+  const theme = player ? player.theme : "dark";
+  useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
+  useEffect(() => { if (player) setSoundSettings(player.sound_on, player.sound_volume); }, [player]);
+  // Sounds for what happens to the player while they are here: a new message, and a rank case or a
+  // decision that has just started waiting. (Trades sound where they are placed; the bell in the shell.)
+  const seen = useRef<{ unread: number; waiting: number; rank: boolean } | null>(null);
+  useEffect(() => {
+    if (!player) { seen.current = null; return; }
+    const now = { unread: player.unread_messages, waiting: player.empire?.waiting ?? 0, rank: player.rank_waiting };
+    const before = seen.current;
+    if (before) {
+      if (now.unread > before.unread) play("message");
+      else if (now.waiting > before.waiting || (now.rank && !before.rank)) play("decision");
+    }
+    seen.current = now;
+  }, [player]);
+
   async function logout() {
     await api.logout().catch(() => undefined);
     window.location.hash = "#/";
@@ -58,11 +78,12 @@ export function App() {
   let rail = <DeskRail player={player} live={live} onLoggedOut={loggedOut} />;
   let current = "";
   let accent: string | undefined;
+  let wide = false;
 
   if (section === "companies" && item) {
     current = "companies";
     work = <CompanyWork key={item} ticker={item} onLoggedOut={loggedOut} onTraded={refreshPlayer} />;
-    rail = <CompanyRail key={item} ticker={item} onLoggedOut={loggedOut} />;
+    rail = <CompanyRail key={item} ticker={item} onLoggedOut={loggedOut} onTraded={refreshPlayer} />;
   } else if (section === "companies") {
     current = "companies";
     work = <CompaniesWork onLoggedOut={loggedOut} />;
@@ -74,7 +95,7 @@ export function App() {
   } else if (section === "portfolio") {
     current = "portfolio";
     work = <PortfolioWork onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
-    rail = <PortfolioRail />;
+    rail = <PortfolioRail onLoggedOut={loggedOut} />;
   } else if (section === "news") {
     current = "news";
     work = <NewsWork onLoggedOut={loggedOut} />;
@@ -122,6 +143,11 @@ export function App() {
     accent = "neutral";
     work = <EmpireWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <EmpireRail player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+  } else if (section === "work" && item && /^\d+$/.test(item)) {
+    current = "work";
+    work = <WorkFocus key={item} id={Number(item)} player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} onPlayer={setPlayer} />;
+    rail = <></>;
+    wide = true;
   } else if (section === "work") {
     current = "work";
     work = <WorkWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
@@ -134,6 +160,14 @@ export function App() {
     current = "career";
     work = <CareerWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <CareerRail player={player} onLoggedOut={loggedOut} />;
+  } else if (section === "more") {
+    current = "more";
+    work = <MoreWork player={player} onPlayer={setPlayer} onLogout={logout} />;
+    rail = <></>;
+  } else if (section === "search") {
+    current = "search";
+    work = <SearchWork player={player} />;
+    rail = <></>;
   } else if (section === "messages") {
     current = "messages";
     const other = partnerFrom(item);
@@ -152,5 +186,5 @@ export function App() {
     rail = <></>;
   }
 
-  return <Shell player={player} live={live} current={current} onLogout={logout} onPlayer={setPlayer} work={work} rail={rail} accent={accent} />;
+  return <Shell player={player} live={live} current={current} onLogout={logout} onPlayer={setPlayer} wide={wide} work={work} rail={rail} accent={accent} />;
 }

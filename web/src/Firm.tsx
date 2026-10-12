@@ -853,6 +853,34 @@ function Board({ f }: { f: Any }) {
 // The screen
 // ---------------------------------------------------------------------------
 
+const BUILD_COLOUR: Record<string, string> = {
+  asset_manager: "#a996ff", accountant: "#4fc38a", investment_banker: "#6db3ff", risk_manager: "#ff9f45", lawyer: "#dfe5ee", journalist: "#d08cf0",
+};
+
+/** The empire's seats, each coloured by its member's build, with the empty seats shown dashed. */
+function Seats({ roster }: { roster: Any[] }) {
+  const total = Math.max(13, roster.length);
+  return (
+    <Panel title="Seats" aside={`${roster.length} of ${total} filled`}>
+      <ul className="seat-grid">
+        {Array.from({ length: total }, (_, i) => {
+          const r = roster[i];
+          if (!r) return <li key={i} className="seat seat-empty"><span aria-hidden="true">+</span><span className="sr-only">An empty seat</span><span className="muted small">empty</span></li>;
+          const colour = BUILD_COLOUR[r.build] ?? "var(--muted)";
+          return (
+            <li key={i} className="seat" style={{ borderColor: colour }}>
+              <span className="seat-initial" style={{ color: colour }} aria-hidden="true">{String(r.name ?? "?").charAt(0).toUpperCase()}</span>
+              <span className="small">{r.name}{r.you ? " (you)" : ""}</span>
+              <span className="muted small">{r.is_head ? "Head" : r.build_name}</span>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="muted small">The colour of each seat is its member’s build. Dashed seats are empty.</p>
+    </Panel>
+  );
+}
+
 function needsYou(f: Any): { tag: string; title: string; tab: Tab }[] {
   const out: { tag: string; title: string; tab: Tab }[] = [];
   for (const h of f.work.events) for (const d of h.desks) if (d.yours) out.push({ tag: "EVENT", title: `${h.title}: answer for the ${d.name}`, tab: "work" });
@@ -895,31 +923,44 @@ export function FirmWork({ player, onLoggedOut, onChanged, initialTab }: Props &
     );
   }
   const cards = needsYou(f);
+  const place = player.empire?.place;
   return (
     <>
       <div className="work-head">
-        <h1>{f.name}</h1>
-        <span className="muted small">{f.is_head ? "You are the head" : f.is_deputy ? "You are the deputy head" : `Your desk: ${f.roster.find((r: Any) => r.you)?.build_name ?? ""}`}{f.deputy && !f.is_deputy ? ` · deputy: ${f.deputy}` : ""}</span>
+        <div>
+          <div className="lbl">{f.is_head ? "Your empire · you are its head" : f.is_deputy ? "Your empire · you are the deputy head" : `Your empire · your desk: ${f.roster.find((r: Any) => r.you)?.build_name ?? ""}`}</div>
+          <h1 style={{ marginTop: 4 }}>{f.name}</h1>
+          {f.deputy && !f.is_deputy && <span className="muted small">Deputy: {f.deputy}</span>}
+        </div>
+        <div className="empire-stats">
+          {place && <div><div className="lbl">League</div><div className="mono figure-small">{place === 1 ? "1st" : place === 2 ? "2nd" : place === 3 ? "3rd" : `${place}th`}</div></div>}
+          <div><div className="lbl">Owns</div><div className="mono figure-small">{formatCompact(f.money.owned)}</div></div>
+          <div><div className="lbl">Owes</div><div className="mono figure-small">{formatCompact(f.money.owed)}</div></div>
+        </div>
       </div>
       {act.error && <p className="error" role="alert">{act.error}</p>}
       {act.notice && <p className="saved" role="status">{act.notice}</p>}
-      <section aria-label="Needs you now">
-        {cards.length === 0 ? <p className="muted">Nothing in the firm is waiting on you.</p> : (
-          <div className="queue">
-            {cards.slice(0, 4).map((card, index) => (
-              <button key={index} className={index === 0 ? "card card-first" : "card"} onClick={() => setTab(card.tab)}>
-                <div className="card-top"><span className="card-tag">{card.tag}</span></div>
-                <h3>{card.title}</h3>
+      <section aria-labelledby="empire-waiting">
+        <h2 id="empire-waiting" className="lbl" style={{ marginBottom: 8 }}>Waiting for you</h2>
+        {cards.length === 0 ? <p className="muted">Nothing in the empire is waiting on you.</p> : (
+          <div className="wait-list">
+            {cards.slice(0, 6).map((card, index) => (
+              <button key={index} className="wait-item" onClick={() => setTab(card.tab)}>
+                <span className="wait-tag">{card.tag}</span>
+                <span className="wait-title">{card.title}</span>
+                <span className="muted small">Open ›</span>
               </button>
             ))}
+            {cards.length > 6 && <p className="muted small">and {cards.length - 6} more in the tabs below.</p>}
           </div>
         )}
       </section>
-      <div className="tabs tabs-inline" role="tablist">
+      <div className="underline-tabs" role="tablist" aria-label="The empire">
         {TABS.map(([key, label]) => (
-          <button key={key} role="tab" aria-selected={tab === key} className={tab === key ? "tab active" : "tab"} onClick={() => setTab(key)}>{label}</button>
+          <button key={key} role="tab" aria-selected={tab === key} className={tab === key ? "active" : undefined} onClick={() => setTab(key)}>{label}</button>
         ))}
       </div>
+      {tab === "overview" && <Seats roster={f.roster} />}
       {tab === "overview" && <HeadWork player={player} onLoggedOut={onLoggedOut} onChanged={onChanged} />}
       {tab === "warroom" && <EmpireWork player={player} onLoggedOut={onLoggedOut} onChanged={onChanged} />}
       {tab === "deals" && <DealsTab f={f} act={act} />}

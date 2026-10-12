@@ -101,8 +101,19 @@ def _event(conn: Connection, player_id, build, kind: str, words: str, now: datet
 # ---------------------------------------------------------------------------
 
 def experience_for(level: int) -> int:
-    """The experience needed to reach a level."""
-    return data.LEVEL_EXPERIENCE * level * (level - 1)
+    """The experience needed to reach a level.
+
+    The redesign (owner, 12 October 2026): Levels 1 to 10 come twice as fast, in about two real weeks,
+    so a new player feels progress early. From Level 11 the curve eases back onto the old one, which it
+    meets again at Level 20, so the road to Level 20 and beyond takes the same time as before."""
+    if level <= data.EARLY_LEVELS:
+        return data.EARLY_LEVEL_EXPERIENCE * level * (level - 1)
+    full = data.LEVEL_EXPERIENCE * level * (level - 1)
+    gate = data.RANK_GATES[0]
+    if level >= gate:
+        return full
+    gap = (data.LEVEL_EXPERIENCE - data.EARLY_LEVEL_EXPERIENCE) * data.EARLY_LEVELS * (data.EARLY_LEVELS - 1)
+    return full - gap * (gate - level) // (gate - data.EARLY_LEVELS)
 
 
 def level_cap(rank: int = 0) -> int:

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
 import { api, type NewsAlert, type NewsAlertMark, type Player } from "./api";
-import { formatCompact, formatLagosDate, formatLagosTime, MARKET_LABEL } from "./format";
+import { CommandBar } from "./CommandBar";
+import { formatLagosDate, formatLagosTime, formatNaira, MARKET_LABEL } from "./format";
 import { ProfilePicture } from "./icons";
 import { PriceTicker } from "./Ticker";
+import { play } from "./sound";
 import type { LiveClock } from "./useClock";
 
 export function Wordmark() {
@@ -25,9 +27,23 @@ export function MarketPill({ live }: { live: LiveClock | null }) {
   );
 }
 
-function gameDate(live: LiveClock): string {
-  const date = live.clock.game_date;
-  return date ? `Year ${date.year} · Q${date.quarter} · Day ${date.day_of_quarter}` : "The world has not opened yet";
+/** The sound switch in the top bar: one tap turns every sound off or on. */
+function SoundButton({ player, onPlayer }: { player: Player; onPlayer?: (player: Player) => void }) {
+  const on = player.sound_on && player.sound_volume > 0;
+  return (
+    <button
+      className="icon-button" aria-pressed={on}
+      aria-label={on ? `Sound on, volume ${player.sound_volume}. Turn sound off` : "Sound off. Turn sound on"}
+      title={on ? "Sound on" : "Sound off"}
+      onClick={() => api.setSettings({ sound_on: !on, ...(!on && player.sound_volume === 0 ? { sound_volume: 30 } : {}) })
+        .then((p) => onPlayer?.(p)).catch(() => undefined)}
+    >
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+        <path d="M4 9h4l5-4v14l-5-4H4z" />
+        {on ? <path d="M16.5 9.5a4 4 0 0 1 0 5" /> : <path d="M17 9l5 6M22 9l-5 6" />}
+      </svg>
+    </button>
+  );
 }
 
 /** Zone 1 of the standard layout: the top bar. */
@@ -36,13 +52,13 @@ function TopBar({ player, live, onLogout, onPlayer }: {
 }) {
   return (
     <header className="topbar">
-      <a href="#/" className="plain-link"><Wordmark /></a>
+      <a href="#/" className="plain-link topbar-mark"><Wordmark /></a>
+      <CommandBar player={player} />
       <div className="topbar-clock">
         {live && (
           <>
-            <span className="muted">{gameDate(live)}</span>
-            <span className="muted">{formatLagosDate(live.now)}</span>
-            <span className="mono">{formatLagosTime(live.now)} Lagos</span>
+            <span className="mono topbar-date">{shortGameDate(live)}</span>
+            <span className="mono muted topbar-time">{formatLagosDate(live.now)} · {formatLagosTime(live.now)} Lagos</span>
           </>
         )}
         <MarketPill live={live} />
@@ -53,17 +69,26 @@ function TopBar({ player, live, onLogout, onPlayer }: {
         )}
       </div>
       <div className="topbar-player">
-        <div className="align-right">
-          <div className="mono cash" title="Your cash">{formatCompact(player.cash.amount_kobo)}</div>
+        <div className="align-right topbar-who">
+          <div className="mono cash" title="Your cash">{formatNaira(player.cash.amount_kobo)}</div>
           <div className="muted small">
             {player.display_name}
             {player.build_name && <> · <a href="#/career" className="build-badge">{player.build_name} · Level {player.level}</a></>}
           </div>
         </div>
+        <a href="#/search" className="icon-button phone-only" aria-label="Search or jump to">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+        </a>
+        <span className="desktop-only"><SoundButton player={player} onPlayer={onPlayer} /></span>
         <ProfileMenu player={player} onLogout={onLogout} onPlayer={onPlayer} />
       </div>
     </header>
   );
+}
+
+function shortGameDate(live: LiveClock): string {
+  const date = live.clock.game_date;
+  return date ? `Y${date.year} · Q${date.quarter} · Day ${date.day_of_quarter}` : "Not open yet";
 }
 
 /**
@@ -96,6 +121,9 @@ function ProfileMenu({ player, onLogout, onPlayer }: { player: Player; onLogout:
     api.setNewsAlerts(!player.news_alerts).then((p) => onPlayer?.(p)).catch(() => undefined);
   }
   const close = () => setOpen(false);
+  function change(settings: Parameters<typeof api.setSettings>[0]) {
+    api.setSettings(settings).then((p) => onPlayer?.(p)).catch(() => undefined);
+  }
   return (
     <div className="profile-menu" ref={box} onBlur={leave}>
       <button
@@ -128,6 +156,17 @@ function ProfileMenu({ player, onLogout, onPlayer }: { player: Player; onLogout:
           </a>
           <button aria-pressed={player.news_alerts} onClick={toggleNews}>
             News pop-ups <span className="muted small">{player.news_alerts ? "● On" : "○ Off"}</span>
+          </button>
+          <button aria-pressed={player.sound_on} onClick={() => change({ sound_on: !player.sound_on })}>
+            Sound <span className="muted small">{player.sound_on ? "● On" : "○ Off"}</span>
+          </button>
+          <label className="menu-volume">
+            <span>Volume</span>
+            <input type="range" min={0} max={100} step={10} value={player.sound_volume} disabled={!player.sound_on}
+                   onChange={(e) => change({ sound_volume: Number(e.target.value) })} aria-valuetext={`${player.sound_volume} out of 100`} />
+          </label>
+          <button aria-pressed={player.theme === "light"} onClick={() => change({ theme: player.theme === "light" ? "dark" : "light" })}>
+            Light mode <span className="muted small">{player.theme === "light" ? "● On" : "○ Off"}</span>
           </button>
           <button onClick={() => { close(); onLogout(); }}>Log out</button>
         </nav>
@@ -211,24 +250,24 @@ function NewsToasts({ player, onPlayer }: { player: Player; onPlayer?: (player: 
 }
 
 /** The sections of the player's screen. The build's own screen comes straight after the desk. */
-function sectionsFor(player: Player) {
+export function sectionsFor(player: Player) {
   return [
     { path: "", label: "My desk" },
     ...(player.build_name ? [{ path: "build", label: player.build_name }] : []),
-    { path: "work", label: "Work" },
+    { path: "work", label: "Work", count: player.work_in_hand, countWords: "in hand" },
     // One section for the empire: its overview, desks, requests, deals, companies and War Room are tabs inside it.
-    { path: "empire", label: player.empire ? "Empire" : "Empires", ...(player.empire && !player.empire.forming ? { count: player.empire.waiting } : {}) },
+    { path: "empire", label: player.empire ? "Empire" : "Empires", ...(player.empire && !player.empire.forming ? { count: player.empire.waiting, countWords: "waiting" } : {}) },
     { path: "market", label: "Market" },
     { path: "portfolio", label: "Portfolio" },
     { path: "news", label: "News" },
     { path: "companies", label: "Companies" },
     { path: "economy", label: "Economy" },
     { path: "career", label: "Career" },
-  ];
+  ] as { path: string; label: string; count?: number; countWords?: string }[];
 }
 
-/** Zone 2: the sections menu. Only sections that exist are listed. */
-function SectionsMenu({ player, current, onLogout }: { player: Player; current: string; onLogout: () => void }) {
+/** Zone 2: the sections menu. Only sections that exist are listed. On a phone it becomes the bar at the bottom. */
+function SectionsMenu({ player, current }: { player: Player; current: string }) {
   return (
     <nav className="sections" aria-label="Sections">
       {sectionsFor(player).map((section) => (
@@ -239,7 +278,7 @@ function SectionsMenu({ player, current, onLogout }: { player: Player; current: 
           aria-current={section.path === current ? "page" : undefined}
         >
           {section.label}
-          {"count" in section && (section.count ?? 0) > 0 && <span className="count" aria-label={`${section.count} waiting`}>{section.count}</span>}
+          {(section.count ?? 0) > 0 && <span className="count" aria-label={`${section.count} ${section.countWords}`}>{section.count}</span>}
         </a>
       ))}
       {player.empire && (
@@ -248,8 +287,79 @@ function SectionsMenu({ player, current, onLogout }: { player: Player; current: 
           <span className="muted small">{player.empire.forming ? "being founded" : player.empire.place ? `place ${player.empire.place} in the league` : ""}</span>
         </a>
       )}
-      <button className="section section-button" onClick={onLogout}>Log out</button>
     </nav>
+  );
+}
+
+const BAR_ICONS: Record<string, ReactNode> = {
+  "": <path d="M3 11l9-7 9 7v9H3z" />,
+  market: <path d="M3 17l6-6 4 4 8-8" />,
+  work: <><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M8 9h8M8 13h8M8 17h5" /></>,
+  empire: <><path d="M4 21V9l8-5 8 5v12" /><path d="M9 21v-6h6v6" /></>,
+  more: <><circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /></>,
+};
+
+/** On a phone: the five places a player goes most, along the bottom of the screen. The rest are under More. */
+function BottomBar({ player, current }: { player: Player; current: string }) {
+  const all = sectionsFor(player);
+  const pick = (path: string) => all.find((s) => s.path === path)!;
+  const items = [pick(""), pick("market"), pick("work"), pick("empire")].map((s) => ({ ...s, label: s.path === "" ? "Desk" : s.label }));
+  const inMore = !["", "market", "work", "empire"].includes(current);
+  return (
+    <nav className="bottom-bar" aria-label="Sections">
+      {items.map((s) => (
+        <a key={s.path} href={`#/${s.path}`} className={s.path === current ? "bar-item current" : "bar-item"} aria-current={s.path === current ? "page" : undefined}>
+          <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">{BAR_ICONS[s.path]}</svg>
+          <span>{s.label}</span>
+          {(s.count ?? 0) > 0 && <span className="bar-count" aria-label={`${s.count} ${s.countWords}`}>{s.count}</span>}
+        </a>
+      ))}
+      <a href="#/more" className={inMore ? "bar-item current" : "bar-item"} aria-current={current === "more" ? "page" : undefined}>
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">{BAR_ICONS.more}</svg>
+        <span>More</span>
+        {(player.unread_messages > 0 || player.rank_waiting) && <span className="bar-dot" aria-label="something is waiting" />}
+      </a>
+    </nav>
+  );
+}
+
+/** On a phone, everything that is not on the bottom bar, and the player's own settings. */
+export function MoreWork({ player, onPlayer, onLogout }: { player: Player; onPlayer?: (player: Player) => void; onLogout: () => void }) {
+  const change = (settings: Parameters<typeof api.setSettings>[0]) => api.setSettings(settings).then((p) => onPlayer?.(p)).catch(() => undefined);
+  const rest = sectionsFor(player).filter((s) => !["", "market", "work", "empire"].includes(s.path));
+  return (
+    <>
+      <h1>More</h1>
+      <Panel title="Sections">
+        <nav aria-label="More sections" className="more-list">
+          {rest.map((s) => <a key={s.path} href={`#/${s.path}`}>{s.label}<span aria-hidden="true">›</span></a>)}
+          <a href="#/messages">Messages {player.unread_messages > 0 ? <span className="count" aria-label={`${player.unread_messages} unread`}>{player.unread_messages}</span> : <span aria-hidden="true">›</span>}</a>
+          {player.build_name && <a href="#/rank">Rank {player.rank_waiting ? <span className="menu-flag">◆ a case is waiting</span> : <span aria-hidden="true">›</span>}</a>}
+          <a href="#/profile">Profile<span aria-hidden="true">›</span></a>
+        </nav>
+      </Panel>
+      <Panel title="Your settings">
+        <div className="more-list">
+          <button aria-pressed={player.news_alerts} onClick={() => api.setNewsAlerts(!player.news_alerts).then((p) => onPlayer?.(p)).catch(() => undefined)}>News pop-ups <span className="muted small">{player.news_alerts ? "● On" : "○ Off"}</span></button>
+          <button aria-pressed={player.sound_on} onClick={() => change({ sound_on: !player.sound_on })}>Sound <span className="muted small">{player.sound_on ? "● On" : "○ Off"}</span></button>
+          <label className="menu-volume"><span>Volume</span>
+            <input type="range" min={0} max={100} step={10} value={player.sound_volume} disabled={!player.sound_on}
+                   onChange={(e) => change({ sound_volume: Number(e.target.value) })} aria-valuetext={`${player.sound_volume} out of 100`} /></label>
+          <button aria-pressed={player.theme === "light"} onClick={() => change({ theme: player.theme === "light" ? "dark" : "light" })}>Light mode <span className="muted small">{player.theme === "light" ? "● On" : "○ Off"}</span></button>
+          <button onClick={onLogout}>Log out</button>
+        </div>
+      </Panel>
+    </>
+  );
+}
+
+/** On a phone, the search icon opens the command bar on its own page. */
+export function SearchWork({ player }: { player: Player }) {
+  return (
+    <>
+      <h1>Search</h1>
+      <Panel><CommandBar player={player} /><p className="muted small" style={{ marginTop: 10 }}>Type a company’s code or name, a page, or what you want to do.</p></Panel>
+    </>
   );
 }
 
@@ -257,8 +367,10 @@ function SectionsMenu({ player, current, onLogout }: { player: Player; current: 
  * The standard layout every screen uses (design document, section 18):
  * top bar, sections menu, work area and context rail.
  */
-export function Shell({ player, live, current, onLogout, onPlayer, work, rail, accent }: {
+export function Shell({ player, live, current, onLogout, onPlayer, work, rail, accent, wide = false }: {
   player: Player;
+  /** No context rail: the work area takes the whole width (the focused work screen). */
+  wide?: boolean;
   /** Called with the player as the server now sees them, after a change made from the top bar. */
   onPlayer?: (player: Player) => void;
   live: LiveClock | null;
@@ -269,15 +381,24 @@ export function Shell({ player, live, current, onLogout, onPlayer, work, rail, a
   work: ReactNode;
   rail: ReactNode;
 }) {
+  // The Closing Bell rings (if the player has sound on) when the market closes while they are here.
+  const state = live?.clock.market_state;
+  const was = useRef(state);
+  useEffect(() => {
+    if (was.current === "open" && state === "closed") play("bell");
+    was.current = state;
+  }, [state]);
   return (
     <div className="app" data-accent={accent ?? player.accent ?? undefined}>
+      <a href="#main" className="skip-link">Skip to the page</a>
       <TopBar player={player} live={live} onLogout={onLogout} onPlayer={onPlayer} />
       <PriceTicker />
-      <div className="shell">
-        <SectionsMenu player={player} current={current} onLogout={onLogout} />
-        <main className="work">{work}</main>
-        <aside className="rail" aria-label="Context">{rail}</aside>
+      <div className={wide ? "shell shell-wide" : "shell"}>
+        <SectionsMenu player={player} current={current} />
+        <main className="work" id="main" tabIndex={-1}>{work}</main>
+        {!wide && <aside className="rail" aria-label="Context">{rail}</aside>}
       </div>
+      <BottomBar player={player} current={current} />
       <NewsToasts player={player} onPlayer={onPlayer} />
     </div>
   );

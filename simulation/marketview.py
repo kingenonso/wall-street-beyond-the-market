@@ -122,6 +122,23 @@ def index_history(conn: Connection, shares: list[dict]) -> list[dict]:
     return history[-HISTORY_SESSIONS:]
 
 
+def recent_closes(conn: Connection, sessions: int = 5) -> dict:
+    """Each share's closing price on its last few trading days, oldest first, for the small trend
+    lines beside prices (the redesign). Only days that have already traded are counted."""
+    rows = _rows(conn, """
+        SELECT company_id, price FROM (
+            SELECT company_id, session_date, price, row_number() OVER (PARTITION BY company_id ORDER BY session_date DESC) AS n
+            FROM (SELECT DISTINCT ON (company_id, session_date) company_id, session_date,
+                         price / split_factor(company_id, id) AS price
+                  FROM market_trades ORDER BY company_id, session_date, id DESC) closes
+        ) ranked WHERE n <= %s ORDER BY company_id, session_date
+    """, (sessions,))
+    out: dict = {}
+    for row in rows:
+        out.setdefault(row["company_id"], []).append(int(row["price"]))
+    return out
+
+
 def history(conn: Connection, ticker: str) -> list[dict] | None:
     """One share's trading days, oldest first: where it opened and closed, its high and low, and how many shares traded."""
     found = _rows(conn, "SELECT c.id FROM companies c JOIN market_instruments m ON m.company_id = c.id WHERE c.ticker = %s", (ticker,))

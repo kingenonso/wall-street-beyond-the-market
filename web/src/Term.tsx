@@ -1,0 +1,65 @@
+// A "?" beside a financial word opens its meaning in one plain line, with a small example.
+// The list is the game's own glossary; nothing here depends on the player or the world.
+
+import { useEffect, useId, useRef, useState } from "react";
+
+export const GLOSSARY: Record<string, { means: string; example?: string }> = {
+  "BSX 50": { means: "The price of the 50 biggest companies on the exchange, taken together. It started at 1,000.", example: "1,042 means they are worth 4.2% more than when it started." },
+  "Market value": { means: "The share price times every share: what the whole company is worth on the exchange.", example: "₦38.50 × 5 billion shares = ₦192.5 billion." },
+  "P/E": { means: "Price to earnings: how many years of today’s profit the price pays for. Lower can mean cheaper.", example: "A P/E of 8 means the price is 8 years of profit." },
+  "Dividend": { means: "Cash a company pays its owners out of profit, so much for each share.", example: "5.2% a year: ₦5.20 for every ₦100 of shares." },
+  "EBITDA": { means: "Profit before interest, tax and the wearing-out of equipment: what the business itself earns.", example: "Lenders compare debts with it." },
+  "Debt to EBITDA": { means: "How many years of earnings the company’s debts are. Higher is riskier.", example: "2.1× means its debts are 2.1 years of earnings." },
+  "Credit rating": { means: "How safe lenders think the company is, from AAA (safest) down to D (has failed to pay).", example: "AA pays less interest than BB." },
+  "Bond": { means: "A loan you can buy and sell. The borrower pays interest, then repays ₦1,000 at the end.", example: "Its price falls when interest rates rise." },
+  "Bill": { means: "A three-month loan to the Government. The safest place for cash you do not need for a few weeks." },
+  "Yield": { means: "The yearly return you get from a bond if you buy at today’s price and hold it to the end." },
+  "Yield curve": { means: "The yearly return investors want for lending to the Government, by length of loan.", example: "Longer loans usually pay more." },
+  "Order book": { means: "Buyers and the prices they offer, sellers and the prices they ask. A trade happens where they meet." },
+  "Limit order": { means: "An order at your own price: it waits until someone will trade at that price or better." },
+  "Market order": { means: "An order at the best price available right now. Quick, but the price is not fixed." },
+  "Spread": { means: "The gap between the best price a buyer offers and the lowest a seller asks." },
+  "Exchange fee": { means: "Every trade pays 0.5% to the exchange. It is not returned." },
+  "Inflation": { means: "How much prices in the shops rose over a year.", example: "6% means what cost ₦100 now costs ₦106." },
+  "Policy rate": { means: "The Central Bank’s interest rate. Banks’ lending and savings rates follow it." },
+  "Net worth": { means: "Everything you own at today’s prices: cash, shares and bonds (not retirement savings)." },
+  "Cost-to-income": { means: "How much of each naira a bank earns goes on running it. Lower is better.", example: "52% means ₦52 of every ₦100 earned is spent running the bank." },
+  "Cash flow": { means: "Money that actually came in and went out, not just what was earned on paper." },
+  "Revenue": { means: "Sales: everything customers paid the company before any costs." },
+  "Margin": { means: "How much of each naira of sales is left as profit.", example: "A 12% margin keeps ₦12 of every ₦100 sold." },
+  "Rights issue": { means: "New shares offered first to the people who already own the company, usually below the market price." },
+  "Takeover": { means: "Buying more than half of a company’s shares, so the buyer controls it." },
+  "Convertible bond": { means: "A bond that can be swapped for a fixed number of the company’s shares." },
+  "Fair value": { means: "What something is worth when worked out from its cash and risks, not from today’s trading." },
+  "Covenant": { means: "A promise made to a lender, such as keeping debts below a limit. Breaking it lets the lender act." },
+  "Concentration": { means: "How much of your money sits in one place. More in one place means one bad quarter hurts more." },
+};
+
+/** A word with a "?" beside it that opens the word's meaning. */
+export function Term({ word, children }: { word: keyof typeof GLOSSARY | string; children?: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  const box = useRef<HTMLSpanElement>(null);
+  const entry = GLOSSARY[word];
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", key); };
+  }, [open]);
+  if (!entry) return <>{children ?? word}</>;
+  return (
+    <span className="term" ref={box}>
+      {children ?? word}
+      <button type="button" className="term-q" aria-expanded={open} aria-controls={id} aria-label={`What does “${word}” mean?`} onClick={() => setOpen(!open)}>?</button>
+      {open && (
+        <span id={id} role="note" className="term-pop">
+          <span className="strong">{word}</span>: {entry.means}
+          {entry.example && <span className="muted"> For example: {entry.example}</span>}
+        </span>
+      )}
+    </span>
+  );
+}
