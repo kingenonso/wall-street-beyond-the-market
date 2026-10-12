@@ -244,6 +244,13 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
                 mine = _rows(conn, "SELECT * FROM market_orders WHERE company_id = %s AND account_id = %s AND status = 'open'"
                                    " ORDER BY id FOR UPDATE", (share["company_id"], account))
                 standing = {(o["side"], o["limit_price"]): o["remaining"] for o in mine}
+                if code == abroad.FOREIGN:
+                    # Foreign investors may hold no shares of a company (or no cash yet): they only want the orders they can place,
+                    # so that orders they cannot place do not make them take down and put up the rest every few minutes.
+                    held = ledger.balance(conn, account, share["asset"]) + sum(o["remaining"] for o in mine if o["side"] == "sell")
+                    cash = ledger.balance(conn, account) + sum(o["reserved"] for o in mine if o["side"] == "buy")
+                    wanted = {key: amount for key, amount in wanted.items()
+                              if (key[0] == "sell" and held > 0) or (key[0] == "buy" and cash * data.MOST_CASH_PER_ORDER_BPS // BPS >= key[1] * 2)}
                 if set(standing) == set(wanted) and all(standing[key] * 2 >= amount for key, amount in wanted.items()):
                     continue                                   # its orders are still where it wants them
                 books_of_exchange = exchange._accounts(conn)

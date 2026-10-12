@@ -133,8 +133,8 @@ KINDS: tuple[NewsKind, ...] = (
     NewsKind("commodity_up", 54, {"commodity": "farm produce", "size": "12%"}),
     NewsKind("commodity_down", 50, {"commodity": "farm produce", "size": "9%"}),
     # --- The economy upgrade: the rest of the world ---
-    NewsKind("oil_up", 70, {"price": "$82.40 a barrel", "previous": "$75.00", "change": "9.9%"}),
-    NewsKind("oil_down", 72, {"price": "$64.10 a barrel", "previous": "$75.00", "change": "14.5%"}),
+    NewsKind("oil_up", 70, {"price": "$82.40", "previous": "$75.00", "change": "9.9%"}),
+    NewsKind("oil_down", 72, {"price": "$64.10", "previous": "$75.00", "change": "14.5%"}),
     NewsKind("naira_weaker", 74, {"rate": "₦1,560", "previous": "₦1,500", "change": "4%", "cause": "cheaper oil"}),
     NewsKind("naira_stronger", 62, {"rate": "₦1,440", "previous": "₦1,500", "change": "4%", "cause": "dearer oil"}),
     NewsKind("foreign_buying", 55, {"amount": "₦3.2 billion", "rate": "13.5%"}),

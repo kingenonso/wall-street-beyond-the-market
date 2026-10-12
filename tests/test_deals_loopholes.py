@@ -68,13 +68,16 @@ def test_q2_a_whole_purchase_and_sale_moves_money_and_creates_none(db):
 # 3. Can an empire promise the same cash to two bids?
 def test_q3_cash_held_for_one_bid_cannot_be_bid_again(db):
     empire, team, sale, file_id = ready(db)
-    do_checks(db, empire, team, file_id)
     cash = ledger.balance(db, empire["account_id"])
     second = open_a_sale(db)
     other_file = firm_deals.open_file(db, team["investment_banker"], second["id"], LATER)["file_id"]
     firm_deals.sign_nda(db, team["lawyer"], other_file, LATER)
-    do_checks(db, empire, team, other_file)
     db.execute("UPDATE sale_processes SET asking = %s WHERE id IN (%s, %s)", (cash * 6 // 10, sale["id"], second["id"]))
+    # Deals this large need a fairness opinion as well: every check is done on both files.
+    for f in (file_id, other_file):
+        db.execute("INSERT INTO deal_steps (file_id, step, build) VALUES (%s, 'fairness', 'investment_banker') ON CONFLICT DO NOTHING", (f,))
+    do_checks(db, empire, team, file_id)
+    do_checks(db, empire, team, other_file)
     firm_deals.place_bid(db, team["head"], file_id, cash * 6 // 10, 0, LATER)
     with pytest.raises(empires.EmpireError, match="has not the cash"):
         firm_deals.place_bid(db, team["head"], other_file, cash * 6 // 10, 0, LATER)

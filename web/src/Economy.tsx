@@ -194,7 +194,7 @@ function AbroadPanel({ abroad }: { abroad: AbroadSummary }) {
                   <td className="num mono">{formatCompact(q.exports)}</td>
                   <td className="num mono">{formatCompact(q.imports)}</td>
                   <td className="num mono">{formatCompact(q.oil_royalty)}</td>
-                  <td className="num mono">{BigInt(q.foreign_inflow) >= 0n ? `▲ ${formatCompact(q.foreign_inflow)}` : `▼ ${formatCompact(q.foreign_inflow)}`}</td>
+                  <td className="num mono">{BigInt(q.foreign_inflow) >= 0n ? `▲ ${formatCompact(q.foreign_inflow)}` : `▼ (${formatCompact((-BigInt(q.foreign_inflow)).toString())})`}</td>
                   <td className="num mono">{formatCompact(q.foreign_holdings)}</td>
                 </tr>
               ))}

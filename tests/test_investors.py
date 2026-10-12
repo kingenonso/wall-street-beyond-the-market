@@ -288,7 +288,7 @@ def test_two_players_trading_with_each_other_at_a_silly_price_do_not_move_the_in
     value = valuation.latest(db)[db.execute("SELECT id FROM companies WHERE ticker = %s", (T,)).fetchone()[0]]["value_per_share"]
     centres = [c for (c,) in db.execute("SELECT b.centre FROM investor_books b JOIN companies c ON c.id = b.company_id"
                                         " WHERE c.ticker = %s", (T,)).fetchall()]
-    assert len(centres) == 3 and all(abs(c - value) <= value * 3 // 100 for c in centres)   # their views sit at its worth
+    assert len(centres) == len(data.INVESTORS) and all(abs(c - value) <= value * 3 // 100 for c in centres)   # their views sit at its worth
     assert best(db, now=OPEN + timedelta(minutes=1))[0] < value * 102 // 100 < high
     # And with their orders back, a buyer at the upper limit is simply given their cheaper shares.
     cheap = place(db, b, "buy", 100, high, now=OPEN + timedelta(minutes=2))

@@ -388,7 +388,7 @@ def _abroad_news(conn: Connection, period: int, row: dict, now: dict) -> None:
     oil_change = (row["oil_cents"] - was["oil_cents"]) * BPS // was["oil_cents"]
     if abs(oil_change) >= OIL_NEWS_BPS:
         publish(conn, period=period + 1, day=DAY_ECONOMY, kind="oil_up" if oil_change > 0 else "oil_down", story="oil",
-                facts={"price": f"{_dollars(row['oil_cents'])} a barrel", "previous": _dollars(was["oil_cents"]),
+                facts={"price": _dollars(row["oil_cents"]), "previous": _dollars(was["oil_cents"]),
                        "change": percent(abs(oil_change))},
                 sectors=["oil_gas"], locations=[data.PORT_HARCOURT], boost=(abs(oil_change) - 1500) // 200)
     fx_change = (row["fx"] - was["fx"]) * BPS // was["fx"]
