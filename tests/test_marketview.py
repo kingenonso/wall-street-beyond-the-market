@@ -308,7 +308,8 @@ def test_the_market_screens_through_the_website(client, player, db, trading_hour
     investors.act(db, OPEN, force=True)
     market = client.get("/api/market").json()
     assert len(market["shares"]) == 50 and market["market_state"] == "open" and 900 <= market["index"] <= 1100
-    assert {"ticker", "name", "sector", "price_kobo", "traded", "change_bps", "volume", "market_value_kobo", "credit_rating"} == set(market["shares"][0])
+    assert {"ticker", "name", "sector", "price_kobo", "traded", "change_bps", "volume", "market_value_kobo", "credit_rating",
+            "closes"} == set(market["shares"][0])          # the last five closes: the small trend lines (redesign)
 
     analysis = client.get(f"/api/market/{T}/analysis").json()
     assert analysis["verdict"] and analysis["schedule"] and analysis["shareholders"] and analysis["filing_label"] == "Year 2 Q4"
