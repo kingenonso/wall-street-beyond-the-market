@@ -341,6 +341,7 @@ def head_desk(conn: Connection, player_id, now: datetime) -> dict | None:
             {"label": "Shares", "group": "shares", "value": have["shares"], "share_bps": part(have["shares"])},
             {"label": "Government bonds and bills", "group": "bonds", "value": government, "share_bps": part(government)},
             {"label": "Company bonds", "group": "bonds", "value": have["bonds"] - government, "share_bps": part(have["bonds"] - government)},
+            {"label": "Property", "group": "property", "value": have.get("property", 0), "share_bps": part(have.get("property", 0))},
             {"label": "Cash", "group": "cash", "value": have["cash"], "share_bps": part(have["cash"])}) if a["value"] > 0],
         "holdings": [{"ticker": line["ticker"], "name": facts[line["ticker"]]["name"], "sector": facts[line["ticker"]]["sector"],
                       "city": facts[line["ticker"]]["headquarters"], "value": line["value"], "share_bps": part(line["value"])}

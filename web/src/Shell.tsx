@@ -278,6 +278,7 @@ export function sectionsFor(player: Player) {
     // One section for the empire: its overview, desks, requests, deals, companies and War Room are tabs inside it.
     { path: "empire", label: player.empire ? "Empire" : "Empires", ...(player.empire && !player.empire.forming ? { count: player.empire.waiting, countWords: "waiting" } : {}) },
     { path: "market", label: "Market" },
+    { path: "property", label: "Property" },
     { path: "portfolio", label: "Portfolio" },
     { path: "news", label: "News" },
     { path: "companies", label: "Companies" },

@@ -642,7 +642,7 @@ def title_search(conn: Connection, account, property_id: int, now: datetime) -> 
 # Mortgages
 # ---------------------------------------------------------------------------
 
-def mortgage_limit(conn: Connection, account, price: int, now: datetime) -> int:
+def mortgage_limit(conn: Connection, account, price: int, now: datetime, *, except_auction: int | None = None) -> int:
     """The most a bank will lend this account against a property at this price."""
     from simulation import careers
     kind = _one(conn, "SELECT kind FROM ledger_accounts WHERE id = %s", (account,))["kind"]
@@ -656,6 +656,10 @@ def mortgage_limit(conn: Connection, account, price: int, now: datetime) -> int:
         salary = careers.salary_per_quarter(mine["level"], state["wage_index_bps"])
         owed = _one(conn, "SELECT coalesce(sum(outstanding), 0)::bigint AS o FROM mortgages WHERE borrower = %s AND status IN ('open', 'shortfall')",
                     (account,))["o"]
+        # A mortgage promised behind a bid still standing counts too: one salary cannot back many bids at once.
+        owed += _one(conn, "SELECT coalesce(sum(limit_price * mortgage_bps / 10000), 0)::bigint AS o FROM auction_bids"
+                           " WHERE bidder = %s AND status = 'live' AND mortgage_bps > 0 AND auction_id IS DISTINCT FROM %s",
+                     (account, except_auction))["o"]
         return max(min(salary * data.MORTGAGE_SALARY_QUARTERS - owed, price * (BPS - data.MORTGAGE_DEPOSIT_BPS) // BPS), 0)
     if kind == "empire":
         return price * data.EMPIRE_MORTGAGE_MOST_BPS // BPS

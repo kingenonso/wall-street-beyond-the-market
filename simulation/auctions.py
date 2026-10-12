@@ -34,6 +34,7 @@ from simulation.property import PropertyError, _one, _rows, _uniform, money
 
 STEPS = {"title": ("lawyer", "Legal Counsel checks the title"), "valuation": ("accountant", "The Accountant values the lot"),
          "limit": ("risk_manager", "The Risk Manager sets the top price"), "money": ("investment_banker", "The Investment Banker arranges the money")}
+STEPS_BUILDS = tuple(build for build, _ in STEPS.values())
 
 
 def _state(conn: Connection, now: datetime) -> dict:
@@ -222,12 +223,17 @@ def place_bid(conn: Connection, account, auction_id: int, limit: int, now: datet
             if bank is None:
                 raise PropertyError("Choose one of the banks.")
             need = limit * mortgage_bps // BPS
-            if need > prop.mortgage_limit(conn, account, limit, now):
-                raise PropertyError(f"The bank will lend you at most {money(prop.mortgage_limit(conn, account, limit, now))} against a property at this price.")
+            most = prop.mortgage_limit(conn, account, limit, now, except_auction=auction_id)
+            if need > most:
+                raise PropertyError(f"The bank will lend you at most {money(most)} against a property at this price.")
             if need > bank["room"]:
                 raise PropertyError(f"{bank['name']} has no room to lend that much now.")
         if empire_id is not None:
             _checks_allow(conn, empire_id, auction_id, limit, mortgage_bank, mortgage_bps)
+            # An empire does not buy from its own members: a price it set could carry its money out to one of them.
+            if _one(conn, "SELECT 1 FROM ledger_accounts a JOIN empire_seats s ON s.player_id = a.player_id WHERE a.id = %s AND s.empire_id = %s",
+                    (a["seller"], empire_id)):
+                raise PropertyError("The seller is a member of the empire. An empire does not buy from its own members.")
         own = limit * (BPS - partner_bps - mortgage_bps) // BPS
         held = ledger.account_id(conn, _held())
         if mine is not None:

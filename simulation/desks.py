@@ -35,6 +35,7 @@ def asset_desk(conn: Connection, player_id, account, now: datetime) -> dict:
         bond_groups[label] = bond_groups.get(label, 0) + bond["value"]
     allocation = [{"label": "Shares", "group": "shares", "value": have["shares"], "share_bps": share(have["shares"])}]
     allocation += [{"label": label, "group": "bonds", "value": value, "share_bps": share(value)} for label, value in bond_groups.items()]
+    allocation.append({"label": "Property", "group": "property", "value": have.get("property", 0), "share_bps": share(have.get("property", 0))})
     allocation.append({"label": "Cash", "group": "cash", "value": have["cash"], "share_bps": share(have["cash"])})
     by_sector: dict[str, int] = {}
     for line in have["lines"]:

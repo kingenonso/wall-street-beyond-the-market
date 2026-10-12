@@ -1279,6 +1279,7 @@ TEMPLATES: dict[str, Template] = {t.code: t for t in (
 
 
 from simulation import objectives_more  # noqa: E402,F401  (adds the work of the other four builds to the library)
+from simulation import objectives_property  # noqa: E402,F401  (adds the work about land and property, Stage 8)
 from simulation import empires  # noqa: E402,F401          (adds the work that exists only inside an empire)
 from simulation import objectives_ceo  # noqa: E402,F401   (adds the leadership work of the CEO track)
 from simulation import leagues, ranks  # noqa: E402

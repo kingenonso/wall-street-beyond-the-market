@@ -101,6 +101,16 @@ def roster(conn: Connection, empire_id, me) -> list[dict]:
                                  " ORDER BY s.build, s.slot", (empire_id,))]
 
 
+def seats_view(conn: Connection, empire: dict, me) -> list[dict]:
+    """Every seat in the empire, held or empty: two for each build, and those a headquarters adds (Stage 8),
+    frozen while the headquarters is down."""
+    return [{"build": r["build"], "build_name": BUILD_NAMES[r["build"]], "slot": r["slot"], "held": r["player_id"] is not None,
+             "name": r["display_name"], "you": r["player_id"] == me, "is_head": r["player_id"] is not None and r["player_id"] == empire["head_player_id"],
+             "from_headquarters": r["slot"] >= 3, "frozen": r["hq_frozen"]}
+            for r in _rows(conn, "SELECT s.build, s.slot, s.player_id, s.hq_frozen, p.display_name FROM empire_seats s LEFT JOIN players p"
+                                 " ON p.id = s.player_id WHERE s.empire_id = %s ORDER BY s.slot, s.build", (empire["id"],))]
+
+
 def desk_members(conn: Connection, empire_id, build: str) -> list:
     """The players on a desk. The head's desk is the head alone."""
     if build == "head":
@@ -1043,6 +1053,7 @@ def view(conn: Connection, player_id, now: datetime) -> dict | None:
         "is_deputy": deputy == player_id, "deputy": _name(conn, deputy) if deputy else None, "your_build": seat["build"],
         "period": state["period"], "quarter_ends_at": state.get("ends_at"),
         "roster": roster(conn, empire["id"], player_id),
+        "seats": seats_view(conn, empire, player_id),
         "approvals": approvals_view(conn, seat, empire, now),
         "resolutions": resolutions_view(conn, seat, empire, now),
         "duties": duties_view(conn, seat, empire, state, now),

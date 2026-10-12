@@ -370,6 +370,26 @@ class AbroadSummary(BaseModel):
     trade: list[AbroadQuarter]
 
 
+class PropertyQuarter(BaseModel):
+    period: int
+    label: str
+    price_bps: int
+    rent_bps: int
+    occupancy_bps: int
+    sold: int
+    sold_value: Kobo
+
+
+class PropertyCity(BaseModel):
+    city: str
+    history: list[PropertyQuarter]
+
+
+class PropertySummary(BaseModel):
+    """Property prices, rents and sales by city, averaged over its districts (Stage 8)."""
+    cities: list[PropertyCity]
+
+
 class EconomyResponse(BaseModel):
     period: int
     period_label: str | None
@@ -383,6 +403,7 @@ class EconomyResponse(BaseModel):
     money_watch: MoneyWatch | None = None
     consumers: ConsumersSummary | None = None      # the economy upgrade
     abroad: AbroadSummary | None = None
+    property: PropertySummary | None = None        # Stage 8
 
 
 class NewsItem(BaseModel):
@@ -561,6 +582,8 @@ class PortfolioResponse(BaseModel):
     bonds_value_kobo: Kobo = 0         # bonds and bills, at their fair value
     held_for_offers_kobo: Kobo = 0     # cash held for applications for new shares
     offered_to_bidders_kobo: Kobo = 0  # shares offered to a bidder in a takeover, at the market price
+    property_kobo: Kobo = 0            # property at today's prices, less mortgages and unpaid tax on it (Stage 8; may be negative)
+    held_for_bids_kobo: Kobo = 0       # cash held for bids at the Auction House (Stage 8)
     advice: list[str] = []             # the personal advisory summary: observations, never tips
     net_worth: list["NetWorthDay"] = []  # the end of each trading day, oldest first, then today so far
 

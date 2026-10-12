@@ -24,7 +24,7 @@ from server.schemas import Request
 from simulation import auctions, empires, firm, headquarters, ledger, property as prop
 
 MONEY.update({"rent_due", "build_cost", "tax_owed", "last_rent", "last_tax", "equity", "start_price", "minimum", "fair",
-              "your_limit", "next_cost", "rebuild_cost", "upkeep", "held", "limit", "spent"})
+              "your_limit", "next_cost", "rebuild_cost", "upkeep", "held", "limit", "spent", "mortgage_most"})
 Money = Annotated[int, Field(gt=0, le=1_000_000_000_000_000, strict=True)]
 Reserve = Annotated[int, Field(ge=0, le=1_000_000_000_000_000, strict=True)]
 Share = Annotated[int, Field(ge=0, le=10_000, strict=True)]
@@ -140,14 +140,29 @@ def property_market(player: dict = Depends(current_player), conn: Connection = D
         "mine": prop.mine_view(conn, account, now),
         "mortgage_limit_note": "A bank lends a player at most four years of their salary, and wants a fifth of the price paid up front.",
         "banks": [{"id": str(b["id"]), "name": b["name"]} for b in prop.lending_banks(conn, max(_period(conn, now), 1))],
+        "mortgage_most": prop.mortgage_limit(conn, account, 10**15, now),
+        "my_partner_asks": _asks_made(conn, account),
+        "now": now,
         "empire": None,
     }
     if empire is not None:
         out["empire"] = {"id": empire["id"], "name": empire["name"], "head": empire["head_player_id"] == player["id"],
+                         "partner_asks": _asks_made(conn, empire["account_id"]),
+                         "desks_with_members": sorted({b for b in auctions.STEPS_BUILDS if firm.desk_members(conn, empire["id"], b)}),
                          "build": seat["build"], "property": prop.mine_view(conn, empire["account_id"], now),
                          "auctions": auctions.view(conn, now, viewer=empire["account_id"], empire_id=empire["id"])["auctions"],
                          "checks": {str(a_id): checks for a_id, checks in _empire_checks(conn, empire["id"]).items()}}
     return wire(out)
+
+
+def _asks_made(conn: Connection, account) -> list[dict]:
+    """The partners this bidder has asked: who, for what share, and (once agreed) how far they will go."""
+    rows = conn.execute("SELECT p.id, p.auction_id, p.partner_bps, p.status, p.most, a.kind, a.name, pl.display_name FROM auction_partners p"
+                        " JOIN ledger_accounts a ON a.id = p.partner LEFT JOIN players pl ON pl.id = a.player_id"
+                        " WHERE p.bidder = %s ORDER BY p.id DESC LIMIT 30", (account,)).fetchall()
+    return [{"id": r["id"], "auction_id": r["auction_id"], "partner_bps": r["partner_bps"], "status": r["status"],
+             "most": r["most"] if r["status"] == "agreed" else None,
+             "partner": r["name"] if r["kind"] == "empire" else (r["display_name"] or "A player")} for r in rows]
 
 
 def _period(conn: Connection, now) -> int:
