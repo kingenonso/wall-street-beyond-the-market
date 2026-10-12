@@ -27,6 +27,8 @@ from datetime import datetime, timedelta
 from psycopg import Connection
 from psycopg.types.json import Jsonb
 
+import logging
+
 from simulation import clock, ledger, property as prop
 from simulation import world_data as data
 from simulation.money import BPS
@@ -34,6 +36,7 @@ from simulation.property import PropertyError, _one, _rows, _uniform, money
 
 STEPS = {"title": ("lawyer", "Legal Counsel checks the title"), "valuation": ("accountant", "The Accountant values the lot"),
          "limit": ("risk_manager", "The Risk Manager sets the top price"), "money": ("investment_banker", "The Investment Banker arranges the money")}
+log = logging.getLogger("wsbm.auctions")
 STEPS_BUILDS = tuple(build for build, _ in STEPS.values())
 
 
@@ -188,13 +191,28 @@ def _bidder_number(conn: Connection, auction_id: int, bidder) -> int:
     return order.index(bidder) + 1 if bidder in order else len(order) + 1
 
 
+def _member_of_seller(conn: Connection, seller, player_id) -> bool:
+    """Whether the seller is an empire in which this player holds a seat."""
+    return bool(_one(conn, "SELECT 1 FROM empires e JOIN empire_seats s ON s.empire_id = e.id WHERE e.account_id = %s AND s.player_id = %s",
+                     (seller, player_id)))
+
+
+def _seller_is_member(conn: Connection, seller, empire_id: int) -> bool:
+    return bool(_one(conn, "SELECT 1 FROM ledger_accounts a JOIN empire_seats s ON s.player_id = a.player_id WHERE a.id = %s AND s.empire_id = %s",
+                     (seller, empire_id)))
+
+
 def place_bid(conn: Connection, account, auction_id: int, limit: int, now: datetime, *, player_id=None, empire_id=None,
               partner=None, mortgage_bank=None, mortgage_bps: int = 0) -> dict:
     with conn.transaction():
         state = _state(conn, now)
+        # One bidder's bids are placed one at a time, so two at once cannot each miss the other's mortgage.
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext('bidder:' || %s::text))", (str(account),))
         a = _auction(conn, auction_id, lock=True)
         if a["status"] != "open" or now < a["opens_at"] or now >= a["ends_at"]:
             raise PropertyError("This auction is not taking bids now.")
+        if player_id is not None and empire_id is None and _member_of_seller(conn, a["seller"], player_id):
+            raise PropertyError("This is your empire's property. A member does not buy the empire's property for themselves.")
         if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
             raise PropertyError("Name the highest price you will go to, in kobo.")
         if prop.share_of(conn, a["property_id"], account) > 0 or a["seller"] == account:
@@ -231,8 +249,7 @@ def place_bid(conn: Connection, account, auction_id: int, limit: int, now: datet
         if empire_id is not None:
             _checks_allow(conn, empire_id, auction_id, limit, mortgage_bank, mortgage_bps)
             # An empire does not buy from its own members: a price it set could carry its money out to one of them.
-            if _one(conn, "SELECT 1 FROM ledger_accounts a JOIN empire_seats s ON s.player_id = a.player_id WHERE a.id = %s AND s.empire_id = %s",
-                    (a["seller"], empire_id)):
+            if _seller_is_member(conn, a["seller"], empire_id):
                 raise PropertyError("The seller is a member of the empire. An empire does not buy from its own members.")
         own = limit * (BPS - partner_bps - mortgage_bps) // BPS
         held = ledger.account_id(conn, _held())
@@ -301,6 +318,15 @@ def answer_partner(conn: Connection, partner_account, ask_id: int, agree: bool, 
             return
         if not isinstance(most, int) or most <= 0:
             raise PropertyError("Name the highest price you will share in.")
+        a = _auction(conn, ask["auction_id"], lock=True)
+        if a["status"] != "open" or now >= a["ends_at"]:
+            raise PropertyError("That auction is not taking bids now.")
+        empire = _one(conn, "SELECT id FROM empires WHERE account_id = %s", (partner_account,))
+        if empire is not None:
+            # An empire that shares a bid has made a bid: the same four checks, the same top price, and never a member's property.
+            _checks_allow(conn, empire["id"], a["id"], most, None, 0)
+            if _seller_is_member(conn, a["seller"], empire["id"]):
+                raise PropertyError("The seller is a member of the empire. An empire does not buy from its own members.")
         held_part = most * ask["partner_bps"] // BPS
         try:
             ledger.transfer(conn, payer=partner_account, receiver=ledger.account_id(conn, _held()), amount=held_part, kind="auction_hold",
@@ -348,8 +374,14 @@ def check(conn: Connection, player_id, auction_id: int, step: str, answer: dict,
         if a["status"] != "open":
             raise PropertyError("This auction is not taking bids now.")
         if step == "title":
+            before = checks_of(conn, empire["id"], auction_id).get("title")
+            if before is not None:
+                return before                     # searched once for this lot: no second fee
             found = prop.title_search(conn, empire["account_id"], a["property_id"], now)
             answer = {"clean": found["clean"], "words": found["words"]}
+            from simulation import careers, empires
+            empires._book(conn, empire["id"], careers.world_now(conn, now)["period"], "Property", "Title search at the lands registry",
+                          found["fee"], True, now, kind="fee")
         elif step == "valuation":
             value = answer.get("value")
             if not isinstance(value, int) or value <= 0:
@@ -408,16 +440,24 @@ def run(conn: Connection, now: datetime) -> int:
     """Settle every auction whose time is up. Safe to call as often as you like."""
     done = 0
     for a in _rows(conn, "SELECT id FROM auctions WHERE status = 'open' AND ends_at <= %s ORDER BY ends_at", (now,)):
-        with conn.transaction():
-            row = _auction(conn, a["id"], lock=True)
-            if row["status"] == "open" and row["ends_at"] <= now:
-                _settle(conn, row, now)
-                done += 1
+        try:
+            with conn.transaction():
+                row = _auction(conn, a["id"], lock=True)
+                if row["status"] == "open" and row["ends_at"] <= now:
+                    _settle(conn, row, now)
+                    done += 1
+        except Exception:                         # one lot that cannot settle must never stop the others, or the quarter's close
+            log.exception("Auction %s could not be settled; it is ended unsold.", a["id"])
+            with conn.transaction():
+                row = _auction(conn, a["id"], lock=True)
+                if row["status"] == "open":
+                    _unsold(conn, row, now, _state(conn, now)["period"], "It could not be settled, and is not sold. Every bid's cash is handed back.")
     return done
 
 
 def _release_partners(conn: Connection, auction_id: int, period: int, keep=None) -> None:
     held = ledger.account_id(conn, _held())
+    conn.execute("UPDATE auction_partners SET status = 'released' WHERE auction_id = %s AND status = 'asked'", (auction_id,))
     for p in _rows(conn, "SELECT * FROM auction_partners WHERE auction_id = %s AND status = 'agreed'", (auction_id,)):
         if keep is not None and p["id"] == keep:
             continue
@@ -442,6 +482,10 @@ def _settle(conn: Connection, a: dict, now: datetime) -> None:
     held = ledger.account_id(conn, _held())
     p = _one(conn, "SELECT * FROM properties WHERE id = %s FOR UPDATE", (a["property_id"],))
     win = _one(conn, "SELECT * FROM auction_bids WHERE id = %s", (a["leader"],)) if a["leader"] else None
+    if win is not None and a["price"] is not None and a["price"] < a["reserve"] <= win["limit_price"]:
+        # The leader's top price reaches the seller's lowest price: it is sold at that lowest price. (While the
+        # auction runs the price shown never gives the lowest price away; only "lowest price met" shows.)
+        a = {**a, "price": a["reserve"]}
     if win is None or a["price"] is None or a["price"] < a["reserve"]:
         _unsold(conn, a, now, period, "It did not reach the seller's lowest price, and is not sold.")
         return
@@ -469,6 +513,15 @@ def _settle(conn: Connection, a: dict, now: datetime) -> None:
             _unsold(conn, a, now, period, "The winner could not pay. It is not sold.")
             return
     else:
+        if win["held"] < own_part:
+            # (A kobo or two of rounding between the hold, worked out on the limit, and the price.)
+            try:
+                ledger.transfer(conn, payer=buyer, receiver=held, amount=own_part - win["held"], kind="auction_hold",
+                                memo=f"The last of the price: {label}", period=period)
+            except ledger.InsufficientFunds:
+                _unsold(conn, a, now, period, "The winner could not pay the last of the price. It is not sold.")
+                return
+            win = {**win, "held": own_part}
         if win["held"] > own_part:
             ledger.transfer(conn, payer=held, receiver=buyer, amount=win["held"] - own_part, kind="auction_release",
                             memo=f"What was held above the winning price: {label}", period=period)
@@ -490,8 +543,12 @@ def _settle(conn: Connection, a: dict, now: datetime) -> None:
     owners = prop.holdings(conn, p["id"])
     treasury = ledger.account_id(conn, ledger.TREASURY)
     tax_owed = p["tax_owed"]
-    for h in owners:
-        part = price * h["share_bps"] // BPS
+    total_bps = sum(h["share_bps"] for h in owners) or BPS
+    paid_out = 0
+    for n, h in enumerate(owners):
+        # The last owner takes what rounding leaves, so the Auction House keeps not a kobo.
+        part = price * h["share_bps"] // total_bps if n < len(owners) - 1 else price - paid_out
+        paid_out += part
         if part <= 0:
             continue
         kind = _sale_kind(conn, h["account_id"])
@@ -525,7 +582,7 @@ def _settle(conn: Connection, a: dict, now: datetime) -> None:
                      (p["id"], partner["partner"], win["partner_bps"], period, partner_part))
     conn.execute("UPDATE properties SET tax_owed = 0, book_value = %s, upkeep = true WHERE id = %s",
                  (price if win["computer"] else 0, p["id"]))
-    conn.execute("UPDATE auctions SET status = 'sold', settled_at = %s, period = %s WHERE id = %s", (now, period, a["id"]))
+    conn.execute("UPDATE auctions SET status = 'sold', settled_at = %s, period = %s, price = %s WHERE id = %s", (now, period, price, a["id"]))
     _event(conn, a["id"], now, price, f"Sold for {money(price)}.")
     # 4. A building sold from under an empire's headquarters (a forced sale): the headquarters must move.
     from simulation import headquarters
@@ -535,6 +592,14 @@ def _settle(conn: Connection, a: dict, now: datetime) -> None:
 # ---------------------------------------------------------------------------
 # What players see
 # ---------------------------------------------------------------------------
+
+def _reserve_met(conn: Connection, a: dict) -> bool:
+    """Whether the leading bid's top price reaches the seller's lowest price: a yes or no, never the price itself."""
+    if not a["leader"]:
+        return False
+    top = _one(conn, "SELECT limit_price FROM auction_bids WHERE id = %s", (a["leader"],))
+    return bool(top and top["limit_price"] >= a["reserve"])
+
 
 def view(conn: Connection, now: datetime, viewer=None, empire_id=None) -> dict:
     """Open and recent auctions. Never a reserve, a limit (except the viewer's own), or a bidder's name."""
@@ -552,6 +617,7 @@ def view(conn: Connection, now: datetime, viewer=None, empire_id=None) -> dict:
             "id": a["id"], "property": prop.public_property(conn, p, d, rate, viewer=viewer), "reason": a["reason"],
             "opens_at": a["opens_at"], "ends_at": a["ends_at"], "status": a["status"] if now >= a["opens_at"] or a["status"] != "open" else "coming",
             "start_price": a["start_price"], "price": a["price"], "minimum": minimum(a), "fair": a["fair"],
+            "lowest_price_met": _reserve_met(conn, a),
             "bidders": _one(conn, "SELECT count(DISTINCT bidder) AS n FROM auction_bids WHERE auction_id = %s", (a["id"],))["n"],
             "you_lead": bool(mine and a["leader"] == mine["id"]), "your_limit": mine["limit_price"] if mine else None,
             "your_status": mine["status"] if mine else None, "your_bid_id": mine["id"] if mine else None,

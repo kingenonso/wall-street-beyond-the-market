@@ -28,7 +28,10 @@ from simulation.money import BPS
 
 
 # A player's bonds, and what the exchange holds for their applications and acceptances, count towards what they are worth.
-marketview._OTHER_HOLDINGS[:] = [bonds.values_by_account, corporate.held_by_account]
+# (Added to, never replaced: property adds its own part too, Stage 8.)
+for _holding in (bonds.values_by_account, corporate.held_by_account):
+    if _holding not in marketview._OTHER_HOLDINGS:
+        marketview._OTHER_HOLDINGS.append(_holding)
 
 
 def _rows(conn: Connection, sql: str, params=()) -> list[dict]:

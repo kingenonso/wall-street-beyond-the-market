@@ -173,7 +173,7 @@ def _funding_offer(ctx):
         return None
     roll = _roll(ctx["player_id"], "ib_property", ctx["period"])
     price = b["worth"]
-    cash = price * (1500 + roll % 2500) // BPS
+    cash = price * (2000 + roll % 5000) // BPS            # from a fifth to seven tenths of the price: some need a partner, some do not
     reserve = price * (500 + (roll // 7) % 500) // BPS
     return {
         "situation": f"An empire wants to buy {b['name']} in {b['district']}, {b['city']}, for {o._money(price)}. It must keep a "
@@ -288,7 +288,7 @@ def _title_offer(ctx):
     if charge:
         entries.append("Charge: a mortgage to a bank, registered against the whole plot, not yet discharged.")
     if claim:
-        entries.append(f"Caution: a claim lodged by a neighbour to {claim / 100:.0f}% of the plot, waiting for the court.")
+        entries.append(f"Caution: a claim lodged by a neighbour to {claim / 100:.0f}% of the seller's share, waiting for the court.")
     return {
         "situation": f"A client is about to buy the whole of a plot in {d['name']}, {d['city']}, from a seller. Before paying, your "
                      "firm has searched the lands registry. The extract is below. (This case file is an exercise made up for "

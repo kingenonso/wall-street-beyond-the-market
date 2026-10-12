@@ -180,17 +180,18 @@ def approve_upkeep(conn: Connection, head_id, approve: bool, now: datetime) -> N
         conn.execute("UPDATE headquarters SET upkeep_approved = %s WHERE empire_id = %s", (approve, empire["id"]))
 
 
-def lost_building(conn: Connection, property_id: int, new_owner, period: int, now: datetime) -> None:
+def lost_building(conn: Connection, property_id: int, new_owner, period: int, now: datetime,
+                  why: str = "The headquarters' building was sold at the Auction House.") -> None:
     """The headquarters' building was sold to somebody else (a forced sale for unpaid tax or a mortgage):
     its benefits stop and its extra seats freeze until the empire moves the headquarters to a building it owns."""
     from simulation import empires
-    for hq in _rows(conn, "SELECT q.*, e.account_id FROM headquarters q JOIN empires e ON e.id = q.empire_id WHERE q.property_id = %s",
-                    (property_id,)):
+    for hq in _rows(conn, "SELECT q.*, e.account_id FROM headquarters q JOIN empires e ON e.id = q.empire_id WHERE q.property_id = %s"
+                          " AND NOT q.homeless", (property_id,)):
         if hq["account_id"] == new_owner:
             continue
         conn.execute("UPDATE headquarters SET collapsed_period = %s, homeless = true WHERE empire_id = %s", (period, hq["empire_id"]))
         sync_seats(conn, hq["empire_id"])
-        empires._log(conn, hq["empire_id"], "The headquarters' building was sold at the Auction House. Its benefits stop and its extra seats "
+        empires._log(conn, hq["empire_id"], why + " Its benefits stop and its extra seats "
                                             "are frozen until the head moves the headquarters to a building the empire owns.", now)
 
 
@@ -256,16 +257,20 @@ def _collapse(conn: Connection, hq: dict, period: int, now: datetime, warnings: 
     paid = firm_tasks._claim(conn, empire, "headquarters", max(lost, 0), period, now)
     sync_seats(conn, hq["empire_id"])
     blamed = []
-    if warnings > 0:
-        for player in [empire["head_player_id"]] + [s["player_id"] for s in _rows(conn, "SELECT player_id FROM empire_seats WHERE empire_id = %s"
-                                                                                       " AND build = 'risk_manager' AND player_id IS NOT NULL", (empire["id"],))]:
+    if warnings > 0 and not hq["upkeep_approved"]:
+        # The warnings were ignored. The Risk Manager is to blame for not asking for the upkeep; the head for not
+        # approving it once asked (or, with nobody at the Risk Manager's desk, for not seeing to it at all).
+        risk = [s["player_id"] for s in _rows(conn, "SELECT player_id FROM empire_seats WHERE empire_id = %s AND build = 'risk_manager'"
+                                                    " AND player_id IS NOT NULL", (empire["id"],))]
+        at_fault = ([empire["head_player_id"]] if hq["upkeep_asked"] or not risk else []) + ([] if hq["upkeep_asked"] else risk)
+        for player in at_fault:
             if player is not None:
                 conn.execute("UPDATE players SET reputation = greatest(reputation - %s, 0) WHERE id = %s", (data.HQ_COLLAPSE_REPUTATION, player))
                 blamed.append(player)
     empires._log(conn, hq["empire_id"], f"The headquarters, {p['name']}, has fallen down. " +
                  (f"Insurance paid {money(paid)}. " if paid else "It was not insured. ") +
                  "Its benefits stop and its extra seats are frozen until it is rebuilt. Members keep their seats and their money." +
-                 (" The head and the Risk Manager lose reputation: the warnings were ignored." if blamed else ""), now)
+                 (" Those who ignored the warnings lose reputation." if blamed else ""), now)
     news.publish(conn, period=period + 1, day=4, kind="hq_collapse", story=f"hq:{hq['empire_id']}:{period}",
                  facts={"empire": empire["name"], "building": p["name"], "city": d["city"]}, locations=[d["city"]])
 

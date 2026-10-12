@@ -92,11 +92,11 @@ def _close_due_quarters_once() -> None:
             exchange.open_market(conn, now)
             # The computer-run investors look at the market and renew their orders.
             investors.act(conn, now)
+            # After 22:00 the Closing Bell goes out, once for each trading day.
+            closingbell.ring(conn, now)
         # The Auction House settles every auction whose countdown has ended.
         if conn.execute("SELECT to_regclass('auctions') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
             auctions.run(conn, now)
-            # After 22:00 the Closing Bell goes out, once for each trading day.
-            closingbell.ring(conn, now)
 
 
 async def _quarter_closer() -> None:

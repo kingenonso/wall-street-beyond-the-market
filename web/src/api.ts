@@ -826,7 +826,7 @@ export type Holdings = { properties: MyLot[]; mortgages: Mortgage[]; value: Kobo
 export type AuctionEvent = { at: string; price: Kobo | null; words: string };
 export type Auction = {
   id: number; property: PropertyLot; reason: "listing" | "owner" | "repossession" | "tax"; opens_at: string; ends_at: string;
-  status: "open" | "coming" | "sold" | "unsold"; start_price: Kobo; price: Kobo | null; minimum: Kobo; fair: Kobo; bidders: number;
+  status: "open" | "coming" | "sold" | "unsold"; start_price: Kobo; price: Kobo | null; minimum: Kobo; fair: Kobo; bidders: number; lowest_price_met: boolean;
   you_lead: boolean; your_limit: Kobo | null; your_status: string | null; your_bid_id: number | null; events: AuctionEvent[];
   checks: Record<"title" | "valuation" | "limit" | "money", boolean> | null;
 };

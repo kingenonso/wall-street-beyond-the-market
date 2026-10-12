@@ -187,7 +187,7 @@ def _take_seat(conn: Connection, empire: dict, player_id, build: str, now: datet
     seat = _one(conn, "SELECT * FROM empire_seats WHERE empire_id = %s AND build = %s AND player_id IS NULL AND NOT hq_frozen"
                       " ORDER BY slot LIMIT 1 FOR UPDATE", (empire["id"], build))
     if seat is None:
-        raise EmpireError(f"Every {BUILD_NAMES[build]} seat in {empire['name']} is held by a player.")
+        raise EmpireError(f"Every {BUILD_NAMES[build]} seat in {empire['name']} is taken: all are held by players.")
     try:
         with conn.transaction():
             conn.execute("UPDATE empire_seats SET player_id = %s, since = %s, signing_limit = NULL WHERE id = %s", (player_id, now, seat["id"]))
@@ -237,7 +237,7 @@ def apply(conn: Connection, player_id, empire_id: int, now: datetime) -> dict:
             return {"status": "accepted", "empire": empire["name"]}
         if not _one(conn, "SELECT 1 FROM empire_seats WHERE empire_id = %s AND build = %s AND player_id IS NULL AND NOT hq_frozen",
                     (empire_id, player["build"])):
-            raise EmpireError(f"Every {BUILD_NAMES[player['build']]} seat in {empire['name']} is held by a player.")
+            raise EmpireError(f"Every {BUILD_NAMES[player['build']]} seat in {empire['name']} is taken: all are held by players.")
         try:
             with conn.transaction():
                 conn.execute("INSERT INTO empire_applications (empire_id, player_id, build, at) VALUES (%s, %s, %s, %s)",

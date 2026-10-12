@@ -619,6 +619,11 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         operating_profit += asset_sales - sold_book
         profit_before_tax += asset_sales - sold_book
         net_profit += asset_sales - sold_book
+    # A building bought at the Auction House during the quarter (Stage 8) is capital spending too.
+    bought_property = paid("capital_spending") - capital_spending
+    if bought_property > 0:
+        notes.append(f"It bought property at the Auction House for {in_words(bought_property)}.")
+        capital_spending += bought_property
     cash_from_investing = (
         (lent_before - lent["gross"]) + (prev["customer_loans"] - customer_loans) - paid("capital_spending") - invested + asset_sales
     )

@@ -501,6 +501,9 @@ def _title_claims(conn: Connection, period: int, label: str, companies_: set) ->
                          " ON CONFLICT (property_id, account_id) DO UPDATE SET share_bps = property_holdings.share_bps + EXCLUDED.share_bps",
                          (p["id"], claimant, rest, period))
         conn.execute("UPDATE properties SET title_flaw_bps = 0 WHERE id = %s", (p["id"],))
+        from simulation import headquarters
+        headquarters.lost_building(conn, p["id"], None, period, _close_moment(conn, period),
+                                   why="A claim at the lands registry took part of the headquarters' building: the empire no longer owns all of it.")
         from simulation import news
         news.publish(conn, period=period + 1, day=5, kind="title_dispute", story=f"title:{p['id']}",
                      facts={"property": p["name"], "share": f"{flaw / 100:.0f}%"})
@@ -806,3 +809,9 @@ def _register() -> None:
 
 
 _register()
+
+
+def _close_moment(conn: Connection, period: int) -> datetime:
+    """The moment a quarter ended, by the world's own calendar."""
+    w = _one(conn, "SELECT world_start, weeks_ahead FROM world_state")
+    return clock.effective_start(w["world_start"], w["weeks_ahead"]) + timedelta(days=clock.REAL_DAYS_PER_QUARTER * period)

@@ -139,13 +139,31 @@ def test_a_player_buys_a_listed_unit_with_a_mortgage_and_owns_it_after_the_count
     room = prop.mortgage_limit(db, account, limit, LATER)
     share = min(room * BPS // limit, 8000) // 100 * 100
     assert share > 0
+    # Below the seller's lowest price, one bidder alone does not buy it.
+    low = auctions.place_bid(db, account, a["id"], a["reserve"] - 1, LATER, player_id=player, mortgage_bank=bank["id"], mortgage_bps=share)
+    assert low["leading"] and low["price"] == a["start_price"]
+    assert not auctions._reserve_met(db, auctions._auction(db, a["id"]))
+    # A top price that reaches the lowest price meets it: "lowest price met" shows (never the price), and it sells at it.
     bid = auctions.place_bid(db, account, a["id"], limit, LATER, player_id=player, mortgage_bank=bank["id"], mortgage_bps=share)
-    assert bid["leading"] and bid["price"] == a["start_price"]
+    assert bid["leading"] and bid["price"] == a["start_price"] and auctions._reserve_met(db, auctions._auction(db, a["id"]))
     held = ledger.balance(db, ledger.account_id(db, prop.HELD))
     assert held == limit * (BPS - share) // BPS
-    # The seller's lowest price is above the opening price: one bidder alone at the opening price does not buy it.
+    end(db, a)
+    assert auctions._auction(db, a["id"])["status"] == "sold"
+    assert prop.share_of(db, a["property_id"], account) == BPS
+    assert ledger.balance(db, a["seller"]) == company_before + a["reserve"]
+    assert ledger.balance(db, ledger.account_id(db, prop.HELD)) == 0
+    sound(db)
+
+
+def test_a_lone_bid_below_the_sellers_lowest_price_does_not_buy(db):
+    player, account = pro(db, "accountant", "buyer", level=10, cash_naira=200_000_000)
+    a = _one(db, "SELECT a.* FROM auctions a WHERE a.status = 'open' AND a.opens_at <= %s ORDER BY a.fair LIMIT 1", (NOW9,))
+    before = ledger.balance(db, account)
+    auctions.place_bid(db, account, a["id"], a["reserve"] - 1, LATER, player_id=player)
     end(db, a)
     assert auctions._auction(db, a["id"])["status"] == "unsold"
+    assert ledger.balance(db, account) == before
     assert ledger.balance(db, ledger.account_id(db, prop.HELD)) == 0
     sound(db)
 
@@ -463,8 +481,9 @@ def test_a_neglected_headquarters_is_warned_and_then_collapses_and_the_insurance
     assert all(s["hq_frozen"] for s in _dicts(db, "SELECT * FROM empire_seats WHERE empire_id = %s AND slot >= 3", (empire["id"],)))
     after = {r["id"]: r["reputation"] for r in _dicts(db, "SELECT id, reputation FROM players WHERE id = ANY(%s)",
                                                       ([team["head"], team["risk_manager"], team["accountant"]],))}
-    assert after[team["head"]] < rep[team["head"]] or rep[team["head"]] == 0
-    assert after[team["accountant"]] == rep[team["accountant"]]          # members are unharmed
+    # Nobody asked for the upkeep: the Risk Manager, whose desk it is, is blamed. Other members are unharmed.
+    assert after[team["risk_manager"]] < rep[team["risk_manager"]] or rep[team["risk_manager"]] == 0
+    assert after[team["head"]] == rep[team["head"]] and after[team["accountant"]] == rep[team["accountant"]]
     # Rebuilding brings it back.
     headquarters.rebuild(db, team["head"], after_quarters(9) + timedelta(hours=2))
     assert headquarters.standing(headquarters.of(db, empire["id"]))
@@ -505,3 +524,22 @@ def test_a_headquarters_whose_building_is_sold_at_a_forced_sale_must_move(db):
 
 def test_insurance_for_the_headquarters_is_one_of_the_empires_covers():
     assert "headquarters" in firm_tasks.COVER
+
+
+def test_a_property_company_that_buys_at_auction_books_it_as_capital_spending_and_the_close_balances(db):
+    """Found by the ten-year run: a company's purchase at the Auction House during the quarter must count in its accounts."""
+    p = a_unit(db, "Lagos")
+    owner, owner_account = pro(db, "accountant", "seller", cash_naira=0)
+    hand_over(db, p["id"], owner_account)
+    with db.transaction():
+        auction = auctions.force_sale(db, p["id"], "tax", 9, NOW9)
+    a = auctions._auction(db, auction)
+    assert a["leader"] is not None
+    end(db, a)
+    buyer = _one(db, "SELECT c.id, c.name FROM property_holdings h JOIN companies c ON c.account_id = h.account_id WHERE h.property_id = %s", (p["id"],))
+    assert buyer is not None
+    quarters.close_due_quarters(db, after_quarters(9))
+    row = _one(db, "SELECT capital_spending, drivers FROM company_results WHERE company_id = %s AND period = 9", (buyer["id"],))
+    assert row["capital_spending"] >= auctions._auction(db, auction)["price"]
+    assert any("Auction House" in n for n in row["drivers"]["notes"])
+    sound(db)

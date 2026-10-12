@@ -155,7 +155,7 @@ function AuctionCard({ a, m, now, act, empire, playerBuild }: {
         <div><div className="lbl">Bidders</div><div className="mono">{a.bidders}</div></div>
       </div>
       <div className="row small"><span>Condition</span><Condition value={p.condition} /></div>
-      <p className="muted small">{reason.words}</p>
+      <p className="muted small">{reason.words}{a.reason === "listing" || a.reason === "owner" ? (a.lowest_price_met ? " ✓ The leading bid meets it." : a.price ? " ○ The leading bid does not meet it yet." : "") : ""}</p>
       {a.you_lead && <p className="saved small" role="status">▲ You lead. Your top price ({formatNaira(a.your_limit ?? "0")}) is never shown to anybody else.</p>}
       {a.your_status === "outbid" && <p className="error small">▼ You have been outbid. Your cash is back with you. Bid again to go higher.</p>}
       {a.events.length > 0 && (
