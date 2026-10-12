@@ -95,7 +95,7 @@ def _owners(conn: Connection, company_id) -> dict:
 def _investors(conn: Connection) -> dict:
     return {r["code"]: r["id"] for r in _rows(
         conn, "SELECT code, id FROM ledger_accounts WHERE code = ANY(%s)",
-        ([ledger.INVESTORS_FOUNDERS, ledger.INVESTORS_INSTITUTIONS, ledger.INVESTORS_PUBLIC],))}
+        ([ledger.INVESTORS_FOUNDERS, ledger.INVESTORS_INSTITUTIONS, ledger.INVESTORS_PUBLIC, "investors:foreign"],))}
 
 
 def _bidder(conn: Connection, bid: dict) -> dict:
@@ -161,7 +161,8 @@ def _tally(conn: Connection, vote: dict, who: dict) -> dict:
     owners = _owners(conn, vote["company_id"])
     ballots = {r["account_id"]: r["choice"] for r in _rows(conn, "SELECT account_id, choice FROM vote_ballots WHERE vote_id = %s", (vote["id"],))}
     kinds = {r["id"]: r["kind"] for r in _rows(conn, "SELECT id, kind FROM ledger_accounts WHERE id = ANY(%s)", (list(owners),))}
-    tally = {"Founders": [0, 0], "Pension funds": [0, 0], "Small investors": [0, 0], "Players": [0, 0], "Other companies": [0, 0]}
+    tally = {"Founders": [0, 0], "Pension funds": [0, 0], "Small investors": [0, 0], "Foreign investors": [0, 0], "Players": [0, 0],
+             "Other companies": [0, 0]}
     with_board = 0 if vote["board"] == "for" else 1
     for account, shares in owners.items():
         if account == who[ledger.INVESTORS_FOUNDERS]:
@@ -174,6 +175,8 @@ def _tally(conn: Connection, vote: dict, who: dict) -> dict:
             tally["Small investors"][1 - with_board] += shares - follow
         elif kinds.get(account) == "company":
             tally["Other companies"][with_board] += shares
+        elif account == who.get("investors:foreign"):
+            tally["Foreign investors"][with_board] += shares               # foreign investors vote with the board
         elif account in ballots:
             tally["Players"][0 if ballots[account] == "for" else 1] += shares
     return tally
@@ -491,6 +494,10 @@ def _computer_run_acceptances(conn: Connection, bid: dict, who: dict) -> dict:
     if bid["premium_bps"] >= data.FUNDS_ACCEPT_PREMIUM_BPS and (valued is None or bid["price"] >= valued["value_per_share"]):
         offered[funds] = owned.get(funds, 0)                # ...and never below what the company is worth
     offered[public] = owned.get(public, 0) * min(max(bid["premium_bps"] * 2, 2000), 9000) // BPS // (2 if defended else 1)
+    # Foreign investors take a good price as the pension funds do (economy upgrade).
+    foreign = who.get("investors:foreign")
+    if foreign and funds in offered:
+        offered[foreign] = owned.get(foreign, 0)
     return {account: shares for account, shares in offered.items() if shares > 0}
 
 
@@ -962,7 +969,7 @@ def control(conn: Connection, company_id) -> dict:
     groups: dict = {}
     for owner in owners:
         name = {"investors:founders": "its founders", "investors:institutions": "pension funds",
-                "investors:public": "small investors"}.get(owner["code"]) or (owner["name"] if owner["kind"] == "company" else "small investors")
+                "investors:public": "small investors", "investors:foreign": "foreign investors"}.get(owner["code"]) or (owner["name"] if owner["kind"] == "company" else "small investors")
         groups[name] = groups.get(name, 0) + owner["shares"]
     if not total:
         return {"controller": None, "share_bps": 0, "summary": "It has no shares in issue."}

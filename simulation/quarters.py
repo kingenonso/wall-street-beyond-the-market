@@ -17,7 +17,7 @@ from datetime import datetime
 from psycopg import Connection
 from psycopg.rows import dict_row
 
-from simulation import (banking, bonds, careers, clock, companies, corporate, economy, events, exchange, grants, investors, ledger,
+from simulation import (abroad, banking, bonds, careers, clock, companies, consumers, corporate, economy, events, exchange, grants, investors, ledger,
                         macro, marketview, mindsets, moneywatch, news, objectives, private, valuation)
 from simulation import empires
 from simulation import ranks
@@ -104,15 +104,24 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     sector_weights, sector_fortune = economy.household_sector_weights(world, period, fortune_seed, before)
 
     signals = economy.household_signals(conn, world, period, before, severe)
-    responses = {
-        location: mindsets.location_response(world.mindset_mix.get(location, {}), signals[location])
-        for location in world.households
-    }
+    # The 1,000 consumer groups each react to the news in their own way; added up, they are their location.
+    groups = consumers.load(conn)
+    if abroad.state(conn, period - 1) is None:
+        raise economy.WorldTooOld("This world was created before the rest of the world existed. Start a new world to run this version.")
+    responses = consumers.respond(groups, signals)
+    world.mindset_mix = consumers.mindset_mix(groups)
     borrowed, debt_service = banking.household_credit(
         conn, world, period, policy_rate, {loc: r["borrow_bps"] for loc, r in responses.items()}, lending_factor,
     )
-    spent = economy.households_spend(conn, world, period, sector_weights, fortune_seed, responses, moods, borrowed, debt_service)
-    economy.companies_buy_inputs(conn, world, all_companies, period, fortune_seed, before)
+    plans = consumers.budgets(conn, groups, world, period, borrowed=borrowed, debt_service=debt_service, moods=moods,
+                              seed=fortune_seed, base_weights=sector_weights)
+    spent = economy.households_spend(conn, world, period, sector_weights, fortune_seed, responses, moods, borrowed, debt_service,
+                                     plans=plans)
+    # Companies buy their supplies, part of them abroad at this quarter's exchange rate; then the rest
+    # of the world buys what the country sells abroad (the economy upgrade).
+    imported = economy.companies_buy_inputs(conn, world, all_companies, period, fortune_seed, before,
+                                            import_factor_bps=abroad.import_factor_bps(conn, period, before["price_index_bps"]))
+    trade = abroad.buy_exports(conn, world, period)
     private.pay_spending(conn, world, all_companies, period)
     damages, claims_paid = economy.pay_claims(conn, world, all_companies, period, happening, spent)
 
@@ -148,6 +157,8 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     economy.government_spends(conn, world, period, borrowed=borrowed, debt_cost=debt_cost)
     economy.pensions_paid(conn, world, period)
     economy.record_households(conn, world, period, spent, results)
+    # Each group's quarter is settled against the ledger; a few groups move house.
+    consumers.quarter(conn, world, period, fortune_seed, plans, spent, groups)
 
     # Measure the economy, take the Money Watch's reading, and let the Central Bank decide.
     company_sales = sum(result["revenue"] for _, result in results)
@@ -163,12 +174,20 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     confidence = sum(
         population[location] * (response["spend_bps"] + moods.get(location, 0)) for location, response in responses.items()
     ) // BPS
+    commodity_events = events.commodity_moves(happening)
+    # Next quarter's oil price; energy at home is the oil price in naira.
+    oil_next = abroad.next_oil(conn, period, fortune_seed, commodity_events.get("energy", 0))
     measured = macro.close_quarter(
         conn, period, fortune_seed, company_sales=company_sales, household_spending=household_spending,
-        money=money, commodity_events=events.commodity_moves(happening),
+        money=money, commodity_events=commodity_events,
         premium_index_bps=economy.premium_index_bps(conn, period, claims_paid),
         confidence_bps=confidence, rate_extra_bps=watch["rate_extra_bps"],
+        energy_bps=abroad.energy_index_bps(oil_next, abroad.state(conn, period - 1)["fx"]),
+        import_push_bps=abroad.import_push_bps(conn, period),
     )
+    # The naira's exchange rate for next quarter, and what foreign investors do.
+    abroad_now = abroad.close(conn, period, fortune_seed, oil_next=oil_next, inflation_bps=measured["inflation_bps"],
+                              next_rate_bps=measured["next_policy_rate_bps"], trade=trade, imports=imported)
 
     for company, result in results:
         companies.file_report(conn, company, result)
@@ -183,7 +202,7 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     # (each dated the day it happens, and out of sight until then).
     news.for_results(
         conn, period, before=before, now=measured, watch=watch, happening=happening, companies=all_companies,
-        results=results, damages=damages, claims_paid=claims_paid, policy_rate_bps=policy_rate,
+        results=results, damages=damages, claims_paid=claims_paid, policy_rate_bps=policy_rate, abroad_now=abroad_now,
     )
     news.for_events(conn, events.generate(conn, period + 1, fortune_seed))
     # Private companies after the close: wear, morale, secrets, rivals' prices, failures, sales and start-ups.

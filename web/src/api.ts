@@ -315,6 +315,32 @@ export type Economy = {
   prices: PricesAndRates | null;
   macro_history: { period: number; period_label: string; inflation_bps: number; policy_rate_bps: number; money_kobo: Kobo }[];
   money_watch: MoneyWatch | null;
+  consumers?: ConsumersSummary | null;
+  abroad?: AbroadSummary | null;
+};
+
+/** The 1,000 consumer groups, only ever added up (the economy upgrade). */
+export type ConsumersSummary = {
+  period: number;
+  bands: { band: string; name: string; groups: number; income: Kobo; spending: Kobo; cash: Kobo; debt: Kobo }[];
+  mindsets: { mindset: string; groups: number; spending: Kobo }[];
+  moves: { from_location: string; to_location: string; groups: number }[];
+  moved: number;
+  moved_total: number;
+};
+
+/** The rest of the world: the oil price and exchange rate for the quarter now running, and the record. */
+export type AbroadSummary = {
+  oil_cents: number;
+  fx: number;
+  previous_oil_cents: number | null;
+  previous_fx: number | null;
+  reason: string;
+  history: { period: number; period_label: string; oil_cents: number; fx: number }[];
+  trade: {
+    period: number; period_label: string; exports: Kobo; oil_exports: Kobo; imports: Kobo; oil_royalty: Kobo;
+    foreign_inflow: Kobo; foreign_bought: Kobo; foreign_sold: Kobo; foreign_holdings: Kobo; reason: string;
+  }[];
 };
 
 export type PricesAndRates = {

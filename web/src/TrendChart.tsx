@@ -67,7 +67,7 @@ export function LineChart({ names, data, format = (value) => formatCompact(asKob
         ))}
       </div>
       <div className="chart-frame">
-        <svg viewBox={`0 0 ${W} ${H}`} role="img"
+        <svg viewBox={`0 0 ${W} ${H}`} role="group"
              aria-label={`${names[0]} and ${names[1]} by quarter, from ${data[0].label} to ${data[data.length - 1].label}. The same figures are in the table on this page.`}>
           {ticks.map((tick) => (
             <g key={tick}>
@@ -95,7 +95,7 @@ export function LineChart({ names, data, format = (value) => formatCompact(asKob
           {data.map((_, i) => (
             <rect key={i} x={x(i) - band / 2} y={PAD.top} width={band} height={H - PAD.top - PAD.bottom} fill="transparent"
                   onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
-                  onFocus={() => setHover(i)} onBlur={() => setHover(null)} tabIndex={0}
+                  onFocus={() => setHover(i)} onBlur={() => setHover(null)} tabIndex={0} role="img"
                   aria-label={`${data[i].label}: ${names[0]} ${format(data[i].first)}, ${names[1]} ${format(data[i].second)}`} />
           ))}
         </svg>
@@ -138,7 +138,7 @@ export function SingleLine({ name, data, format }: {
   return (
     <figure className="chart">
       <div className="chart-frame">
-        <svg viewBox={`0 0 ${W} ${H}`} role="img"
+        <svg viewBox={`0 0 ${W} ${H}`} role="group"
              aria-label={`${name} from ${data[0].label} to ${data[data.length - 1].label}: from ${format(data[0].value)} to ${format(data[data.length - 1].value)}.`}>
           {ticks.map((tick) => (
             <g key={tick}>
@@ -146,7 +146,7 @@ export function SingleLine({ name, data, format }: {
               <text x={PAD.left - 8} y={y(tick) + 4} textAnchor="end" className="tick-label">{format(tick)}</text>
             </g>
           ))}
-          {data.map((d, i) => (i % every === 0 || i === data.length - 1) && (
+          {data.map((d, i) => ((i % every === 0 && data.length - 1 - i >= Math.max(every, 2)) || i === data.length - 1) && (
             <text key={i} x={x(i)} y={H - 8} textAnchor="middle" className="tick-label">{d.label}</text>
           ))}
           {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={PAD.top} y2={H - PAD.bottom} className="crosshair" />}
@@ -160,7 +160,7 @@ export function SingleLine({ name, data, format }: {
           {data.map((d, i) => (
             <rect key={i} x={x(i) - band / 2} y={PAD.top} width={band} height={H - PAD.top - PAD.bottom} fill="transparent"
                   onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
-                  onFocus={() => setHover(i)} onBlur={() => setHover(null)} tabIndex={0}
+                  onFocus={() => setHover(i)} onBlur={() => setHover(null)} tabIndex={0} role="img"
                   aria-label={`${d.label}: ${format(d.value)}`} />
           ))}
         </svg>

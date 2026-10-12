@@ -101,6 +101,11 @@ class TestStageTwo:
                   "exchange_surplus", "share_split", "bond_trade"}
         # Stage 6 added: the computer-run empires' founding capital, their staff's pay, and their orders on the exchange.
         market |= {"empire_capital", "empire_staff_pay", "order_reserve", "order_release", "trade", "trade_fee"}
+        # The private equity stage: private companies sold to a new owner.
+        market |= {"company_sale"}
+        # The economy upgrade: trade with the rest of the world, the Government's oil share, foreign investors' money,
+        # and households' savings moving with them.
+        market |= {"imports", "exports", "oil_royalty", "foreign_investment", "foreign_withdrawal", "household_move"}
         assert kinds - market == {
             "opening_balance", "share_issue", "customer_revenue", "business_purchase", "cost_of_sales", "wages",
             "debt_interest", "company_tax", "debt_repayment", "capital_spending", "dividend",
@@ -477,7 +482,9 @@ def test_ratings_run_all_the_way_from_aaa_to_d(db):
 def test_some_companies_lose_money_and_most_do_not(db):
     losing = db.execute("SELECT count(DISTINCT company_id) FROM company_results WHERE period >= 1 AND net_profit < 0").fetchone()[0]
     companies = db.execute("SELECT count(*) FROM companies").fetchone()[0]
-    assert 4 <= losing <= companies // 3
+    # (Since the economy upgrade some companies buy part of their supplies abroad, and the ones that sold those goods
+    # at home sell a little less: slightly more companies have one losing quarter. Still fewer than two in five.)
+    assert 4 <= losing <= companies * 2 // 5
 
 
 @pytest.mark.world("eight")

@@ -263,7 +263,8 @@ def household_signals(conn: Connection, world: World, period: int, state: dict, 
 
 def households_spend(conn: Connection, world: World, period: int, sector_weights: dict[str, int],
                      seed: str, responses: dict[str, dict] | None = None, moods: dict[str, int] | None = None,
-                     borrowed: dict[str, int] | None = None, debt_service: dict[str, int] | None = None) -> dict[str, int]:
+                     borrowed: dict[str, int] | None = None, debt_service: dict[str, int] | None = None,
+                     plans: dict[str, dict] | None = None) -> dict[str, int]:
     """Households and private investors spend at the companies. Returns spending by location.
 
     Households follow a habit (most of what they earned, a little of what they
@@ -276,6 +277,18 @@ def households_spend(conn: Connection, world: World, period: int, sector_weights
     last = {r["location"]: r for r in _rows(conn, "SELECT * FROM household_results WHERE period = %s", (period - 1,))}
     for location, household in world.households.items():
         cash = ledger.balance(conn, household["account_id"])
+        response = (responses or {}).get(location, {"spend_bps": BPS, "loyalty_bps": data.LOCAL_PREFERENCE_BPS})
+        if plans is not None:
+            # The economy upgrade: the location's consumer groups have each decided what to spend and on what
+            # (see consumers.py); here their plans are paid, through the location's one account.
+            plan = plans.get(location, {"budget": 0, "weights": sector_weights})
+            spent[location] = ledger.pay_split_up_to(
+                conn, payer=household["account_id"],
+                amounts=allocate(world, min(plan["budget"], cash), plan["weights"] or sector_weights, location=location,
+                                 local_preference_bps=response["loyalty_bps"]),
+                kind="customer_revenue", memo=f"Households of {location}: spending in {label}", period=period,
+            )
+            continue
         new_loans = (borrowed or {}).get(location, 0)
         # What they have to live on: last quarter's income, less what the banks have
         # just taken in interest and repayments.
@@ -284,7 +297,6 @@ def households_spend(conn: Connection, world: World, period: int, sector_weights
             apply_bps(disposable, household["spend_from_income_bps"])
             + apply_bps(max(cash - new_loans, 0), household["spend_from_savings_bps"])
         )
-        response = (responses or {}).get(location, {"spend_bps": BPS, "loyalty_bps": data.LOCAL_PREFERENCE_BPS})
         mood = fortune_bps(seed, f"households:{location}", period, "mood", data.HOUSEHOLD_MOOD_BPS)
         mood += (moods or {}).get(location, 0)
         budget = max(apply_bps(apply_bps(habit, response["spend_bps"]), BPS + mood), 0) + new_loans
@@ -311,7 +323,7 @@ def households_spend(conn: Connection, world: World, period: int, sector_weights
 
 
 def companies_buy_inputs(conn: Connection, world: World, companies: list[dict], period: int, seed: str,
-                         state: dict | None = None) -> None:
+                         state: dict | None = None, import_factor_bps: int | None = None) -> int:
     """Each company buys what it needs from other companies.
 
     How much it orders follows what it sold last quarter. Which supplier gets
@@ -325,8 +337,11 @@ def companies_buy_inputs(conn: Connection, world: World, companies: list[dict], 
                        (period - 1,))
     }
     dear = relative_prices(state) if state else {}
+    from simulation import abroad
+    imported = 0
     for company in companies:
         orders: dict[UUID, int] = {}
+        from_abroad = 0
         for supplier_sector, share in world.inputs.get(company["sector"], {}).items():
             # Roughly in step with last quarter's sales, but each company orders a
             # little more or less than that, as its managers judge the quarter ahead.
@@ -335,6 +350,11 @@ def companies_buy_inputs(conn: Connection, world: World, companies: list[dict], 
             wanted = max(apply_bps(apply_bps(last.get(company["id"], 0), share), BPS + judgement), 0)
             # A company cannot do without its supplies: when they get dearer, it pays more.
             wanted = apply_bps(wanted, dear.get(supplier_sector, BPS))
+            if import_factor_bps is not None and supplier_sector in data.IMPORTABLE_SUPPLIES:
+                # Part of what it needs comes from abroad (the economy upgrade), at the naira's exchange rate.
+                abroad_part = apply_bps(wanted, abroad.import_share_bps(company["sector"], import_factor_bps))
+                from_abroad += abroad_part
+                wanted -= abroad_part
             placed = allocate(world, wanted, {supplier_sector: 1},
                               location=company["headquarters"], exclude=company["account_id"])
             for account, amount in placed.items():
@@ -343,10 +363,13 @@ def companies_buy_inputs(conn: Connection, world: World, companies: list[dict], 
             conn, payer=company["account_id"], amounts=orders, kind="business_purchase",
             memo=f"{company['name']}: purchases from suppliers, {label}", period=period,
         )
+        if from_abroad:
+            imported += abroad.pay_imports(conn, company, from_abroad, import_factor_bps, period)
+    return imported
 
 
 CAPITAL_RETURNED = ("bond_redemption", "bond_trade", "bond_issue", "takeover_payment", "takeover_refund")
-GOVERNMENT_INCOME = ("company_tax", "debt_interest", "share_trade", "exchange_surplus", "salary")   # "salary": the income tax taken from players' pay
+GOVERNMENT_INCOME = ("company_tax", "debt_interest", "share_trade", "exchange_surplus", "salary", "oil_royalty")   # "salary": the income tax taken from players' pay
 
 
 def government_spends(conn: Connection, world: World, period: int, *, borrowed: int = 0, debt_cost: int = 0) -> None:

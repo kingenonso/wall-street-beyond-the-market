@@ -358,8 +358,16 @@ def test_the_same_news_moves_two_cities_differently():
 def test_mindset_settings_are_not_sent_to_players(client, player):
     for path in ("/api/economy", "/api/companies", "/api/news"):
         text = client.get(path).text
-        for hidden in ("mindset", "optimistic", "risk_averse", "fortune", "spend_from", "moved_most_by"):
+        for hidden in ("fortune", "spend_from", "moved_most_by", "loyalty_bps", "borrow_bps", "spend_bps", "tastes"):
             assert hidden not in text, (path, hidden)
+    for path in ("/api/companies", "/api/news"):
+        text = client.get(path).text
+        for hidden in ("mindset", "optimistic", "risk_averse"):
+            assert hidden not in text, (path, hidden)
+    # Since the economy upgrade (approved by the owner, 12 October 2026) the Economy page shows the country's
+    # spending by mindset, added up: never how each mindset reacts, and never a location's own mix.
+    groups = client.get("/api/economy").json()["consumers"]
+    assert all(set(m) == {"mindset", "groups", "spending"} for m in groups["mindsets"])
 
 
 # ---------------------------------------------------------------------------

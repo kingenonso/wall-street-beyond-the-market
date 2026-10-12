@@ -268,14 +268,19 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     claims_received = received("insurance_claim")
     # For a bank, the interest households pay on their loans is its sales to them.
     sales_households = received("customer_revenue") + received("loan_interest")
-    sales_business = received("business_purchase") + received("capital_spending") + claims_received
+    exported = received("exports")
+    # (What it sold abroad is counted with its sales to businesses: the buyers abroad are businesses.)
+    sales_business = received("business_purchase") + received("capital_spending") + claims_received + exported
     sales_government = received("government_purchase")
     revenue = sales_households + sales_business + sales_government
-    supplies_bought = moves.get("business_purchase", {}).get("paid", 0)
+    imported = moves.get("imports", {}).get("paid", 0)
+    supplies_bought = moves.get("business_purchase", {}).get("paid", 0) + imported
     claims_paid = moves.get("insurance_claim", {}).get("paid", 0)       # an insurer's claims are its cost of sales
     happened = company.get("event_effects") or {"cost_bps": 0, "events": []}
     if claims_received:
         notes.append(f"Its insurers paid it {in_words(claims_received)} for damage.")
+    if exported:
+        notes.append(f"It sold {in_words(exported)} abroad.")
     if claims_paid:
         notes.append(f"It paid out {in_words(claims_paid)} in claims after this quarter's events.")
 

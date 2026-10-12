@@ -37,6 +37,7 @@ HOLDERS = (
     ("The exchange", "a.kind = 'exchange'"),
     ("Players", "a.kind = 'player'"),
     ("Empires and funds", "a.kind IN ('empire', 'fund')"),
+    ("Abroad", "a.code IN ('abroad', 'investors:foreign')"),           # the rest of the world and its investors
 )
 # What each reading asks for.
 RATE_EXTRA_BPS = {"green": 0, "amber": 50, "red": 100}

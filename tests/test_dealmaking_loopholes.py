@@ -80,8 +80,11 @@ def test_q3_no_offer_far_above_the_market_and_the_companys_worth(db):
     empire, team = firm_of(db, n_cash=200_000_000_000)
     target = target_of(db)
     issued = ledger.amount_in_existence(db, target["share_asset"])
+    # (Far above both the market price and what the company is worth, whichever is higher.)
+    market = corporate._market_price(db, target["id"])
+    ceiling = max(market, firm_dealmaking._worth_per_share(db, target["id"]) or market) * firm_dealmaking.OFFER_MOST_BPS // 10_000
     with pytest.raises(empires.EmpireError, match="moving the members' money out"):
-        firm_dealmaking.draft_offer(db, team["investment_banker"], target["id"], target["reference_price"] * 5, issued * 6 // 10, LATER)
+        firm_dealmaking.draft_offer(db, team["investment_banker"], target["id"], ceiling + 100, issued * 6 // 10, LATER)
     with pytest.raises(empires.EmpireError, match="below the market price"):
         firm_dealmaking.draft_offer(db, team["investment_banker"], target["id"], target["reference_price"] // 2, issued * 6 // 10, LATER)
 

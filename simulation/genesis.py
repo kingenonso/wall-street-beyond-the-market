@@ -139,6 +139,9 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str, test_wor
         conn, kind="npc_investors", name="Pension funds and other institutions", code=ledger.INVESTORS_INSTITUTIONS)
     small_investors = ledger.create_account(
         conn, kind="npc_investors", name="Small investors", code=ledger.INVESTORS_PUBLIC)
+    # The rest of the world, and the foreign investors who come from it (economy upgrade).
+    from simulation import abroad
+    abroad_account, _ = abroad.create_accounts(conn)
 
     for order, sector in enumerate(data.SECTORS):
         conn.execute("INSERT INTO sectors (code, name, sort_order) VALUES (%s, %s, %s)",
@@ -200,8 +203,10 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str, test_wor
         )
 
     # --- Opening money: issued by the Central Bank, to each account's opening balance ---
+    imports = abroad.opening_imports(shapes)
     opening = [
         Leg(treasury, million_naira(data.TREASURY_OPENING_M)),
+        Leg(abroad_account, abroad.opening_reserve(imports)),
         *[Leg(households[place.name], apply_bps(savings, place.population_bps)) for place in data.LOCATIONS],
         *[Leg(rows[t]["account_id"], shapes[t]["cash"]) for t in rows],
     ]
@@ -211,6 +216,12 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str, test_wor
     )
 
     macro.write_opening_state(conn, ledger.amount_in_existence(conn))
+    abroad.write_opening(conn, imports)
+    # The 1,000 consumer groups share each location's savings and debts (economy upgrade).
+    from simulation import consumers
+    with conn.cursor(row_factory=tuple_row) as cur:
+        owed = {r[0]: int(r[1]) for r in cur.execute("SELECT location, sum(principal)::bigint FROM household_debts GROUP BY location")}
+    consumers.create(conn, fortune_seed, {place.name: apply_bps(savings, place.population_bps) for place in data.LOCATIONS}, owed)
 
     # --- Debts: who owes whom on day one ---
     bonds_issued = -1

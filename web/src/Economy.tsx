@@ -1,8 +1,8 @@
-import { api, type Economy, type MoneyWatch } from "./api";
+import { api, type AbroadSummary, type ConsumersSummary, type Economy, type MoneyWatch } from "./api";
 import { changeBps, formatCompact, formatPercent } from "./format";
 import { useLoad } from "./hooks";
 import { Change, Failed, Loading, Panel } from "./Shell";
-import { LineChart, naira } from "./TrendChart";
+import { LineChart, SingleLine, naira } from "./TrendChart";
 import { Term } from "./Term";
 
 const people = (count: number) => count.toLocaleString("en-NG");
@@ -124,6 +124,163 @@ function PricesPanel({ economy }: { economy: Economy }) {
   );
 }
 
+const MINDSET_WORDS: Record<string, string> = {
+  optimistic: "Optimistic", pessimistic: "Pessimistic", risk_averse: "Careful", risk_seeking: "Risk-takers", herding: "Follow the crowd",
+  contrarian: "Go against the crowd", loyal: "Loyal", fearful: "Fearful", sceptical: "Sceptical", opportunistic: "Bargain hunters",
+};
+
+const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+const rate = (fx: number) => `₦${Math.round(fx / 100).toLocaleString("en-NG")}`;
+const moveBps = (now: number, before: number | null) => (before ? Math.round(((now - before) / before) * 10000) : null);
+
+/** The rest of the world: oil, the naira, trade and foreign investors (the economy upgrade). */
+function AbroadPanel({ abroad }: { abroad: AbroadSummary }) {
+  const latest = abroad.trade[abroad.trade.length - 1];
+  const fxMove = moveBps(abroad.fx, abroad.previous_fx);
+  return (
+    <Panel title="The rest of the world" aside="set at each quarter's close">
+      <div className="tiles">
+        <div className="tile">
+          <div className="muted small">Oil, this quarter</div>
+          <div className="mono figure-small">{dollars(abroad.oil_cents)}</div>
+          <div className="small muted">a barrel{abroad.previous_oil_cents ? <> · <Change bps={moveBps(abroad.oil_cents, abroad.previous_oil_cents)} /> on last quarter</> : null}</div>
+        </div>
+        <div className="tile">
+          <div className="muted small"><Term word="Exchange rate">One US dollar costs</Term></div>
+          <div className="mono figure-small">{rate(abroad.fx)}</div>
+          <div className="small muted">
+            {fxMove === null || fxMove === 0 ? "– unchanged" : fxMove > 0 ? `▼ naira ${(fxMove / 100).toFixed(1)}% weaker` : `▲ naira ${(-fxMove / 100).toFixed(1)}% stronger`}
+          </div>
+        </div>
+        {latest && (
+          <div className="tile">
+            <div className="muted small">Sold abroad last quarter</div>
+            <div className="mono figure-small">{formatCompact(latest.exports)}</div>
+            <div className="small muted">of which oil and gas {formatCompact(latest.oil_exports)}</div>
+          </div>
+        )}
+        {latest && (
+          <div className="tile">
+            <div className="muted small">Bought abroad last quarter</div>
+            <div className="mono figure-small">{formatCompact(latest.imports)}</div>
+            <div className="small muted">by companies, for their supplies</div>
+          </div>
+        )}
+      </div>
+      <p className="small">{abroad.reason}</p>
+      <div className="two-charts">
+        <SingleLine name="Oil, US dollars a barrel" format={(v) => `$${v.toFixed(0)}`}
+                    data={abroad.history.map((h) => ({ label: h.period_label, value: h.oil_cents / 100 }))} />
+        <SingleLine name="Naira to one US dollar" format={(v) => `₦${Math.round(v).toLocaleString("en-NG")}`}
+                    data={abroad.history.map((h) => ({ label: h.period_label, value: h.fx / 100 }))} />
+      </div>
+      {abroad.trade.length > 0 && (
+        <div className="scroll" tabIndex={0}>
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Quarter</th>
+                <th scope="col" className="num">Sold abroad</th>
+                <th scope="col" className="num">Bought abroad</th>
+                <th scope="col" className="num">Government's oil share</th>
+                <th scope="col" className="num">Foreign money in (out)</th>
+                <th scope="col" className="num">Foreign investors' shares</th>
+              </tr>
+            </thead>
+            <tbody>
+              {abroad.trade.slice(-6).reverse().map((q) => (
+                <tr key={q.period}>
+                  <th scope="row">{q.period_label}</th>
+                  <td className="num mono">{formatCompact(q.exports)}</td>
+                  <td className="num mono">{formatCompact(q.imports)}</td>
+                  <td className="num mono">{formatCompact(q.oil_royalty)}</td>
+                  <td className="num mono">{BigInt(q.foreign_inflow) >= 0n ? `▲ ${formatCompact(q.foreign_inflow)}` : `▼ (${formatCompact((-BigInt(q.foreign_inflow)).toString())})`}</td>
+                  <td className="num mono">{formatCompact(q.foreign_holdings)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="muted small">
+        The oil price and the exchange rate for each quarter are set when the quarter before closes, and nobody can know
+        them earlier. Dearer oil earns the oil companies and the Government more and makes energy dearer at home. A weaker
+        naira makes everything bought abroad dearer. Foreign investors bring money in when interest rates here pay well
+        over lending abroad, and buy and sell shares on the exchange like everybody else.
+      </p>
+    </Panel>
+  );
+}
+
+/** The 1,000 consumer groups, added up: by income level, by mindset, and who moved. */
+function ConsumersPanel({ consumers }: { consumers: ConsumersSummary }) {
+  const spent = consumers.bands.reduce((sum, b) => sum + Number(BigInt(b.spending) / 100n), 0) || 1;
+  const byMind = [...consumers.mindsets].sort((a, b) => Number(BigInt(b.spending) - BigInt(a.spending)));
+  const largestMind = Math.max(1, ...byMind.map((m) => Number(BigInt(m.spending) / 100n)));
+  return (
+    <Panel title="Households, by income and by mindset" aside={`${consumers.bands.reduce((n, b) => n + b.groups, 0).toLocaleString("en-NG")} groups`}>
+      <div className="scroll" tabIndex={0}>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Income level</th>
+              <th scope="col" className="num">Groups</th>
+              <th scope="col" className="num">Income</th>
+              <th scope="col" className="num">Spending</th>
+              <th scope="col" className="num">Share of all spending</th>
+              <th scope="col" className="num">Savings</th>
+              <th scope="col" className="num">Owed to banks</th>
+            </tr>
+          </thead>
+          <tbody>
+            {consumers.bands.map((b) => (
+              <tr key={b.band}>
+                <th scope="row">{b.name}</th>
+                <td className="num mono">{b.groups}</td>
+                <td className="num mono">{formatCompact(b.income)}</td>
+                <td className="num mono">{formatCompact(b.spending)}</td>
+                <td className="num mono">{formatPercent(Math.round((Number(BigInt(b.spending) / 100n) / spent) * 10000))}</td>
+                <td className="num mono">{formatCompact(b.cash)}</td>
+                <td className="num mono">{formatCompact(b.debt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="why-title">SPENDING BY MINDSET</div>
+      {byMind.map((m) => {
+        const value = Number(BigInt(m.spending) / 100n);
+        return (
+          <div key={m.mindset} className="bar-row">
+            <div className="row">
+              <span>{MINDSET_WORDS[m.mindset] ?? m.mindset} <span className="muted small">· {m.groups} groups</span></span>
+              <span className="mono">{formatCompact(m.spending)}</span>
+            </div>
+            <div className="meter" aria-hidden="true"><div className="meter-fill" style={{ width: `${(value / largestMind) * 100}%` }} /></div>
+          </div>
+        );
+      })}
+      <div className="why-title">PEOPLE MOVING</div>
+      {consumers.moved === 0 ? (
+        <p className="small muted">No groups moved last quarter. {consumers.moved_total} have moved since the world began.</p>
+      ) : (
+        <ul className="reasons">
+          {consumers.moves.map((m) => (
+            <li key={`${m.from_location}-${m.to_location}`}>{m.from_location} → {m.to_location}: {m.groups} {m.groups === 1 ? "group" : "groups"}</li>
+          ))}
+          <li className="muted">{consumers.moved_total} groups have moved since the world began.</li>
+        </ul>
+      )}
+      <p className="muted small">
+        The households are 1,000 groups. Each lives in one place, earns at one of five income levels, reacts to the news in
+        one of ten ways, and has its own savings, debts and tastes. Poorer groups spend nearly all they earn, mostly on food
+        and other necessities; richer ones save more and spend more on travel, hotels and property. Groups move now and then,
+        more often towards places where jobs are growing. Only totals are ever shown.
+      </p>
+    </Panel>
+  );
+}
+
 function Body({ economy }: { economy: Economy }) {
   const latest = economy.history[economy.history.length - 1];
   const before = economy.history[economy.history.length - 2];
@@ -166,6 +323,10 @@ function Body({ economy }: { economy: Economy }) {
       </Panel>
 
       <PricesPanel economy={economy} />
+
+      {economy.abroad && <AbroadPanel abroad={economy.abroad} />}
+
+      {economy.consumers && <ConsumersPanel consumers={economy.consumers} />}
 
       <Panel title="Households, by location" aside={`${latest.period_label}, per quarter`}>
         <div className="scroll" tabIndex={0}>
