@@ -335,6 +335,10 @@ def _create(conn: Connection, world_start: datetime, fortune_seed: str, test_wor
     exchange.setup(conn, datetime.now(timezone.utc))
     bonds.setup(conn, 0)
 
+    # Land and property: the districts of the five cities, owned by the property companies (Stage 8).
+    from simulation import property as property_market
+    property_market.create(conn, fortune_seed, data.NEUTRAL_RATE_BPS)
+
 
 def _describe_the_economy(conn: Connection, shapes: dict[str, dict]) -> tuple[int, int]:
     """Record what companies buy from each other and where spending goes.

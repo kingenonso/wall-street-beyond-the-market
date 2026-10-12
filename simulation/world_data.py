@@ -817,3 +817,83 @@ FOREIGN_MOST_TILT_BPS = 150            # ...at most 1.5%
 FOREIGN_DAY_SHARE_BPS = 500            # they trade at most about 5% of a day's trading: once their buying or selling today
                                        # reaches 5% of what everybody else traded on an average recent day, they only wait
 FOREIGN_DAY_LEAST_NAIRA = 2_000_000    # (in a new market with little trading yet, they may still trade this much a day)
+
+# ---------------------------------------------------------------------------
+# Stage 8: land, property, headquarters and the Auction House (owner, 12 October 2026).
+# ---------------------------------------------------------------------------
+# Each city's districts: name, character. Every district has big buildings, small units and empty plots.
+DISTRICTS: dict[str, tuple[tuple[str, str], ...]] = {
+    LAGOS: (("Victoria Island", "business"), ("Ikoyi", "homes"), ("Ikeja", "shops"), ("Apapa", "industry"), ("Epe", "farmland")),
+    ABUJA: (("Central Business District", "business"), ("Maitama", "homes"), ("Wuse", "shops"), ("Idu", "industry"), ("Kuje", "farmland")),
+    PORT_HARCOURT: (("Old GRA", "business"), ("Rumuola", "homes"), ("Mile One", "shops"), ("Trans-Amadi", "industry"), ("Oyigbo", "farmland")),
+    ABA: (("Aba Township", "business"), ("Ogbor Hill", "homes"), ("Ariaria", "shops"), ("Osisioma", "industry"), ("Obingwa", "farmland")),
+    KANO: (("Bompai", "business"), ("Nassarawa", "homes"), ("Kurmi", "shops"), ("Sharada", "industry"), ("Dawakin Kudu", "farmland")),
+}
+DISTRICT_KIND_NAMES = {"business": "Business district", "homes": "Homes", "shops": "Shops and markets", "industry": "Industry", "farmland": "Farmland"}
+# What a district's buildings are: (big building kind, small unit kind).
+DISTRICT_BUILDINGS = {"business": ("office", "office"), "homes": ("home", "home"), "shops": ("shop", "shop"),
+                      "industry": ("factory", "warehouse"), "farmland": ("farmland", "farmland")}
+PROPERTY_KIND_NAMES = {"office": "Offices", "home": "Homes", "shop": "Shops", "warehouse": "Warehouse", "factory": "Factory",
+                       "farmland": "Farmland", "land": "An empty plot"}
+# Rent a square metre earns a quarter, in naira, at the start, by city; and how each kind of building compares.
+RENT_A_METRE_NAIRA = {LAGOS: 6_000, ABUJA: 5_500, PORT_HARCOURT: 4_500, ABA: 2_500, KANO: 2_200}
+RENT_KIND_TIMES_BPS = {"office": 13_000, "home": 10_000, "shop": 15_000, "warehouse": 5_000, "factory": 4_500, "farmland": 60}
+# What a square metre of empty land costs at the start, in naira, by city, and how each district's character changes it.
+LAND_A_METRE_NAIRA = {LAGOS: 250_000, ABUJA: 180_000, PORT_HARCOURT: 120_000, ABA: 50_000, KANO: 40_000}
+LAND_KIND_TIMES_BPS = {"business": 15_000, "homes": 10_000, "shops": 12_000, "industry": 5_000, "farmland": 200}
+BUILD_A_METRE_NAIRA = 200_000          # what building costs a square metre, before the city's own costs
+CITY_COST_BPS = {LAGOS: 15_000, ABUJA: 12_000, PORT_HARCOURT: 11_000, ABA: 9_000, KANO: 7_000}
+# How many of each, in every district: big buildings, small units, empty plots.
+DISTRICT_STOCK = (4, 6, 2)
+PROPERTY_YIELD_BELOW_RATE_BPS = 400    # property is valued at a yearly rent of the Central Bank's rate less 4 points...
+PROPERTY_LEAST_YIELD_BPS = 500         # ...but never below 5%
+PROPERTY_RENT_SHARE_OF_COMPANY_BPS = 6000  # rent is six tenths of a property company's business; the rest is building work
+RENT_FOLLOWS_DEMAND_BPS = 2500         # a district's rent moves a quarter of the way to what demand says each quarter
+OCCUPANCY_LIMITS_BPS = (5000, 9800)
+PREMIUM_DECAY_BPS = 2000               # a price bubble loses a fifth of itself each quarter as rents pull prices back...
+PREMIUM_FROM_OVERPAYING_BPS = 5000     # ...and grows by half of what buyers paid above fair value in the district
+PREMIUM_LIMITS_BPS = (-4000, 15_000)
+PROPERTY_TAX_BPS = 100                 # property tax: 1% of the value a year...
+LAND_TAX_BPS = 50                      # ...and land tax: half of one percent, both paid each quarter
+TAX_ARREARS_SEIZE_BPS = 1000           # unpaid tax reaching a tenth of the value: the Government sells the property
+TAX_ARREARS_PENALTY_BPS = 500          # unpaid tax grows by 5% a quarter
+UPKEEP_BPS = 50                        # keeping a building as it is costs half of one percent of its value a quarter
+WEAR_WITH_UPKEEP = 1                   # condition points lost a quarter when kept up...
+WEAR_WITHOUT_UPKEEP = 5                # ...and when not
+RENOVATION_BPS = 500                   # a renovation costs 5% of the value and restores 25 points
+RENOVATION_POINTS = 25
+POOR_CONDITION = 50                    # below this, tenants start to leave
+# Mortgages.
+MORTGAGE_SPREAD_BPS = 400              # the Central Bank's rate plus 4 points
+MORTGAGE_TERM_QUARTERS = 40            # repaid over ten game years
+MORTGAGE_DEPOSIT_BPS = 2000            # a fifth paid up front
+MORTGAGE_SALARY_QUARTERS = 16          # a player may borrow at most four years of salary
+EMPIRE_MORTGAGE_MOST_BPS = 6000        # an empire may borrow at most 60% of the price
+MORTGAGE_MISSES_TO_REPOSSESS = 2       # two quarters missed and the bank takes the building
+# The Auction House.
+AUCTION_HOURS = 24
+AUCTION_EXTEND_MINUTES = 5             # a bid in the last five minutes adds five minutes
+AUCTION_STEP_BPS = 100                 # each bid at least 1% above the one before
+AUCTION_LISTINGS_A_QUARTER = 12        # property companies put this many up for sale each quarter
+AUCTION_RESERVE_BPS = (8500, 9500)     # a seller's secret lowest price: 85% to 95% of fair value
+COMPUTER_BID_BPS = (8000, 9600)        # property companies bid for others' property up to 80% to 96% of fair value
+TITLE_FLAW_BPS = 800                   # about one lot in twelve has a flaw in its title: the seller does not truly own all of it
+TITLE_FLAW_LOSS_BPS = (3000, 10000)    # a buyer of a flawed title loses 30% to all of it to the true owner
+# Headquarters.
+HQ_LEVEL_BASE_NAIRA = 100_000          # what Level 1 costs; each level costs level^1.6 times this...
+HQ_LEVEL_POWER = 16_000                # (the power, in bps)
+HQ_MOST_LEVEL = 120
+HQ_SEAT_EVERY = 10                     # ...and every ten levels add a seat
+HQ_BONUS_PER_ROOT_BPS = 30             # the headquarters' standing: 0.3% times the square root of its level...
+HQ_UPKEEP_BPS = 100                    # its upkeep: 1% of what has been spent on it, a quarter
+HQ_WEAR_WITHOUT_UPKEEP = 8             # condition lost a quarter when its upkeep is not approved or not paid
+HQ_WARN_AT = (50, 30, 15)              # warnings to the head and the Risk Manager as its condition falls
+HQ_COLLAPSE_BELOW = 15                 # below this it may fall down: one chance in ten for each point below
+HQ_COLLAPSE_REPUTATION = 5             # what the head and the Risk Manager lose if they ignored the warnings
+# What each city's headquarters favours: its industries (work for clients in them earns the bonus twice over).
+HQ_CITY_INDUSTRIES = {LAGOS: ("banking", "telecoms", "media", "insurance"), ABUJA: ("insurance", "real_estate", "power"),
+                      PORT_HARCOURT: ("oil_gas", "shipping", "power"), KANO: ("agriculture", "consumer", "transport"),
+                      ABA: ("manufacturing", "consumer", "cement")}
+HQ_CITY_WORDS = {LAGOS: "the best deals and recruits, but the dearest land", ABUJA: "lobbying (felt fully when the Government stage comes)",
+                 PORT_HARCOURT: "energy deals", KANO: "the cheapest land, trade and farming", ABA: "manufacturing"}
+LAGOS_RECRUIT_POINTS = 5              # a Lagos headquarters: players may join with a reputation 5 lower

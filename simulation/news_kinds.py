@@ -132,6 +132,12 @@ KINDS: tuple[NewsKind, ...] = (
     NewsKind("economy_slowing", 66, {"growth": "3.1%", "sales": "₦290 billion"}),
     NewsKind("commodity_up", 54, {"commodity": "farm produce", "size": "12%"}),
     NewsKind("commodity_down", 50, {"commodity": "farm produce", "size": "9%"}),
+    # --- Stage 8: land and property ---
+    NewsKind("property_up", 60, {"district": "Victoria Island", "city": "Lagos", "change": "12%"}),
+    NewsKind("property_down", 64, {"district": "Ariaria", "city": "Aba", "change": "11%"}),
+    NewsKind("property_forced_sale", 50, {"property": "Flat 3, Surulere", "why": "its mortgage was not paid"}),
+    NewsKind("title_dispute", 58, {"property": "Ikeja Mall", "share": "40%"}),
+    NewsKind("hq_collapse", 78, {"empire": "Harbour House", "building": "Victoria Island Tower", "city": "Lagos"}),
     # --- The economy upgrade: the rest of the world ---
     NewsKind("oil_up", 70, {"price": "$82.40", "previous": "$75.00", "change": "9.9%"}),
     NewsKind("oil_down", 72, {"price": "$64.10", "previous": "$75.00", "change": "14.5%"}),

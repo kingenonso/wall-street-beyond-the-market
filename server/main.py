@@ -68,7 +68,7 @@ from server.schemas import (
     TakeoverRow, VoteRequest, VoteRow, WaitingSwap,
 )
 from simulation import clock, exchange, investors, ledger, moneywatch, news, news_kinds, players, quarters
-from simulation import bonds, careers, closingbell, corporate, desks, grants, insight, marketview, messages, objectives
+from simulation import auctions, bonds, careers, closingbell, corporate, desks, grants, insight, marketview, messages, objectives
 from simulation import world_data as data
 from simulation.ledger import NGN
 
@@ -91,6 +91,9 @@ def _close_due_quarters_once() -> None:
             exchange.open_market(conn, now)
             # The computer-run investors look at the market and renew their orders.
             investors.act(conn, now)
+        # The Auction House settles every auction whose countdown has ended.
+        if conn.execute("SELECT to_regclass('auctions') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
+            auctions.run(conn, now)
             # After 22:00 the Closing Bell goes out, once for each trading day.
             closingbell.ring(conn, now)
 
@@ -1559,3 +1562,4 @@ from server import firm_routes  # noqa: E402,F401
 from server import deal_routes, dealmaking_routes  # noqa: E402,F401
 from server import message_routes  # noqa: E402,F401
 from server import settings_routes  # noqa: E402,F401
+from server import property_routes  # noqa: E402,F401

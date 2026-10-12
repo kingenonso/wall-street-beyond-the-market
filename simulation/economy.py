@@ -369,7 +369,7 @@ def companies_buy_inputs(conn: Connection, world: World, companies: list[dict], 
 
 
 CAPITAL_RETURNED = ("bond_redemption", "bond_trade", "bond_issue", "takeover_payment", "takeover_refund")
-GOVERNMENT_INCOME = ("company_tax", "debt_interest", "share_trade", "exchange_surplus", "salary", "oil_royalty")   # "salary": the income tax taken from players' pay
+GOVERNMENT_INCOME = ("company_tax", "debt_interest", "share_trade", "exchange_surplus", "salary", "oil_royalty", "property_tax")   # "salary": the income tax taken from players' pay
 
 
 def government_spends(conn: Connection, world: World, period: int, *, borrowed: int = 0, debt_cost: int = 0) -> None:

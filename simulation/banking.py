@@ -39,7 +39,9 @@ def banks(conn: Connection, period: int) -> list[dict]:
         "SELECT c.id, c.name, c.ticker, c.account_id, r.total_equity, r.customer_funds,"
         "   (SELECT coalesce(sum(principal), 0)::bigint FROM household_debts h WHERE h.bank_company_id = c.id) AS household_loans,"
         "   (SELECT coalesce(sum(principal_outstanding - provision), 0)::bigint FROM company_debts d"
-        "     WHERE d.lender_account_id = c.account_id) AS company_loans"
+        "     WHERE d.lender_account_id = c.account_id)"
+        "   + (SELECT coalesce(sum(outstanding), 0)::bigint FROM mortgages m WHERE m.bank_company_id = c.id"
+        "      AND m.status IN ('open', 'shortfall')) AS company_loans"
         " FROM companies c JOIN company_results r ON r.company_id = c.id AND r.period = %s"
         " WHERE EXISTS (SELECT 1 FROM household_debts h WHERE h.bank_company_id = c.id) ORDER BY c.ticker",
         (period - 1,),
