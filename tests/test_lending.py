@@ -83,7 +83,7 @@ def test_the_quarters_forces_are_recorded_and_never_sent(db, client):
     assert db.execute("SELECT count(*) FROM stochastic_factors WHERE period = 8").fetchone()[0] == len(stochastic.FACTORS)
     from tests.conftest import ADULT, join
     join(client, ADULT)
-    for path in ("/api/market", "/api/economy", "/api/borrowing", "/api/market/risk"):
+    for path in ("/api/market", "/api/economy", "/api/borrowing", "/api/share-risk"):
         text = client.get(path).text
         assert "stochastic" not in text and "factor" not in text.lower(), path
 
@@ -136,7 +136,7 @@ def test_a_personal_loan_is_limited_by_salary_and_repaid_over_two_years(db):
     quarters.close_due_quarters(db, after_quarters(9))
     loan = _one(db, "SELECT * FROM player_loans WHERE id = %s", (taken["loan_id"],))
     assert loan["outstanding"] == most - most // data.PERSONAL_LOAN_TERM_QUARTERS and loan["missed"] == 0
-    assert db.execute("SELECT count(*) FROM ledger_transactions WHERE kind = 'loan_interest'").fetchone()[0] >= 1
+    assert db.execute("SELECT count(*) FROM ledger_transactions WHERE kind = 'player_loan_interest'").fetchone()[0] >= 1
     sound(db)
 
 

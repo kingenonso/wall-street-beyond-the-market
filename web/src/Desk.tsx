@@ -27,6 +27,14 @@ function cardsFor(player: Player, latestQuarter: string | null, live: LiveClock 
       action: "Open your rank", href: "#/rank",
     });
   }
+  if ((player.margin_calls ?? 0) > 0) {
+    cards.unshift({
+      tag: "■ MARGIN CALL", when: "By the next Closing Bell",
+      title: player.margin_calls === 1 ? "A margin call is waiting" : `${player.margin_calls} margin calls are waiting`,
+      text: "A loan, a short or a contract of yours needs more cash by the next Closing Bell (22:00), or it will be closed for you at the market's price.",
+      action: "See what you owe", href: "#/borrow",
+    });
+  }
   if (player.unread_messages > 0) {
     cards.push({
       tag: "● MESSAGES", when: `${player.unread_messages} unread`,

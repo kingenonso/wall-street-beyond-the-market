@@ -280,6 +280,7 @@ export function sectionsFor(player: Player) {
     { path: "market", label: "Market" },
     { path: "property", label: "Property" },
     { path: "portfolio", label: "Portfolio" },
+    { path: "borrow", label: "Borrow", ...((player.margin_calls ?? 0) > 0 ? { count: player.margin_calls, countWords: "margin calls" } : {}) },
     { path: "news", label: "News" },
     { path: "companies", label: "Companies" },
     { path: "economy", label: "Economy" },

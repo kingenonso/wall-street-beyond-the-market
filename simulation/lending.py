@@ -630,7 +630,7 @@ def close(conn: Connection, period: int, now: datetime, rate: int) -> dict:
         principal = min(max(loan["principal"] // loan["term_quarters"], 1), loan["outstanding"]) if loan["term_quarters"] else 0
         if loan["status"] == "default":
             principal = loan["outstanding"]                      # a loan in default: the bank takes all it can, each quarter
-        paid_interest = ledger.pay_up_to(conn, payer=loan["borrower"], receiver=loan["bank_account"], wanted=interest, kind="loan_interest",
+        paid_interest = ledger.pay_up_to(conn, payer=loan["borrower"], receiver=loan["bank_account"], wanted=interest, kind="player_loan_interest",
                                          memo=f"Interest to {loan['bank']}, {label}", period=period)
         paid_principal = 0
         if paid_interest == interest and principal:

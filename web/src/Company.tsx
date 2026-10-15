@@ -1,3 +1,4 @@
+import { WhatCouldHappenPanel } from "./WhatIf";
 import { useState } from "react";
 import { api, type Company, type FiledReport, type Kobo } from "./api";
 import { AreaChart } from "./Charts";
@@ -380,6 +381,11 @@ export function CompanyRail({ ticker, onLoggedOut, onTraded }: { ticker: string;
   return (
     <>
       {!narrow && <div id="trade-panel"><TradePanel ticker={ticker} onLoggedOut={onLoggedOut} onTraded={onTraded ?? (() => undefined)} layout="rail" /></div>}
+      <Panel title="Other ways to take a view">
+        <p className="small">Think it will fall? <a href={`#/borrow/shorts?ticker=${ticker}`}>Sell it short</a>: borrow the shares, sell them, buy them back later.
+          Or use <a href="#/market/derivatives">options</a> on it, if it is one of the BSX 50.</p>
+      </Panel>
+      <WhatCouldHappenPanel what="share" ticker={ticker} title={`What could ₦1,000,000 of ${ticker} do?`} onLoggedOut={onLoggedOut} />
       <CompanyNews ticker={ticker} onLoggedOut={onLoggedOut} />
     </>
   );

@@ -16,6 +16,7 @@ import { MarketRail, MarketWork } from "./Market";
 import { NewsRail, NewsWork } from "./News";
 import { PortfolioRail, PortfolioWork } from "./Portfolio";
 import { PropertyRail, PropertyWork } from "./Property";
+import { BorrowRail, BorrowWork } from "./Borrow";
 import { useRoute } from "./hooks";
 import { ProfileRail, ProfileWork } from "./Profile";
 import { MoreWork, Panel, SearchWork, Shell } from "./Shell";
@@ -101,6 +102,10 @@ export function App() {
     current = "news";
     work = <NewsWork onLoggedOut={loggedOut} />;
     rail = <NewsRail />;
+  } else if (section === "borrow") {
+    current = "borrow";
+    work = <BorrowWork key={item ?? ""} player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <BorrowRail onLoggedOut={loggedOut} />;
   } else if (section === "property") {
     current = "property";
     work = <PropertyWork key={item ?? ""} player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;

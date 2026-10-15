@@ -43,6 +43,8 @@ CREATE TABLE crash_fund_members (
     since       timestamptz NOT NULL,
     paid_in     bigint NOT NULL DEFAULT 0,
     paid_out    bigint NOT NULL DEFAULT 0,
+    covered_period integer,                          -- the quarter its last premium paid for: only that quarter's crash pays it
+    paid_cover  bigint NOT NULL DEFAULT 0,           -- the cover that premium bought
     active      boolean NOT NULL DEFAULT true
 );
 CREATE TABLE crash_fund_quarters (

@@ -45,6 +45,7 @@ def _set(conn: Connection, empire: dict, cover: int, now: datetime) -> dict:
     most = max(worth, 0) * data.CRASH_MOST_COVER_BPS // BPS
     if cover > most:
         raise EmpireError(f"Cover may be at most half of what the empire is worth: ₦{most // 100:,}.")
+    # (A change takes effect from the next quarter: the quarter running is covered as it was paid for.)
     conn.execute("INSERT INTO crash_fund_members (empire_id, cover, since, active) VALUES (%s, %s, %s, %s)"
                  " ON CONFLICT (empire_id) DO UPDATE SET cover = EXCLUDED.cover, active = EXCLUDED.active",
                  (empire["id"], cover, now, cover > 0))
@@ -93,13 +94,16 @@ def close(conn: Connection, period: int, now: datetime, index_end: int) -> dict:
     fall = (start - index_end) * BPS // start if start else 0
     triggered = before is not None and fall >= data.CRASH_TRIGGER_BPS
     members = _rows(conn, "SELECT m.*, e.account_id, e.name FROM crash_fund_members m JOIN empires e ON e.id = m.empire_id"
-                          " WHERE m.active AND e.status = 'active' ORDER BY m.empire_id")
+                          " WHERE e.status = 'active' AND (m.active OR m.covered_period = %s) ORDER BY m.empire_id", (period,))
+    # Only cover paid for before the quarter began pays out: joining once a fall is under way buys nothing for it.
+    covered = [m for m in members if m["covered_period"] == period]
     paid_out = 0
-    if triggered and members:
+    if triggered and covered:
+        members_paid = covered
         pot = ledger.balance(conn, fund)
-        wanted = sum(m["cover"] for m in members)
-        for m in members:
-            share = m["cover"] if pot >= wanted else pot * m["cover"] // max(wanted, 1)
+        wanted = sum(m["paid_cover"] for m in members_paid)
+        for m in members_paid:
+            share = m["paid_cover"] if pot >= wanted else pot * m["paid_cover"] // max(wanted, 1)
             if share > 0:
                 ledger.transfer(conn, payer=fund, receiver=m["account_id"], amount=share, kind="crash_payout",
                                 memo=f"The crash fund pays out: the BSX 50 fell {fall / 100:.1f}% in {label}", period=period)
@@ -107,13 +111,13 @@ def close(conn: Connection, period: int, now: datetime, index_end: int) -> dict:
                 empires._log(conn, m["empire_id"], f"The crash fund paid ₦{share // 100:,}: the BSX 50 fell {fall / 100:.1f}% this quarter.", now)
                 paid_out += share
     premiums = 0
-    for m in members:
+    for m in [m for m in members if m["active"]]:
         premium = m["cover"] * data.CRASH_PREMIUM_BPS // BPS
         got = ledger.pay_up_to(conn, payer=m["account_id"], receiver=fund, wanted=premium, kind="crash_premium",
                                memo=f"Crash fund: cover for the quarter after {label}", period=period)
         premiums += got
-        conn.execute("UPDATE crash_fund_members SET paid_in = paid_in + %s, active = %s WHERE empire_id = %s",
-                     (got, got == premium, m["empire_id"]))
+        conn.execute("UPDATE crash_fund_members SET paid_in = paid_in + %s, active = %s, covered_period = %s, paid_cover = %s WHERE empire_id = %s",
+                     (got, got == premium, period + 1 if got == premium else None, m["cover"] if got == premium else 0, m["empire_id"]))
         if got < premium:
             empires._log(conn, m["empire_id"], "The empire could not pay the crash fund's premium: its cover has lapsed.", now)
     conn.execute("INSERT INTO crash_fund_quarters (period, index_start, index_end, triggered, premiums, paid_out) VALUES (%s, %s, %s, %s, %s, %s)"

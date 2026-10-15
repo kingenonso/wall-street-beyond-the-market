@@ -121,6 +121,7 @@ class PlayerResponse(BaseModel):
     rank_waiting: bool = False
     news_alerts: bool = True
     unread_messages: int = 0
+    margin_calls: int = 0              # Stage 9: margin calls (and recalled shares) waiting on the player
     # The redesign: the player's own look and sound, and whether they have seen the first-time tour.
     theme: str = "dark"
     sound_on: bool = True

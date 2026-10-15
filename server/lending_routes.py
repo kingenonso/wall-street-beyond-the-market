@@ -177,7 +177,7 @@ def empire_limits(body: LimitsRequest, player: dict = Depends(current_player), c
                                                                     body.derivatives_naira))
 
 
-@app.get("/api/market/risk")
+@app.get("/api/share-risk")
 def market_risk(_: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     """Every share's volatility, beta and short interest: public figures anybody could work out."""
     found = risk.share_risk(conn)

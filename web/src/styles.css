@@ -984,3 +984,25 @@ table.dense th[scope="row"] { white-space: nowrap; }
   .lot-clock { text-align: left; }
 }
 button.chip { background: transparent; cursor: pointer; font-family: inherit; padding: 4px 10px; }
+
+/* Stage 9: borrowing, the fan chart, options and futures. */
+.fan svg { width: 100%; height: auto; display: block; }
+.fan .grid { stroke: var(--border); stroke-width: 1; }
+.fan .axis { fill: var(--muted); font-size: 11px; font-family: var(--mono); }
+.fan-wide { fill: color-mix(in srgb, var(--info) 18%, transparent); }
+.fan-likely { fill: color-mix(in srgb, var(--info) 38%, transparent); }
+.fan-middle { fill: none; stroke: var(--info); stroke-width: 2; }
+.fan-today { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 4; }
+.fan-key { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 6px; color: var(--muted); }
+.fan-key .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: -2px; margin-right: 4px; }
+.fan-wide-swatch { background: color-mix(in srgb, var(--info) 18%, transparent); border: 1px solid var(--border); }
+.fan-likely-swatch { background: color-mix(in srgb, var(--info) 38%, transparent); }
+.fan-line-swatch { color: var(--info); font-weight: 700; margin-right: 4px; }
+.fan-today-swatch { color: var(--muted); margin-right: 4px; }
+.meter-marked { position: relative; height: 10px; overflow: visible; }
+.meter-mark { position: absolute; top: -3px; width: 2px; height: 16px; background: var(--warn); }
+.meter-mark-strong { background: var(--down); width: 3px; }
+.margin-meter { margin: 10px 0 16px; }
+.tiny-input { width: 64px; padding: 5px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; }
+.trade-cell { margin: 0; gap: 6px; flex-wrap: nowrap; }
+label.check { display: inline-flex; gap: 6px; align-items: center; }

@@ -404,7 +404,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     # Dividends from a company it owns shares in (after a takeover) are counted with it.
     dividends_received = received("dividend")
     interest_income = (received("debt_interest") + dividends_received + received("empire_interest") + received("mortgage_interest")
-                       + received("loan_interest"))
+                       + received("player_loan_interest"))
     if dividends_received:
         notes.append(f"It received {in_words(dividends_received)} in dividends from the company it owns shares in.")
 
