@@ -10,9 +10,10 @@ CREATE TABLE derivative_series (
     expiry_period integer NOT NULL,                  -- settled at this quarter's close
     listed_period integer NOT NULL,
     status        text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'settled')),
-    settled_spot  bigint,
-    UNIQUE (kind, underlying, strike, expiry_period)
+    settled_spot  bigint
 );
+-- (A future has no strike: the index counts a missing strike as one value, so each is listed once.)
+CREATE UNIQUE INDEX derivative_series_once ON derivative_series (kind, underlying, coalesce(strike, -1), expiry_period);
 CREATE INDEX derivative_series_open ON derivative_series (expiry_period) WHERE status = 'open';
 
 -- Positions: bought (long) or written/sold (short) against the desk.

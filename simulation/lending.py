@@ -13,6 +13,13 @@
                   held by the exchange. At every Closing Bell: below 125% a margin call; below 110%, or a call
                   not met by the next bell, the shares are bought back by force at 5% above the close. While
                   lent, any dividend is paid to the lender by the borrower. The lender can recall its shares.
+  shortfall       a loss beyond the cash held for it (a buy-in dearer than the collateral, a future's loss beyond
+                  its margin) is owed to whoever bore it, as a debt in default from the start: the borrower's
+                  cash, then shares and bonds sold by force, go to it each quarter until it is cleared.
+
+Interest and the lending fee build up by the time the money or the shares are held, and are paid whenever the
+loan is repaid or the short closed, and at each quarter's close. Interest not paid is owed first next time, with
+a late charge of 5%.
 
 Every naira moves through the ledger. All of a player's borrowing together is limited to twice what they
 are worth after their debts. An empire borrows and shorts only inside limits its Risk Manager signs; above
@@ -86,6 +93,70 @@ def _kind_of(conn: Connection, account) -> str:
     return row["kind"]
 
 
+def _quarter_end(conn: Connection, period: int) -> datetime:
+    from datetime import timedelta
+    w = _one(conn, "SELECT world_start, weeks_ahead FROM world_state")
+    return clock.effective_start(w["world_start"], w["weeks_ahead"]) + timedelta(days=clock.REAL_DAYS_PER_QUARTER * period)
+
+
+QUARTER_SECONDS = clock.REAL_DAYS_PER_QUARTER * 86_400
+
+
+def accrued(amount: int, yearly_bps: int, since: datetime | None, until: datetime) -> int:
+    """What a yearly rate comes to on an amount held from one moment to another (a quarter at most at a time)."""
+    if since is None or until <= since or amount <= 0 or yearly_bps <= 0:
+        return 0
+    seconds = min(int((until - since).total_seconds()), QUARTER_SECONDS)
+    return amount * yearly_bps * seconds // (BPS * 4 * QUARTER_SECONDS)
+
+
+def _payee(loan: dict):
+    """Who a loan is paid to: the bank that lent, or (a shortfall) whoever bore the loss."""
+    return loan["bank_account"] if loan.get("bank_account") else loan["creditor"]
+
+
+LOAN_ROWS = ("SELECT l.*, c.account_id AS bank_account, coalesce(c.name, 'the market') AS bank FROM player_loans l"
+             " LEFT JOIN companies c ON c.id = l.bank_company_id")
+
+
+def _charge_interest(conn: Connection, loan: dict, until: datetime, period: int, why: str) -> tuple[int, int]:
+    """Charge the interest built up on a loan since it was last charged. What cannot be paid goes into arrears,
+    with the late charge. Returns (due, paid)."""
+    due = accrued(loan["outstanding"], loan["rate_bps"], loan["interest_from"], until)
+    paid = 0
+    if due:
+        paid = ledger.pay_up_to(conn, payer=loan["borrower"], receiver=_payee(loan), wanted=due, kind="player_loan_interest",
+                                memo=f"Interest to {loan['bank']}, {why}", period=period)
+    late = (due - paid) + (due - paid) * data.LOAN_LATE_PENALTY_BPS // BPS
+    if loan["interest_from"] is None or until > loan["interest_from"]:
+        conn.execute("UPDATE player_loans SET interest_from = %s, arrears = arrears + %s WHERE id = %s", (until, late, loan["id"]))
+        loan["interest_from"] = until
+        loan["arrears"] = loan["arrears"] + late
+    return due, paid
+
+
+def _pay_arrears(conn: Connection, loan: dict, period: int, why: str) -> int:
+    if loan["arrears"] <= 0:
+        return 0
+    got = ledger.pay_up_to(conn, payer=loan["borrower"], receiver=_payee(loan), wanted=loan["arrears"], kind="player_loan_interest",
+                           memo=f"Interest owed from before, to {loan['bank']}, {why}", period=period)
+    conn.execute("UPDATE player_loans SET arrears = arrears - %s WHERE id = %s", (got, loan["id"]))
+    loan["arrears"] -= got
+    return got
+
+
+def record_shortfall(conn: Connection, borrower, creditor, amount: int, why: str, period: int, now: datetime) -> None:
+    """A loss beyond the cash held for it: owed to whoever bore it, in default from the start."""
+    if amount <= 0:
+        return
+    row = _one(conn, "INSERT INTO player_loans (kind, borrower, creditor, principal, outstanding, rate_bps, taken_period, status, at)"
+                     " VALUES ('shortfall', %s, %s, %s, %s, 0, %s, 'default', %s) RETURNING id",
+               (borrower, creditor, amount, amount, period, now))
+    _event(conn, borrower, "shortfall", f"{why}: {money(amount)} more than the cash held for it was lost. It is owed, and it is in "
+                                        f"default: your cash, then your shares and bonds, will go to it until it is paid.",
+           now, loan_id=row["id"])
+
+
 # ---------------------------------------------------------------------------
 # Prices and what an account holds
 # ---------------------------------------------------------------------------
@@ -115,8 +186,10 @@ def holdings_value(conn: Connection, account, now: datetime) -> dict:
     shares, lines = _share_value(conn, account, quotes)
     bond_value = sum(b["value"] for b in bonds.holdings_of(conn, account, now))
     cash = ledger.balance(conn, account)
-    return {"shares": shares, "bonds": bond_value, "cash": cash, "lines": lines, "security": shares + bond_value,
-            "total": shares + bond_value + cash}
+    # Shares borrowed to sell short are not the holder's to pledge: what they are worth is taken off.
+    borrowed = short_liability(conn, account)
+    return {"shares": shares, "bonds": bond_value, "cash": cash, "lines": lines, "security": max(shares + bond_value - borrowed, 0),
+            "total": max(shares + bond_value + cash - borrowed, 0), "borrowed": borrowed}
 
 
 def short_liability(conn: Connection, account) -> int:
@@ -133,7 +206,7 @@ def collateral_held(conn: Connection, account) -> int:
 
 
 def loans_owed(conn: Connection, account) -> int:
-    return _one(conn, "SELECT coalesce(sum(outstanding), 0)::bigint AS o FROM player_loans WHERE borrower = %s AND status <> 'repaid'",
+    return _one(conn, "SELECT coalesce(sum(outstanding + arrears), 0)::bigint AS o FROM player_loans WHERE borrower = %s AND status <> 'repaid'",
                 (account,))["o"]
 
 
@@ -240,8 +313,8 @@ def take_personal(conn: Connection, player_id, amount: int, now: datetime) -> di
         except ledger.InsufficientFunds:
             raise LendingError(f"{bank_row['name']} has not the cash to lend that now.") from None
         loan = _one(conn, "INSERT INTO player_loans (kind, borrower, bank_company_id, principal, outstanding, rate_bps, taken_period,"
-                          " term_quarters, at) VALUES ('personal', %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                    (account, bank_row["company_id"], amount, amount, rate, state["period"], data.PERSONAL_LOAN_TERM_QUARTERS, now))
+                          " term_quarters, interest_from, at) VALUES ('personal', %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                    (account, bank_row["company_id"], amount, amount, rate, state["period"], data.PERSONAL_LOAN_TERM_QUARTERS, now, now))
         return {"loan_id": loan["id"], "amount": amount, "rate_bps": rate}
 
 
@@ -280,39 +353,45 @@ def take_margin(conn: Connection, account, bank_company_id, amount: int, now: da
                             memo=f"A loan against shares and bonds from {bank['name']}", period=state["period"])
         except ledger.InsufficientFunds:
             raise LendingError(f"{bank['name']} has not the cash to lend that now.") from None
-        loan = _one(conn, "SELECT * FROM player_loans WHERE borrower = %s AND bank_company_id = %s AND kind = 'margin' AND status = 'open'"
-                          " FOR UPDATE", (account, bank["id"]))
+        loan = _one(conn, LOAN_ROWS + " WHERE l.borrower = %s AND l.bank_company_id = %s AND l.kind = 'margin' AND l.status = 'open'"
+                                      " FOR UPDATE OF l", (account, bank["id"]))
         if loan:
+            # The interest built up on what was already lent is charged before more is added.
+            _charge_interest(conn, loan, now, state["period"], "to the day more was borrowed")
             conn.execute("UPDATE player_loans SET principal = principal + %s, outstanding = outstanding + %s, rate_bps = %s WHERE id = %s",
                          (amount, amount, rate, loan["id"]))
             loan_id = loan["id"]
         else:
-            loan_id = _one(conn, "INSERT INTO player_loans (kind, borrower, bank_company_id, principal, outstanding, rate_bps, taken_period, at)"
-                                 " VALUES ('margin', %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                           (account, bank["id"], amount, amount, rate, state["period"], now))["id"]
+            loan_id = _one(conn, "INSERT INTO player_loans (kind, borrower, bank_company_id, principal, outstanding, rate_bps, taken_period,"
+                                 " interest_from, at) VALUES ('margin', %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                           (account, bank["id"], amount, amount, rate, state["period"], now, now))["id"]
         return {"loan_id": loan_id, "amount": amount, "rate_bps": rate}
 
 
 def repay(conn: Connection, account, loan_id: int, amount: int, now: datetime) -> dict:
     with conn.transaction():
         state = _state(conn, now)
-        loan = _one(conn, "SELECT l.*, c.account_id AS bank_account, c.name AS bank FROM player_loans l JOIN companies c ON c.id = l.bank_company_id"
-                          " WHERE l.id = %s AND l.borrower = %s AND l.status <> 'repaid' FOR UPDATE OF l", (loan_id, account))
+        loan = _one(conn, LOAN_ROWS + " WHERE l.id = %s AND l.borrower = %s AND l.status <> 'repaid' FOR UPDATE OF l", (loan_id, account))
         if loan is None:
             raise LendingError("There is no such loan of yours.")
         if not isinstance(amount, int) or isinstance(amount, bool) or amount <= 0:
             raise LendingError("Name an amount to repay.")
-        amount = min(amount, loan["outstanding"])
-        try:
-            ledger.transfer(conn, payer=account, receiver=loan["bank_account"], amount=amount, kind="loan_repayment",
+        if ledger.balance(conn, account) < min(amount, loan["outstanding"]):
+            raise LendingError("There is not the cash.")
+        # The interest built up to today is paid first, and anything owed from before; then the loan itself.
+        _charge_interest(conn, loan, now, state["period"], "to the day of repaying")
+        _pay_arrears(conn, loan, state["period"], "on repaying")
+        amount = min(amount, loan["outstanding"], max(ledger.balance(conn, account), 0))
+        if amount > 0:
+            ledger.transfer(conn, payer=account, receiver=_payee(loan), amount=amount,
+                            kind="shortfall_repayment" if loan["kind"] == "shortfall" else "loan_repayment",
                             memo=f"Repaid to {loan['bank']}", period=state["period"])
-        except ledger.InsufficientFunds:
-            raise LendingError("There is not the cash.") from None
         left = loan["outstanding"] - amount
+        done = left == 0 and loan["arrears"] == 0
         # (A loan in default stays in default until it is repaid in full.)
         conn.execute("UPDATE player_loans SET outstanding = %s, status = %s WHERE id = %s",
-                     (left, "repaid" if left == 0 else loan["status"], loan["id"]))
-        return {"left": left}
+                     (left, "repaid" if done else loan["status"], loan["id"]))
+        return {"left": left + loan["arrears"]}
 
 
 # ---------------------------------------------------------------------------
@@ -359,9 +438,9 @@ def open_short(conn: Connection, account, ticker: str, shares: int, now: datetim
         lender = ledger.account_id(conn, LENDER)
         ledger.transfer(conn, payer=lender, receiver=account, amount=shares, asset=q["share_asset"], kind="share_loan",
                         memo=f"{shares:,} {q['ticker']} shares lent by the pension funds", period=state["period"])
-        row = _one(conn, "INSERT INTO short_positions (borrower, lender, company_id, shares, collateral, opened_price, opened_period, at)"
-                         " VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                   (account, lender, q["id"], shares, collateral, q["price"], state["period"], now))
+        row = _one(conn, "INSERT INTO short_positions (borrower, lender, company_id, shares, collateral, opened_price, opened_period,"
+                         " fee_from, at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                   (account, lender, q["id"], shares, collateral, q["price"], state["period"], now, now))
         return {"short_id": row["id"], "shares": shares, "collateral": collateral, "price": q["price"]}
 
 
@@ -375,6 +454,8 @@ def close_short(conn: Connection, account, short_id: int, now: datetime) -> dict
             raise LendingError("There is no such open short of yours.")
         if ledger.balance(conn, account, s["share_asset"]) < s["shares"]:
             raise LendingError(f"To close it, hold {s['shares']:,} {s['ticker']} shares (not waiting in a sell order): buy them back first.")
+        _charge_fee(conn, s, prices(conn).get(s["company_id"], {}).get("price", s["opened_price"]), now, state["period"],
+                    "to the day the shares were given back", now)
         ledger.transfer(conn, payer=account, receiver=s["lender"], amount=s["shares"], asset=s["share_asset"], kind="share_return",
                         memo=f"{s['shares']:,} borrowed {s['ticker']} shares given back", period=state["period"])
         if s["collateral"] > 0:
@@ -430,6 +511,34 @@ def after_dividend(conn: Connection, company_id, paid_total: int, shares_counted
             ledger.transfer(conn, payer=held, receiver=s["lender"], amount=more, kind="lent_dividend",
                             memo=f"The dividend on lent shares, from the collateral, {label}", period=period)
             conn.execute("UPDATE short_positions SET collateral = collateral - %s WHERE id = %s", (more, s["id"]))
+            s["collateral"] -= more
+            got += more
+        if got < owed:
+            record_shortfall(conn, s["borrower"], s["lender"], owed - got, "The dividend owed on borrowed shares", period,
+                             _one(conn, "SELECT now() AS n")["n"])
+
+
+def _charge_fee(conn: Connection, s: dict, price: int, until: datetime, period: int, why: str, now: datetime) -> int:
+    """The lending fee built up on a short since it was last charged: from the borrower's cash, then the collateral;
+    what is still missing is owed as a shortfall."""
+    fee = accrued(s["shares"] * price, data.SHORT_FEE_BPS, s["fee_from"], until)
+    got = 0
+    if fee:
+        got = ledger.pay_up_to(conn, payer=s["borrower"], receiver=s["lender"], wanted=fee, kind="lending_fee",
+                               memo=f"The lending fee on borrowed {s['ticker']} shares, {why}", period=period)
+        if got < fee and s["collateral"] > 0:
+            more = min(fee - got, s["collateral"])
+            ledger.transfer(conn, payer=_collateral_account(conn), receiver=s["lender"], amount=more, kind="lending_fee",
+                            memo=f"The lending fee, from the collateral, {why}", period=period)
+            conn.execute("UPDATE short_positions SET collateral = collateral - %s WHERE id = %s", (more, s["id"]))
+            s["collateral"] -= more
+            got += more
+        if got < fee:
+            record_shortfall(conn, s["borrower"], s["lender"], fee - got, "The lending fee on borrowed shares", period, now)
+    if s["fee_from"] is None or until > s["fee_from"]:
+        conn.execute("UPDATE short_positions SET fee_from = %s, fees_paid = fees_paid + %s WHERE id = %s", (until, got, s["id"]))
+        s["fee_from"] = until
+    return got
 
 
 # ---------------------------------------------------------------------------
@@ -464,7 +573,7 @@ def _sell_by_force(conn: Connection, account, line: dict, quantity: int, price: 
     return raised
 
 
-def _buy_back_by_force(conn: Connection, s: dict, price: int, period: int, why: str) -> dict:
+def _buy_back_by_force(conn: Connection, s: dict, price: int, period: int, why: str, now: datetime) -> dict:
     """Buy the borrowed shares back for the lender, paid from the collateral (then the borrower's cash). Whatever
     shares cannot be found are settled with the lender in cash at the same price."""
     held = _collateral_account(conn)
@@ -485,8 +594,9 @@ def _buy_back_by_force(conn: Connection, s: dict, price: int, period: int, why: 
         ledger.post(conn, kind="buy_in", memo=f"{why}: {take:,} {s['ticker']} shares bought back at {money(price)}", period=period, legs=legs)
         pot -= from_pot
         if cost > from_pot:
-            ledger.pay_up_to(conn, payer=s["borrower"], receiver=seller, wanted=cost - from_pot, kind="buy_in",
-                             memo=f"{why}: the rest of the price", period=period)
+            got = ledger.pay_up_to(conn, payer=s["borrower"], receiver=seller, wanted=cost - from_pot, kind="buy_in",
+                                   memo=f"{why}: the rest of the price", period=period)
+            record_shortfall(conn, s["borrower"], seller, cost - from_pot - got, f"{why} of {s['ticker']}", period, now)
         cost_total += cost
         left -= take
     if left > 0:
@@ -498,8 +608,9 @@ def _buy_back_by_force(conn: Connection, s: dict, price: int, period: int, why: 
                             memo=f"{why}: {left:,} {s['ticker']} shares settled in cash", period=period)
             pot -= from_pot
         if owed > from_pot:
-            ledger.pay_up_to(conn, payer=s["borrower"], receiver=s["lender"], wanted=owed - from_pot, kind="buy_in",
-                             memo=f"{why}: the rest, settled in cash", period=period)
+            got = ledger.pay_up_to(conn, payer=s["borrower"], receiver=s["lender"], wanted=owed - from_pot, kind="buy_in",
+                                   memo=f"{why}: the rest, settled in cash", period=period)
+            record_shortfall(conn, s["borrower"], s["lender"], owed - from_pot - got, f"{why} of {s['ticker']}", period, now)
         cost_total += owed
     if pot > 0:
         ledger.transfer(conn, payer=held, receiver=s["borrower"], amount=pot, kind="short_release",
@@ -518,18 +629,18 @@ def at_bell(conn: Connection, now: datetime, ended: date) -> dict:
     period = _state(conn, now)["period"]
     quotes = prices(conn)
     done = defaultdict(int)
-    for loan in _rows(conn, "SELECT l.*, c.account_id AS bank_account, c.name AS bank FROM player_loans l JOIN companies c"
-                            " ON c.id = l.bank_company_id WHERE l.kind = 'margin' AND l.status <> 'repaid' ORDER BY l.id"):
+    for loan in _rows(conn, LOAN_ROWS + " WHERE l.kind = 'margin' AND l.status <> 'repaid' ORDER BY l.id"):
         with conn.transaction():
-            loan = {**loan, **_one(conn, "SELECT outstanding, call_since FROM player_loans WHERE id = %s FOR UPDATE", (loan["id"],))}
-            if loan["outstanding"] <= 0:
+            loan = {**loan, **_one(conn, "SELECT outstanding, arrears, call_since, status, interest_from FROM player_loans WHERE id = %s FOR UPDATE",
+                                   (loan["id"],))}
+            if loan["outstanding"] <= 0 or loan["status"] == "repaid":
                 continue
             held = holdings_value(conn, loan["borrower"], now)
             owed_all = margin_owed(conn, loan["borrower"])
             ratio = owed_all * BPS // max(held["total"], 1)
             unmet = loan["call_since"] is not None and loan["call_since"] < ended
             if ratio >= data.MARGIN_SELL_BPS or (unmet and ratio >= data.MARGIN_CALL_BPS):
-                _restore_margin(conn, loan, held, owed_all, period, now)
+                _restore_margin(conn, loan, held, owed_all, period, now, ended)
                 done["forced_sales"] += 1
             elif ratio >= data.MARGIN_CALL_BPS:
                 if loan["call_since"] is None:
@@ -568,44 +679,80 @@ def at_bell(conn: Connection, now: datetime, ended: date) -> dict:
     return dict(done)
 
 
-def _restore_margin(conn: Connection, loan: dict, held: dict, owed_all: int, period: int, now: datetime) -> None:
-    """Bring a margin loan back to half of what the borrower holds: their cash first, then their shares sold by force."""
+def _sell_bonds_by_force(conn: Connection, account, wanted: int, period: int, now: datetime, why: str) -> int:
+    """Sell bonds to the pension funds' desk at 5% below its price until the cash wanted is raised. Returns the cash raised."""
+    from simulation import bonds, exchange
+    raised = 0
+    dealer = ledger.account_id(conn, bonds.DEALER)
+    day, _ = exchange.session_of(now)
+    for line in sorted(bonds.holdings_of(conn, account, now), key=lambda b: -b["value"]):
+        if raised >= wanted:
+            break
+        bond = bonds.find(conn, line["code"], lock=True)
+        free = ledger.balance(conn, account, bond["asset"])
+        price = line["fair"] * (BPS - data.FORCED_SALE_DISCOUNT_BPS) // BPS
+        if free <= 0 or price <= 0:
+            continue
+        units = min(free, -(-(wanted - raised) // price), max(ledger.balance(conn, dealer), 0) // price)
+        if units <= 0:
+            continue
+        tx = ledger.post(conn, kind="forced_sale", memo=f"{why}: {units:,} of {bond['name']} sold at {money(price)}", period=period,
+                         legs=[ledger.Leg(account, -units, bond["asset"]), ledger.Leg(dealer, units, bond["asset"]),
+                               ledger.Leg(dealer, -units * price), ledger.Leg(account, units * price)])
+        conn.execute("INSERT INTO bond_trades (bond_id, account_id, side, units, price, counterparty, session_date, ledger_transaction, traded_at)"
+                     " VALUES (%s, %s, 'sell', %s, %s, %s, %s, %s, %s)", (bond["id"], account, units, price, dealer, day, tx, now))
+        raised += units * price
+    return raised
+
+
+def _raise_cash(conn: Connection, account, wanted: int, period: int, now: datetime, why: str) -> int:
+    """Raise cash by force: shares sold to the computer investors, then bonds to the desk, each at 5% below the price."""
+    raised = 0
+    quotes = prices(conn)
+    _, lines = _share_value(conn, account, quotes)
+    for line in sorted(lines, key=lambda x: -x["value"]):
+        if raised >= wanted:
+            break
+        price = line["price"] * (BPS - data.FORCED_SALE_DISCOUNT_BPS) // BPS
+        sell = min(line["free"], -(-(wanted - raised) // max(price, 1)))
+        if sell > 0:
+            raised += _sell_by_force(conn, account, line, sell, price, period, why)
+    if raised < wanted:
+        raised += _sell_bonds_by_force(conn, account, wanted - raised, period, now, why)
+    return raised
+
+
+def _restore_margin(conn: Connection, loan: dict, held: dict, owed_all: int, period: int, now: datetime, ended: date) -> None:
+    """Bring a margin loan back to half of what the borrower holds: their cash first, then their shares and bonds sold
+    by force. If nothing more can be sold and it is still too large, the loan is in default."""
     account = loan["borrower"]
-    target = held["total"] * data.MARGIN_LOAN_MOST_BPS // BPS
-    need = owed_all - target
-    paid = 0
-    if need > 0:
-        # Each naira repaid lowers the loan and what is held alike: repaying x leaves (owed - x) / (total - x).
-        # To reach half: x = 2 * owed - total.
-        need = max(2 * owed_all - held["total"], 0)
-        cash_part = min(need, max(ledger.balance(conn, account), 0))
-        if cash_part:
-            paid += ledger.pay_up_to(conn, payer=account, receiver=loan["bank_account"], wanted=min(cash_part, loan["outstanding"]),
-                                     kind="loan_repayment", memo=f"Margin call not met: cash taken to repay {loan['bank']}", period=period)
-        still = need - paid
-        for line in sorted(held["lines"], key=lambda x: -x["value"]):
-            if still <= 0 or loan["outstanding"] - paid <= 0:
-                break
-            price = line["price"] * (BPS - data.FORCED_SALE_DISCOUNT_BPS) // BPS
-            # Selling raises cash at the discount and removes the shares at the full price, so more must go.
-            sell = min(line["free"], -(-still // max(price, 1)))
-            if sell <= 0:
-                continue
-            raised = _sell_by_force(conn, account, line, sell, price, period, "Margin call not met")
-            got = ledger.pay_up_to(conn, payer=account, receiver=loan["bank_account"], wanted=min(raised, loan["outstanding"] - paid),
-                                   kind="loan_repayment", memo=f"Shares sold by force to repay {loan['bank']}", period=period)
-            paid += got
-            still -= got
+    # Each naira repaid lowers the loan and what is held alike: repaying x leaves (owed - x) / (total - x).
+    # To reach half: x = 2 * owed - total. (Selling at the discount loses a little more; the next bell sees to it.)
+    need = min(max(2 * owed_all - held["total"], 0), loan["outstanding"])
+    short = need - min(need, max(ledger.balance(conn, account), 0))
+    if short > 0:
+        _raise_cash(conn, account, short, period, now, "Margin call not met")
+    paid = ledger.pay_up_to(conn, payer=account, receiver=loan["bank_account"], wanted=need, kind="loan_repayment",
+                            memo=f"Margin call not met: repaid to {loan['bank']} from your cash and from shares and bonds sold by force",
+                            period=period)
     left = loan["outstanding"] - paid
-    conn.execute("UPDATE player_loans SET outstanding = %s, status = %s, call_since = NULL WHERE id = %s",
-                 (left, "repaid" if left == 0 else "open", loan["id"]))
-    _event(conn, account, "forced_sale", f"Your loan from {loan['bank']} was too large for what you hold: {money(paid)} was repaid "
-                                         f"from your cash and from shares sold at 5% below the close.", now, loan_id=loan["id"])
+    after = holdings_value(conn, account, now)
+    ratio = (owed_all - paid) * BPS // max(after["total"], 1)
+    status, call = ("repaid", None) if left == 0 and loan["arrears"] == 0 else (loan["status"], ended)
+    if left and ratio < data.MARGIN_CALL_BPS:
+        call = None
+    elif left and paid == 0:
+        status, call = "default", None                   # nothing left to sell: the loan is in default
+    conn.execute("UPDATE player_loans SET outstanding = %s, status = %s, call_since = %s WHERE id = %s", (left, status, call, loan["id"]))
+    _event(conn, account, "forced_sale" if status != "default" else "default",
+           f"Your loan from {loan['bank']} was too large for what you hold: {money(paid)} was repaid from your cash and from shares "
+           f"and bonds sold at 5% below the price." + (" Nothing more could be sold: the loan is in default." if status == "default"
+                                                         and loan["status"] != "default" else ""), now, loan_id=loan["id"])
 
 
 def _buy_in(conn: Connection, s: dict, close_price: int, period: int, now: datetime, why: str) -> None:
     price = close_price * (BPS + data.BUY_IN_PREMIUM_BPS) // BPS
-    result = _buy_back_by_force(conn, s, price, period, why)
+    result = _buy_back_by_force(conn, s, price, period, why, now)
     conn.execute("UPDATE short_positions SET status = 'bought_in', collateral = 0, closed_price = %s, closed_at = %s WHERE id = %s",
                  (price, now, s["id"]))
     _event(conn, s["borrower"], "buy_in", f"{why}: your borrowed {s['ticker']} shares were bought back at {money(price)} each "
@@ -622,54 +769,53 @@ def close(conn: Connection, period: int, now: datetime, rate: int) -> dict:
         return {}
     ensure(conn)
     label = clock.period_label(period)
+    end = _quarter_end(conn, period)
     out = defaultdict(int)
-    for loan in _rows(conn, "SELECT l.*, c.account_id AS bank_account, c.name AS bank FROM player_loans l JOIN companies c"
-                            " ON c.id = l.bank_company_id WHERE l.status <> 'repaid' ORDER BY l.id"):
-        new_rate = rate + (data.PERSONAL_LOAN_SPREAD_BPS if loan["kind"] == "personal" else data.MARGIN_LOAN_SPREAD_BPS)
-        interest = loan["outstanding"] * new_rate // BPS // 4
+    # (Every row is locked for the close, so nothing a player does at the same moment is overwritten.)
+    for loan in _rows(conn, LOAN_ROWS + " WHERE l.status <> 'repaid' ORDER BY l.id FOR UPDATE OF l"):
+        due, paid_interest = _charge_interest(conn, loan, end, period, label)
+        arrears_before = loan["arrears"]
+        _pay_arrears(conn, loan, period, label)
         principal = min(max(loan["principal"] // loan["term_quarters"], 1), loan["outstanding"]) if loan["term_quarters"] else 0
         if loan["status"] == "default":
-            principal = loan["outstanding"]                      # a loan in default: the bank takes all it can, each quarter
-        paid_interest = ledger.pay_up_to(conn, payer=loan["borrower"], receiver=loan["bank_account"], wanted=interest, kind="player_loan_interest",
-                                         memo=f"Interest to {loan['bank']}, {label}", period=period)
+            principal = loan["outstanding"]                      # a loan in default: all it can be paid, each quarter
+            short = principal + loan["arrears"] - max(ledger.balance(conn, loan["borrower"]), 0)
+            if short > 0:                                         # ...from shares and bonds sold by force if need be
+                _raise_cash(conn, loan["borrower"], short, period, now, f"A debt in default to {loan['bank']}")
+                _pay_arrears(conn, loan, period, label)
         paid_principal = 0
-        if paid_interest == interest and principal:
-            paid_principal = ledger.pay_up_to(conn, payer=loan["borrower"], receiver=loan["bank_account"], wanted=principal,
-                                              kind="loan_repayment", memo=f"Repayment to {loan['bank']}, {label}", period=period)
+        if principal and loan["arrears"] == 0:
+            paid_principal = ledger.pay_up_to(conn, payer=loan["borrower"], receiver=_payee(loan), wanted=principal,
+                                              kind="shortfall_repayment" if loan["kind"] == "shortfall" else "loan_repayment",
+                                              memo=f"Repayment to {loan['bank']}, {label}", period=period)
         out["interest"] += paid_interest
-        met = paid_interest == interest and paid_principal == principal
+        met = paid_interest == due and loan["arrears"] == 0 and paid_principal == principal
         missed = 0 if met else loan["missed"] + 1
+        if arrears_before == 0 and due == 0 and principal == 0:
+            missed = loan["missed"]                              # nothing was due: nothing was missed
         left = loan["outstanding"] - paid_principal
-        status = "repaid" if left == 0 else ("default" if loan["status"] == "default" or missed >= data.LOAN_MISSES_TO_DEFAULT else "open")
+        status = ("repaid" if left == 0 and loan["arrears"] == 0 else
+                  "default" if loan["status"] == "default" or missed >= data.LOAN_MISSES_TO_DEFAULT else "open")
         if status == "default" and loan["status"] != "default":
             _event(conn, loan["borrower"], "default", f"Two payments to {loan['bank']} missed: the loan is in default. No bank will lend "
-                                                      f"to you until it is repaid, and the bank takes what it can each quarter.", now, loan_id=loan["id"])
+                                                      f"to you until it is repaid, and your cash, then shares and bonds, go to it each quarter.",
+                   now, loan_id=loan["id"])
             out["defaults"] += 1
-        conn.execute("UPDATE player_loans SET outstanding = %s, rate_bps = %s, missed = %s, status = %s WHERE id = %s",
-                     (left, new_rate, missed, status, loan["id"]))
+        new_rate = (0 if loan["kind"] == "shortfall" else
+                    rate + (data.PERSONAL_LOAN_SPREAD_BPS if loan["kind"] == "personal" else data.MARGIN_LOAN_SPREAD_BPS))
+        conn.execute("UPDATE player_loans SET outstanding = outstanding - %s, rate_bps = %s, missed = %s, status = %s WHERE id = %s",
+                     (paid_principal, new_rate, missed, status, loan["id"]))
     # Short sellers pay the lender's fee; the pension funds recall shares when they have lent too many.
     quotes = prices(conn)
-    held = _collateral_account(conn)
     for s in _rows(conn, "SELECT s.*, c.share_asset, c.ticker FROM short_positions s JOIN companies c ON c.id = s.company_id"
-                         " WHERE s.status = 'open' ORDER BY s.id"):
+                         " WHERE s.status = 'open' ORDER BY s.id FOR UPDATE OF s"):
         q = quotes.get(s["company_id"])
         if q is None:
             continue
+        out["fees"] += _charge_fee(conn, s, q["price"], end, period, label, now)
         if s["recalled_period"] is not None and s["recalled_period"] < period:
             _buy_in(conn, s, q["price"], period, now, "Recalled shares not given back")
             out["recall_buy_ins"] += 1
-            continue
-        fee = s["shares"] * q["price"] * data.SHORT_FEE_BPS // BPS // 4
-        got = ledger.pay_up_to(conn, payer=s["borrower"], receiver=s["lender"], wanted=fee, kind="lending_fee",
-                               memo=f"The lending fee on borrowed {s['ticker']} shares, {label}", period=period)
-        if got < fee and s["collateral"] > 0:
-            more = min(fee - got, s["collateral"])
-            ledger.transfer(conn, payer=held, receiver=s["lender"], amount=more, kind="lending_fee",
-                            memo=f"The lending fee, from the collateral, {label}", period=period)
-            conn.execute("UPDATE short_positions SET collateral = collateral - %s WHERE id = %s", (more, s["id"]))
-            got += more
-        conn.execute("UPDATE short_positions SET fees_paid = fees_paid + %s WHERE id = %s", (got, s["id"]))
-        out["fees"] += got
     for r in _rows(conn, "SELECT DISTINCT company_id FROM short_positions WHERE status = 'open'"):
         _recall_if_needed(conn, r["company_id"], period, now)
     return dict(out)
@@ -711,10 +857,9 @@ def view(conn: Connection, account, now: datetime, player_id=None) -> dict:
     quotes = prices(conn)
     held = holdings_value(conn, account, now)
     loans = []
-    for loan in _rows(conn, "SELECT l.*, c.name AS bank FROM player_loans l JOIN companies c ON c.id = l.bank_company_id"
-                            " WHERE l.borrower = %s AND l.status <> 'repaid' ORDER BY l.id", (account,)):
+    for loan in _rows(conn, LOAN_ROWS + " WHERE l.borrower = %s AND l.status <> 'repaid' ORDER BY l.id", (account,)):
         loans.append({"id": loan["id"], "kind": loan["kind"], "bank": loan["bank"], "principal": loan["principal"],
-                      "outstanding": loan["outstanding"], "rate_bps": loan["rate_bps"], "missed": loan["missed"], "status": loan["status"],
+                      "outstanding": loan["outstanding"] + loan["arrears"], "rate_bps": loan["rate_bps"], "missed": loan["missed"], "status": loan["status"],
                       "margin_call": loan["call_since"] is not None})
     owed = margin_owed(conn, account)
     shorts = []

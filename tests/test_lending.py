@@ -222,7 +222,9 @@ def test_a_short_borrows_from_the_pension_funds_holds_150_percent_and_closes_wit
         ledger.Leg(ledger.account_id(db, ledger.INVESTORS_PUBLIC), -shares, asset), ledger.Leg(account, shares, asset),
         ledger.Leg(account, -shares * low), ledger.Leg(ledger.account_id(db, ledger.INVESTORS_PUBLIC), shares * low)])
     lending.close_short(db, account, s["short_id"], LATER)
-    assert ledger.balance(db, account) == before + shares * (price - low)
+    fee = lending.accrued(shares * price, data.SHORT_FEE_BPS, NOW9, LATER)          # the lending fee, for the hour it was held
+    assert fee > 0
+    assert ledger.balance(db, account) == before + shares * (price - low) - fee
     assert ledger.balance(db, ledger.account_id(db, lending.COLLATERAL)) == 0
     sound(db)
 
@@ -282,13 +284,25 @@ def test_the_pension_funds_lend_at_most_three_tenths_and_recall_when_they_hold_t
 # Empires
 # ---------------------------------------------------------------------------
 
+def signed(db, team, borrow_naira, short_naira, now, derivatives_naira=None):
+    """The Risk Manager raises the limits; raising them needs the head, who approves."""
+    from simulation import firm
+    asked = lending_empire.set_limits(db, team["risk_manager"], borrow_naira, short_naira, now, derivatives_naira=derivatives_naira)
+    if asked.get("waiting"):
+        firm.decide(db, team["head"], asked["approval_id"], True, "", now)
+    from simulation import empires
+    return lending_empire.limits(db, empires._empire(db, empires.seat_of(db, team["head"])["empire_id"]))
+
+
 def test_an_empire_borrows_and_shorts_inside_the_risk_managers_limits_and_above_them_the_head_decides(db):
     from simulation import firm
     empire, team = firm_of(db)
     give_shares(db, empire["account_id"], "IDC", 50_000_000)
     with pytest.raises(Exception, match="Risk Manager"):
         lending_empire.set_limits(db, team["accountant"], 1_000_000, 0, NOW9)
-    lending_empire.set_limits(db, team["risk_manager"], 1_000_000, 0, NOW9)
+    asked = lending_empire.set_limits(db, team["risk_manager"], 1_000_000, 0, NOW9)
+    assert asked["waiting"] and asked["borrow_limit_naira"] == 0            # raising a limit needs the head
+    signed(db, team, 1_000_000, 0, NOW9)
     member_of_am = None
     from tests.test_firm import member
     member_of_am = member(db, empire, team["head"], "asset_manager", "trader")

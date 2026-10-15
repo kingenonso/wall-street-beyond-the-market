@@ -19,12 +19,12 @@ function useAct(reload: () => void, onLoggedOut: () => void, onChanged?: () => v
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  async function run(path: string, body: unknown, done: string) {
+  async function run(path: string, body: unknown, done: string, waiting = "Above the Risk Manager's limit: it has gone to the head to decide.") {
     setBusy(true); setError(null); setNotice(null);
     try {
       const answer = await api.post(path, body);
       const result = answer.result as { waiting?: boolean } | null;
-      setNotice(result && result.waiting ? "Above the Risk Manager's limit: it has gone to the head to decide." : done);
+      setNotice(result && result.waiting ? waiting : done);
       reload();
       onChanged?.();
     } catch (problem) {
@@ -91,7 +91,7 @@ function LoansTab({ b, act, forEmpire = false, book }: { b: Borrowing; act: Act;
         <Panel title="Loans">
           {book.loans.map((l) => (
             <div key={l.id} className="report">
-              <div className="row small"><span>{l.kind === "personal" ? "Personal loan" : "Against shares and bonds"} · {l.bank} · {formatPercent(l.rate_bps)} a year</span>
+              <div className="row small"><span>{l.kind === "personal" ? "Personal loan" : l.kind === "shortfall" ? "Owed for a loss beyond the cash held for it" : "Against shares and bonds"} · {l.bank} · {formatPercent(l.rate_bps)} a year</span>
                 <span className={`tag tag-${l.status === "default" || l.margin_call ? "missed" : "open"}`}>{l.status === "default" ? "■ default" : l.margin_call ? "▲ margin call" : l.missed ? `${l.missed} missed` : "open"}</span></div>
               <div className="row small"><span>Still owed</span><span className="mono">{formatNaira(l.outstanding)}</span></div>
               <form className="inline-form" onSubmit={(e) => { e.preventDefault(); const k = asKobo(repay[l.id] ?? ""); if (k) act.run(`/borrowing/loans/${l.id}/repay`, { amount_kobo: k, for_empire: forEmpire }, "Repaid."); }}>
@@ -172,7 +172,7 @@ function EmpireTab({ b, act }: { b: Borrowing; act: Act }) {
         <div className="row small"><span>Short sales, worth at most</span><span className="mono">₦{Number(e.limits.short_limit_naira ?? 0).toLocaleString("en-NG")}</span></div>
         <div className="row small"><span>Options and futures, committed at most</span><span className="mono">₦{Number(e.limits.derivatives_limit_naira ?? 0).toLocaleString("en-NG")}</span></div>
         {e.sets_limits && (
-          <form className="inline-form" onSubmit={(ev) => { ev.preventDefault(); act.run("/empire/limits", { borrow_naira: Number(borrowLimit) || 0, short_naira: Number(shortLimit) || 0, derivatives_naira: Number(derivLimit) || 0 }, "The limits are signed."); }}>
+          <form className="inline-form" onSubmit={(ev) => { ev.preventDefault(); act.run("/empire/limits", { borrow_naira: Number(borrowLimit) || 0, short_naira: Number(shortLimit) || 0, derivatives_naira: Number(derivLimit) || 0 }, "The limits are signed.", "Raising a limit needs the head: it has gone to them to approve. (Lowering one takes effect at once.)"); }}>
             <label>Borrowing (₦)<input className="small-input" type="number" min={0} value={borrowLimit} onChange={(ev) => setBorrowLimit(ev.target.value)} /></label>
             <label>Short sales (₦)<input className="small-input" type="number" min={0} value={shortLimit} onChange={(ev) => setShortLimit(ev.target.value)} /></label>
             <label>Options and futures (₦)<input className="small-input" type="number" min={0} value={derivLimit} onChange={(ev) => setDerivLimit(ev.target.value)} /></label>

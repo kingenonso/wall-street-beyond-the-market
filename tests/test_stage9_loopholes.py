@@ -27,7 +27,8 @@ from tests.conftest import ADULT, after_quarters, join
 from tests.test_builds import pro
 from tests.test_careers import NOW9, sound
 from tests.test_firm import firm_of, member
-from tests.test_lending import bank_id, price_of
+from tests.test_derivatives import seed_fund
+from tests.test_lending import bank_id, price_of, signed
 from tests.test_objectives import give_cash, give_shares
 
 pytestmark = pytest.mark.world("eight")
@@ -133,7 +134,7 @@ def test_7_splitting_a_trade_does_not_slip_past_the_risk_managers_limit(db):
     am = member(db, empire, team["head"], "asset_manager", "splitter")
     x = series(db, "future", "BSX50")
     one = derivatives.value_of(db, x, derivatives.spot(db, x, NOW9)) * data.FUTURE_MARGIN_BPS // BPS
-    lending_empire.set_limits(db, team["risk_manager"], 0, 0, NOW9, derivatives_naira=(one * 3 // 2) // 100)
+    signed(db, team, 0, 0, NOW9, derivatives_naira=(one * 3 // 2) // 100)
     first = lending_empire.trade(db, am, x["id"], "long", 1, NOW9)
     assert "position_id" in first
     second = lending_empire.trade(db, am, x["id"], "long", 1, NOW9)
@@ -143,14 +144,12 @@ def test_7_splitting_a_trade_does_not_slip_past_the_risk_managers_limit(db):
 
 def test_8_joining_the_crash_fund_once_a_fall_is_under_way_buys_nothing_for_it(db):
     empire, team = firm_of(db, n_cash=5_000_000_000)
-    fund = ledger.account_id(db, crashfund.FUND) if _one(db, "SELECT 1 FROM ledger_accounts WHERE code = %s", (crashfund.FUND,)) else None
     quarters.close_due_quarters(db, after_quarters(9))            # the index is noted at the close
     # The market falls hard during quarter 10; the head joins late.
     db.execute("UPDATE market_instruments SET last_price = coalesce(last_price, reference_price) * 75 / 100,"
                " reference_price = coalesce(last_price, reference_price) * 75 / 100")
     crashfund.ask_cover(db, team["head"], naira(1_000_000), after_quarters(9) + timedelta(hours=12))
-    fund = ledger.account_id(db, crashfund.FUND)
-    ledger.transfer(db, payer=ledger.account_id(db, ledger.TREASURY), receiver=fund, amount=naira(50_000_000), kind="test_cash", memo="Test: others' premiums")
+    seed_fund(db, naira(50_000_000))
     quarters.close_due_quarters(db, after_quarters(10))
     q = _one(db, "SELECT * FROM crash_fund_quarters WHERE period = 10")
     assert q["triggered"] and q["paid_out"] == 0

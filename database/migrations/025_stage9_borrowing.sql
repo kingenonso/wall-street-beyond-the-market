@@ -19,21 +19,27 @@ CREATE TABLE monte_carlo_runs (
 );
 CREATE INDEX monte_carlo_runs_by_player ON monte_carlo_runs (player_id, session_date);
 
--- Loans to players and empires: a personal loan (against salary) or a loan against shares and bonds.
+-- Loans to players and empires: a personal loan (against salary), a loan against shares and bonds, or a shortfall
+-- (a loss beyond the margin or collateral held, owed to whoever bore it: in default from the start).
 CREATE TABLE player_loans (
     id              bigserial PRIMARY KEY,
-    kind            text NOT NULL CHECK (kind IN ('personal', 'margin')),
+    kind            text NOT NULL CHECK (kind IN ('personal', 'margin', 'shortfall')),
     borrower        uuid NOT NULL REFERENCES ledger_accounts (id),
-    bank_company_id uuid NOT NULL REFERENCES companies (id),
+    bank_company_id uuid REFERENCES companies (id),  -- the bank that lent (none for a shortfall)
+    creditor        uuid REFERENCES ledger_accounts (id),   -- a shortfall: who is owed
     principal       bigint NOT NULL CHECK (principal > 0),
     outstanding     bigint NOT NULL CHECK (outstanding >= 0),
     rate_bps        integer NOT NULL,
     taken_period    integer NOT NULL,
     term_quarters   integer,                         -- a personal loan is repaid evenly; a margin loan whenever the borrower likes
     missed          integer NOT NULL DEFAULT 0,
+    arrears         bigint NOT NULL DEFAULT 0 CHECK (arrears >= 0),   -- interest missed (and the late charge on it), owed first
+    interest_from   timestamptz,                     -- interest is due from here (it builds up by the time the money is held)
     status          text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'repaid', 'default')),
     call_since      date,                            -- a margin call stands since this Closing Bell
-    at              timestamptz NOT NULL
+    at              timestamptz NOT NULL,
+    CHECK ((kind = 'shortfall') = (bank_company_id IS NULL)),
+    CHECK ((kind = 'shortfall') = (creditor IS NOT NULL))
 );
 CREATE INDEX player_loans_open ON player_loans (borrower) WHERE status <> 'repaid';
 CREATE UNIQUE INDEX player_loans_one_margin ON player_loans (borrower, bank_company_id) WHERE kind = 'margin' AND status <> 'repaid';
@@ -52,6 +58,7 @@ CREATE TABLE short_positions (
     call_since    date,                              -- a margin call stands since this Closing Bell
     recalled_period integer,                         -- the lender wants its shares back by the next close
     fees_paid     bigint NOT NULL DEFAULT 0,
+    fee_from      timestamptz,                       -- the lending fee is due from here (it builds up by the time the shares are held)
     closed_price  bigint,
     at            timestamptz NOT NULL,
     closed_at     timestamptz

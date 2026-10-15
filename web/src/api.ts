@@ -858,7 +858,7 @@ export type PropertySummary = { cities: { city: string; history: (DistrictPoint 
 
 
 /** Stage 9: borrowing, short selling, risk figures, "What could happen?", options and futures. Amounts are kobo, as text. */
-export type Loan = { id: number; kind: "personal" | "margin"; bank: string; principal: Kobo; outstanding: Kobo; rate_bps: number; missed: number;
+export type Loan = { id: number; kind: "personal" | "margin" | "shortfall"; bank: string; principal: Kobo; outstanding: Kobo; rate_bps: number; missed: number;
   status: string; margin_call: boolean };
 export type ShortPosition = { id: number; ticker: string; name: string; shares: number; opened_price: Kobo; price: Kobo; value: Kobo;
   collateral: Kobo; cover_bps: number; gain: Kobo; fees_paid: Kobo; margin_call: boolean; recalled: boolean };

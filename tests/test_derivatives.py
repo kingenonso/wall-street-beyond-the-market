@@ -14,7 +14,7 @@ from tests.conftest import after_quarters
 from tests.test_builds import pro
 from tests.test_careers import NOW9, sound
 from tests.test_firm import firm_of
-from tests.test_lending import set_price
+from tests.test_lending import set_price, signed
 
 pytestmark = pytest.mark.world("eight")
 OPEN = NOW9                       # the ninth quarter's first trading day, with the market open
@@ -158,13 +158,21 @@ def test_the_risk_manager_buys_protection_inside_the_limit_and_the_hedge_is_scor
     # No limit signed: above it, the head decides.
     waiting = lending_empire.trade(db, team["risk_manager"], put["id"], "long", 2, OPEN)
     assert waiting["waiting"]
-    lending_empire.set_limits(db, team["risk_manager"], 0, 0, OPEN, derivatives_naira=50_000_000)
+    signed(db, team, 0, 0, OPEN, derivatives_naira=50_000_000)
     done = lending_empire.trade(db, team["risk_manager"], put["id"], "long", 2, OPEN)
     p = _one(db, "SELECT * FROM derivative_positions WHERE id = %s", (done["position_id"],))
     assert p["purpose"] and p["account"] == empire["account_id"]
     quarters.close_due_quarters(db, after_quarters(9))
     assert _one(db, "SELECT count(*) AS n FROM empire_events WHERE empire_id = %s AND words LIKE 'The hedge%%'", (empire["id"],))["n"] == 1
     sound(db)
+
+
+def seed_fund(db, amount):
+    """Premiums other empires paid in an earlier quarter, so the fund can pay (recorded, as the fund's check requires)."""
+    fund = crashfund._fund(db)
+    ledger.transfer(db, payer=ledger.account_id(db, ledger.TREASURY), receiver=fund, amount=amount, kind="test_cash", memo="Test: other premiums")
+    db.execute("INSERT INTO crash_fund_quarters (period, index_start, index_end, triggered, premiums, paid_out) VALUES (-1, 1, 1, false, %s, 0)"
+               " ON CONFLICT (period) DO UPDATE SET premiums = crash_fund_quarters.premiums + EXCLUDED.premiums", (amount,))
 
 
 def test_the_crash_fund_pays_cover_when_the_market_falls_fifteen_percent_in_a_quarter(db):
@@ -180,7 +188,7 @@ def test_the_crash_fund_pays_cover_when_the_market_falls_fifteen_percent_in_a_qu
     fund = ledger.account_id(db, crashfund.FUND)
     assert ledger.balance(db, fund) == naira(10_000_000) * data.CRASH_PREMIUM_BPS // BPS
     # Another empire's premiums are in the pot too (so the fund can pay); the market then falls 20% over the quarter.
-    ledger.transfer(db, payer=ledger.account_id(db, ledger.TREASURY), receiver=fund, amount=naira(20_000_000), kind="test_cash", memo="Test: other premiums")
+    seed_fund(db, naira(20_000_000))
     before = ledger.balance(db, empire["account_id"])
     db.execute("UPDATE market_instruments SET last_price = coalesce(last_price, reference_price) * 80 / 100,"
                " reference_price = coalesce(last_price, reference_price) * 80 / 100")

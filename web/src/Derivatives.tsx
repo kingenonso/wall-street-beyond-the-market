@@ -77,7 +77,7 @@ function Positions({ positions, act, forEmpire }: { positions: DerivativePositio
     <div className="scroll" tabIndex={0}>
       <table className="dense">
         <thead><tr><th scope="col">Contract</th><th scope="col">Side</th><th scope="col" className="num">Contracts</th><th scope="col" className="num">Opened at</th>
-          <th scope="col" className="num">Now</th><th scope="col" className="num">Gain or loss</th><th scope="col" className="num">Margin held</th><th scope="col" /></tr></thead>
+          <th scope="col" className="num">Now</th><th scope="col" className="num">Gain or loss</th><th scope="col" className="num">Margin held</th><th scope="col"><span className="sr-only">Close</span></th></tr></thead>
         <tbody>
           {positions.map((p) => {
             const up = BigInt(p.gain) >= 0n;
@@ -225,7 +225,7 @@ export function RiskWork({ onLoggedOut }: { onLoggedOut: () => void }) {
           <tbody>
             {rows.map((r) => (
               <tr key={r.ticker}>
-                <th scope="row"><a href={`#/companies/${r.ticker}`}>{r.ticker}</a> <span className="muted small">{r.name}</span></th>
+                <th scope="row"><a href={`#/companies/${r.ticker}`} style={{ textDecoration: "underline" }}>{r.ticker}</a> <span className="muted small">{r.name}</span></th>
                 <td className="num mono">{r.volatility_bps === null ? "—" : formatPercent(r.volatility_bps, 0)}{!r.enough && <span className="muted small"> usual</span>}</td>
                 <td className="num mono">{r.beta === null ? "—" : r.beta.toFixed(2)}</td>
                 <td className="num mono">{formatPercent(r.short_interest_bps, 2)}</td>

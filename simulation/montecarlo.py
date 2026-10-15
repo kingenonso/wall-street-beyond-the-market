@@ -188,7 +188,7 @@ def run(conn: Connection, player_id, what: str, now: datetime, *, horizon: str =
         title = "What you hold"
     elif what == "empire":
         seat = empires.seat_of(conn, player_id)
-        if seat is None or seat.get("empire_status") != "active":
+        if seat is None or seat.get("empire_status") != "active" or seat.get("empire_kind") == "pension":
             raise MonteCarloError("You hold no seat in an open empire.")
         holding = positions(conn, seat["account_id"], now)
         title = f"{seat['empire_name']}: what it holds"

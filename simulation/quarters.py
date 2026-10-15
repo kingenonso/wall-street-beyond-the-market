@@ -49,7 +49,8 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
             # is out, the quarter is not closed and the fault is reported loudly.
             from simulation import firm_deals
             problems = (ledger.audit(conn) + exchange.check_books(conn) + corporate.check_books(conn) + firm_deals.check_books(conn)
-                        + lending.check_books(conn) + derivatives.check_books(conn))
+                        + lending.check_books(conn) + derivatives.check_books(conn)
+                        + crashfund.check_books(conn))
             if problems:
                 raise ledger.LedgerError("The ledger failed its end-of-quarter check: " + " ".join(problems))
             conn.execute("UPDATE world_state SET last_closed_period = %s", (period,))
@@ -194,14 +195,15 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     property_market.close(conn, world, period, now, fortune_seed, measured)
     # Loans to players and empires, and short sales: interest, repayments, the lending fee, recalls (Stage 9).
     lending.close(conn, period, now, measured["next_policy_rate_bps"])
-    # Options and futures that run to this close are settled in cash, and the next ones listed; the crash fund (Stage 9).
-    derivatives.close(conn, period, now)
-    crashfund.close(conn, period, now, derivatives.index_now(conn, now))
     # The quarter's common forces go on the record (never sent to players).
     stochastic.record(conn, period, fortune_seed)
     # The naira's exchange rate for next quarter, and what foreign investors do.
     abroad_now = abroad.close(conn, period, fortune_seed, oil_next=oil_next, inflation_bps=measured["inflation_bps"],
                               next_rate_bps=measured["next_policy_rate_bps"], trade=trade, imports=imported)
+    # Options and futures that run to this close are settled in cash, and the next ones listed; the crash fund (Stage 9).
+    # (After the oil price and the naira are set for the quarter, so a future settles at the new level, not one known all quarter.)
+    derivatives.close(conn, period, now)
+    crashfund.close(conn, period, now, derivatives.index_now(conn, now))
 
     for company, result in results:
         companies.file_report(conn, company, result)

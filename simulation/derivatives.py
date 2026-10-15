@@ -89,8 +89,7 @@ def spot(conn: Connection, series: dict, now: datetime) -> int:
     """Today's level of what a contract is on, in its own unit."""
     u = series["underlying"]
     if series.get("company_id"):
-        row = _one(conn, "SELECT coalesce(last_price, reference_price) AS p FROM market_instruments WHERE company_id = %s", (series["company_id"],))
-        return row["p"] if row else 0
+        return share_level(conn, series["company_id"], now)
     if u == INDEX:
         return index_now(conn, now)
     if u == "OIL":
@@ -99,6 +98,20 @@ def spot(conn: Connection, series: dict, now: datetime) -> int:
         return _abroad(conn)["fx"]
     row = _one(conn, f"SELECT {COMMODITY_COLUMN[u]} AS v FROM economy_results ORDER BY period DESC LIMIT 1")
     return row["v"] if row else BPS
+
+
+def share_level(conn: Connection, company_id, now: datetime) -> int:
+    """A share's level for its options: the volume-weighted price of the latest session's trades (so one small trade
+    near the bell cannot move it), or the reference price when nothing traded."""
+    row = _one(conn, """
+        SELECT (SELECT sum(t.price * t.quantity) / nullif(sum(t.quantity), 0) FROM market_trades t
+                WHERE t.company_id = m.company_id AND t.session_date = (SELECT max(session_date) FROM market_trades x
+                                                                        WHERE x.company_id = m.company_id AND x.traded_at <= %s))::bigint AS vwap,
+               m.reference_price, m.last_price
+        FROM market_instruments m WHERE m.company_id = %s""", (now, company_id))
+    if row is None:
+        return 0
+    return row["vwap"] or row["reference_price"] or row["last_price"] or 0
 
 
 def value_of(conn: Connection, series: dict, level: int) -> int:
@@ -135,9 +148,13 @@ def years_left(conn: Connection, series: dict, now: datetime) -> float:
     return max(left / (data.GAME_YEAR_REAL_DAYS * 86_400), 0.0)
 
 
+_RISK_MEMO: dict = {}
+
+
 def volatility(conn: Connection, series: dict) -> float:
     if series.get("company_id"):
-        found = risk.share_risk(conn).get(series["company_id"])
+        table = _RISK_MEMO.get(id(conn))
+        found = (table if table is not None else risk.share_risk(conn)).get(series["company_id"])
         vol = found["volatility_bps"] if found else data.OPTION_LEAST_VOLATILITY_BPS
         return max(vol, data.OPTION_LEAST_VOLATILITY_BPS) / BPS
     moves = list(risk.returns(risk.index_closes(conn)).values())
@@ -278,6 +295,8 @@ def open_position(conn: Connection, account, series_id: int, side: str, contract
             raise DerivativesError("Buy or sell.")
         if not isinstance(contracts, int) or isinstance(contracts, bool) or contracts <= 0:
             raise DerivativesError("Name how many contracts.")
+        if _one(conn, "SELECT 1 FROM player_loans WHERE borrower = %s AND status = 'default'", (account,)):
+            raise DerivativesError("A debt of yours is in default. The desk will not open anything new for you until it is paid.")
         held = _one(conn, "SELECT coalesce(sum(contracts), 0)::bigint AS n FROM derivative_positions WHERE account = %s AND series_id = %s"
                           " AND status = 'open'", (account, series_id))["n"]
         if held + contracts > data.MOST_CONTRACTS_A_SERIES:
@@ -343,7 +362,7 @@ def _finish(conn: Connection, p: dict, exit_price: int, period: int, status: str
     margin = p["margin"]
     if p["kind"] == "future":
         gain = (exit_price - p["mark"]) * n * (1 if p["side"] == "long" else -1)
-        margin = _settle_variation(conn, p, gain, period, f"{label}: the last settlement")
+        margin = _settle_variation(conn, p, gain, period, f"{label}: the last settlement", now)
         if margin:
             ledger.transfer(conn, payer=margin_acct, receiver=p["account"], amount=margin, kind="derivative_margin_release",
                             memo=f"Margin handed back: {label}", period=period)
@@ -360,8 +379,9 @@ def _finish(conn: Connection, p: dict, exit_price: int, period: int, status: str
             ledger.transfer(conn, payer=margin_acct, receiver=desk, amount=from_margin, kind="option_premium" if status == "closed" else "option_settlement",
                             memo=f"{label}: {'bought back' if status == 'closed' else 'settled'}", period=period)
         if owed > from_margin:
-            ledger.pay_up_to(conn, payer=p["account"], receiver=desk, wanted=owed - from_margin, kind="option_settlement",
-                             memo=f"{label}: the rest", period=period)
+            got = ledger.pay_up_to(conn, payer=p["account"], receiver=desk, wanted=owed - from_margin, kind="option_settlement",
+                                   memo=f"{label}: the rest", period=period)
+            _shortfall(conn, p, owed - from_margin - got, label, period, now)
         left = margin - from_margin
         if left:
             ledger.transfer(conn, payer=margin_acct, receiver=p["account"], amount=left, kind="derivative_margin_release",
@@ -374,7 +394,13 @@ def _finish(conn: Connection, p: dict, exit_price: int, period: int, status: str
     return result
 
 
-def _settle_variation(conn: Connection, p: dict, gain: int, period: int, why: str) -> int:
+def _shortfall(conn: Connection, p: dict, amount: int, label: str, period: int, now: datetime) -> None:
+    if amount > 0:
+        from simulation import lending
+        lending.record_shortfall(conn, p["account"], ledger.account_id(conn, DESK), amount, f"Your {label}", period, now)
+
+
+def _settle_variation(conn: Connection, p: dict, gain: int, period: int, why: str, now: datetime) -> int:
     """Move a future's gain into its margin (from the desk) or its loss out (to the desk). Returns the margin left."""
     desk = ledger.account_id(conn, DESK)
     margin_acct = _margin_account(conn)
@@ -389,8 +415,9 @@ def _settle_variation(conn: Connection, p: dict, gain: int, period: int, why: st
             ledger.transfer(conn, payer=margin_acct, receiver=desk, amount=from_margin, kind="variation_margin", memo=why, period=period)
         margin -= from_margin
         if loss > from_margin:
-            ledger.pay_up_to(conn, payer=p["account"], receiver=desk, wanted=loss - from_margin, kind="variation_margin",
-                             memo=f"{why}: beyond the margin", period=period)
+            got = ledger.pay_up_to(conn, payer=p["account"], receiver=desk, wanted=loss - from_margin, kind="variation_margin",
+                                   memo=f"{why}: beyond the margin", period=period)
+            _shortfall(conn, p, loss - from_margin - got, describe(p), period, now)
     conn.execute("UPDATE derivative_positions SET margin = %s WHERE id = %s", (margin, p["id"]))
     p["margin"] = margin
     return margin
@@ -432,7 +459,7 @@ def at_bell(conn: Connection, now: datetime, ended) -> dict:
             if p["kind"] == "future":
                 price = fair(conn, p, now, level)
                 gain = (price - p["mark"]) * p["contracts"] * (1 if p["side"] == "long" else -1)
-                _settle_variation(conn, p, gain, period, f"{describe(p)}: tonight's settlement")
+                _settle_variation(conn, p, gain, period, f"{describe(p)}: tonight's settlement", now)
                 conn.execute("UPDATE derivative_positions SET mark = %s WHERE id = %s", (price, p["id"]))
                 p["mark"] = price
                 done["settled"] += 1
@@ -469,8 +496,8 @@ def close(conn: Connection, period: int, now: datetime) -> dict:
     for s in _rows(conn, "SELECT * FROM derivative_series WHERE status = 'open' AND expiry_period <= %s ORDER BY id", (period,)):
         level = spot(conn, s, now)
         for p in _rows(conn, "SELECT p.*, s.kind, s.underlying, s.company_id, s.strike, s.expiry_period FROM derivative_positions p"
-                             " JOIN derivative_series s ON s.id = p.series_id WHERE p.series_id = %s AND p.status = 'open' ORDER BY p.id",
-                       (s["id"],)):
+                             " JOIN derivative_series s ON s.id = p.series_id WHERE p.series_id = %s AND p.status = 'open' ORDER BY p.id"
+                             " FOR UPDATE OF p", (s["id"],)):
             if s["kind"] == "future":
                 final = value_of(conn, s, level)
             else:
@@ -479,6 +506,7 @@ def close(conn: Connection, period: int, now: datetime) -> dict:
             _finish(conn, p, final, period, "expired", now)
             settled += 1
         conn.execute("UPDATE derivative_series SET status = 'settled', settled_spot = %s WHERE id = %s", (level, s["id"]))
+    conn.execute("SELECT pg_advisory_xact_lock(hashtext('derivatives:listing'))")
     added = list_series(conn, period, now)
     return {"settled": settled, "listed": added}
 
@@ -524,6 +552,14 @@ def describe(s: dict) -> str:
 def board(conn: Connection, now: datetime, underlying: str | None = None) -> dict:
     """The option chains and futures on offer, with the desk's two prices. Public."""
     ensure(conn, now)
+    _RISK_MEMO[id(conn)] = risk.share_risk(conn)          # worked out once for the whole board
+    try:
+        return _board(conn, now, underlying)
+    finally:
+        _RISK_MEMO.pop(id(conn), None)
+
+
+def _board(conn: Connection, now: datetime, underlying: str | None) -> dict:
     state = _state(conn, now)
     rows = _rows(conn, "SELECT * FROM derivative_series WHERE status = 'open' AND expiry_period >= %s"
                        + (" AND underlying = %s" if underlying else "") + " ORDER BY expiry_period, underlying, kind, strike",
@@ -583,8 +619,7 @@ def _players_derivatives(conn: Connection) -> dict:
     out = {}
     if _one(conn, "SELECT to_regclass('derivative_positions') IS NOT NULL AS ok")["ok"] is not True:
         return out
-    from datetime import timezone
-    now = datetime.now(timezone.utc)
+    now = _one(conn, "SELECT now() AS n")["n"]               # the exchange's clock (the database's), as the server uses
     for r in _rows(conn, "SELECT DISTINCT p.account FROM derivative_positions p JOIN ledger_accounts a ON a.id = p.account"
                          " WHERE p.status = 'open' AND a.kind = 'player'"):
         out[r["account"]] = (0, held_value(conn, r["account"], now))

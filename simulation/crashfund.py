@@ -94,7 +94,7 @@ def close(conn: Connection, period: int, now: datetime, index_end: int) -> dict:
     fall = (start - index_end) * BPS // start if start else 0
     triggered = before is not None and fall >= data.CRASH_TRIGGER_BPS
     members = _rows(conn, "SELECT m.*, e.account_id, e.name FROM crash_fund_members m JOIN empires e ON e.id = m.empire_id"
-                          " WHERE e.status = 'active' AND (m.active OR m.covered_period = %s) ORDER BY m.empire_id", (period,))
+                          " WHERE e.status = 'active' AND (m.active OR m.covered_period = %s) ORDER BY m.empire_id FOR UPDATE OF m", (period,))
     # Only cover paid for before the quarter began pays out: joining once a fall is under way buys nothing for it.
     covered = [m for m in members if m["covered_period"] == period]
     paid_out = 0
@@ -123,6 +123,18 @@ def close(conn: Connection, period: int, now: datetime, index_end: int) -> dict:
     conn.execute("INSERT INTO crash_fund_quarters (period, index_start, index_end, triggered, premiums, paid_out) VALUES (%s, %s, %s, %s, %s, %s)"
                  " ON CONFLICT DO NOTHING", (period, start, index_end, triggered, premiums, paid_out))
     return {"triggered": triggered, "paid_out": paid_out, "premiums": premiums}
+
+
+def check_books(conn: Connection) -> list[str]:
+    """The fund holds exactly what was paid in, less what it paid out."""
+    if _one(conn, "SELECT to_regclass('crash_fund_quarters') IS NOT NULL AS ok")["ok"] is not True:
+        return []
+    row = _one(conn, "SELECT id FROM ledger_accounts WHERE code = %s", (FUND,))
+    if row is None:
+        return []
+    held = ledger.balance(conn, row["id"])
+    recorded = _one(conn, "SELECT coalesce(sum(premiums - paid_out), 0)::bigint AS r FROM crash_fund_quarters")["r"]
+    return [] if held == recorded else [f"The crash fund: {held} held against {recorded} recorded."]
 
 
 def view(conn: Connection, empire: dict) -> dict:
