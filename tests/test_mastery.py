@@ -73,7 +73,8 @@ def test_every_module_has_work_alone_with_the_empire_and_as_a_weekend_challenge(
     assert len([t for t in objectives.TEMPLATES.values() if t.listed]) >= 120
     for track in (*TRACKS, "ceo"):
         modules = objectives.modules(track)
-        assert len(modules) == 6 and len({m["module"] for m in modules}) == 6
+        size = 6 if track == "ceo" else 7                 # (each build gained a property module in Stage 8)
+        assert len(modules) == size and len({m["module"] for m in modules}) == size
         for m in modules:
             versions = {t.setting for t in objectives.TEMPLATES.values() if t.build == track and t.module == m["module"] and t.listed}
             assert versions == {"solo", "empire", "live"}, (track, m["module"])
@@ -172,8 +173,8 @@ def test_a_module_is_learned_alone_practised_with_the_empire_and_proven_in_a_wee
     assert won["state"] == "passed" and won["setting"] == "live"
     assert stage(friday11)["stage"] == "proven" and stage(friday11)["stage_number"] == 3
     tracker = objectives.board(db, player, friday11)["tracks"][0]
-    assert (tracker["learned"], tracker["practised"], tracker["proven"], tracker["modules"]) == (1, 1, 1, 6)
-    assert tracker["learned_pct"] == 17 and tracker["name"] == "Accountant"
+    assert (tracker["learned"], tracker["practised"], tracker["proven"], tracker["modules"]) == (1, 1, 1, 7)
+    assert tracker["learned_pct"] == 14 and tracker["name"] == "Accountant"
     # The empire gained league points for both.
     points = _dicts(db, "SELECT points, why FROM league_points WHERE empire_id = %s AND period IN (10, 11) AND reference LIKE 'objective:%%'"
                         " ORDER BY id", (empire["id"],))
@@ -355,10 +356,10 @@ def test_the_later_gates_ask_for_every_module_proven(db):
     db.execute("UPDATE careers SET rank = 2, experience = %s WHERE player_id = %s", (careers.experience_for(60), player))
     assert careers.career(db, player)["level"] == 60
     master(db, player, "accountant", stages=("solo", "empire"))
-    master(db, player, "accountant", stages=("live",), modules=5)
+    master(db, player, "accountant", stages=("live",), modules=6)
     where = ranks.standing(db, player, NOW9)["tracks"][0]
-    assert where["gate"] == 60 and not where["can_begin"] and "6 modules must be proven" in where["why_not"]
-    assert where["needs"][2]["missing"] == ["Credit analysis"]
+    assert where["gate"] == 60 and not where["can_begin"] and "7 modules must be proven" in where["why_not"]
+    assert where["needs"][2]["missing"] == ["Property cash flow"]
     master(db, player, "accountant", stages=("live",))
     assert ranks.standing(db, player, NOW9)["tracks"][0]["can_begin"]
 

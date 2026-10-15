@@ -13,6 +13,7 @@ import { HeadWork } from "./Desks2";
 import { asKobo, EmpireWork } from "./Empire";
 import { formatCompact, formatNaira, formatPercent } from "./format";
 import { NumberTile } from "./Parts";
+import { HeadquartersTab } from "./Property";
 import { Failed, Loading, Panel } from "./Shell";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -27,7 +28,7 @@ export const pct = (bps: number | null | undefined) => (bps === null || bps === 
 const TABS = [
   ["overview", "Overview"], ["desks", "Desks"], ["requests", "Requests and votes"], ["deals", "Deals"], ["companies", "Companies"],
   ["takeovers", "Takeovers"], ["firms", "Firms"],
-  ["money", "Money"], ["people", "People"], ["work", "Work and events"], ["risk", "Risk"], ["board", "Board"], ["warroom", "War Room"],
+  ["money", "Money"], ["people", "People"], ["work", "Work and events"], ["risk", "Risk"], ["headquarters", "Headquarters"], ["board", "Board"], ["warroom", "War Room"],
 ] as const;
 export type Tab = (typeof TABS)[number][0];
 export const EMPIRE_TABS: readonly string[] = TABS.map(([key]) => key);
@@ -858,25 +859,39 @@ const BUILD_COLOUR: Record<string, string> = {
   lawyer: "var(--build-lc)", journalist: "var(--build-fj)",
 };
 
-/** The empire's seats, each coloured by its member's build, with the empty seats shown dashed. */
-function Seats({ roster }: { roster: Any[] }) {
-  // An empire has no fixed number of seats: every member is shown, and one open seat says there is room for more.
+/** The empire's seats, each coloured by its member's build, with the empty seats shown dashed. Two seats for each
+ * build; a headquarters adds more (one for every ten levels), frozen while it is down. */
+function Seats({ roster, seats }: { roster: Any[]; seats?: Any[] }) {
+  const all: Any[] = seats ?? roster.map((r) => ({ ...r, held: true, from_headquarters: false, frozen: false }));
+  const held = all.filter((s) => s.held).length;
+  const extra = all.filter((s) => s.from_headquarters).length;
   return (
-    <Panel title="Members" aside={`${roster.length} ${roster.length === 1 ? "member" : "members"}`}>
+    <Panel title="Seats" aside={`${held} of ${all.length} held`}>
       <ul className="seat-grid">
-        {roster.map((r, i) => {
-          const colour = BUILD_COLOUR[r.build] ?? "var(--muted)";
+        {all.map((s, i) => {
+          const colour = BUILD_COLOUR[s.build] ?? "var(--muted)";
+          if (!s.held) {
+            return (
+              <li key={i} className={`seat seat-empty${s.frozen ? " seat-frozen" : ""}`} style={{ borderColor: colour }}>
+                <span aria-hidden="true">{s.frozen ? "✕" : "+"}</span>
+                <span className="small">{s.build_name}</span>
+                <span className="muted small">{s.frozen ? "Frozen: the headquarters is down" : s.from_headquarters ? "Open · from the headquarters" : "Open"}</span>
+              </li>
+            );
+          }
           return (
-            <li key={i} className="seat" style={{ borderColor: colour }}>
-              <span className="seat-initial" style={{ color: colour }} aria-hidden="true">{String(r.name ?? "?").charAt(0).toUpperCase()}</span>
-              <span className="small">{r.name}{r.you ? " (you)" : ""}</span>
-              <span className="muted small">{r.is_head ? "Head" : r.build_name}</span>
+            <li key={i} className={`seat${s.frozen ? " seat-frozen" : ""}`} style={{ borderColor: colour }}>
+              <span className="seat-initial" style={{ color: colour }} aria-hidden="true">{String(s.name ?? "?").charAt(0).toUpperCase()}</span>
+              <span className="small">{s.name}{s.you ? " (you)" : ""}</span>
+              <span className="muted small">{s.is_head ? `Head · ${s.build_name}` : s.build_name}{s.from_headquarters ? " · headquarters seat" : ""}</span>
             </li>
           );
         })}
-        <li className="seat seat-empty"><span aria-hidden="true">+</span><span className="muted small">Room for more members: there is no fixed number of seats</span></li>
       </ul>
-      <p className="muted small">The colour of each seat is its member’s build, and the build is written under the name.</p>
+      <p className="muted small">
+        Each build has two seats. {extra > 0 ? `The headquarters adds ${extra} more.` : "A headquarters adds one more seat for every ten levels it is raised."}
+        {" "}The colour of each seat is its member’s build, and the build is written under the name. An empty seat is dashed.
+      </p>
     </Panel>
   );
 }
@@ -960,7 +975,7 @@ export function FirmWork({ player, onLoggedOut, onChanged, initialTab }: Props &
           <button key={key} role="tab" aria-selected={tab === key} className={tab === key ? "active" : undefined} onClick={() => setTab(key)}>{label}</button>
         ))}
       </div>
-      {tab === "overview" && <Seats roster={f.roster} />}
+      {tab === "overview" && <Seats roster={f.roster} seats={f.seats} />}
       {tab === "overview" && <HeadWork player={player} onLoggedOut={onLoggedOut} onChanged={onChanged} />}
       {tab === "warroom" && <EmpireWork player={player} onLoggedOut={onLoggedOut} onChanged={onChanged} />}
       {tab === "deals" && <DealsTab f={f} act={act} />}
@@ -973,6 +988,7 @@ export function FirmWork({ player, onLoggedOut, onChanged, initialTab }: Props &
       {tab === "people" && <People f={f} act={act} />}
       {tab === "work" && <WorkTab f={f} act={act} />}
       {tab === "risk" && <RiskTab f={f} act={act} />}
+      {tab === "headquarters" && <HeadquartersTab onLoggedOut={onLoggedOut} onChanged={onChanged} />}
       {tab === "board" && <Board f={f} />}
       {tab === "people" && <Bookkeeping b={data.bookkeeping} act={act} />}
     </>

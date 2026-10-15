@@ -33,6 +33,7 @@ from server.schemas import (
     ConfirmEmailRequest,
     EconomyQuarter,
     AbroadSummary,
+    PropertySummary,
     ConsumersSummary,
     EconomyResponse,
     HouseholdGroup,
@@ -68,7 +69,7 @@ from server.schemas import (
     TakeoverRow, VoteRequest, VoteRow, WaitingSwap,
 )
 from simulation import clock, exchange, investors, ledger, moneywatch, news, news_kinds, players, quarters
-from simulation import bonds, careers, closingbell, corporate, desks, grants, insight, marketview, messages, objectives
+from simulation import auctions, bonds, careers, closingbell, corporate, desks, grants, insight, marketview, messages, objectives
 from simulation import world_data as data
 from simulation.ledger import NGN
 
@@ -93,6 +94,9 @@ def _close_due_quarters_once() -> None:
             investors.act(conn, now)
             # After 22:00 the Closing Bell goes out, once for each trading day.
             closingbell.ring(conn, now)
+        # The Auction House settles every auction whose countdown has ended.
+        if conn.execute("SELECT to_regclass('auctions') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
+            auctions.run(conn, now)
 
 
 async def _quarter_closer() -> None:
@@ -647,8 +651,12 @@ def economy(_: dict = Depends(current_player), conn: Connection = Depends(get_co
     if world is not None and conn.execute("SELECT 1 FROM abroad_results LIMIT 1").fetchone() is not None:
         view = _abroad.public(conn)
         abroad_now = AbroadSummary(**{**view, "history": view["history"][-13:], "trade": view["trade"][-12:]})
+    property_now = None
+    if world is not None and conn.execute("SELECT 1 FROM district_results LIMIT 1").fetchone() is not None:
+        from simulation import property as _property
+        property_now = PropertySummary(**_property.summary(conn))
     return EconomyResponse(
-        consumers=consumers_now, abroad=abroad_now,
+        consumers=consumers_now, abroad=abroad_now, property=property_now,
         prices=prices, macro_history=macro_history, money_watch=watch,
         period=period, period_label=clock.period_label(period) if period else None,
         money_in_existence_kobo=money,
@@ -764,6 +772,10 @@ def my_portfolio(player: dict = Depends(current_player), conn: Connection = Depe
     mine["bonds_value"] = sum(h["value"] for h in bonds.holdings_of(conn, account, now))
     held_cash, offered = corporate.held_by_account(conn).get(account, (0, 0))
     mine["total"] += mine["bonds_value"] + held_cash + offered
+    # Property, after what is owed on it, and cash held for bids at the Auction House (Stage 8).
+    from simulation import property as _property
+    property_parts = _property._players_property(conn).get(account, (0, 0))
+    mine["total"] += property_parts[0] + property_parts[1]
     bill = next((b for b in bonds.curve(conn)["points"] if b["quarters"] == 1), None)
     days = [NetWorthDay(session_date=d["session_date"], total_kobo=d["total"]) for d in mine["net_worth_days"]
             if d["session_date"] < mine["today"]]
@@ -771,6 +783,7 @@ def my_portfolio(player: dict = Depends(current_player), conn: Connection = Depe
     return PortfolioResponse(
         advice=insight.personal_advice(conn, mine, bill_yield_bps=bill["yield_bps"] if bill else None), net_worth=days,
         bonds_value_kobo=mine["bonds_value"], held_for_offers_kobo=held_cash, offered_to_bidders_kobo=offered,
+        property_kobo=property_parts[1], held_for_bids_kobo=property_parts[0],
         cash_kobo=mine["cash"], held_for_orders_kobo=mine["held_for_orders"], shares_value_kobo=mine["shares_value"],
         total_kobo=mine["total"], dividends_kobo=mine["dividends"], realised_kobo=mine["realised"],
         holdings=[PortfolioHolding(
@@ -1559,3 +1572,4 @@ from server import firm_routes  # noqa: E402,F401
 from server import deal_routes, dealmaking_routes  # noqa: E402,F401
 from server import message_routes  # noqa: E402,F401
 from server import settings_routes  # noqa: E402,F401
+from server import property_routes  # noqa: E402,F401

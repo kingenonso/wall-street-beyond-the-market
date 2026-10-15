@@ -29,6 +29,7 @@ from simulation import world_data as data
 from simulation.money import BPS
 from simulation.news_kinds import BY_NAME, OUTLETS
 from simulation.news_wordings import abroad as _abroad
+from simulation.news_wordings import property as _property
 from simulation.news_wordings import capital as _capital
 from simulation.news_wordings import deals as _deals
 from simulation.news_wordings import dealmaking as _dealmaking
@@ -38,7 +39,7 @@ from simulation.news_wordings import places as _places
 from simulation.news_wordings import results as _results
 
 WORDINGS: dict[str, dict[str, list[tuple[str, str]]]] = {
-    **_abroad.WORDINGS, **_places.WORDINGS, **_happenings.WORDINGS, **_economy.WORDINGS, **_results.WORDINGS, **_capital.WORDINGS, **_deals.WORDINGS, **_dealmaking.WORDINGS,
+    **_abroad.WORDINGS, **_property.WORDINGS, **_places.WORDINGS, **_happenings.WORDINGS, **_economy.WORDINGS, **_results.WORDINGS, **_capital.WORDINGS, **_deals.WORDINGS, **_dealmaking.WORDINGS,
 }
 
 # How a kind of business reads in the middle of a sentence.

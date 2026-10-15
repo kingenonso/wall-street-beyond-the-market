@@ -593,7 +593,7 @@ export function HeadWork({ player, onLoggedOut }: Props) {
             ))}
           </div>
         </div>
-        <p className="muted small">Subsidiaries (companies the empire controls) and property arrive with the stages that let players found companies and own property. A head cannot yet approve a takeover.</p>
+        <p className="muted small">Property counts at today's prices, less what is owed on it: see the <a href="#/property/empire">empire's property</a>. Companies the empire controls are on the Companies tab.</p>
       </Panel>
 
       <Panel title="Strategic objective" aside={room.task ? `${room.task.company} · up to ${formatCompact(room.task.amount_kobo)}` : "No task in hand"}>

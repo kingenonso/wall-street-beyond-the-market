@@ -199,9 +199,19 @@ def wealth(conn: Connection, account, now: datetime) -> dict:
                  (account,))["total"]
     in_offers = corporate.held_by_account(conn).get(account, (0, 0))
     cash += in_offers[0]
+    # Cash held for bids at the Auction House is still its owner's (Stage 8).
+    if _one(conn, "SELECT to_regclass('auction_bids') IS NOT NULL AS ok")["ok"]:
+        cash += _one(conn, "SELECT ((SELECT coalesce(sum(held), 0) FROM auction_bids WHERE bidder = %s AND status = 'live')"
+                           " + (SELECT coalesce(sum(held), 0) FROM auction_partners WHERE partner = %s AND status = 'agreed'))::bigint AS total",
+                     (account, account))["total"]
     shares_value = sum(line["value"] for line in lines) + in_offers[1]       # shares offered to a takeover are still theirs until it closes
     bonds_value = sum(b["value"] for b in held)
-    return {"cash": cash, "shares": shares_value, "bonds": bonds_value, "total": cash + shares_value + bonds_value,
+    property_value = 0
+    if _one(conn, "SELECT to_regclass('property_holdings') IS NOT NULL AS ok")["ok"]:
+        from simulation import property as property_market
+        property_value = property_market.equity_of(conn, account)["equity"]      # what it owns in property, less what it owes on it
+    return {"cash": cash, "shares": shares_value, "bonds": bonds_value, "property": property_value,
+            "total": cash + shares_value + bonds_value + property_value,
             "lines": lines, "bond_lines": held, "day": day}
 
 
@@ -1269,6 +1279,7 @@ TEMPLATES: dict[str, Template] = {t.code: t for t in (
 
 
 from simulation import objectives_more  # noqa: E402,F401  (adds the work of the other four builds to the library)
+from simulation import objectives_property  # noqa: E402,F401  (adds the work about land and property, Stage 8)
 from simulation import empires  # noqa: E402,F401          (adds the work that exists only inside an empire)
 from simulation import objectives_ceo  # noqa: E402,F401   (adds the leadership work of the CEO track)
 from simulation import leagues, ranks  # noqa: E402
@@ -1680,10 +1691,25 @@ def accept(conn: Connection, player_id, code: str, now: datetime, step: dict | N
                     " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
                     (player_id, mine["build"], code, template.module, ctx["period"], terms.get("company_id"), payer["account"],
                      payer["name"], template.title, Jsonb(terms), _reward(template, ctx["wage_index_bps"]),
-                     _experience(template, mine), now, "empire" if step else template.setting, template.build, template.root))
+                     _hq_experience(conn, player_id, terms, _experience(template, mine)) if (step or template.setting == "empire")
+                     else _experience(template, mine), now, "empire" if step else template.setting, template.build, template.root))
         except errors.UniqueViolation:
             raise ObjectiveError("You have already taken this work this quarter.") from None
         return _public(row)
+
+
+def _hq_experience(conn: Connection, player_id, terms: dict, experience: int) -> int:
+    """Work for the empire teaches more in a fine headquarters, and twice as much more for a client in one of its
+    city's industries (Stage 8)."""
+    seat = empires.seat_of(conn, player_id)
+    if seat is None:
+        return experience
+    from simulation import headquarters
+    sector = None
+    if terms.get("company_id"):
+        row = _one(conn, "SELECT sector FROM companies WHERE id::text = %s", (str(terms["company_id"]),))
+        sector = row["sector"] if row else None
+    return apply_bps(experience, BPS + headquarters.bonus_bps(conn, seat["empire_id"], sector))
 
 
 def _own(conn: Connection, player_id, objective_id: int) -> dict:

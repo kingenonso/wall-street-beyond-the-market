@@ -222,7 +222,7 @@ export function SkillTree({ skills, tracks }: { skills: Skill[]; tracks: Coverag
 // the list beside the wheel, so nothing depends on colour alone.
 const WHEEL_COLORS: Record<string, string> = {
   "Shares": "#9085e9", "Government bonds": "#199e70", "Government bills": "#c98500", "Company bonds": "#d55181", "Cash": "#3987e5",
-  "Government bonds and bills": "#199e70",
+  "Government bonds and bills": "#199e70", "Property": "#a0522d",
 };
 
 /** The allocation wheel: how what the player owns is divided. */

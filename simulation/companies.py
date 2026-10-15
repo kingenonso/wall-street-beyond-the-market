@@ -398,7 +398,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     # (Its borrowers close their quarters before it does, so all of it has arrived.)
     # Dividends from a company it owns shares in (after a takeover) are counted with it.
     dividends_received = received("dividend")
-    interest_income = received("debt_interest") + dividends_received + received("empire_interest")
+    interest_income = received("debt_interest") + dividends_received + received("empire_interest") + received("mortgage_interest")
     if dividends_received:
         notes.append(f"It received {in_words(dividends_received)} in dividends from the company it owns shares in.")
 
@@ -583,6 +583,9 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     # What it has lent to empires counts with what it lent to companies.
     to_empires = _row(conn, "SELECT coalesce(sum(outstanding), 0)::bigint AS total FROM empire_debts WHERE lender_account = %s"
                             " AND kind IN ('loan', 'buyout')", (account,))["total"]
+    # ...and so do its mortgages to players and empires (Stage 8).
+    to_empires += _row(conn, "SELECT coalesce(sum(outstanding), 0)::bigint AS total FROM mortgages WHERE bank_company_id = %s"
+                             " AND status IN ('open', 'shortfall')", (company["id"],))["total"]
     lent = {**lent, "gross": lent["gross"] + to_empires}
     loans_to_companies = lent["gross"] - lent["written_off"]          # what it still expects to be repaid
     lent_before = prev["loans_to_companies"] + (lent["written_off"] - loan_losses)
@@ -616,6 +619,11 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         operating_profit += asset_sales - sold_book
         profit_before_tax += asset_sales - sold_book
         net_profit += asset_sales - sold_book
+    # A building bought at the Auction House during the quarter (Stage 8) is capital spending too.
+    bought_property = paid("capital_spending") - capital_spending
+    if bought_property > 0:
+        notes.append(f"It bought property at the Auction House for {in_words(bought_property)}.")
+        capital_spending += bought_property
     cash_from_investing = (
         (lent_before - lent["gross"]) + (prev["customer_loans"] - customer_loans) - paid("capital_spending") - invested + asset_sales
     )

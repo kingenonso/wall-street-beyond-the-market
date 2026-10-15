@@ -1,4 +1,4 @@
-import { api, type AbroadSummary, type ConsumersSummary, type Economy, type MoneyWatch } from "./api";
+import { api, type AbroadSummary, type ConsumersSummary, type Economy, type MoneyWatch, type PropertySummary } from "./api";
 import { changeBps, formatCompact, formatPercent } from "./format";
 import { useLoad } from "./hooks";
 import { Change, Failed, Loading, Panel } from "./Shell";
@@ -281,6 +281,58 @@ function ConsumersPanel({ consumers }: { consumers: ConsumersSummary }) {
   );
 }
 
+/** Property prices and rents by city (Stage 8): the average of each city's districts, 100 at the start. */
+function PropertyPanel({ summary }: { summary: PropertySummary }) {
+  const lagos = summary.cities.find((c) => c.city === "Lagos") ?? summary.cities[0];
+  return (
+    <Panel title="Property" aside="price index, start of the world = 100">
+      <div className="scroll" tabIndex={0}>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">City</th>
+              <th scope="col" className="num">Prices</th>
+              <th scope="col" className="num">Against last quarter</th>
+              <th scope="col" className="num">Rents</th>
+              <th scope="col" className="num">Space let</th>
+              <th scope="col" className="num">Sold at auction</th>
+            </tr>
+          </thead>
+          <tbody>
+            {summary.cities.map((c) => {
+              const last = c.history[c.history.length - 1];
+              const before = c.history.length > 1 ? c.history[c.history.length - 2] : null;
+              if (!last) return null;
+              return (
+                <tr key={c.city}>
+                  <th scope="row">{c.city}</th>
+                  <td className="num mono">{(last.price_bps / 100).toFixed(1)}</td>
+                  <td className="num"><Change bps={before ? moveBps(last.price_bps, before.price_bps) : null} /></td>
+                  <td className="num mono">{(last.rent_bps / 100).toFixed(1)}</td>
+                  <td className="num mono">{percentOf(last.occupancy_bps)}</td>
+                  <td className="num mono">{last.sold ? `${last.sold} · ${formatCompact(last.sold_value)}` : "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {lagos && lagos.history.length > 1 && (
+        <LineChart
+          names={["Lagos prices", "Lagos rents"]}
+          format={(value) => value.toFixed(1)}
+          data={lagos.history.map((q) => ({ label: q.label, first: q.price_bps / 100, second: q.rent_bps / 100 }))}
+        />
+      )}
+      <p className="muted small">
+        Rents follow what the city's households spend and how many people work there. Prices follow rents and interest
+        rates, and rise further when buyers at the Auction House pay more than buildings are worth: that extra fades a fifth
+        each quarter unless buyers keep overpaying. See every district on the <a href="#/property/map">Property</a> page.
+      </p>
+    </Panel>
+  );
+}
+
 function Body({ economy }: { economy: Economy }) {
   const latest = economy.history[economy.history.length - 1];
   const before = economy.history[economy.history.length - 2];
@@ -325,6 +377,7 @@ function Body({ economy }: { economy: Economy }) {
       <PricesPanel economy={economy} />
 
       {economy.abroad && <AbroadPanel abroad={economy.abroad} />}
+      {economy.property && <PropertyPanel summary={economy.property} />}
 
       {economy.consumers && <ConsumersPanel consumers={economy.consumers} />}
 

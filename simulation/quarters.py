@@ -20,6 +20,7 @@ from psycopg.rows import dict_row
 from simulation import (abroad, banking, bonds, careers, clock, companies, consumers, corporate, economy, events, exchange, grants, investors, ledger,
                         macro, marketview, mindsets, moneywatch, news, objectives, private, valuation)
 from simulation import empires
+from simulation import property as property_market
 from simulation import ranks
 from simulation.money import BPS
 from simulation.ledger import NGN
@@ -101,6 +102,8 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     # Private companies: their owners' dials, their managers, assets, routes and staff shape their quarter.
     private.before_close(conn, all_companies, period, before["wage_index_bps"])
     lasting_pull = economy.set_market_pulls(conn, world, all_companies, period, fortune_seed, happening)
+    # Rent on buildings owned outside the property companies is part of what the city's spending goes to (Stage 8).
+    property_market.add_rent_to_market(conn, world, fortune_seed)
     sector_weights, sector_fortune = economy.household_sector_weights(world, period, fortune_seed, before)
 
     signals = economy.household_signals(conn, world, period, before, severe)
@@ -185,6 +188,8 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
         energy_bps=abroad.energy_index_bps(oil_next, abroad.state(conn, period - 1)["fx"]),
         import_push_bps=abroad.import_push_bps(conn, period),
     )
+    # Land and property: rent shared out, tax, upkeep, mortgages, the headquarters and the Auction House (Stage 8).
+    property_market.close(conn, world, period, now, fortune_seed, measured)
     # The naira's exchange rate for next quarter, and what foreign investors do.
     abroad_now = abroad.close(conn, period, fortune_seed, oil_next=oil_next, inflation_bps=measured["inflation_bps"],
                               next_rate_bps=measured["next_policy_rate_bps"], trade=trade, imports=imported)

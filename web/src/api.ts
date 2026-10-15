@@ -172,7 +172,7 @@ export type Resignation = {
   letter: string; given_at: string; leaves_at: string | null; leaves_when_quarter_ends: boolean; leaves_label: string | null;
   offer: null | { bonus_kobo: Kobo; signing_limit_kobo?: Kobo | null; words: string; at: string };
 };
-export type Slice = { label: string; group: "shares" | "bonds" | "cash"; value_kobo: Kobo; share_bps: number };
+export type Slice = { label: string; group: "shares" | "bonds" | "cash" | "property"; value_kobo: Kobo; share_bps: number };
 export type AssetDesk = {
   total_kobo: Kobo; cash_kobo: Kobo; shares_kobo: Kobo; bonds_kobo: Kobo; change_today_bps: number | null;
   change_year_bps: number | null; index_change_year_bps: number | null; allocation: Slice[]; sectors: Slice[];
@@ -317,6 +317,7 @@ export type Economy = {
   money_watch: MoneyWatch | null;
   consumers?: ConsumersSummary | null;
   abroad?: AbroadSummary | null;
+  property?: PropertySummary | null;
 };
 
 /** The 1,000 consumer groups, only ever added up (the economy upgrade). */
@@ -505,6 +506,8 @@ export type Portfolio = {
   bonds_value_kobo: Kobo;
   held_for_offers_kobo: Kobo;
   offered_to_bidders_kobo: Kobo;
+  property_kobo?: Kobo;
+  held_for_bids_kobo?: Kobo;
   advice: string[];
   net_worth: { session_date: string; total_kobo: Kobo }[];
 };
@@ -805,6 +808,53 @@ function readableError(detail: unknown): string {
   return "Something went wrong. Please try again.";
 }
 
+
+/** Stage 8: land and property, the Auction House and headquarters. Amounts are kobo, as text. */
+export type PropertyLot = {
+  id: number; name: string; kind: string; kind_name: string; district_id: number; district: string; city: string; size_m2: number;
+  condition: number; status: "standing" | "plot" | "collapsed"; value: Kobo; rent_due: Kobo; owners: string[]; my_share_bps: number;
+  upkeep: boolean; build_cost: Kobo | null;
+};
+export type MyLot = PropertyLot & { share_bps: number; paid: Kobo; tax_owed: Kobo; last_rent: Kobo; last_tax: Kobo };
+export type DistrictPoint = { period: number; label: string; price_bps: number; rent_bps: number; occupancy_bps: number };
+export type District = {
+  id: number; name: string; city: string; kind: string; kind_name: string; rent_bps: number; occupancy_bps: number; price_bps: number;
+  history: DistrictPoint[]; properties: PropertyLot[];
+};
+export type Mortgage = { id: number; property_id: number; bank: string; principal: Kobo; outstanding: Kobo; rate_bps: number; missed: number; status: string };
+export type Holdings = { properties: MyLot[]; mortgages: Mortgage[]; value: Kobo; owed: Kobo; equity: Kobo };
+export type AuctionEvent = { at: string; price: Kobo | null; words: string };
+export type Auction = {
+  id: number; property: PropertyLot; reason: "listing" | "owner" | "repossession" | "tax"; opens_at: string; ends_at: string;
+  status: "open" | "coming" | "sold" | "unsold"; start_price: Kobo; price: Kobo | null; minimum: Kobo; fair: Kobo; bidders: number; lowest_price_met: boolean;
+  you_lead: boolean; your_limit: Kobo | null; your_status: string | null; your_bid_id: number | null; events: AuctionEvent[];
+  checks: Record<"title" | "valuation" | "limit" | "money", boolean> | null;
+};
+export type EmpireCheck = { clean?: boolean; words?: string; value?: number; limit?: number; bank?: string | null; mortgage_bps?: number };
+export type PropertyMarket = {
+  districts: District[]; yield_bps: number; mortgage_rate_bps: number; tax_bps: number; auctions: Auction[]; mine: Holdings;
+  mortgage_limit_note: string; banks: { id: string; name: string }[]; mortgage_most: Kobo; now: string; my_partner_asks: PartnerAsk[];
+  empire: null | {
+    id: number; name: string; head: boolean; build: string; property: Holdings; auctions: Auction[]; partner_asks: PartnerAsk[]; desks_with_members: string[];
+    checks: Record<string, Partial<Record<"title" | "valuation" | "limit" | "money", EmpireCheck>>>;
+  };
+};
+export type PartnerAsk = { id: number; auction_id: number; partner_bps: number; status: string; most: Kobo | null; partner: string };
+export type PartnerRequest = { id: number; auction_id: number; partner_bps: number; status: string; property: string; for_empire: boolean; asked_by: string };
+export type HqSeat = { build: string; slot: number; held: boolean; frozen: boolean };
+export type Headquarters = {
+  owned: { id: number; name: string; city: string; kind: string; status: string }[];
+  cities: { city: string; words: string; cost_bps: number; industries: string[] }[];
+  head: boolean; build: string;
+  headquarters: null | {
+    building: string; property_id: number; city: string; district: string; level: number; spent: Kobo; condition: number; warnings: number;
+    standing: boolean; collapsed: boolean; homeless: boolean; upkeep_asked: boolean; upkeep_approved: boolean; upkeep: Kobo;
+    bonus_bps: number; city_bonus_bps: number; city_words: string; industries: string[]; extra_seats: number; seats: HqSeat[];
+    next_cost: Kobo | null; next_seat_at: number | null; rebuild_cost: Kobo; lobbying: number;
+  };
+};
+export type PropertySummary = { cities: { city: string; history: (DistrictPoint & { sold: number; sold_value: Kobo })[] }[] };
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   // Anything that changes something may change prices: the shared market answer is asked for again.
   if (options.method && options.method !== "GET") marketShared = null;
@@ -875,6 +925,12 @@ export const api = {
   worldStatus: () => request<WorldStatus>("/world/status"),
   companies: () => request<{ sectors: Sector[] }>("/companies"),
   economy: () => request<Economy>("/economy"),
+  property: () => request<PropertyMarket>("/property"),
+  partnerRequests: () => request<{ requests: PartnerRequest[] }>("/auctions/partners"),
+  headquarters: () => request<Headquarters>("/empire/headquarters"),
+  /** Every property, auction and headquarters action: the server answers { result }. */
+  propertyAct: (path: string, body: unknown = {}) =>
+    request<{ result: unknown }>(path, { method: "POST", body: JSON.stringify(body) }),
   news: (filter: { outlet?: string; ticker?: string; limit?: number } = {}) => {
     const query = new URLSearchParams();
     if (filter.outlet) query.set("outlet", filter.outlet);

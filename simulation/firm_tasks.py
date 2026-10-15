@@ -48,7 +48,8 @@ DEFEND_STEPS = (
 )
 HAPPENING_CHANCE_BPS = 2500         # at each Closing Bell, the chance something happens to an empire with players in it
 HAPPENING_HOURS = 48
-COVER = {"holding_collapse": ("A holding collapses", 600), "inspection": ("A regulator's inspection", 300)}    # premium a quarter, in bps of the cover
+COVER = {"holding_collapse": ("A holding collapses", 600), "inspection": ("A regulator's inspection", 300),
+         "headquarters": ("The headquarters falls down", 250)}    # premium a quarter, in bps of the cover
 COVER_MOST_BPS = 1000               # cover up to a tenth of the empire's worth, for each kind
 COVER_QUARTERS = 4
 INSPECTION_FINE_BPS = 50            # a failed inspection costs half of one percent of the empire's worth, paid to the Treasury

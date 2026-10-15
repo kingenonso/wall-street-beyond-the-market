@@ -184,10 +184,10 @@ def league(conn: Connection, now: datetime) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def _take_seat(conn: Connection, empire: dict, player_id, build: str, now: datetime, period: int) -> dict:
-    seat = _one(conn, "SELECT * FROM empire_seats WHERE empire_id = %s AND build = %s AND player_id IS NULL ORDER BY slot LIMIT 1 FOR UPDATE",
-                (empire["id"], build))
+    seat = _one(conn, "SELECT * FROM empire_seats WHERE empire_id = %s AND build = %s AND player_id IS NULL AND NOT hq_frozen"
+                      " ORDER BY slot LIMIT 1 FOR UPDATE", (empire["id"], build))
     if seat is None:
-        raise EmpireError(f"Both {BUILD_NAMES[build]} seats in {empire['name']} are held by players.")
+        raise EmpireError(f"Every {BUILD_NAMES[build]} seat in {empire['name']} is taken: all are held by players.")
     try:
         with conn.transaction():
             conn.execute("UPDATE empire_seats SET player_id = %s, since = %s, signing_limit = NULL WHERE id = %s", (player_id, now, seat["id"]))
@@ -206,8 +206,10 @@ def _may_join(conn: Connection, empire: dict, player: dict, period: int) -> None
         raise EmpireError("Choose a build first: a seat in an empire is a seat for a build.")
     if seat_of(conn, player["id"]):
         raise EmpireError("You already hold a seat in an empire. Leave it first.")
-    if player["reputation"] < data.JOIN_LEAST_REPUTATION:
-        raise EmpireError(f"An empire will not take somebody whose reputation is below {data.JOIN_LEAST_REPUTATION}.")
+    from simulation import headquarters
+    least = data.JOIN_LEAST_REPUTATION - headquarters.recruit_points(conn, empire["id"])      # a Lagos headquarters draws recruits
+    if player["reputation"] < least:
+        raise EmpireError(f"{empire['name']} will not take somebody whose reputation is below {least}.")
     sacked = _one(conn, "SELECT max(p) AS period FROM (SELECT left_period AS p FROM empire_members WHERE empire_id = %s AND player_id = %s"
                         " AND left_reason = 'sacked' UNION ALL SELECT decided_period FROM empire_cases WHERE empire_id = %s AND player_id = %s"
                         " AND status = 'punished') x", (empire["id"], player["id"], empire["id"], player["id"]))["period"]
@@ -233,8 +235,9 @@ def apply(conn: Connection, player_id, empire_id: int, now: datetime) -> dict:
                 raise EmpireError("That empire is not open yet.")
             _take_seat(conn, empire, player_id, player["build"], now, state["period"])
             return {"status": "accepted", "empire": empire["name"]}
-        if not _one(conn, "SELECT 1 FROM empire_seats WHERE empire_id = %s AND build = %s AND player_id IS NULL", (empire_id, player["build"])):
-            raise EmpireError(f"Both {BUILD_NAMES[player['build']]} seats in {empire['name']} are held by players.")
+        if not _one(conn, "SELECT 1 FROM empire_seats WHERE empire_id = %s AND build = %s AND player_id IS NULL AND NOT hq_frozen",
+                    (empire_id, player["build"])):
+            raise EmpireError(f"Every {BUILD_NAMES[player['build']]} seat in {empire['name']} is taken: all are held by players.")
         try:
             with conn.transaction():
                 conn.execute("INSERT INTO empire_applications (empire_id, player_id, build, at) VALUES (%s, %s, %s, %s)",

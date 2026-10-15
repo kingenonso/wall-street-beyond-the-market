@@ -95,7 +95,9 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     managers, the 100-day plan, selling and listing) and the company doctor (test_deals*.py): each acts as the player, for their own
     desk and empire, and moves money only through the ledger. Part 2B added firms players found (founding, jobs, loans, a bank's
     shares), takeover offers, defences, stakes, blocks, mergers and spin-offs, and fees taken from an owned company
-    (test_dealmaking*.py): each acts as the player, for their own desk, firm and empire, and moves money only through the ledger."""
+    (test_dealmaking*.py): each acts as the player, for their own desk, firm and empire, and moves money only through the ledger.
+    Stage 8 added property, the Auction House and headquarters (test_property*.py): each acts as the player, or as the head
+    for their empire, and moves money only through the ledger."""
     from server.main import app
 
     writes = sorted(
@@ -127,6 +129,10 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("PATCH", "/api/me/news-alerts"),
         ("PATCH", "/api/me/profile-icon"),
         ("PATCH", "/api/me/settings"),
+        ("POST", "/api/auctions/bids/{bid_id}/withdraw"),
+        ("POST", "/api/auctions/partners/{ask_id}/answer"),
+        ("POST", "/api/auctions/{auction_id}/bid"),
+        ("POST", "/api/auctions/{auction_id}/partners"),
         ("POST", "/api/auth/confirm-email"),
         ("POST", "/api/auth/login"),
         ("POST", "/api/auth/logout"),
@@ -150,12 +156,19 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/deals/{deal_id}/claims"),
         ("POST", "/api/deals/{process_id}/file"),
         ("POST", "/api/empire/ai-audit"),
+        ("POST", "/api/empire/auctions/{auction_id}/bid"),
+        ("POST", "/api/empire/auctions/{auction_id}/check"),
         ("POST", "/api/empire/audits"),
         ("POST", "/api/empire/bonds"),
         ("POST", "/api/empire/bonuses"),
         ("POST", "/api/empire/capital"),
         ("POST", "/api/empire/expenses"),
         ("POST", "/api/empire/head-votes"),
+        ("POST", "/api/empire/headquarters"),
+        ("POST", "/api/empire/headquarters/raise"),
+        ("POST", "/api/empire/headquarters/rebuild"),
+        ("POST", "/api/empire/headquarters/upkeep/approve"),
+        ("POST", "/api/empire/headquarters/upkeep/ask"),
         ("POST", "/api/empire/investigations"),
         ("POST", "/api/empire/messages"),
         ("POST", "/api/empire/opening"),
@@ -214,6 +227,12 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/pension-fund/costs"),
         ("POST", "/api/pension-fund/orders"),
         ("POST", "/api/pension-funds"),
+        ("POST", "/api/property/mortgages/{mortgage_id}/repay"),
+        ("POST", "/api/property/{property_id}/build"),
+        ("POST", "/api/property/{property_id}/renovate"),
+        ("POST", "/api/property/{property_id}/sell"),
+        ("POST", "/api/property/{property_id}/title-search"),
+        ("POST", "/api/property/{property_id}/upkeep"),
         ("POST", "/api/ranks/cases"),
         ("POST", "/api/ranks/cases/{case_id}/hand-in"),
         ("POST", "/api/reports"),

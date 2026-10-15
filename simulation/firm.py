@@ -29,6 +29,7 @@ from psycopg.types.json import Jsonb
 from simulation import careers, empires, leagues
 from simulation import world_data as data
 from simulation.empires import BUILD_NAMES, EmpireError, _log, _one, _open, _roll, _rows, _text
+from simulation.money import BPS
 
 APPROVAL_HOURS = 24                 # a desk has this long; then the request passes to the head
 DEPUTY_HOURS = 48                   # ...and after this long to the deputy as well
@@ -98,6 +99,16 @@ def roster(conn: Connection, empire_id, me) -> list[dict]:
             for r in _rows(conn, "SELECT s.id, s.build, s.player_id, p.display_name, (e.head_player_id = s.player_id) AS is_head FROM empire_seats s"
                                  " JOIN players p ON p.id = s.player_id JOIN empires e ON e.id = s.empire_id WHERE s.empire_id = %s"
                                  " ORDER BY s.build, s.slot", (empire_id,))]
+
+
+def seats_view(conn: Connection, empire: dict, me) -> list[dict]:
+    """Every seat in the empire, held or empty: two for each build, and those a headquarters adds (Stage 8),
+    frozen while the headquarters is down."""
+    return [{"build": r["build"], "build_name": BUILD_NAMES[r["build"]], "slot": r["slot"], "held": r["player_id"] is not None,
+             "name": r["display_name"], "you": r["player_id"] == me, "is_head": r["player_id"] is not None and r["player_id"] == empire["head_player_id"],
+             "from_headquarters": r["slot"] >= 3, "frozen": r["hq_frozen"]}
+            for r in _rows(conn, "SELECT s.build, s.slot, s.player_id, s.hq_frozen, p.display_name FROM empire_seats s LEFT JOIN players p"
+                                 " ON p.id = s.player_id WHERE s.empire_id = %s ORDER BY s.slot, s.build", (empire["id"],))]
 
 
 def desk_members(conn: Connection, empire_id, build: str) -> list:
@@ -639,6 +650,8 @@ def hand_in(conn: Connection, player_id, duty_id: int, answers: dict, now: datet
                      (score, player_id, _json(answers), _json(result), now, duty_id))
         mine = careers.career(conn, player_id, seat["build"])
         gained = DUTY_EXPERIENCE * score // 100 * (1 + (mine["rank"] if mine else 0))
+        from simulation import headquarters                       # a fine headquarters teaches more (Stage 8)
+        gained = gained * (BPS + headquarters.bonus_bps(conn, empire["id"])) // BPS
         if gained and mine:
             careers.add_experience(conn, player_id, seat["build"], gained, now)
         done = {**duty, "status": "done", "score": score, "done_by": player_id, "answers": answers, "result": result}
@@ -1040,6 +1053,7 @@ def view(conn: Connection, player_id, now: datetime) -> dict | None:
         "is_deputy": deputy == player_id, "deputy": _name(conn, deputy) if deputy else None, "your_build": seat["build"],
         "period": state["period"], "quarter_ends_at": state.get("ends_at"),
         "roster": roster(conn, empire["id"], player_id),
+        "seats": seats_view(conn, empire, player_id),
         "approvals": approvals_view(conn, seat, empire, now),
         "resolutions": resolutions_view(conn, seat, empire, now),
         "duties": duties_view(conn, seat, empire, state, now),
