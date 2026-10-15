@@ -25,6 +25,7 @@ export type Player = {
   rank_waiting: boolean;
   news_alerts: boolean;
   unread_messages: number;
+  margin_calls?: number;
   /** The redesign: the player's own look and sound, and whether the first-time tour has been seen. */
   theme: "dark" | "light";
   sound_on: boolean;
@@ -855,6 +856,42 @@ export type Headquarters = {
 };
 export type PropertySummary = { cities: { city: string; history: (DistrictPoint & { sold: number; sold_value: Kobo })[] }[] };
 
+
+/** Stage 9: borrowing, short selling, risk figures, "What could happen?", options and futures. Amounts are kobo, as text. */
+export type Loan = { id: number; kind: "personal" | "margin" | "shortfall"; bank: string; principal: Kobo; outstanding: Kobo; rate_bps: number; missed: number;
+  status: string; margin_call: boolean };
+export type ShortPosition = { id: number; ticker: string; name: string; shares: number; opened_price: Kobo; price: Kobo; value: Kobo;
+  collateral: Kobo; cover_bps: number; gain: Kobo; fees_paid: Kobo; margin_call: boolean; recalled: boolean };
+export type LendingEvent = { kind: string; words: string; at: string };
+export type LendingBook = {
+  loans: Loan[]; shorts: ShortPosition[]; events: LendingEvent[];
+  holdings: { shares: Kobo; bonds: Kobo; cash: Kobo };
+  margin: { owed: Kobo; limit: Kobo; ratio_bps: number; call_bps: number; sell_bps: number };
+  personal_limit: Kobo; rates: { personal_bps: number; margin_bps: number; short_fee_bps: number };
+  debts: Kobo; equity: Kobo; most_debt_times: number;
+};
+export type Lendable = { ticker: string; name: string; price: Kobo; lendable: number; short_interest_bps: number };
+export type BorrowingDesk = LendingBook & {
+  lendable: Lendable[]; banks: { id: string; name: string }[]; my_bank: string | null;
+  rules: Record<string, number>;
+  empire: null | { name: string; acts: boolean; sets_limits: boolean; limits: Record<string, number>; book?: LendingBook };
+};
+export type ShareRisk = { ticker: string; name: string; volatility_bps: number | null; beta: number | null; sessions: number; enough: boolean;
+  short_interest_bps: number };
+export type FanPoint = { day: number; p5: Kobo; p25: Kobo; p50: Kobo; p75: Kobo; p95: Kobo };
+export type WhatCouldHappen = { title: string; horizon: string; days: number; paths: number; fee: Kobo; free_left: number;
+  start: Kobo; median: Kobo; best_likely: Kobo; worst_likely: Kobo; value_at_risk: Kobo; chance_of_loss_bps: number;
+  chance_of_margin_call_bps: number | null; fan: FanPoint[]; assumptions: string[] };
+export type Series = { id: number; kind: "call" | "put" | "future"; underlying: string; strike: number | null; expiry_period: number; expiry: string;
+  name: string; spot: Kobo; value: Kobo; bid: Kobo; ask: Kobo; margin_long: Kobo; margin_short: Kobo };
+export type DerivativePosition = { id: number; name: string; kind: string; side: "long" | "short"; contracts: number; entry_price: Kobo; price: Kobo;
+  margin: Kobo; gain: Kobo; margin_call: boolean; purpose: string | null; expiry: string };
+export type CrashFund = { cover: Kobo; paid_in: Kobo; paid_out: Kobo; fund: Kobo; premium_bps: number; trigger_bps: number;
+  history: { label: string; change_bps: number; triggered: boolean }[] };
+export type DerivativesBoard = { series: Series[]; underlyings: string[]; open: boolean; mine: DerivativePosition[];
+  empire: null | { name: string; acts: boolean; head: boolean; build: string; limit_naira: number; committed: Kobo;
+    positions: DerivativePosition[]; crash_fund: CrashFund } };
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   // Anything that changes something may change prices: the shared market answer is asked for again.
   if (options.method && options.method !== "GET") marketShared = null;
@@ -926,6 +963,13 @@ export const api = {
   companies: () => request<{ sectors: Sector[] }>("/companies"),
   economy: () => request<Economy>("/economy"),
   property: () => request<PropertyMarket>("/property"),
+  borrowing: () => request<BorrowingDesk>("/borrowing"),
+  shareRisk: () => request<{ shares: ShareRisk[]; year_sessions: number }>("/share-risk"),
+  derivatives: (underlying?: string) => request<DerivativesBoard>(`/derivatives${underlying ? `?underlying=${encodeURIComponent(underlying)}` : ""}`),
+  whatCouldHappen: (body: { what: "portfolio" | "empire" | "share" | "property"; horizon: "quarter" | "year"; ticker?: string; property_id?: number }) =>
+    request<{ result: WhatCouldHappen }>("/what-could-happen", { method: "POST", body: JSON.stringify(body) }),
+  /** Every borrowing, short and derivatives action: the server answers { result }. */
+  post: (path: string, body: unknown = {}) => request<{ result: unknown }>(path, { method: "POST", body: JSON.stringify(body) }),
   partnerRequests: () => request<{ requests: PartnerRequest[] }>("/auctions/partners"),
   headquarters: () => request<Headquarters>("/empire/headquarters"),
   /** Every property, auction and headquarters action: the server answers { result }. */

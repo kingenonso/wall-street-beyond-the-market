@@ -210,8 +210,17 @@ def wealth(conn: Connection, account, now: datetime) -> dict:
     if _one(conn, "SELECT to_regclass('property_holdings') IS NOT NULL AS ok")["ok"]:
         from simulation import property as property_market
         property_value = property_market.equity_of(conn, account)["equity"]      # what it owns in property, less what it owes on it
-    return {"cash": cash, "shares": shares_value, "bonds": bonds_value, "property": property_value,
-            "total": cash + shares_value + bonds_value + property_value,
+    borrowing, contracts = 0, 0
+    if _one(conn, "SELECT to_regclass('player_loans') IS NOT NULL AS ok")["ok"]:
+        # Stage 9: cash held as a short seller's collateral is still theirs; loans and borrowed shares are owed.
+        from simulation import lending
+        cash += lending.collateral_held(conn, account)
+        borrowing = lending.loans_owed(conn, account) + lending.short_liability(conn, account)
+    if _one(conn, "SELECT to_regclass('derivative_positions') IS NOT NULL AS ok")["ok"]:
+        from simulation import derivatives
+        contracts = derivatives.held_value(conn, account, now)              # options and futures, their margin included
+    return {"cash": cash, "shares": shares_value, "bonds": bonds_value, "property": property_value, "borrowing": -borrowing,
+            "derivatives": contracts, "total": cash + shares_value + bonds_value + property_value - borrowing + contracts,
             "lines": lines, "bond_lines": held, "day": day}
 
 
@@ -1280,6 +1289,7 @@ TEMPLATES: dict[str, Template] = {t.code: t for t in (
 
 from simulation import objectives_more  # noqa: E402,F401  (adds the work of the other four builds to the library)
 from simulation import objectives_property  # noqa: E402,F401  (adds the work about land and property, Stage 8)
+from simulation import objectives_stage9  # noqa: E402,F401  (adds the work about borrowing, short selling and derivatives, Stage 9)
 from simulation import empires  # noqa: E402,F401          (adds the work that exists only inside an empire)
 from simulation import objectives_ceo  # noqa: E402,F401   (adds the leadership work of the CEO track)
 from simulation import leagues, ranks  # noqa: E402

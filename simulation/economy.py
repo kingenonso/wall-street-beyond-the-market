@@ -24,6 +24,7 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 
 from simulation import clock, events, ledger, mindsets
+from simulation import stochastic
 from simulation import world_data as data
 from simulation.fortune import fortune_bps
 from simulation.money import BPS, apply_bps
@@ -183,7 +184,8 @@ def set_market_pulls(conn: Connection, world: World, companies: list[dict], peri
         lasting = max(drifted + apply_bps(opening.get(company["id"], previous[company["id"]]) - drifted, data.PULL_RETURN_BPS), 1)
         # Most of a quarter's ups and downs now have a real cause: this quarter's
         # events. A smaller part is still the ordinary run of business.
-        own = fortune_bps(seed, company["ticker"], period, "sales", company["volatility_bps"] // 2)
+        own = stochastic.shock_bps(seed, company["ticker"], period, "sales", company["volatility_bps"] // 2,
+                                   stochastic.company_loadings(company["sector"]))
         effects = events.company_effects(happening or [], company)
         carried[company["id"]] = lasting
         company["own_fortune_bps"] = own
@@ -221,7 +223,7 @@ def household_sector_weights(world: World, period: int, seed: str, state: dict) 
     dear = relative_prices(state)
     for sector, row in world.demand.items():
         season = world.seasons[sector][(period - 1) % 4]
-        fortunes[sector] = fortune_bps(seed, sector, period, "demand", data.SECTOR_VOLATILITY_BPS)
+        fortunes[sector] = stochastic.shock_bps(seed, sector, period, "demand", data.SECTOR_VOLATILITY_BPS, stochastic.sector_loadings(sector))
         weight = row["household_bps"] * season // BPS * (BPS + fortunes[sector]) // BPS
         # Households cut back only a little when something they need gets dearer, so
         # they end up spending more on it: half the price change shows in their spending.
@@ -297,7 +299,7 @@ def households_spend(conn: Connection, world: World, period: int, sector_weights
             apply_bps(disposable, household["spend_from_income_bps"])
             + apply_bps(max(cash - new_loans, 0), household["spend_from_savings_bps"])
         )
-        mood = fortune_bps(seed, f"households:{location}", period, "mood", data.HOUSEHOLD_MOOD_BPS)
+        mood = stochastic.shock_bps(seed, f"households:{location}", period, "mood", data.HOUSEHOLD_MOOD_BPS, data.HOUSEHOLD_MOOD_LOADINGS)
         mood += (moods or {}).get(location, 0)
         budget = max(apply_bps(apply_bps(habit, response["spend_bps"]), BPS + mood), 0) + new_loans
         spent[location] = ledger.pay_split_up_to(

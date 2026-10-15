@@ -144,6 +144,11 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
     first_new_trade = _rows(conn, "SELECT coalesce(max(id), 0) AS id FROM market_trades")[0]["id"] if foreign_budget > 0 else 0
 
     from simulation import corporate                  # (it needs this module's neighbours too)
+    # Stage 9: each kind of investor has its own temper about a share's recent move (some chase it, some lean
+    # against it), and small investors bid up a heavily shorted share that is rising (a squeeze).
+    from simulation import lending, marketview
+    recent = marketview.recent_closes(conn, 6)
+    shorted = lending.short_interest(conn) if _rows(conn, "SELECT to_regclass('short_positions') IS NOT NULL AS ok")[0]["ok"] else {}
     open_bids = {b["target_company_id"]: b for b in _rows(conn, "SELECT * FROM takeovers WHERE status = 'open'")}
 
     for company in shares:
@@ -192,6 +197,7 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
                 todays, net_sold = _impact(conn, account, share["company_id"], day, value, one_order)
                 pressure = _within(carried + todays)
                 view = fortune_bps(seed, f"investor:{code}:{share['ticker']}", day_number, "view", own_view)
+                view += temper_bps(code, recent.get(share["company_id"]), shorted.get(share["company_id"], 0))
                 news, cause = mood.get(share["company_id"], (0, None)) if code == "investors:public" else (0, None)
                 if code == abroad.FOREIGN and foreign_tilt and foreign_left > 0:
                     # Keen to bring money in (or to take it out) this quarter, until they have traded their share of the day:
@@ -271,6 +277,19 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
                     except exchange.ExchangeError:
                         continue                               # short of cash or shares, or trading paused: no order
     return placed
+
+
+def temper_bps(code: str, closes: list | None, short_bps: int) -> int:
+    """How an investor's temper moves its view of a share: a share of the last few days' move (with or against
+    it), and, for small investors, a push upwards on a rising share that many have sold short."""
+    if not closes or len(closes) < 2 or closes[0] <= 0:
+        return 0
+    move_percent = (closes[-1] - closes[0]) * 100 / closes[0]
+    most = data.INVESTOR_TEMPER_MOST_BPS
+    temper = int(min(max(data.INVESTOR_TEMPER_BPS.get(code, 0) * move_percent, -most), most))
+    if code == "investors:public" and move_percent > 0 and short_bps > 0:
+        temper += min(data.SQUEEZE_BPS_PER_SHORT_PERCENT * short_bps // 100, data.SQUEEZE_MOST_BPS)
+    return temper
 
 
 def _within(bps: int) -> int:

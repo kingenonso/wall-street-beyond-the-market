@@ -97,7 +97,10 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     shares), takeover offers, defences, stakes, blocks, mergers and spin-offs, and fees taken from an owned company
     (test_dealmaking*.py): each acts as the player, for their own desk, firm and empire, and moves money only through the ledger.
     Stage 8 added property, the Auction House and headquarters (test_property*.py): each acts as the player, or as the head
-    for their empire, and moves money only through the ledger."""
+    for their empire, and moves money only through the ledger. Stage 9 added borrowing (personal and margin loans, repaying),
+    short selling, an empire's limits, "What could happen?", options and futures, and the crash fund (test_lending.py,
+    test_derivatives.py, test_stage9_*.py): each acts as the player, or for their empire inside its Risk Manager's limits,
+    and moves money only through the ledger."""
     from server.main import app
 
     writes = sorted(
@@ -143,6 +146,9 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/bookkeeping"),
         ("POST", "/api/bookkeeping/{engagement_id}/open"),
         ("POST", "/api/bookkeeping/{engagement_id}/report"),
+        ("POST", "/api/borrowing/loans/{loan_id}/repay"),
+        ("POST", "/api/borrowing/margin"),
+        ("POST", "/api/borrowing/personal"),
         ("POST", "/api/career/retirement/pension"),
         ("POST", "/api/combinations/join"),
         ("POST", "/api/combinations/merger"),
@@ -155,6 +161,9 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/deals/steps/{step_id}/send"),
         ("POST", "/api/deals/{deal_id}/claims"),
         ("POST", "/api/deals/{process_id}/file"),
+        ("POST", "/api/derivatives/positions/{position_id}/close"),
+        ("POST", "/api/derivatives/positions/{position_id}/margin"),
+        ("POST", "/api/derivatives/{series_id}/trade"),
         ("POST", "/api/empire/ai-audit"),
         ("POST", "/api/empire/auctions/{auction_id}/bid"),
         ("POST", "/api/empire/auctions/{auction_id}/check"),
@@ -162,6 +171,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/empire/bonds"),
         ("POST", "/api/empire/bonuses"),
         ("POST", "/api/empire/capital"),
+        ("POST", "/api/empire/crash-fund"),
         ("POST", "/api/empire/expenses"),
         ("POST", "/api/empire/head-votes"),
         ("POST", "/api/empire/headquarters"),
@@ -170,6 +180,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/empire/headquarters/upkeep/approve"),
         ("POST", "/api/empire/headquarters/upkeep/ask"),
         ("POST", "/api/empire/investigations"),
+        ("POST", "/api/empire/limits"),
         ("POST", "/api/empire/messages"),
         ("POST", "/api/empire/opening"),
         ("POST", "/api/empire/orders"),
@@ -237,11 +248,15 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/ranks/cases/{case_id}/hand-in"),
         ("POST", "/api/reports"),
         ("POST", "/api/rescues"),
+        ("POST", "/api/shorts"),
+        ("POST", "/api/shorts/{short_id}/close"),
+        ("POST", "/api/shorts/{short_id}/collateral"),
         ("POST", "/api/stake-offers/{offer_id}"),
         ("POST", "/api/stakes"),
         ("POST", "/api/takeovers"),
         ("POST", "/api/takeovers/{takeover_id}/defence/hand-in"),
         ("POST", "/api/takeovers/{takeover_id}/defence/open"),
+        ("POST", "/api/what-could-happen"),
         ("PUT", "/api/blocks/{block_id}"),
         ("PUT", "/api/bookkeeping/{engagement_id}/rating"),
         ("PUT", "/api/career/bank"),

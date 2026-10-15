@@ -19,8 +19,8 @@ from __future__ import annotations
 from psycopg import Connection
 from psycopg.rows import dict_row
 
+from simulation import stochastic
 from simulation import world_data as data
-from simulation.fortune import fortune_bps
 from simulation.money import BPS, apply_bps
 
 COMMODITY_COLUMNS = {"energy": "energy_bps", "metals": "metals_bps",
@@ -145,7 +145,8 @@ def close_quarter(conn: Connection, period: int, seed: str, *, company_sales: in
     for name, (_, weight) in data.COMMODITIES.items():
         before = prev[COMMODITY_COLUMNS[name]]
         drifted = before + apply_bps(prev["price_index_bps"] - before, data.COMMODITY_RETURN_BPS)
-        swing = fortune_bps(seed, f"commodity:{name}", period, "price", data.COMMODITY_SWING_BPS)
+        swing = stochastic.shock_bps(seed, f"commodity:{name}", period, "price", data.COMMODITY_SWING_BPS,
+                                     data.COMMODITY_LOADINGS.get(name))
         now = max(apply_bps(apply_bps(drifted, BPS + swing), BPS + commodity_events.get(name, 0)), 1000)
         if name == "energy" and energy_bps is not None:
             now = energy_bps                   # energy is the world oil price in naira (the economy upgrade)

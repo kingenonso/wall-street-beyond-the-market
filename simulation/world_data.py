@@ -897,3 +897,85 @@ HQ_CITY_INDUSTRIES = {LAGOS: ("banking", "telecoms", "media", "insurance"), ABUJ
 HQ_CITY_WORDS = {LAGOS: "the best deals and recruits, but the dearest land", ABUJA: "lobbying (felt fully when the Government stage comes)",
                  PORT_HARCOURT: "energy deals", KANO: "the cheapest land, trade and farming", ABA: "manufacturing"}
 LAGOS_RECRUIT_POINTS = 5              # a Lagos headquarters: players may join with a reputation 5 lower
+
+# ---------------------------------------------------------------------------
+# Stage 9, Part A: the stochastic engine, "What could happen?", borrowing and short selling.
+# ---------------------------------------------------------------------------
+# How much each industry leans on the quarter's common forces (economy, energy, building, farming, money).
+# The squares of a row add up to less than 1; the rest of an industry's luck is its own.
+SECTOR_FACTOR_LOADINGS = {
+    "consumer": {"economy": 0.6}, "hospitality": {"economy": 0.7}, "aviation": {"economy": 0.6, "energy": -0.3},
+    "manufacturing": {"economy": 0.5}, "transport": {"economy": 0.5, "energy": -0.2}, "telecoms": {"economy": 0.3},
+    "media": {"economy": 0.5}, "banking": {"economy": 0.4, "money": 0.4}, "insurance": {"economy": 0.3, "money": 0.3},
+    "oil_gas": {"energy": 0.8}, "power": {"economy": 0.3, "energy": 0.3}, "cement": {"building": 0.6, "economy": 0.3},
+    "real_estate": {"building": 0.6, "economy": 0.3}, "agriculture": {"farming": 0.8}, "shipping": {"economy": 0.4, "energy": 0.2},
+}
+COMPANY_SHARES_OF_SECTOR = 0.5         # a company carries half of its industry's lean; the rest of its luck is its own
+OIL_LOADINGS = {"energy": 0.9}
+NAIRA_LOADINGS = {"money": 0.7}
+HOUSEHOLD_MOOD_LOADINGS = {"economy": 0.6}
+COMMODITY_LOADINGS = {"energy": {"energy": 0.8}, "agriculture": {"farming": 0.8}, "metals": {"economy": 0.5},
+                      "materials": {"building": 0.7}}
+# The computer investors' tempers: how much of a share's move over the last five trading days each kind
+# adds to (or, for those who go against the crowd, takes from) its view. In hundredths of a percent per percent.
+INVESTOR_TEMPER_BPS = {"investors:institutions": -15, "investors:public": 30, "investors:founders": -5, "investors:foreign": 20}
+INVESTOR_TEMPER_MOST_BPS = 300         # never more than 3% either way
+SQUEEZE_BPS_PER_SHORT_PERCENT = 20     # small investors price a heavily shorted, rising share up: 0.2% for each 1% of shares shorted...
+SQUEEZE_MOST_BPS = 400                 # ...up to 4%
+RISK_SESSIONS = 60                     # a share's risk figures use its last 60 trading days
+
+# "What could happen?" (Monte Carlo).
+MONTE_CARLO_PATHS = 1_000
+MONTE_CARLO_FREE_A_DAY = 1             # one free run a day...
+MONTE_CARLO_FEE_NAIRA = 5_000          # ...then each run costs this, paid to the exchange (it leaves the players' hands)
+MONTE_CARLO_HORIZONS = {"quarter": 7, "year": 28}   # in trading days
+
+# Personal loans.
+PERSONAL_LOAN_SALARY_QUARTERS = 4      # at most a year's salary...
+PERSONAL_LOAN_SPREAD_BPS = 800         # ...at the Central Bank's rate plus 8%...
+PERSONAL_LOAN_TERM_QUARTERS = 8        # ...repaid over two years
+LOAN_MISSES_TO_DEFAULT = 2             # two quarters missed and the loan is in default: no more borrowing until it is cleared
+LOAN_LATE_PENALTY_BPS = 500            # what is unpaid grows by 5% a quarter
+# Loans against shares and bonds (margin loans).
+MARGIN_LOAN_MOST_BPS = 5000            # borrow up to half the value of the shares and bonds held
+MARGIN_LOAN_SPREAD_BPS = 200           # at the Central Bank's rate plus 2%
+MARGIN_CALL_BPS = 7000                 # a margin call when the loan reaches 70% of shares, bonds and cash...
+MARGIN_SELL_BPS = 8000                 # ...and shares are sold when it reaches 80%, or a call is not met by the next Closing Bell
+FORCED_SALE_DISCOUNT_BPS = 500         # shares sold by force go to the market's computer investors at 5% below the closing price
+MOST_DEBT_TIMES_EQUITY = 2             # all a player's borrowing together: at most twice what they are worth after debts
+# Short selling.
+SHORT_COLLATERAL_BPS = 15000           # cash held as collateral: 150% of the borrowed shares' value
+SHORT_CALL_BPS = 12500                 # a margin call when the collateral falls below 125% of their value...
+SHORT_BUY_IN_BPS = 11000               # ...and they are bought back by force below 110%, or when a call is not met by the next bell
+SHORT_FEE_BPS = 200                    # the lender's fee: 2% a year of the borrowed shares' value
+LENDING_POOL_BPS = 3000                # a pension fund lends at most 30% of its holding of a share
+BUY_IN_PREMIUM_BPS = 500               # shares bought back by force cost 5% above the closing price
+EMPIRE_LEVERAGE_DEFAULT_BPS = 0        # an empire may borrow against its holdings and short only inside limits its Risk Manager signs
+
+# ---------------------------------------------------------------------------
+# Stage 9, Part B: options, futures, commodities, the hedging desk and the crash fund.
+# ---------------------------------------------------------------------------
+OPTION_SHARES_PER_CONTRACT = 100       # a share option is on 100 shares
+INDEX_KOBO_PER_POINT = 10_000          # a BSX 50 contract: ₦100 for each point of the index
+OIL_BARRELS_PER_CONTRACT = 10          # an oil contract: ten barrels, valued in naira at the day's exchange rate
+NAIRA_DOLLARS_PER_CONTRACT = 1_000     # a naira contract: $1,000, valued in naira
+COMMODITY_KOBO_PER_POINT = 1_000_000   # a farm produce, metals or building materials contract: ₦10,000 for each point of its index
+OPTION_STRIKES_BPS = (9000, 10000, 11000)              # share options: strikes at 90%, 100% and 110% of the price when listed
+INDEX_OPTION_STRIKES_BPS = (9000, 9500, 10000, 10500, 11000)
+OPTION_EXPIRIES = 2                    # options and futures run to the end of this quarter and the next
+OPTION_LEAST_VOLATILITY_BPS = 1500     # the market makers never price a share's swing below 15% a year...
+INDEX_VOLATILITY_BPS = 2000            # ...and take the BSX 50 to swing 20% a year until its own record says otherwise
+DESK_SPREAD_BPS = 500                  # options: the market makers buy at 5% below their price and sell at 5% above...
+DESK_LEAST_SPREAD_KOBO = 1_000         # ...and never closer than ₦10 a contract either side
+FUTURE_SPREAD_BPS = 25                 # futures: 0.25% either side
+WORLD_RATE_BPS = 400                   # interest abroad, for the naira future's price
+FUTURE_MARGIN_BPS = 1500               # a futures position: 15% of its value held as margin...
+FUTURE_MAINTENANCE_BPS = 1000          # ...a call when it falls below 10%; closed at the next bell if not met
+WRITER_MARGIN_BPS = 2000               # writing (selling) an option: 20% of the underlying value held, plus the option's own value
+WRITER_CALL_SHARE_BPS = 8500           # a call when what is held falls below 85% of what is needed
+MOST_CONTRACTS_A_SERIES = 1_000        # at most this many contracts of one series for one account
+EMPIRE_DERIVATIVES_DEFAULT_NAIRA = 0   # an empire trades derivatives only inside a limit its Risk Manager signs
+# The crash fund: empires pay in each quarter for cover that pays out when the market falls hard.
+CRASH_PREMIUM_BPS = 300                # 3% of the cover, each quarter...
+CRASH_TRIGGER_BPS = 1500               # ...and it pays the cover when the BSX 50 falls 15% or more in a quarter
+CRASH_MOST_COVER_BPS = 5000            # cover at most half of what the empire is worth

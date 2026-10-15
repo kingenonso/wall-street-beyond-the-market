@@ -1,3 +1,4 @@
+import { WhatCouldHappenPanel } from "./WhatIf";
 import { useState } from "react";
 import { api, ApiError, type Order } from "./api";
 import { formatCompact, formatNaira } from "./format";
@@ -221,6 +222,7 @@ export function PortfolioRail({ onLoggedOut }: { onLoggedOut: () => void }) {
   const { data } = useLoad(api.portfolio, "portfolio", onLoggedOut);
   return (
     <>
+      <WhatCouldHappenPanel what="portfolio" title="What could happen to what you own?" onLoggedOut={onLoggedOut} />
       {data && data.advice.length > 0 && (
         <Panel title="Your money, in plain words" aside="Observations, never tips">
           <ul className="reasons advice">{data.advice.map((line) => <li key={line}>{line}</li>)}</ul>

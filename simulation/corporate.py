@@ -430,6 +430,15 @@ def _complete_splits(conn: Connection, period: int, now: datetime) -> None:
         conn.execute("UPDATE watchlist SET alert_above = alert_above / %s, alert_below = greatest(alert_below / %s, 1) WHERE company_id = %s",
                      (ratio, ratio, company["id"]))
         conn.execute("UPDATE investor_books SET centre = greatest(centre / %s, 1) WHERE company_id = %s", (ratio, company["id"]))
+        # Lent shares become as many more as everyone else's (the borrower's and the lender's holdings already have); options on
+        # the company cover as many more shares at a strike as much lower, so nobody gains or loses by the split (Stage 9).
+        conn.execute("UPDATE short_positions SET shares = shares * %s, opened_price = greatest(opened_price / %s, 1)"
+                     " WHERE company_id = %s AND status = 'open'", (ratio, ratio, company["id"]))
+        conn.execute("UPDATE derivative_positions p SET contracts = p.contracts * %s, entry_price = p.entry_price / %s, mark = p.mark / %s"
+                     " FROM derivative_series s WHERE s.id = p.series_id AND s.company_id = %s AND s.status = 'open' AND p.status = 'open'",
+                     (ratio, ratio, ratio, company["id"]))
+        conn.execute("UPDATE derivative_series SET strike = greatest(round(strike::numeric / %s), 1) WHERE company_id = %s AND status = 'open'",
+                     (ratio, company["id"]))
         conn.execute("INSERT INTO share_splits (company_id, period, ratio, after_trade_id, session_date) VALUES (%s, %s, %s, %s, %s)",
                      (company["id"], period, ratio, _after_trade(conn), day))
         after = _market_price(conn, company["id"])

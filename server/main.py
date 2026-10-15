@@ -183,11 +183,24 @@ def _player_response(conn: Connection, row: dict) -> PlayerResponse:
         rank_waiting=bool(mine and _rank_waiting(conn, row["id"], mine)),
         news_alerts=row.get("news_alerts", True),
         unread_messages=messages.unread_count(conn, row["id"]),
+        margin_calls=_margin_calls(conn, row["id"]),
         theme=row.get("theme", "dark"), sound_on=row.get("sound_on", True),
         sound_volume=row.get("sound_volume", 30), tour_done=row.get("tour_done", False),
         work_in_hand=conn.execute("SELECT count(*) AS n FROM objectives WHERE player_id = %s AND state = 'active'", (row["id"],)).fetchone()["n"]
         if mine else 0,
     )
+
+
+def _margin_calls(conn: Connection, player_id) -> int:
+    """Stage 9: margin calls standing on the player's own loans, shorts, options and futures."""
+    if conn.execute("SELECT to_regclass('derivative_positions') IS NOT NULL AS ok").fetchone()["ok"] is not True:
+        return 0
+    account = ledger.player_account_id(conn, player_id)
+    return conn.execute("SELECT (SELECT count(*) FROM player_loans WHERE borrower = %s AND call_since IS NOT NULL AND status <> 'repaid')"
+                        " + (SELECT count(*) FROM short_positions WHERE borrower = %s AND status = 'open' AND (call_since IS NOT NULL"
+                        "    OR recalled_period IS NOT NULL))"
+                        " + (SELECT count(*) FROM derivative_positions WHERE account = %s AND status = 'open' AND call_since IS NOT NULL) AS n",
+                        (account, account, account)).fetchone()["n"]
 
 
 def _rank_waiting(conn: Connection, player_id, mine: dict) -> bool:
@@ -1573,3 +1586,4 @@ from server import deal_routes, dealmaking_routes  # noqa: E402,F401
 from server import message_routes  # noqa: E402,F401
 from server import settings_routes  # noqa: E402,F401
 from server import property_routes  # noqa: E402,F401
+from server import lending_routes  # noqa: E402,F401

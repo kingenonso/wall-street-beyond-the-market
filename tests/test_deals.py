@@ -86,6 +86,15 @@ def do_checks(db, empire, team, file_id, *, well=True, badly=(), skip=()):
         assert (done["score"] == 100) == (well and step["step"] not in badly) or not well or step["step"] in badly
 
 
+def fairness_if_needed(db, team, file_id, bid):
+    """A bid above the line needs the Banker's fairness opinion, even when the asking price was below it: give it."""
+    if bid > firm_deals.FAIRNESS_ABOVE and not _one(db, "SELECT 1 FROM deal_steps WHERE file_id = %s AND step = 'fairness'", (file_id,)):
+        db.execute("INSERT INTO deal_steps (file_id, step, build) VALUES (%s, 'fairness', 'investment_banker')", (file_id,))
+        step = _one(db, "SELECT * FROM deal_steps WHERE file_id = %s AND step = 'fairness'", (file_id,))
+        firm_deals.open_step(db, team["investment_banker"], step["id"], LATER)
+        firm_deals.hand_in_step(db, team["investment_banker"], step["id"], right_answers(db, step["id"]), LATER)
+
+
 # ---------------------------------------------------------------------------
 # The world
 # ---------------------------------------------------------------------------

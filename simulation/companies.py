@@ -29,6 +29,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from simulation import clock, credit, economy, events, ledger, macro
+from simulation import stochastic
 from simulation import world_data as data
 from simulation.fortune import fortune_bps  # noqa: F401  (also used by tests through this module)
 from simulation.ledger import NGN, Leg
@@ -193,6 +194,9 @@ def _pay_dividend(conn, company, amount, period) -> int:
         conn, kind="dividend", memo=f"{company['name']}: dividend for {clock.period_label(period)}",
         legs=[Leg(company["account_id"], -total), *legs], period=period,
     )
+    # Shares lent to short sellers: the borrower pays the lender the dividend it would have had (Stage 9).
+    from simulation import lending
+    lending.after_dividend(conn, company["id"], total, shares, period, clock.period_label(period))
     return total
 
 
@@ -289,7 +293,8 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
 
     # 3. This quarter's costs. Direct labour follows what was sold; this quarter's
     #    good or bad fortune with costs shows here.
-    cost_fortune = fortune_bps(ctx.fortune_seed, company["ticker"], period, "costs", company["volatility_bps"] // 3)
+    cost_fortune = stochastic.shock_bps(ctx.fortune_seed, company["ticker"], period, "costs", company["volatility_bps"] // 3,
+                                        {"energy": 0.3})
     # A company lately taken over is being joined to its new owner: that changes its costs, for better or worse.
     joining = ctx.integration.get(company["id"])
     labour_rate = min(max(company["labour_bps"] + cost_fortune + happened["cost_bps"]
@@ -398,7 +403,8 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     # (Its borrowers close their quarters before it does, so all of it has arrived.)
     # Dividends from a company it owns shares in (after a takeover) are counted with it.
     dividends_received = received("dividend")
-    interest_income = received("debt_interest") + dividends_received + received("empire_interest") + received("mortgage_interest")
+    interest_income = (received("debt_interest") + dividends_received + received("empire_interest") + received("mortgage_interest")
+                       + received("player_loan_interest"))
     if dividends_received:
         notes.append(f"It received {in_words(dividends_received)} in dividends from the company it owns shares in.")
 
@@ -586,6 +592,9 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     # ...and so do its mortgages to players and empires (Stage 8).
     to_empires += _row(conn, "SELECT coalesce(sum(outstanding), 0)::bigint AS total FROM mortgages WHERE bank_company_id = %s"
                              " AND status IN ('open', 'shortfall')", (company["id"],))["total"]
+    # ...and its personal loans and loans against shares to players and empires (Stage 9).
+    to_empires += _row(conn, "SELECT coalesce(sum(outstanding), 0)::bigint AS total FROM player_loans WHERE bank_company_id = %s"
+                             " AND status <> 'repaid'", (company["id"],))["total"]
     lent = {**lent, "gross": lent["gross"] + to_empires}
     loans_to_companies = lent["gross"] - lent["written_off"]          # what it still expects to be repaid
     lent_before = prev["loans_to_companies"] + (lent["written_off"] - loan_losses)
