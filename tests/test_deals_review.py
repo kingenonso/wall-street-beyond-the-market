@@ -12,7 +12,7 @@ from simulation.money import BPS, million_naira
 from tests.conftest import after_quarters
 from tests.test_builds import pro
 from tests.test_careers import NOW9
-from tests.test_deals import LATER, _dicts, _one, do_checks, open_a_sale
+from tests.test_deals import LATER, _dicts, _one, do_checks, fairness_if_needed, open_a_sale
 from tests.test_deals_more import own
 from tests.test_firm import firm_of, member
 from tests.test_objectives import give_cash
@@ -87,6 +87,7 @@ def test_f03_what_a_check_showed_is_known_even_if_answered_wrongly(db):
                        " AND c.status = 'trading' ORDER BY c.ticker LIMIT 1")
     sale, file_id = filed(db, team, empire, dressed["ticker"], badly=("accounts",))
     assert _one(db, "SELECT 1 FROM deal_shown WHERE empire_id = %s AND code = 'dressed_revenue'", (empire["id"],))
+    fairness_if_needed(db, team, file_id, sale["asking"] * 13 // 10)
     firm_deals.place_bid(db, team["head"], file_id, sale["asking"] * 13 // 10, 0, LATER)
     assert quarters.close_due_quarters(db, after_quarters(9)) == [9]
     deal = _one(db, "SELECT * FROM deals WHERE empire_id = %s", (empire["id"],))

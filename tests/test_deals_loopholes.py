@@ -12,7 +12,7 @@ import pytest
 
 from simulation import empires, exchange, firm, firm_deals, firm_owned, ledger, objectives, private, quarters
 from tests.conftest import ADULT, after_quarters, join
-from tests.test_deals import LATER, _dicts, _one, do_checks, open_a_sale, truth
+from tests.test_deals import LATER, _dicts, _one, do_checks, fairness_if_needed, open_a_sale, truth
 from tests.test_deals_more import own
 from tests.test_builds import pro
 from tests.test_careers import NOW9
@@ -110,7 +110,9 @@ def test_q6_no_claim_for_what_the_buyer_knew_before_it_bid(db):
                        " AND s.seller_empire_id IS NOT NULL) ORDER BY c.ticker LIMIT 1")
     empire, team, sale, file_id = ready(db, dressed["ticker"])
     do_checks(db, empire, team, file_id)                                          # the Accountant finds it before the bid
-    firm_deals.place_bid(db, team["head"], file_id, sale["asking"] * 13 // 10, 0, LATER)
+    bid = sale["asking"] * 13 // 10
+    fairness_if_needed(db, team, file_id, bid)
+    firm_deals.place_bid(db, team["head"], file_id, bid, 0, LATER)
     assert quarters.close_due_quarters(db, after_quarters(9)) == [9]
     deal = _one(db, "SELECT * FROM deals WHERE empire_id = %s", (empire["id"],))
     if deal is None:

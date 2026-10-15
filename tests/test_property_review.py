@@ -121,7 +121,10 @@ def test_5_property_and_bid_cash_count_in_the_closing_bells_net_worth():
     import server.main  # noqa: F401  (everything imported, in the server's order)
     from simulation import closingbell  # noqa: F401
     assert prop._players_property in marketview._OTHER_HOLDINGS
-    assert len(marketview._OTHER_HOLDINGS) == len(set(marketview._OTHER_HOLDINGS)) == 3
+    # Each registered once: bonds, offer cash, property, and (Stage 9) loans and shorts, options and futures.
+    from simulation import derivatives, lending
+    assert lending._players_lending in marketview._OTHER_HOLDINGS and derivatives._players_derivatives in marketview._OTHER_HOLDINGS
+    assert len(marketview._OTHER_HOLDINGS) == len(set(marketview._OTHER_HOLDINGS)) == 5
 
 
 def test_6_a_lot_is_searched_once_for_an_empire_and_the_fee_is_in_its_books(db):

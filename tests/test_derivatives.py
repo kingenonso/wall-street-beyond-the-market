@@ -189,7 +189,6 @@ def test_the_crash_fund_pays_cover_when_the_market_falls_fifteen_percent_in_a_qu
     assert ledger.balance(db, fund) == naira(10_000_000) * data.CRASH_PREMIUM_BPS // BPS
     # Another empire's premiums are in the pot too (so the fund can pay); the market then falls 20% over the quarter.
     seed_fund(db, naira(20_000_000))
-    before = ledger.balance(db, empire["account_id"])
     db.execute("UPDATE market_instruments SET last_price = coalesce(last_price, reference_price) * 80 / 100,"
                " reference_price = coalesce(last_price, reference_price) * 80 / 100")
     quarters.close_due_quarters(db, after_quarters(10))

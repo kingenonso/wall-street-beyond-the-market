@@ -83,7 +83,7 @@ function Positions({ positions, act, forEmpire }: { positions: DerivativePositio
             const up = BigInt(p.gain) >= 0n;
             return (
               <tr key={p.id}>
-                <th scope="row">{p.name}{p.purpose && <div className="muted small">Hedge: {p.purpose}</div>}{p.margin_call && <div className="error small">▲ Margin call</div>}</th>
+                <th scope="row" style={{ whiteSpace: "normal", minWidth: 150 }}>{p.name}{p.purpose && <div className="muted small">Hedge: {p.purpose}</div>}{p.margin_call && <div className="error small">▲ Margin call</div>}</th>
                 <td>{p.side === "long" ? "Bought" : p.kind === "future" ? "Sold" : "Written"}</td>
                 <td className="num mono">{p.contracts}</td>
                 <td className="num mono">{formatNaira(p.entry_price)}</td>
@@ -164,7 +164,7 @@ export function DerivativesWork({ onLoggedOut, onChanged }: { onLoggedOut: () =>
       </p>
       {d.empire?.acts && (
         <div className="inline-form">
-          <label className="check"><input type="checkbox" checked={forEmpire} onChange={(e) => setForEmpire(e.target.checked)} /> Trade for {d.empire.name}</label>
+          <label className="check-line"><input type="checkbox" checked={forEmpire} onChange={(e) => setForEmpire(e.target.checked)} /> Trade for {d.empire.name}</label>
           {forEmpire && <label className="answer">What it protects (a hedge, scored when it ends)<input type="text" maxLength={120} value={hedge} onChange={(e) => setHedge(e.target.value)} placeholder="for example: our bank shares against a fall" /></label>}
           {forEmpire && <span className="muted small">Committed {formatCompact(d.empire.committed)} of the ₦{d.empire.limit_naira.toLocaleString("en-NG")} the Risk Manager allows; above it, the head decides.</span>}
         </div>

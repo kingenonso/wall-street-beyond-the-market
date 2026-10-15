@@ -41,9 +41,9 @@ from simulation.money import BPS, naira
 from tests.conftest import after_quarters
 from tests.test_builds import pro
 from tests.test_careers import NOW9, sound
-from tests.test_firm import firm_of, member
-from tests.test_lending import bank_id, price_of, set_price, signed
-from tests.test_objectives import give_cash, give_shares
+from tests.test_firm import firm_of
+from tests.test_lending import bank_id, price_of, set_price
+from tests.test_objectives import give_shares
 
 pytestmark = pytest.mark.world("eight")
 LATER = NOW9 + timedelta(hours=1)
@@ -122,7 +122,7 @@ def test_3_interest_and_the_lending_fee_build_up_by_the_time_held(db):
 
 def test_4_a_loss_beyond_the_collateral_is_owed_missed_interest_carries_a_late_charge_and_a_default_sells_holdings(db):
     player, account = pro(db, "asset_manager", "underwater", level=10, cash_naira=100_000_000)
-    s = lending.open_short(db, account, "GGM", 10_000, NOW9)
+    lending.open_short(db, account, "GGM", 10_000, NOW9)
     ledger.transfer(db, payer=account, receiver=ledger.account_id(db, ledger.TREASURY), amount=ledger.balance(db, account),
                     kind="test_cash", memo="Test: spent")
     set_price(db, "GGM", price_of(db, "GGM") * 3)                       # the price trebles: the collateral covers half
