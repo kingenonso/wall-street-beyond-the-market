@@ -12,6 +12,7 @@ import { type Act, type Any, Arrow, DutyForm, Money, pct } from "./Firm";
 import { formatCompact, formatNaira } from "./format";
 import { NumberTile } from "./Parts";
 import { Panel } from "./Shell";
+import { Term } from "./Term";
 
 const CITIES = ["Lagos", "Abuja", "Port Harcourt", "Aba", "Kano"];
 const STARS = (n: number) => "★".repeat(n) + "☆".repeat(5 - n);
@@ -221,16 +222,19 @@ function Bid({ file, s, d, act }: { file: Any; s: Any; d: Any; act: Act }) {
   const [loan, setLoan] = useState("");
   const [partner, setPartner] = useState("");
   const [pledge, setPledge] = useState("");
+  const [mezz, setMezz] = useState("");
+  const [earnout, setEarnout] = useState("");
   const q = file.loan_quote;
+  const mq = file.mezzanine_quote;
   function bid(event: FormEvent) {
     event.preventDefault();
     const a = asKobo(amount);
-    if (a) act.run("POST", `/deals/files/${file.id}/bid`, { amount_kobo: a, loan_kobo: asKobo(loan) ?? 0 });
+    if (a) act.run("POST", `/deals/files/${file.id}/bid`, { amount_kobo: a, loan_kobo: asKobo(loan) ?? 0, mezzanine_kobo: asKobo(mezz) ?? 0, earnout_kobo: asKobo(earnout) ?? 0 });
   }
   return (
     <div className="bid">
       <p className="field-label">The bid · the head decides</p>
-      {file.bid && <p className="small">Your bid: <Money kobo={file.bid.amount} /> (+ <Money kobo={file.bid.charge} compact /> for clauses) · empire's cash <Money kobo={file.bid.equity} compact /> · loan <Money kobo={file.bid.loan} compact /></p>}
+      {file.bid && <p className="small">Your bid: <Money kobo={file.bid.amount} /> (+ <Money kobo={file.bid.charge} compact /> for clauses) · empire's cash <Money kobo={file.bid.equity} compact /> · loan <Money kobo={file.bid.loan} compact />{file.bid.mezzanine !== "0" && <> · mezzanine <Money kobo={file.bid.mezzanine} compact /></>}{file.bid.earnout !== "0" && <> · earn-out <Money kobo={file.bid.earnout} compact /></>}</p>}
       {q && <p className="small muted">{q.lender ? `${q.lender} would lend up to ${formatCompact(q.most)} at ${pct(q.rate_bps)}, secured on the company. It tests every quarter that the loan stays under ${q.covenants.debt_x_most} times the company's yearly earnings, and that earnings cover the interest ${(q.covenants.cover_least_bps / 10000).toFixed(1)} times.` : "No bank will lend against it at present."}</p>}
       {file.partners.length > 0 && file.partners.map((p: Any) => <div key={p.id} className="row small"><span>Partner: {p.empire}</span><span><Money kobo={p.amount} compact /> <Tag status={p.status} /></span></div>)}
       {!file.bid && d.partners.length > 0 && (
@@ -244,10 +248,13 @@ function Bid({ file, s, d, act }: { file: Any; s: Any; d: Any; act: Act }) {
         <form className="inline-form" onSubmit={bid}>
           <label className="answer"><span className="field-label">Price (₦)</span><input type="text" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
           <label className="answer"><span className="field-label">Of it borrowed (₦)</span><input type="text" value={loan} onChange={(e) => setLoan(e.target.value)} /></label>
+          {mq && <label className="answer"><span className="field-label"><Term word="Mezzanine debt">Mezzanine</Term> (₦)</span><input type="text" value={mezz} onChange={(e) => setMezz(e.target.value)} /></label>}
+          {Number(file.earnout_most_bps ?? 0) > 0 && <label className="answer"><span className="field-label"><Term word="Earn-out">Earn-out</Term> (₦)</span><input type="text" value={earnout} onChange={(e) => setEarnout(e.target.value)} /></label>}
           <button className="button-primary" disabled={act.busy || !asKobo(amount)}>{file.bid ? "Raise the bid" : "Place the bid"}</button>
         </form>
       )}
       {file.bid && s.mode === "sealed" && <button className="button-quiet" disabled={act.busy} onClick={() => act.run("DELETE", `/deals/files/${file.id}/bid`)}>Withdraw the bid</button>}
+      {mq && <p className="small muted">The pension funds would lend up to {formatCompact(mq.most)} more after the bank, at {pct(mq.rate_bps)}, ranked after the bank's loan, and take {pct(mq.equity_bps)} of the company.{Number(file.earnout_most_bps ?? 0) > 0 ? ` Up to ${pct(file.earnout_most_bps)} of the price can be an earn-out, paid a year later in full if sales match this year's (in proportion if less); the seller counts it at 60%.` : ""}</p>}
       <p className="muted small">The empire's part of the price is held in escrow while the bid stands. A sealed bid is opened when the quarter closes; at auction the highest bid is shown to everyone.</p>
     </div>
   );

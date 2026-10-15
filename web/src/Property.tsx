@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   api, ApiError, type Auction, type District, type Headquarters, type Holdings, type MyLot, type PartnerRequest, type Player,
-  type PropertyLot, type PropertyMarket,
+  type LeasebackTerms, type PropertyLot, type PropertyMarket,
 } from "./api";
 import { asKobo } from "./Empire";
 import { formatCompact, formatNaira, formatPercent } from "./format";
@@ -431,6 +431,11 @@ function DistrictPanel({ d }: { d: District }) {
 function Owned({ h, act, forEmpire, canAct, m }: { h: Holdings; act: Act; forEmpire: boolean; canAct: boolean; m: PropertyMarket }) {
   const [reserve, setReserve] = useState<Record<number, string>>({});
   const [repay, setRepay] = useState<Record<number, string>>({});
+  const [lease, setLease] = useState<Record<number, { terms?: LeasebackTerms; quarters: string; error?: string }>>({});
+  async function askTerms(id: number) {
+    try { setLease({ ...lease, [id]: { terms: await api.leasebackTerms(id), quarters: "8" } }); }
+    catch (problem) { setLease({ ...lease, [id]: { quarters: "8", error: problem instanceof Error ? problem.message : "Could not reach the server." } }); }
+  }
   return (
     <>
       <div className="tiles">
@@ -474,10 +479,29 @@ function Owned({ h, act, forEmpire, canAct, m }: { h: Holdings; act: Act; forEmp
                   <button className="button-outline" disabled={act.busy}>Put it up for auction</button>
                 </form>
               )}
+              {p.share_bps === 10000 && p.kind !== "land" && p.kind !== "farmland" && p.status === "standing" && !lease[p.id] && (
+                <button className="button-quiet" disabled={act.busy} onClick={() => askTerms(p.id)}><Term word="Sale and leaseback">Sell and lease back</Term>…</button>
+              )}
+              {lease[p.id]?.error && <p className="error small">{lease[p.id].error}</p>}
+              {lease[p.id]?.terms && (() => { const t = lease[p.id].terms!; return (
+                <form className="inline-form" onSubmit={(e) => { e.preventDefault(); act.run(`/property/${p.id}/leaseback`, { for_empire: forEmpire, quarters: Number(lease[p.id].quarters) }, "Sold and leased back: you keep the use of it and pay rent each quarter."); }}>
+                  <span className="small">A property company would pay <span className="mono">{formatCompact(t.price)}</span> (worth {formatCompact(t.worth)}) and charge <span className="mono">{formatCompact(String(t.rent))}</span> a quarter. Two rents missed and the lease is broken.</span>
+                  <label className="answer">For<select value={lease[p.id].quarters} onChange={(e) => setLease({ ...lease, [p.id]: { ...lease[p.id], quarters: e.target.value } })}>{[4, 6, 8, 12, 16, 20].map((n) => <option key={n} value={n}>{n} quarters</option>)}</select></label>
+                  <button className="button-outline" disabled={act.busy}>Sell and lease it back</button>
+                  <button type="button" className="button-quiet" onClick={() => { const next = { ...lease }; delete next[p.id]; setLease(next); }}>Not now</button>
+                </form>
+              ); })()}
             </div>
           )}
         </article>
       ))}
+      {(h.leases ?? []).length > 0 && (
+        <Panel title="Leased back" aside="you keep the use; the rent is paid at each quarter's close">
+          {(h.leases ?? []).map((l) => (
+            <div key={l.id} className="row small"><span>{l.name} · from {l.landlord} until {l.until}</span><span className="mono">{formatCompact(String(l.rent))} a quarter{l.missed > 0 ? ` · ▲ ${l.missed} rent missed` : ""}</span></div>
+          ))}
+        </Panel>
+      )}
       {h.mortgages.length > 0 && (
         <Panel title="Mortgages" aside={`${pct(m.mortgage_rate_bps)} a year today`}>
           {h.mortgages.map((x) => (

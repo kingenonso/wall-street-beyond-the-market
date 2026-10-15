@@ -173,6 +173,9 @@ def propose(conn: Connection, player_id, *, kind: str, counterparty: dict, side:
         seat = empires.seat_of(conn, player_id)
         if empire is None and seat is not None and seat.get("account_id") == other:
             raise SwapError("A member does not deal with their own empire.")
+        if empire is not None and _one(conn, "SELECT 1 FROM empire_seats s JOIN ledger_accounts a ON a.player_id = s.player_id"
+                                             " WHERE s.empire_id = %s AND a.id = %s", (empire["id"], other)):
+            raise SwapError("An empire does not deal with its own members.")
         if bank:
             fixed = _bank_fixed(conn, kind, side, now)
         elif not isinstance(fixed, int) or isinstance(fixed, bool) or fixed <= 0 or (kind == "rate" and fixed > 10_000):
@@ -376,10 +379,10 @@ def view(conn: Connection, accounts: list) -> list[dict]:
         side = s["proposer_side"] if mine == s["proposer"] else ("receive_fixed" if s["proposer_side"] == "pay_fixed" else "pay_fixed")
         payments = _rows(conn, "SELECT period, floating, amount, payer, paid FROM swap_payments WHERE swap_id = %s ORDER BY period", (s["id"],))
         out.append({"id": s["id"], "kind": s["kind"], "name": describe(s), "status": s["status"], "side": side, "other": other_name,
-                    "yours_to_answer": s["status"] == "proposed" and mine == s["counterparty"], "contract": s["contract"],
+                    "yours_to_answer": s["status"] == "proposed" and mine == s["counterparty"], "empire_side": mine != accounts[0], "contract": s["contract"],
                     "first_period": s["first_period"], "last_period": s["last_period"], "value": value_to(conn, s, mine),
                     "payments": [{"period": p["period"], "floating": p["floating"],
-                                  "you": (p["paid"] if p["payer"] != mine else -p["paid"]), "short": p["amount"] - p["paid"]}
+                                  "amount": (p["paid"] if p["payer"] != mine else -p["paid"]), "unpaid": p["amount"] - p["paid"]}
                                  for p in payments]})
     return out
 

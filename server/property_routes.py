@@ -212,6 +212,32 @@ def property_sell(body: SellRequest, property_id: int = _id(), player: dict = De
                                                                              body.reserve_kobo, now)})
 
 
+class LeasebackRequest(ForRequest):
+    quarters: int = Field(ge=4, le=20, strict=True)
+
+
+@app.get("/api/property/{property_id}/leaseback")
+def property_leaseback_terms(property_id: int = _id(), _: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """What a property company would pay for a building, and the rent to lease it back (for four quarters; longer leases
+    have the same rent each quarter)."""
+    from simulation import leaseback
+    try:
+        p = prop._property(conn, property_id)
+    except prop.PropertyError:
+        raise HTTPException(status_code=404, detail="There is no such property.") from None
+    if p["status"] != "standing" or p["kind"] in ("land", "farmland"):
+        raise HTTPException(status_code=404, detail="Only a building can be leased back.")
+    return wire(leaseback.terms(conn, property_id, 4))
+
+
+@app.post("/api/property/{property_id}/leaseback")
+def property_leaseback(body: LeasebackRequest, property_id: int = _id(), player: dict = Depends(current_player),
+                       conn: Connection = Depends(get_connection)):
+    from simulation import leaseback
+    return _act(conn, player, lambda now: leaseback.sell_and_lease_back(conn, player["id"], property_id, body.quarters, now,
+                                                                        for_empire=body.for_empire))
+
+
 @app.post("/api/property/mortgages/{mortgage_id}/repay")
 def property_repay(body: RepayRequest, mortgage_id: int = _id(), player: dict = Depends(current_player),
                    conn: Connection = Depends(get_connection)):

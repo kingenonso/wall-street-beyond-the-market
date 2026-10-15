@@ -428,6 +428,10 @@ def close(conn: Connection, world, period: int, now: datetime, seed: str, measur
     # 4. A flawed title: the true owner of part of a property bought outside the property companies comes forward.
     _title_claims(conn, period, label, companies_)
 
+    # 4b. Sale-and-leaseback (the gap stage): the rent, and leases that end or are broken.
+    from simulation import leaseback
+    leaseback.close(conn, period, now)
+
     # 5. The headquarters: upkeep, wear, warnings and collapse.
     headquarters.close(conn, period, now, seed)
 
@@ -767,7 +771,8 @@ def mine_view(conn: Connection, account, now: datetime) -> dict:
                  for m in _rows(conn, "SELECT m.*, c.name AS bank FROM mortgages m JOIN companies c ON c.id = m.bank_company_id"
                                       " WHERE m.borrower = %s AND m.status IN ('open', 'shortfall') ORDER BY m.id", (account,))]
     eq = equity_of(conn, account)
-    return {"properties": props, "mortgages": mortgages, **eq}
+    from simulation import leaseback
+    return {"properties": props, "mortgages": mortgages, "leases": leaseback.view(conn, account), **eq}
 
 
 def summary(conn: Connection) -> dict:

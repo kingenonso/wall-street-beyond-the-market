@@ -823,7 +823,9 @@ export type District = {
   history: DistrictPoint[]; properties: PropertyLot[];
 };
 export type Mortgage = { id: number; property_id: number; bank: string; principal: Kobo; outstanding: Kobo; rate_bps: number; missed: number; status: string };
-export type Holdings = { properties: MyLot[]; mortgages: Mortgage[]; value: Kobo; owed: Kobo; equity: Kobo };
+export type Lease = { id: number; property_id: number; name: string; rent: number; landlord: string; until: string; missed: number; status: string };
+export type Holdings = { properties: MyLot[]; mortgages: Mortgage[]; value: Kobo; owed: Kobo; equity: Kobo; leases?: Lease[] };
+export type LeasebackTerms = { worth: Kobo; price: Kobo; rent: number; quarters: number; city: string };
 export type AuctionEvent = { at: string; price: Kobo | null; words: string };
 export type Auction = {
   id: number; property: PropertyLot; reason: "listing" | "owner" | "repossession" | "tax"; opens_at: string; ends_at: string;
@@ -883,14 +885,26 @@ export type WhatCouldHappen = { title: string; horizon: string; days: number; pa
   start: Kobo; median: Kobo; best_likely: Kobo; worst_likely: Kobo; value_at_risk: Kobo; chance_of_loss_bps: number;
   chance_of_margin_call_bps: number | null; fan: FanPoint[]; assumptions: string[] };
 export type Series = { id: number; kind: "call" | "put" | "future"; underlying: string; strike: number | null; expiry_period: number; expiry: string;
-  name: string; spot: Kobo; value: Kobo; bid: Kobo; ask: Kobo; margin_long: Kobo; margin_short: Kobo };
+  name: string; spot: Kobo; value: Kobo; bid: Kobo; ask: Kobo; fair: Kobo; last_trade: Kobo | null; best_bid: Kobo | null; best_ask: Kobo | null;
+  margin_long: Kobo; margin_short: Kobo };
+export type DerivativeOrder = { id: number; name: string; side: "buy" | "sell"; limit_price: Kobo; remaining: number; contracts: number; reserved: Kobo };
+export type FairExplained = { name: string; fair: Kobo; last_trade: Kobo | null; plain: string; method: string; maths: string };
+export type Swap = { id: number; kind: "rate" | "oil"; name: string; status: string; side: "pay_fixed" | "receive_fixed"; other: string;
+  yours_to_answer: boolean; empire_side: boolean; contract: string | null; first_period: number | null; last_period: number | null; value: Kobo;
+  payments: { period: number; floating: number; amount: Kobo; unpaid: Kobo }[] };
+export type SwapsDesk = { swaps: Swap[]; empire: string | null; banks: { id: string; name: string }[]; rate_now: number; oil_now: Kobo; unlock_level: number };
+export type Instrument = { code: string; kind: "preferred" | "warrant"; ticker: string; name: string; fair: Kobo; bid: Kobo; ask: Kobo; on_offer: number;
+  dividend_bps: number | null; par: number | null; strike: number | null; shares_per: number | null; expiry: string | null; held: number };
+export type InstrumentsDesk = { instruments: Instrument[]; waiting: { id: number; name: string; units: number; cash: Kobo }[];
+  empire: null | { name: string; acts: boolean; held: Record<string, number>; waiting: { id: number; name: string; units: number; cash: Kobo }[] } };
 export type DerivativePosition = { id: number; name: string; kind: string; side: "long" | "short"; contracts: number; entry_price: Kobo; price: Kobo;
   margin: Kobo; gain: Kobo; margin_call: boolean; purpose: string | null; expiry: string };
 export type CrashFund = { cover: Kobo; paid_in: Kobo; paid_out: Kobo; fund: Kobo; premium_bps: number; trigger_bps: number;
   history: { label: string; change_bps: number; triggered: boolean }[] };
-export type DerivativesBoard = { series: Series[]; underlyings: string[]; open: boolean; mine: DerivativePosition[];
+export type DerivativesBoard = { series: Series[]; underlyings: string[]; open: boolean; mine: DerivativePosition[]; my_orders: DerivativeOrder[];
+  unlock: { options_level: number; advanced_level: number }; default_fund: Kobo;
   empire: null | { name: string; acts: boolean; head: boolean; build: string; limit_naira: number; committed: Kobo;
-    positions: DerivativePosition[]; crash_fund: CrashFund } };
+    positions: DerivativePosition[]; orders: DerivativeOrder[]; crash_fund: CrashFund } };
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   // Anything that changes something may change prices: the shared market answer is asked for again.
@@ -966,6 +980,10 @@ export const api = {
   borrowing: () => request<BorrowingDesk>("/borrowing"),
   shareRisk: () => request<{ shares: ShareRisk[]; year_sessions: number }>("/share-risk"),
   derivatives: (underlying?: string) => request<DerivativesBoard>(`/derivatives${underlying ? `?underlying=${encodeURIComponent(underlying)}` : ""}`),
+  leasebackTerms: (id: number) => request<LeasebackTerms>(`/property/${id}/leaseback`),
+  explainSeries: (id: number) => request<FairExplained>(`/derivatives/${id}/explain`),
+  swaps: () => request<SwapsDesk>("/swaps"),
+  instruments: () => request<InstrumentsDesk>("/instruments"),
   whatCouldHappen: (body: { what: "portfolio" | "empire" | "share" | "property"; horizon: "quarter" | "year"; ticker?: string; property_id?: number }) =>
     request<{ result: WhatCouldHappen }>("/what-could-happen", { method: "POST", body: JSON.stringify(body) }),
   /** Every borrowing, short and derivatives action: the server answers { result }. */

@@ -422,8 +422,9 @@ def _default(conn: Connection, empire: dict, debt: dict, owed: int, period: int,
 def _close_debts(conn: Connection, empire: dict, period: int, now: datetime) -> None:
     """As a quarter closes: interest is paid, debts due are repaid, a called debt must be repaid now,
     and the promises are tested. A broken promise lets the lender call the debt for the next close."""
-    for debt in _rows(conn, "SELECT * FROM empire_debts WHERE empire_id = %s AND status IN ('open', 'called', 'defaulted') ORDER BY id FOR UPDATE",
-                      (empire["id"],)):
+    # (The bank is paid before the mezzanine lender: that is what ranking after the bank means.)
+    for debt in _rows(conn, "SELECT * FROM empire_debts WHERE empire_id = %s AND status IN ('open', 'called', 'defaulted')"
+                            " ORDER BY (kind = 'mezzanine'), id FOR UPDATE", (empire["id"],)):
         interest = _quarter_interest(debt)
         if interest:
             paid = ledger.pay_up_to(conn, payer=empire["account_id"], receiver=debt["lender_account"], wanted=interest, kind="empire_interest",

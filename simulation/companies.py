@@ -274,7 +274,8 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     sales_households = received("customer_revenue") + received("loan_interest")
     exported = received("exports")
     # (What it sold abroad is counted with its sales to businesses: the buyers abroad are businesses.)
-    sales_business = received("business_purchase") + received("capital_spending") + claims_received + exported
+    sales_business = (received("business_purchase") + received("capital_spending") + claims_received + exported
+                      + received("lease_rent"))          # (rent from a building it bought and leased back to its seller)
     sales_government = received("government_purchase")
     revenue = sales_households + sales_business + sales_government
     imported = moves.get("imports", {}).get("paid", 0)
@@ -553,8 +554,15 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         notes.append("It put spare cash into expanding the business.")
 
     dividends_paid = 0
+    # Preferred shares (the gap stage) are paid first, and only from a quarter's profit.
+    preferred_paid = 0
     if net_profit > 0:
-        wanted = apply_bps(net_profit, company["payout_bps"])
+        from simulation import instruments
+        preferred_paid = instruments.pay_preferred(conn, company, min(net_profit, spare_above(cushion)), period)
+        if preferred_paid:
+            notes.append(f"It paid {in_words(preferred_paid)} to the holders of its preferred shares before its ordinary shareholders.")
+    if net_profit - preferred_paid > 0:
+        wanted = apply_bps(net_profit - preferred_paid, company["payout_bps"])
         # An extra dividend from spare cash, but never more than a small part of the
         # past profits kept in the business: owners cannot strip a company bare.
         # A bank keeps its spare cash: it is what it lends from.
@@ -606,7 +614,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     shares_in_issue = ledger.amount_in_existence(conn, company["share_asset"])
     # Money raised by selling new shares, debt that became shares when bondholders swapped
     # their bonds, and what it paid for shares in another company (a takeover).
-    share_proceeds = moves.get("share_issue", {}).get("received", 0)
+    share_proceeds = moves.get("share_issue", {}).get("received", 0) + moves.get("preferred_issue", {}).get("received", 0)
     converted = _bonds().converted_in(conn, company["id"], period)
     invested = paid("takeover_reserve") - moves.get("takeover_refund", {}).get("received", 0)
     investments = prev["investments"] + invested
@@ -636,7 +644,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     cash_from_investing = (
         (lent_before - lent["gross"]) + (prev["customer_loans"] - customer_loans) - paid("capital_spending") - invested + asset_sales
     )
-    cash_from_financing = -paid("dividend") - (prev["borrowings"] - borrowings - converted) + share_proceeds
+    cash_from_financing = -paid("dividend") - paid("preferred_dividend") - (prev["borrowings"] - borrowings - converted) + share_proceeds
     # Its oil hedges (the gap stage): futures settled in cash every night, and their fees. A gain is other income, a
     # loss a cost; both are part of its trading.
     hedging = (received("variation_margin") - paid("variation_margin") + received("future_trade") - paid("future_trade")
@@ -675,7 +683,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     cash_from_operations = cash_closing - cash_opening - cash_from_investing - cash_from_financing
 
     fixed_assets = prev["fixed_assets"] + capital_spending - depreciation - sold_book
-    retained_earnings = prev["retained_earnings"] + net_profit - dividends_paid
+    retained_earnings = prev["retained_earnings"] + net_profit - dividends_paid - preferred_paid
     total_assets = cash_closing + customer_loans + loans_to_companies + fixed_assets + investments
     total_liabilities = borrowings + payables + prev["customer_funds"]
     share_capital = prev["share_capital"] + share_proceeds + converted

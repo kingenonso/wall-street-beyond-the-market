@@ -196,12 +196,14 @@ def committed(conn: Connection, account) -> int:
 def trade(conn: Connection, player_id, series_id: int, side: str, contracts: int, now: datetime, purpose: str | None = None,
           limit: int | None = None) -> dict:
     """The Asset Manager trades options and futures for the empire; the Risk Manager buys protection (a hedge,
-    scored when it ends). Inside the derivatives limit they act; above it, the head decides."""
+    scored when it ends); the Investment Banker buys protection for a deal the empire has open. Inside the derivatives
+    limit they act; above it, the head decides."""
     with conn.transaction():
         seat, empire = _seat(conn, player_id)
         head = empire["head_player_id"] == player_id
-        if not head and seat["build"] not in ("asset_manager", "risk_manager"):
-            raise EmpireError("The Asset Manager trades options and futures for the empire; the Risk Manager buys protection.")
+        if not head and seat["build"] not in ("asset_manager", "risk_manager", "investment_banker"):
+            raise EmpireError("The Asset Manager trades options and futures for the empire; the Risk Manager and the Investment Banker "
+                              "buy protection.")
         _lock(conn, empire["account_id"])
         return _trade(conn, player_id, seat, empire, head, series_id, side, contracts, now, purpose, limit)
 
@@ -215,6 +217,13 @@ def _trade(conn: Connection, player_id, seat: dict, empire: dict, head: bool, se
             raise EmpireError("The Risk Manager buys protection: options bought, not futures or options written. The Asset Manager "
                               "trades those.")
         purpose = (purpose or "protection for the empire")[:120]
+    if seat["build"] == "investment_banker" and not head:
+        deal = open_deal(conn, empire)
+        if deal is None:
+            raise EmpireError("The Investment Banker buys protection only while the empire has a deal open.")
+        if s["kind"] == "future" or side != "long":
+            raise EmpireError("For a deal, the Investment Banker buys protection: options bought, not futures or options written.")
+        purpose = (purpose or f"protection for the deal on {deal}")[:120]
     q = derivatives.quote(conn, s, now)
     level = derivatives.spot(conn, s, now)
     if s["kind"] == "future":
@@ -223,8 +232,8 @@ def _trade(conn: Connection, player_id, seat: dict, empire: dict, head: bool, se
         cost = q["ask"] * contracts
     else:
         cost = derivatives.writer_margin(conn, s, now, level) * contracts
-    limit = naira(limits(conn, empire)["derivatives_limit_naira"])
-    if not head and committed(conn, empire["account_id"]) + cost > limit:
+    budget = naira(limits(conn, empire)["derivatives_limit_naira"])
+    if not head and committed(conn, empire["account_id"]) + cost > budget:
         return _ask(conn, empire, player_id, "empire_derivative", f"{'Buy' if side == 'long' else 'Sell'} {contracts:,} {derivatives.describe(s)}",
                     cost, {"series_id": series_id, "side": side, "contracts": contracts, "purpose": purpose, "limit": limit}, now)
     result = derivatives.open_position(conn, empire["account_id"], series_id, side, contracts, now, player_id=player_id, purpose=purpose,
@@ -234,11 +243,21 @@ def _trade(conn: Connection, player_id, seat: dict, empire: dict, head: bool, se
     return result
 
 
+def open_deal(conn: Connection, empire: dict) -> str | None:
+    """The company the empire has a deal open on (a file on a company for sale, or a stake being built), if any."""
+    row = lending._one(conn, "SELECT c.name FROM deal_files f JOIN sale_processes p ON p.id = f.process_id JOIN companies c ON c.id = p.company_id"
+                             " WHERE f.empire_id = %s AND f.status = 'open' AND p.status = 'open' ORDER BY f.id DESC LIMIT 1", (empire["id"],))
+    if row is None:
+        row = lending._one(conn, "SELECT c.name FROM stake_programmes s JOIN companies c ON c.id = s.company_id WHERE s.empire_id = %s"
+                                 " AND s.status = 'running' ORDER BY s.id DESC LIMIT 1", (empire["id"],))
+    return row["name"] if row else None
+
+
 def close_derivative(conn: Connection, player_id, position_id: int, now: datetime) -> dict:
     from simulation import derivatives
     seat, empire = _seat(conn, player_id)
-    if empire["head_player_id"] != player_id and seat["build"] not in ("asset_manager", "risk_manager"):
-        raise EmpireError("The Asset Manager or the Risk Manager closes the empire's options and futures.")
+    if empire["head_player_id"] != player_id and seat["build"] not in ("asset_manager", "risk_manager", "investment_banker"):
+        raise EmpireError("The Asset Manager, the Risk Manager or the Investment Banker closes the empire's options and futures.")
     return derivatives.close_position(conn, empire["account_id"], position_id, now)
 
 

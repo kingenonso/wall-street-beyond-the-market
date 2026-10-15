@@ -20,13 +20,14 @@ from server.db import get_connection
 from server.firm_routes import MONEY, wire
 from server.main import _exchange_time, app, current_player
 from server.schemas import Request
-from simulation import crashfund, derivatives, empires, firm, ledger, lending, lending_empire, montecarlo, risk, swaps
+from simulation import crashfund, derivatives, empires, firm, instruments, ledger, lending, lending_empire, montecarlo, risk, swaps
 from simulation import world_data as data
 
 MONEY.update({"principal", "outstanding", "collateral", "fees_paid", "gain", "limit", "owed", "personal_limit", "equity", "debts",
               "start", "median", "best_likely", "worst_likely", "value_at_risk", "p5", "p25", "p50", "p75", "p95", "fee", "opened_price",
               "price", "value", "shares_value", "cash", "bid", "ask", "spot", "entry_price", "margin", "margin_long", "margin_short",
-              "cover", "paid_in", "paid_out", "fund", "result"})
+              "cover", "paid_in", "paid_out", "fund", "result", "fair", "last_trade", "best_bid", "best_ask", "limit_price", "reserved",
+              "default_fund", "oil_now", "unpaid"})
 Money = Annotated[int, Field(gt=0, le=1_000_000_000_000_000, strict=True)]
 Count = Annotated[int, Field(gt=0, le=10_000_000_000, strict=True)]
 
@@ -40,7 +41,7 @@ def _act(conn: Connection, player: dict, action, bucket: str = "borrowing", atte
     try:
         result = action(_exchange_time(conn))
     except (lending.LendingError, empires.EmpireError, montecarlo.MonteCarloError, derivatives.DerivativesError,
-            swaps.SwapError) as refused:
+            swaps.SwapError, instruments.InstrumentError) as refused:
         raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
     except DeadlockDetected:
         raise HTTPException(status.HTTP_409_CONFLICT, "Somebody else changed this at the same moment. Nothing was changed. Please try again.") from None
@@ -219,7 +220,7 @@ def derivatives_board(underlying: str | None = None, player: dict = Depends(curr
     seat, empire = _empire_for(conn, player)
     if empire is not None:
         head = empire["head_player_id"] == player["id"]
-        acts = head or seat["build"] in ("asset_manager", "risk_manager")
+        acts = head or seat["build"] in ("asset_manager", "risk_manager", "investment_banker")
         out["empire"] = {"name": empire["name"], "acts": acts, "head": head, "build": seat["build"],
                          "limit_naira": lending_empire.limits(conn, empire)["derivatives_limit_naira"],
                          "committed": lending_empire.committed(conn, empire["account_id"]),
@@ -334,3 +335,61 @@ def swaps_accept(body: ForRequest, swap_id: int = _id(), player: dict = Depends(
 @app.post("/api/swaps/{swap_id}/decline")
 def swaps_decline(body: ForRequest, swap_id: int = _id(), player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     return _act(conn, player, lambda now: swaps.decline(conn, player["id"], swap_id, now, for_empire=body.for_empire), bucket="derivatives")
+
+
+# ---------------------------------------------------------------------------
+# The gap stage: preferred shares and warrants
+# ---------------------------------------------------------------------------
+
+class InstrumentTradeRequest(ForRequest):
+    side: Literal["buy", "sell"]
+    units: int = Field(gt=0, le=10_000_000, strict=True)
+
+
+class ExerciseRequest(ForRequest):
+    units: int = Field(gt=0, le=10_000_000, strict=True)
+
+
+def _instrument_account(conn: Connection, player: dict, for_empire: bool):
+    if not for_empire:
+        return ledger.player_account_id(conn, player["id"])
+    seat, empire = firm._active(conn, player["id"])
+    if empire["head_player_id"] != player["id"] and seat["build"] != "asset_manager":
+        raise empires.EmpireError("The Asset Manager (or the head) deals for the empire.")
+    return empire["account_id"]
+
+
+@app.get("/api/instruments")
+def instruments_board(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """Preferred shares and warrants at the pension funds' desk: their two prices (public), and what the player holds."""
+    now = _exchange_time(conn)
+    out = instruments.board(conn, now, ledger.player_account_id(conn, player["id"]))
+    out["empire"] = None
+    seat, empire = _empire_for(conn, player)
+    if empire is not None:
+        acts = empire["head_player_id"] == player["id"] or seat["build"] == "asset_manager"
+        mine = instruments.board(conn, now, empire["account_id"]) if acts else {"instruments": [], "waiting": []}
+        out["empire"] = {"name": empire["name"], "acts": acts, "held": {i["code"]: i["held"] for i in mine["instruments"] if i["held"]},
+                         "waiting": mine["waiting"]}
+    return wire(out)
+
+
+@app.post("/api/instruments/{code}/trade")
+def instruments_trade(body: InstrumentTradeRequest, code: Annotated[str, FastPath(pattern=r"^(PRF-[A-Z]{3}|WRT-[A-Z]{3}[0-9]{1,4})$")],
+                      player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: instruments.trade(conn, _instrument_account(conn, player, body.for_empire), code, body.side,
+                                                             body.units, now), bucket="derivatives")
+
+
+@app.post("/api/instruments/{code}/exercise")
+def instruments_exercise(body: ExerciseRequest, code: Annotated[str, FastPath(pattern=r"^WRT-[A-Z]{3}[0-9]{1,4}$")],
+                         player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: instruments.ask_to_exercise(conn, _instrument_account(conn, player, body.for_empire), code,
+                                                                       body.units, now), bucket="derivatives")
+
+
+@app.post("/api/instruments/exercises/{exercise_id}/cancel")
+def instruments_exercise_cancel(body: ForRequest, exercise_id: int = _id(), player: dict = Depends(current_player),
+                                conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: instruments.cancel_exercise(conn, _instrument_account(conn, player, body.for_empire), exercise_id,
+                                                                       now), bucket="derivatives")

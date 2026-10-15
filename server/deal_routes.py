@@ -24,7 +24,7 @@ from simulation import firm_deals, firm_owned
 MONEY.update({"asking", "highest", "valuation", "equity", "loan", "charge", "held", "proceeds", "book", "escrow", "gain", "revenue",
               "operating_profit", "net_profit", "depreciation", "interest_expense", "borrowings", "payables", "total_equity", "fixed_assets",
               "marketing", "technology", "borrow", "unit_cost", "capacity", "buyer_offer", "households", "business", "government",
-              "dividends_paid", "fairness_above", "per_share", "pay", "fee_most"})
+              "dividends_paid", "fairness_above", "per_share", "pay", "fee_most", "mezzanine", "earnout"})
 Whole = Annotated[int, Field(ge=0, le=1_000_000_000_000_000, strict=True)]
 Bps = Annotated[int, Field(ge=0, le=20_000, strict=True)]
 CITY = Literal["Lagos", "Abuja", "Port Harcourt", "Aba", "Kano"]
@@ -54,6 +54,8 @@ class AcceptRequest(Request):
 class BidRequest(Request):
     amount_kobo: Kobo
     loan_kobo: Whole = 0
+    mezzanine_kobo: Whole = 0
+    earnout_kobo: Whole = 0
 
 
 class ClaimRequest(Request):
@@ -155,7 +157,8 @@ def answer_an_invitation(body: AcceptRequest, partner_id: int = _id(), player: d
 
 @app.post("/api/deals/files/{file_id}/bid")
 def place_a_bid(body: BidRequest, file_id: int = _id(), player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _do(conn, player, lambda now: firm_deals.place_bid(conn, player["id"], file_id, body.amount_kobo, body.loan_kobo, now), "deals", 10)
+    return _do(conn, player, lambda now: firm_deals.place_bid(conn, player["id"], file_id, body.amount_kobo, body.loan_kobo, now,
+                                                                     mezzanine=body.mezzanine_kobo, earnout=body.earnout_kobo), "deals", 10)
 
 
 @app.delete("/api/deals/files/{file_id}/bid")
