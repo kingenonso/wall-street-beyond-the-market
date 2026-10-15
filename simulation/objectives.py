@@ -210,8 +210,14 @@ def wealth(conn: Connection, account, now: datetime) -> dict:
     if _one(conn, "SELECT to_regclass('property_holdings') IS NOT NULL AS ok")["ok"]:
         from simulation import property as property_market
         property_value = property_market.equity_of(conn, account)["equity"]      # what it owns in property, less what it owes on it
-    return {"cash": cash, "shares": shares_value, "bonds": bonds_value, "property": property_value,
-            "total": cash + shares_value + bonds_value + property_value,
+    borrowing = 0
+    if _one(conn, "SELECT to_regclass('player_loans') IS NOT NULL AS ok")["ok"]:
+        # Stage 9: cash held as a short seller's collateral is still theirs; loans and borrowed shares are owed.
+        from simulation import lending
+        cash += lending.collateral_held(conn, account)
+        borrowing = lending.loans_owed(conn, account) + lending.short_liability(conn, account)
+    return {"cash": cash, "shares": shares_value, "bonds": bonds_value, "property": property_value, "borrowing": -borrowing,
+            "total": cash + shares_value + bonds_value + property_value - borrowing,
             "lines": lines, "bond_lines": held, "day": day}
 
 

@@ -206,6 +206,9 @@ def ring(conn: Connection, now: datetime) -> bool:
         objectives.at_bell(conn, now, ended)
         from simulation import empires
         empires.at_bell(conn, now)
+        # Margin loans and short sales are measured at the closing prices (Stage 9).
+        from simulation import lending
+        lending.at_bell(conn, now, ended)
         return True
 
 

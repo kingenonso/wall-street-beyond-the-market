@@ -29,8 +29,8 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 
 from simulation import clock, ledger
+from simulation import stochastic
 from simulation import world_data as data
-from simulation.fortune import fortune_bps
 from simulation.money import BPS, apply_bps
 
 ABROAD = "abroad"
@@ -156,7 +156,7 @@ def next_oil(conn: Connection, period: int, seed: str, energy_event_bps: int) ->
     now = state(conn, period - 1)["oil_cents"]
     usual = data.OIL_START_CENTS * world_prices(period + 1)
     drifted = now + (usual - now) * data.OIL_RETURN_BPS / BPS
-    swing = fortune_bps(seed, "oil", period, "price", data.OIL_SWING_BPS)
+    swing = stochastic.shock_bps(seed, "oil", period, "price", data.OIL_SWING_BPS, data.OIL_LOADINGS)
     jump = energy_event_bps * data.OIL_EVENT_MULTIPLE
     low, high = data.OIL_LIMITS_CENTS
     return int(min(max(drifted * (BPS + swing) / BPS * (BPS + jump) / BPS, low), high))
@@ -205,7 +205,7 @@ def close(conn: Connection, period: int, seed: str, *, oil_next: int, inflation_
     usual_reserve = max(imports, 1) * data.ABROAD_RESERVE_QUARTERS
     reserve_effect = (reserve - usual_reserve) / usual_reserve * data.FX_RESERVE_BPS
     rate_effect = -(next_rate_bps - data.NEUTRAL_RATE_BPS) / 4 * data.FX_RATE_BPS / BPS
-    swing = fortune_bps(seed, "naira", period, "fx", data.FX_SWING_BPS)
+    swing = stochastic.shock_bps(seed, "naira", period, "fx", data.FX_SWING_BPS, data.NAIRA_LOADINGS)
     move = ppp + anchor + oil_effect + trade_effect + reserve_effect + rate_effect + swing
     move = min(max(move, -data.FX_MOST_MOVE_BPS), data.FX_MOST_MOVE_BPS)
     fx_next = max(round(fx * (BPS + move) / BPS), 100)

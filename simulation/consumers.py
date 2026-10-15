@@ -38,6 +38,7 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 
 from simulation import clock, ledger, mindsets
+from simulation import stochastic
 from simulation import world_data as data
 from simulation.fortune import fortune_bps
 from simulation.money import BPS, apply_bps
@@ -246,7 +247,8 @@ def budgets(conn: Connection, groups: list[dict], world, period: int, *, borrowe
         service = share_out(mine, location, debt_service.get(location, 0), {g["id"]: g["debt"] for g in mine})
         loans = share_out(mine, location, borrowed.get(location, 0),
                           {g["id"]: g["earns_bps"] * g.get("borrow_bps", BPS) // BPS for g in mine})
-        mood = fortune_bps(seed, f"households:{location}", period, "mood", data.HOUSEHOLD_MOOD_BPS) + moods.get(location, 0)
+        mood = stochastic.shock_bps(seed, f"households:{location}", period, "mood", data.HOUSEHOLD_MOOD_BPS,
+                                    data.HOUSEHOLD_MOOD_LOADINGS) + moods.get(location, 0)
         each: dict[int, int] = {}
         weights: dict[str, int] = defaultdict(int)
         for g in mine:

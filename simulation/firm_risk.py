@@ -256,3 +256,6 @@ firm.OVERRULE_SETTLERS["trade"] = _settle_trade
 firm.ARTICLE_DEFAULTS["trade_limit_naira"] = TRADE_LIMIT_DEFAULT_NAIRA
 firm.BELL.append(_bell)
 firm.VIEW["risk"] = view
+
+
+from simulation import lending_empire  # noqa: E402,F401  (an empire's borrowing and short selling, Stage 9)
