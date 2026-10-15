@@ -93,7 +93,8 @@ def test_holding_a_share_and_a_government_bill_through_a_close_each_earn_a_part_
     earned = {r["step"] for r in _dicts(db, "SELECT step FROM grant_steps WHERE player_id = %s", (player,))}
     assert earned == {"held_through_results", "lent_to_government"}
 
-    now = after_quarters(1) + 2 * GAP
+    # (The joining grant is stamped by the database's real clock: judge from after both it and the close.)
+    now = max(after_quarters(1), datetime.now(timezone.utc)) + 2 * GAP
     before = ledger.balance(db, account)
     first = grants.review(db, player, now)
     assert sum(s["paid"] for s in first["steps"]) == 1 and ledger.balance(db, account) == before + naira(100_000)
