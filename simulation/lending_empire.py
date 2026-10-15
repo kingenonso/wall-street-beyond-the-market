@@ -15,7 +15,7 @@ from simulation import careers, empires, firm, lending
 from simulation.empires import EmpireError
 from simulation.money import naira
 
-LIMIT_KEYS = ("borrow_limit_naira", "short_limit_naira")
+LIMIT_KEYS = ("borrow_limit_naira", "short_limit_naira", "derivatives_limit_naira")
 ACTORS = ("asset_manager",)
 
 
@@ -26,7 +26,8 @@ def _seat(conn: Connection, player_id) -> tuple[dict, dict]:
     return seat, empire
 
 
-def set_limits(conn: Connection, player_id, borrow_naira: int | None, short_naira: int | None, now: datetime) -> dict:
+def set_limits(conn: Connection, player_id, borrow_naira: int | None, short_naira: int | None, now: datetime,
+               derivatives_naira: int | None = None) -> dict:
     """The Risk Manager (or the head, if nobody sits at that desk) signs the empire's borrowing and short-selling limits."""
     with conn.transaction():
         seat, empire = _seat(conn, player_id)
@@ -34,12 +35,14 @@ def set_limits(conn: Connection, player_id, borrow_naira: int | None, short_nair
                                                     and not firm.desk_members(conn, empire["id"], "risk_manager")):
             raise EmpireError("The Risk Manager signs the limits on borrowing and short selling.")
         state = careers.world_now(conn, now)
-        for key, value in zip(LIMIT_KEYS, (borrow_naira, short_naira)):
+        if derivatives_naira is None:
+            derivatives_naira = firm.article(conn, empire["id"], "derivatives_limit_naira") or 0
+        for key, value in zip(LIMIT_KEYS, (borrow_naira, short_naira, derivatives_naira)):
             if value is not None and (not isinstance(value, int) or isinstance(value, bool) or value < 0):
                 raise EmpireError("A limit is a whole number of naira, nought or more.")
             firm.set_article(conn, empire["id"], key, value or 0, state["period"], now)
         empires._log(conn, empire["id"], f"The Risk Manager set the limits: borrowing against holdings up to ₦{borrow_naira or 0:,}; "
-                                         f"short sales up to ₦{short_naira or 0:,}.", now)
+                                         f"short sales up to ₦{short_naira or 0:,}; options and futures up to ₦{derivatives_naira or 0:,}.", now)
         return limits(conn, empire)
 
 
@@ -135,8 +138,69 @@ def act_for_empire(conn: Connection, player_id, action: str, ref: int, amount: i
     raise EmpireError("Unknown action.")
 
 
-firm.EXECUTORS.update({"empire_borrow": _execute_borrow, "empire_short": _execute_short})
-firm.VIEWERS.update({"empire_borrow": _view, "empire_short": _view})
-firm.STAFF_RULES.update({"empire_borrow": _staff_rule, "empire_short": _staff_rule})
+# ---------------------------------------------------------------------------
+# Options and futures for the empire, and the hedging desk (Part B)
+# ---------------------------------------------------------------------------
+
+def committed(conn: Connection, account) -> int:
+    """What the empire has put into options and futures: margin held, and what its bought options cost."""
+    from simulation import derivatives
+    row = derivatives._one(conn, "SELECT coalesce(sum(margin), 0)::bigint AS m, coalesce(sum(CASE WHEN p.side = 'long' AND s.kind <> 'future'"
+                                 " THEN p.entry_price * p.contracts ELSE 0 END), 0)::bigint AS paid FROM derivative_positions p"
+                                 " JOIN derivative_series s ON s.id = p.series_id WHERE p.account = %s AND p.status = 'open'", (account,))
+    return row["m"] + row["paid"]
+
+
+def trade(conn: Connection, player_id, series_id: int, side: str, contracts: int, now: datetime, purpose: str | None = None) -> dict:
+    """The Asset Manager trades options and futures for the empire; the Risk Manager buys protection (a hedge,
+    scored when it ends). Inside the derivatives limit they act; above it, the head decides."""
+    from simulation import derivatives
+    seat, empire = _seat(conn, player_id)
+    head = empire["head_player_id"] == player_id
+    if not head and seat["build"] not in ("asset_manager", "risk_manager"):
+        raise EmpireError("The Asset Manager trades options and futures for the empire; the Risk Manager buys protection.")
+    if seat["build"] == "risk_manager" and not head:
+        purpose = (purpose or "protection for the empire")[:120]
+    s = derivatives._series(conn, series_id)
+    q = derivatives.quote(conn, s, now)
+    level = derivatives.spot(conn, s, now)
+    if s["kind"] == "future":
+        cost = derivatives.value_of(conn, s, level) * derivatives.data.FUTURE_MARGIN_BPS // derivatives.BPS * contracts
+    elif side == "long":
+        cost = q["ask"] * contracts
+    else:
+        cost = derivatives.writer_margin(conn, s, now, level) * contracts
+    limit = naira(limits(conn, empire)["derivatives_limit_naira"])
+    if not head and committed(conn, empire["account_id"]) + cost > limit:
+        return _ask(conn, empire, player_id, "empire_derivative", f"{'Buy' if side == 'long' else 'Sell'} {contracts:,} {derivatives.describe(s)}",
+                    cost, {"series_id": series_id, "side": side, "contracts": contracts, "purpose": purpose}, now)
+    result = derivatives.open_position(conn, empire["account_id"], series_id, side, contracts, now, player_id=player_id, purpose=purpose)
+    empires._log(conn, empire["id"], f"{'Bought' if side == 'long' else 'Sold'} {contracts:,} {derivatives.describe(s)}"
+                                     + (f" as a hedge: {purpose}" if purpose else "") + ".", now)
+    return result
+
+
+def close_derivative(conn: Connection, player_id, position_id: int, now: datetime) -> dict:
+    from simulation import derivatives
+    seat, empire = _seat(conn, player_id)
+    if empire["head_player_id"] != player_id and seat["build"] not in ("asset_manager", "risk_manager"):
+        raise EmpireError("The Asset Manager or the Risk Manager closes the empire's options and futures.")
+    return derivatives.close_position(conn, empire["account_id"], position_id, now)
+
+
+def _execute_derivative(conn: Connection, approval: dict, now: datetime) -> None:
+    from simulation import derivatives
+    empire = empires._empire(conn, approval["empire_id"])
+    p = approval["payload"]
+    try:
+        derivatives.open_position(conn, empire["account_id"], p["series_id"], p["side"], p["contracts"], now,
+                                  player_id=approval["asked_by"], purpose=p.get("purpose"))
+    except derivatives.DerivativesError as refused:
+        raise EmpireError(str(refused)) from None
+
+
+firm.EXECUTORS.update({"empire_borrow": _execute_borrow, "empire_short": _execute_short, "empire_derivative": _execute_derivative})
+firm.VIEWERS.update({"empire_borrow": _view, "empire_short": _view, "empire_derivative": _view})
+firm.STAFF_RULES.update({"empire_borrow": _staff_rule, "empire_short": _staff_rule, "empire_derivative": _staff_rule})
 for _key in LIMIT_KEYS:
     firm.ARTICLE_DEFAULTS.setdefault(_key, 0)

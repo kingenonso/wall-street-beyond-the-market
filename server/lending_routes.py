@@ -20,12 +20,13 @@ from server.db import get_connection
 from server.firm_routes import MONEY, wire
 from server.main import _exchange_time, app, current_player
 from server.schemas import Request
-from simulation import empires, firm, ledger, lending, lending_empire, montecarlo, risk
+from simulation import crashfund, derivatives, empires, firm, ledger, lending, lending_empire, montecarlo, risk
 from simulation import world_data as data
 
 MONEY.update({"principal", "outstanding", "collateral", "fees_paid", "gain", "limit", "owed", "personal_limit", "equity", "debts",
               "start", "median", "best_likely", "worst_likely", "value_at_risk", "p5", "p25", "p50", "p75", "p95", "fee", "opened_price",
-              "price", "value", "shares_value", "cash"})
+              "price", "value", "shares_value", "cash", "bid", "ask", "spot", "entry_price", "margin", "margin_long", "margin_short",
+              "cover", "paid_in", "paid_out", "fund", "result"})
 Money = Annotated[int, Field(gt=0, le=1_000_000_000_000_000, strict=True)]
 Count = Annotated[int, Field(gt=0, le=10_000_000_000, strict=True)]
 
@@ -38,7 +39,7 @@ def _act(conn: Connection, player: dict, action, bucket: str = "borrowing", atte
     limits.allow(bucket, str(player["id"]), attempts=attempts, per_seconds=60)
     try:
         result = action(_exchange_time(conn))
-    except (lending.LendingError, empires.EmpireError, montecarlo.MonteCarloError) as refused:
+    except (lending.LendingError, empires.EmpireError, montecarlo.MonteCarloError, derivatives.DerivativesError) as refused:
         raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
     except DeadlockDetected:
         raise HTTPException(status.HTTP_409_CONFLICT, "Somebody else changed this at the same moment. Nothing was changed. Please try again.") from None
@@ -83,6 +84,17 @@ class CollateralRequest(ForRequest):
 class LimitsRequest(Request):
     borrow_naira: int = Field(ge=0, le=10_000_000_000_000, strict=True)
     short_naira: int = Field(ge=0, le=10_000_000_000_000, strict=True)
+    derivatives_naira: int | None = Field(default=None, ge=0, le=10_000_000_000_000, strict=True)
+
+
+class TradeRequest(ForRequest):
+    side: Literal["long", "short"]
+    contracts: int = Field(gt=0, le=1_000, strict=True)
+    purpose: str | None = Field(default=None, max_length=120)
+
+
+class CoverRequest(Request):
+    cover_kobo: int = Field(ge=0, le=1_000_000_000_000_000, strict=True)
 
 
 class WhatRequest(Request):
@@ -161,7 +173,8 @@ def short_collateral(body: CollateralRequest, short_id: int = _id(), player: dic
 
 @app.post("/api/empire/limits")
 def empire_limits(body: LimitsRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _act(conn, player, lambda now: lending_empire.set_limits(conn, player["id"], body.borrow_naira, body.short_naira, now))
+    return _act(conn, player, lambda now: lending_empire.set_limits(conn, player["id"], body.borrow_naira, body.short_naira, now,
+                                                                    body.derivatives_naira))
 
 
 @app.get("/api/market/risk")
@@ -181,3 +194,70 @@ def what_could_happen(body: WhatRequest, player: dict = Depends(current_player),
     return _act(conn, player, lambda now: montecarlo.run(conn, player["id"], body.what, now, horizon=body.horizon,
                                                          ticker=(body.ticker or "").upper() or None, property_id=body.property_id),
                 bucket="montecarlo", attempts=10)
+
+
+# ---------------------------------------------------------------------------
+# Part B: options, futures, the hedging desk and the crash fund
+# ---------------------------------------------------------------------------
+
+def _empire_for(conn: Connection, player: dict):
+    seat = empires.seat_of(conn, player["id"])
+    if seat is None or seat.get("empire_status") != "active" or seat.get("empire_kind") == "pension":
+        return None, None
+    return seat, empires._empire(conn, seat["empire_id"])
+
+
+@app.get("/api/derivatives")
+def derivatives_board(underlying: str | None = None, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """The option chains and futures with the market makers' prices (public), the player's own positions, and their empire's."""
+    now = _exchange_time(conn)
+    account = ledger.player_account_id(conn, player["id"])
+    out = {**derivatives.board(conn, now, (underlying or "").upper() or None), "mine": derivatives.positions_of(conn, account, now),
+           "empire": None}
+    seat, empire = _empire_for(conn, player)
+    if empire is not None:
+        head = empire["head_player_id"] == player["id"]
+        acts = head or seat["build"] in ("asset_manager", "risk_manager")
+        out["empire"] = {"name": empire["name"], "acts": acts, "head": head, "build": seat["build"],
+                         "limit_naira": lending_empire.limits(conn, empire)["derivatives_limit_naira"],
+                         "committed": lending_empire.committed(conn, empire["account_id"]),
+                         "positions": derivatives.positions_of(conn, empire["account_id"], now) if acts else [],
+                         "crash_fund": crashfund.view(conn, empire)}
+    return wire(out)
+
+
+@app.post("/api/derivatives/{series_id}/trade")
+def derivatives_trade(body: TradeRequest, series_id: int = _id(), player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    if body.for_empire:
+        return _act(conn, player, lambda now: lending_empire.trade(conn, player["id"], series_id, body.side, body.contracts, now, body.purpose),
+                    bucket="derivatives")
+    return _act(conn, player, lambda now: derivatives.open_position(conn, ledger.player_account_id(conn, player["id"]), series_id, body.side,
+                                                                    body.contracts, now, player_id=player["id"]), bucket="derivatives")
+
+
+@app.post("/api/derivatives/positions/{position_id}/close")
+def derivatives_close(body: ForRequest, position_id: int = _id(), player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    if body.for_empire:
+        return _act(conn, player, lambda now: lending_empire.close_derivative(conn, player["id"], position_id, now), bucket="derivatives")
+    return _act(conn, player, lambda now: derivatives.close_position(conn, ledger.player_account_id(conn, player["id"]), position_id, now),
+                bucket="derivatives")
+
+
+@app.post("/api/derivatives/positions/{position_id}/margin")
+def derivatives_margin(body: CollateralRequest, position_id: int = _id(), player: dict = Depends(current_player),
+                       conn: Connection = Depends(get_connection)):
+    def act(now):
+        if body.for_empire:
+            seat, empire = firm._active(conn, player["id"])
+            if empire["head_player_id"] != player["id"] and seat["build"] not in ("asset_manager", "risk_manager"):
+                raise empires.EmpireError("The Asset Manager or the Risk Manager looks after the empire's options and futures.")
+            account = empire["account_id"]
+        else:
+            account = ledger.player_account_id(conn, player["id"])
+        return derivatives.add_margin(conn, account, position_id, body.amount_kobo, now)
+    return _act(conn, player, act, bucket="derivatives")
+
+
+@app.post("/api/empire/crash-fund")
+def empire_crash_fund(body: CoverRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: crashfund.ask_cover(conn, player["id"], body.cover_kobo, now))

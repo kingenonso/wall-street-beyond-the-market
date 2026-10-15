@@ -951,3 +951,31 @@ SHORT_FEE_BPS = 200                    # the lender's fee: 2% a year of the borr
 LENDING_POOL_BPS = 3000                # a pension fund lends at most 30% of its holding of a share
 BUY_IN_PREMIUM_BPS = 500               # shares bought back by force cost 5% above the closing price
 EMPIRE_LEVERAGE_DEFAULT_BPS = 0        # an empire may borrow against its holdings and short only inside limits its Risk Manager signs
+
+# ---------------------------------------------------------------------------
+# Stage 9, Part B: options, futures, commodities, the hedging desk and the crash fund.
+# ---------------------------------------------------------------------------
+OPTION_SHARES_PER_CONTRACT = 100       # a share option is on 100 shares
+INDEX_KOBO_PER_POINT = 10_000          # a BSX 50 contract: ₦100 for each point of the index
+OIL_BARRELS_PER_CONTRACT = 10          # an oil contract: ten barrels, valued in naira at the day's exchange rate
+NAIRA_DOLLARS_PER_CONTRACT = 1_000     # a naira contract: $1,000, valued in naira
+COMMODITY_KOBO_PER_POINT = 1_000_000   # a farm produce, metals or building materials contract: ₦10,000 for each point of its index
+OPTION_STRIKES_BPS = (9000, 10000, 11000)              # share options: strikes at 90%, 100% and 110% of the price when listed
+INDEX_OPTION_STRIKES_BPS = (9000, 9500, 10000, 10500, 11000)
+OPTION_EXPIRIES = 2                    # options and futures run to the end of this quarter and the next
+OPTION_LEAST_VOLATILITY_BPS = 1500     # the market makers never price a share's swing below 15% a year...
+INDEX_VOLATILITY_BPS = 2000            # ...and take the BSX 50 to swing 20% a year until its own record says otherwise
+DESK_SPREAD_BPS = 500                  # options: the market makers buy at 5% below their price and sell at 5% above...
+DESK_LEAST_SPREAD_KOBO = 1_000         # ...and never closer than ₦10 a contract either side
+FUTURE_SPREAD_BPS = 25                 # futures: 0.25% either side
+WORLD_RATE_BPS = 400                   # interest abroad, for the naira future's price
+FUTURE_MARGIN_BPS = 1500               # a futures position: 15% of its value held as margin...
+FUTURE_MAINTENANCE_BPS = 1000          # ...a call when it falls below 10%; closed at the next bell if not met
+WRITER_MARGIN_BPS = 2000               # writing (selling) an option: 20% of the underlying value held, plus the option's own value
+WRITER_CALL_SHARE_BPS = 8500           # a call when what is held falls below 85% of what is needed
+MOST_CONTRACTS_A_SERIES = 1_000        # at most this many contracts of one series for one account
+EMPIRE_DERIVATIVES_DEFAULT_NAIRA = 0   # an empire trades derivatives only inside a limit its Risk Manager signs
+# The crash fund: empires pay in each quarter for cover that pays out when the market falls hard.
+CRASH_PREMIUM_BPS = 300                # 3% of the cover, each quarter...
+CRASH_TRIGGER_BPS = 1500               # ...and it pays the cover when the BSX 50 falls 15% or more in a quarter
+CRASH_MOST_COVER_BPS = 5000            # cover at most half of what the empire is worth
