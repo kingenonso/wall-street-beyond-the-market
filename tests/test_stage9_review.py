@@ -39,7 +39,8 @@ from simulation import bonds, corporate, crashfund, derivatives, firm, ledger, l
 from simulation import world_data as data
 from simulation.money import BPS, naira
 from tests.conftest import after_quarters
-from tests.test_builds import pro
+from tests.test_builds import pro  # noqa: F401
+from tests.test_derivatives import ready, trader
 from tests.test_careers import NOW9, sound
 from tests.test_firm import firm_of
 from tests.test_lending import bank_id, price_of, set_price
@@ -71,7 +72,7 @@ def _split(db, ticker, ratio):
 
 
 def test_1_a_split_adjusts_lent_shares_and_options_so_nobody_gains(db):
-    player, account = pro(db, "asset_manager", "splitter", level=10, cash_naira=2_000_000_000)
+    player, account = trader(db, "asset_manager", "splitter", level=10, cash_naira=2_000_000_000)
     s = lending.open_short(db, account, "IDC", 10_000, NOW9)
     x = _series(db, "put", "IDC", nearest=price_of(db, "IDC"))
     p = derivatives.open_position(db, account, x["id"], "long", 10, NOW9, player_id=player)
@@ -89,7 +90,7 @@ def test_1_a_split_adjusts_lent_shares_and_options_so_nobody_gains(db):
 
 
 def test_2_oil_and_naira_futures_settle_at_the_new_level_not_one_known_all_quarter(db):
-    player, account = pro(db, "asset_manager", "oilman", level=10, cash_naira=2_000_000_000)
+    player, account = trader(db, "asset_manager", "oilman", level=10, cash_naira=2_000_000_000)
     for u in ("OIL", "NAIRA"):
         derivatives.open_position(db, account, _series(db, "future", u)["id"], "short", 3, NOW9, player_id=player)
     before = _one(db, "SELECT oil_cents, fx FROM abroad_results ORDER BY period DESC LIMIT 1")
@@ -104,7 +105,7 @@ def test_2_oil_and_naira_futures_settle_at_the_new_level_not_one_known_all_quart
 
 
 def test_3_interest_and_the_lending_fee_build_up_by_the_time_held(db):
-    player, account = pro(db, "asset_manager", "inandout", level=10, cash_naira=10_000_000)
+    player, account = trader(db, "asset_manager", "inandout", level=10, cash_naira=10_000_000)
     loan = lending.take_personal(db, player, naira(1_000_000), NOW9)
     two_days = NOW9 + timedelta(days=2)
     start = ledger.balance(db, account)
@@ -121,7 +122,7 @@ def test_3_interest_and_the_lending_fee_build_up_by_the_time_held(db):
 
 
 def test_4_a_loss_beyond_the_collateral_is_owed_missed_interest_carries_a_late_charge_and_a_default_sells_holdings(db):
-    player, account = pro(db, "asset_manager", "underwater", level=10, cash_naira=100_000_000)
+    player, account = trader(db, "asset_manager", "underwater", level=10, cash_naira=100_000_000)
     lending.open_short(db, account, "GGM", 10_000, NOW9)
     ledger.transfer(db, payer=account, receiver=ledger.account_id(db, ledger.TREASURY), amount=ledger.balance(db, account),
                     kind="test_cash", memo="Test: spent")
@@ -142,7 +143,7 @@ def test_4_a_loss_beyond_the_collateral_is_owed_missed_interest_carries_a_late_c
 
 
 def test_4b_interest_missed_at_the_close_is_owed_with_the_late_charge(db):
-    player, account = pro(db, "asset_manager", "late", level=10, cash_naira=0)
+    player, account = trader(db, "asset_manager", "late", level=10, cash_naira=0)
     loan = lending.take_personal(db, player, naira(1_000_000), NOW9)
     ledger.transfer(db, payer=account, receiver=ledger.account_id(db, ledger.TREASURY), amount=ledger.balance(db, account),
                     kind="test_cash", memo="Test: spent")
@@ -172,7 +173,7 @@ def test_6_the_quarter_close_locks_the_rows_it_changes():
 
 
 def test_7_a_loan_backed_by_bonds_is_brought_down_by_selling_bonds_and_a_default_stays_a_default(db):
-    player, account = pro(db, "asset_manager", "bondholder", level=10, cash_naira=200_000_000)
+    player, account = trader(db, "asset_manager", "bondholder", level=10, cash_naira=200_000_000)
     line = next(b for b in bonds.listing(db, NOW9) if b["issuer"] == "Federal Government" and b["ask"] > 0 and b["kind"] != "bill")
     code, units = line["code"], naira(100_000_000) // line["ask"]
     bonds.trade(db, account=account, code=code, side="buy", units=units, now=NOW9)
@@ -195,6 +196,8 @@ def test_7_a_loan_backed_by_bonds_is_brought_down_by_selling_bonds_and_a_default
 
 def test_8_the_risk_manager_cannot_sign_itself_room_or_write_options_and_two_requests_cannot_both_slip_under(db):
     empire, team = firm_of(db, n_cash=5_000_000_000)
+    for who in ("head", "risk_manager"):
+        ready(db, team[who])
     asked = lending_empire.set_limits(db, team["risk_manager"], 0, 0, NOW9, derivatives_naira=1_000_000_000)
     assert asked["waiting"] and asked["derivatives_limit_naira"] == 0
     firm.decide(db, team["head"], asked["approval_id"], True, "", NOW9)
@@ -210,7 +213,7 @@ def test_8_the_risk_manager_cannot_sign_itself_room_or_write_options_and_two_req
 
 
 def test_9_borrowed_shares_are_not_security_for_a_loan(db):
-    player, account = pro(db, "asset_manager", "pledger", level=10, cash_naira=100_000_000)
+    player, account = trader(db, "asset_manager", "pledger", level=10, cash_naira=100_000_000)
     lending.open_short(db, account, "GGM", 20_000, NOW9)
     assert ledger.balance(db, account, "SHR-GGM") == 20_000
     assert lending.margin_limit(db, account, NOW9) == 0
@@ -220,6 +223,8 @@ def test_9_borrowed_shares_are_not_security_for_a_loan(db):
 
 def test_10_the_crash_fund_is_checked_against_its_records(db):
     empire, team = firm_of(db, n_cash=5_000_000_000)
+    for who in ("head", "risk_manager"):
+        ready(db, team[who])
     crashfund.ask_cover(db, team["head"], naira(10_000_000), NOW9)
     quarters.close_due_quarters(db, after_quarters(9))
     assert crashfund.check_books(db) == []

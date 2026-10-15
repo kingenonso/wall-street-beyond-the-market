@@ -979,3 +979,19 @@ EMPIRE_DERIVATIVES_DEFAULT_NAIRA = 0   # an empire trades derivatives only insid
 CRASH_PREMIUM_BPS = 300                # 3% of the cover, each quarter...
 CRASH_TRIGGER_BPS = 1500               # ...and it pays the cover when the BSX 50 falls 15% or more in a quarter
 CRASH_MOST_COVER_BPS = 5000            # cover at most half of what the empire is worth
+
+# ---------------------------------------------------------------------------
+# The gap stage, Part 1: the clearing house, unlocking by level and mastery, the Securities Regulator.
+# ---------------------------------------------------------------------------
+DERIVATIVE_FEE_BPS = 5                 # each side of an option or futures trade pays 0.05% of what the contracts are on...
+DEFAULT_FUND_SHARE_BPS = 1000          # ...and a tenth of that fee goes to the clearing house's default fund
+MAKER_SEQUENCE = 2 ** 62               # the market makers' standing quote waits behind every player's order at the same price
+UNLOCK_BORROW_LEVEL = 10               # loans against shares and short selling open at Level 10
+UNLOCK_OPTIONS_LEVEL = 15              # buying options at Level 15
+UNLOCK_ADVANCED_LEVEL = 25             # futures, writing options and swaps at Level 25, with the build's own Stage 9 module learned
+STAGE9_MODULE = {"asset_manager": "Leverage and margin", "accountant": "Futures and the cost of carry",
+                 "investment_banker": "Option pricing", "risk_manager": "Value at risk", "lawyer": "Securities lending",
+                 "journalist": "Market positioning"}
+SHORT_BAN_SHARE_FALL_BPS = 1500        # the Securities Regulator stops new short sales in a share that falls 15% in a day...
+SHORT_BAN_MARKET_FALL_BPS = 1000       # ...and in every share when the BSX 50 falls 10% in a day...
+SHORT_BAN_DAYS = 3                     # ...for three trading days

@@ -91,6 +91,7 @@ class TradeRequest(ForRequest):
     side: Literal["long", "short"]
     contracts: int = Field(gt=0, le=1_000, strict=True)
     purpose: str | None = Field(default=None, max_length=120)
+    limit_kobo: int | None = Field(default=None, gt=0, le=1_000_000_000_000, strict=True)
 
 
 class CoverRequest(Request):
@@ -213,7 +214,7 @@ def derivatives_board(underlying: str | None = None, player: dict = Depends(curr
     now = _exchange_time(conn)
     account = ledger.player_account_id(conn, player["id"])
     out = {**derivatives.board(conn, now, (underlying or "").upper() or None), "mine": derivatives.positions_of(conn, account, now),
-           "empire": None}
+           "my_orders": derivatives.orders_of(conn, account), "empire": None}
     seat, empire = _empire_for(conn, player)
     if empire is not None:
         head = empire["head_player_id"] == player["id"]
@@ -222,6 +223,7 @@ def derivatives_board(underlying: str | None = None, player: dict = Depends(curr
                          "limit_naira": lending_empire.limits(conn, empire)["derivatives_limit_naira"],
                          "committed": lending_empire.committed(conn, empire["account_id"]),
                          "positions": derivatives.positions_of(conn, empire["account_id"], now) if acts else [],
+                         "orders": derivatives.orders_of(conn, empire["account_id"]) if acts else [],
                          "crash_fund": crashfund.view(conn, empire)}
     return wire(out)
 
@@ -229,10 +231,32 @@ def derivatives_board(underlying: str | None = None, player: dict = Depends(curr
 @app.post("/api/derivatives/{series_id}/trade")
 def derivatives_trade(body: TradeRequest, series_id: int = _id(), player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     if body.for_empire:
-        return _act(conn, player, lambda now: lending_empire.trade(conn, player["id"], series_id, body.side, body.contracts, now, body.purpose),
-                    bucket="derivatives")
+        return _act(conn, player, lambda now: lending_empire.trade(conn, player["id"], series_id, body.side, body.contracts, now, body.purpose,
+                                                                   limit=body.limit_kobo), bucket="derivatives")
     return _act(conn, player, lambda now: derivatives.open_position(conn, ledger.player_account_id(conn, player["id"]), series_id, body.side,
-                                                                    body.contracts, now, player_id=player["id"]), bucket="derivatives")
+                                                                    body.contracts, now, player_id=player["id"], limit=body.limit_kobo),
+                bucket="derivatives")
+
+
+@app.post("/api/derivatives/orders/{order_id}/cancel")
+def derivatives_cancel(body: ForRequest, order_id: int = _id(), player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    def act(now):
+        if body.for_empire:
+            seat, empire = firm._active(conn, player["id"])
+            if empire["head_player_id"] != player["id"] and seat["build"] not in ("asset_manager", "risk_manager", "investment_banker"):
+                raise empires.EmpireError("Only the members who trade for the empire cancel its orders.")
+            return derivatives.cancel_order(conn, empire["account_id"], order_id, now)
+        return derivatives.cancel_order(conn, ledger.player_account_id(conn, player["id"]), order_id, now)
+    return _act(conn, player, act, bucket="derivatives")
+
+
+@app.get("/api/derivatives/{series_id}/explain")
+def derivatives_explain(series_id: int = _id(), _: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """A contract's fair value at three depths, from public prices only."""
+    try:
+        return wire(derivatives.explain(conn, series_id, _exchange_time(conn)))
+    except derivatives.DerivativesError as missing:
+        raise HTTPException(status_code=404, detail=str(missing)) from None
 
 
 @app.post("/api/derivatives/positions/{position_id}/close")

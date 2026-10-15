@@ -145,6 +145,16 @@ def _pay_arrears(conn: Connection, loan: dict, period: int, why: str) -> int:
     return got
 
 
+def _creditor_paid(conn: Connection, loan: dict, amount: int, now: datetime) -> None:
+    """A shortfall repaid to the clearing house's default fund goes on the fund's own record."""
+    if amount <= 0 or loan["kind"] != "shortfall":
+        return
+    row = _one(conn, "SELECT code FROM ledger_accounts WHERE id = %s", (loan["creditor"],))
+    if row and row["code"] == "clearing:default_fund":
+        conn.execute("INSERT INTO clearing_fund_events (kind, amount, account, words, at) VALUES ('repaid', %s, %s, %s, %s)",
+                     (amount, loan["borrower"], "A loss the fund covered, repaid", now))
+
+
 def record_shortfall(conn: Connection, borrower, creditor, amount: int, why: str, period: int, now: datetime) -> None:
     """A loss beyond the cash held for it: owed to whoever bore it, in default from the start."""
     if amount <= 0:
@@ -236,6 +246,52 @@ def _leverage_allows(conn: Connection, account, extra: int, now: datetime) -> No
     if owed > data.MOST_DEBT_TIMES_EQUITY * max(equity, 0):
         raise LendingError(f"Borrowing to invest may be at most {data.MOST_DEBT_TIMES_EQUITY} times what you are worth after "
                            f"your debts ({money(max(equity, 0))}). This would take it to {money(owed)}.")
+
+
+def _unlocked(conn: Connection, account, player_id=None) -> None:
+    """Loans against shares and short selling open at Level 10 (for an empire: the member acting for it)."""
+    if player_id is None:
+        row = _one(conn, "SELECT player_id FROM ledger_accounts WHERE id = %s", (account,))
+        player_id = row and row["player_id"]
+    if player_id is None:
+        return
+    from simulation import careers
+    mine = careers.career(conn, player_id)
+    if (mine["level"] if mine else 0) < data.UNLOCK_BORROW_LEVEL:
+        raise LendingError(f"Loans against shares and short selling open at Level {data.UNLOCK_BORROW_LEVEL}.")
+
+
+def short_ban(conn: Connection, company_id, day) -> dict | None:
+    """A ban on new short sales standing today, on this share or on the whole market."""
+    if _one(conn, "SELECT to_regclass('short_bans') IS NOT NULL AS ok")["ok"] is not True:
+        return None
+    return _one(conn, "SELECT * FROM short_bans WHERE (company_id = %s OR company_id IS NULL) AND %s BETWEEN from_day AND until_day"
+                      " ORDER BY company_id NULLS FIRST LIMIT 1", (company_id, day))
+
+
+def _regulator(conn: Connection, now: datetime, ended: date) -> int:
+    """The Securities Regulator (a rule-based stand-in until the Government stage): after a fall of 15% in a day, no new
+    short sales in that share for three days; after the BSX 50 falls 10% in a day, none in any share."""
+    from datetime import timedelta
+    from simulation import risk
+    made = 0
+    start, end = ended + timedelta(days=1), ended + timedelta(days=data.SHORT_BAN_DAYS)
+    index = risk.index_closes(conn, 2)
+    if len(index) == 2 and index[1][0] == ended and index[0][1] > 0 and \
+            (index[0][1] - index[1][1]) * BPS // index[0][1] >= data.SHORT_BAN_MARKET_FALL_BPS:
+        if not _one(conn, "SELECT 1 FROM short_bans WHERE company_id IS NULL AND from_day = %s", (start,)):
+            conn.execute("INSERT INTO short_bans (company_id, from_day, until_day, reason, at) VALUES (NULL, %s, %s, %s, %s)",
+                         (start, end, "The BSX 50 fell 10% or more in a day", now))
+            made += 1
+    names = {c["company_id"]: c for c in prices(conn).values()}
+    for company_id, days in risk.closes(conn, 2).items():
+        if len(days) == 2 and days[1][0] == ended and days[0][1] > 0 and \
+                (days[0][1] - days[1][1]) * BPS // days[0][1] >= data.SHORT_BAN_SHARE_FALL_BPS and company_id in names:
+            if not _one(conn, "SELECT 1 FROM short_bans WHERE company_id = %s AND from_day = %s", (company_id, start)):
+                conn.execute("INSERT INTO short_bans (company_id, from_day, until_day, reason, at) VALUES (%s, %s, %s, %s, %s)",
+                             (company_id, start, end, f"{names[company_id]['ticker']} fell 15% or more in a day", now))
+                made += 1
+    return made
 
 
 def _not_in_default(conn: Connection, account) -> None:
@@ -332,13 +388,14 @@ def margin_limit(conn: Connection, account, now: datetime) -> int:
     return max(held["security"] * data.MARGIN_LOAN_MOST_BPS // BPS - margin_owed(conn, account), 0)
 
 
-def take_margin(conn: Connection, account, bank_company_id, amount: int, now: datetime) -> dict:
+def take_margin(conn: Connection, account, bank_company_id, amount: int, now: datetime, *, player_id=None) -> dict:
     """Borrow against shares and bonds. The account's own lock keeps two loans from being taken at once."""
     with conn.transaction():
         state = _state(conn, now)
         conn.execute("SELECT pg_advisory_xact_lock(hashtext('borrower:' || %s::text))", (str(account),))
         if not isinstance(amount, int) or isinstance(amount, bool) or amount <= 0:
             raise LendingError("Name an amount to borrow.")
+        _unlocked(conn, account, player_id)
         _not_in_default(conn, account)
         bank = _bank(conn, bank_company_id)
         most = margin_limit(conn, account, now)
@@ -386,6 +443,7 @@ def repay(conn: Connection, account, loan_id: int, amount: int, now: datetime) -
             ledger.transfer(conn, payer=account, receiver=_payee(loan), amount=amount,
                             kind="shortfall_repayment" if loan["kind"] == "shortfall" else "loan_repayment",
                             memo=f"Repaid to {loan['bank']}", period=state["period"])
+            _creditor_paid(conn, loan, amount, now)
         left = loan["outstanding"] - amount
         done = left == 0 and loan["arrears"] == 0
         # (A loan in default stays in default until it is repaid in full.)
@@ -410,7 +468,7 @@ def lendable(conn: Connection, company_id) -> int:
     return max((held + lent) * data.LENDING_POOL_BPS // BPS - lent, 0)
 
 
-def open_short(conn: Connection, account, ticker: str, shares: int, now: datetime) -> dict:
+def open_short(conn: Connection, account, ticker: str, shares: int, now: datetime, *, player_id=None) -> dict:
     """Borrow shares to sell. The cash collateral (150% of their value) is held at once."""
     with conn.transaction():
         state = _state(conn, now)
@@ -422,6 +480,11 @@ def open_short(conn: Connection, account, ticker: str, shares: int, now: datetim
                  (ticker,))
         if q is None:
             raise LendingError("Only shares listed on the exchange can be borrowed.")
+        _unlocked(conn, account, player_id)
+        from simulation import exchange
+        ban = short_ban(conn, q["id"], exchange.session_of(now)[0])
+        if ban:
+            raise LendingError(f"The Securities Regulator has stopped new short sales until {ban['until_day']:%d %b}: {ban['reason']}.")
         conn.execute("SELECT 1 FROM market_instruments WHERE company_id = %s FOR UPDATE", (q["id"],))
         if shares > lendable(conn, q["id"]):
             raise LendingError(f"The pension funds will lend only {lendable(conn, q['id']):,} more {q['ticker']} shares now.")
@@ -629,6 +692,8 @@ def at_bell(conn: Connection, now: datetime, ended: date) -> dict:
     period = _state(conn, now)["period"]
     quotes = prices(conn)
     done = defaultdict(int)
+    with conn.transaction():
+        done["short_bans"] = _regulator(conn, now, ended)
     for loan in _rows(conn, LOAN_ROWS + " WHERE l.kind = 'margin' AND l.status <> 'repaid' ORDER BY l.id"):
         with conn.transaction():
             loan = {**loan, **_one(conn, "SELECT outstanding, arrears, call_since, status, interest_from FROM player_loans WHERE id = %s FOR UPDATE",
@@ -788,6 +853,7 @@ def close(conn: Connection, period: int, now: datetime, rate: int) -> dict:
             paid_principal = ledger.pay_up_to(conn, payer=loan["borrower"], receiver=_payee(loan), wanted=principal,
                                               kind="shortfall_repayment" if loan["kind"] == "shortfall" else "loan_repayment",
                                               memo=f"Repayment to {loan['bank']}, {label}", period=period)
+            _creditor_paid(conn, loan, paid_principal, now)
         out["interest"] += paid_interest
         met = paid_interest == due and loan["arrears"] == 0 and paid_principal == principal
         missed = 0 if met else loan["missed"] + 1

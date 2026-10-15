@@ -24,7 +24,8 @@ from simulation import crashfund, derivatives, ledger, lending, lending_empire, 
 from simulation import world_data as data
 from simulation.money import BPS, naira
 from tests.conftest import ADULT, after_quarters, join
-from tests.test_builds import pro
+from tests.test_builds import pro  # noqa: F401
+from tests.test_derivatives import ready, trader
 from tests.test_careers import NOW9, sound
 from tests.test_firm import firm_of, member
 from tests.test_derivatives import seed_fund
@@ -48,7 +49,7 @@ def series(db, kind, underlying, expiry=9):
 
 
 def test_1_borrowing_against_shares_cannot_be_looped_without_end(db):
-    player, account = pro(db, "asset_manager", "looper", level=10, cash_naira=0)
+    player, account = trader(db, "asset_manager", "looper", level=10, cash_naira=0)
     held = give_shares(db, account, "IDC", 10_000_000)
     price = price_of(db, "IDC")
     asset = "SHR-IDC"
@@ -71,7 +72,7 @@ def test_1_borrowing_against_shares_cannot_be_looped_without_end(db):
 
 
 def test_2_the_fee_and_the_dividend_come_out_of_the_collateral_when_there_is_no_cash(db):
-    player, account = pro(db, "asset_manager", "penniless", level=10, cash_naira=0)
+    player, account = trader(db, "asset_manager", "penniless", level=10, cash_naira=0)
     give_cash(db, account, 10_000_000)
     s = lending.open_short(db, account, "GGM", 10_000, NOW9)
     ledger.transfer(db, payer=account, receiver=ledger.account_id(db, ledger.TREASURY), amount=ledger.balance(db, account),
@@ -83,7 +84,7 @@ def test_2_the_fee_and_the_dividend_come_out_of_the_collateral_when_there_is_no_
 
 
 def test_3_opening_and_closing_at_once_makes_nothing_or_loses_the_spread(db):
-    player, account = pro(db, "asset_manager", "flipper", level=10, cash_naira=500_000_000)
+    player, account = trader(db, "asset_manager", "flipper", level=10, cash_naira=500_000_000)
     start = ledger.balance(db, account)
     s = lending.open_short(db, account, "GGM", 1_000, NOW9)
     lending.close_short(db, account, s["short_id"], NOW9)
@@ -97,17 +98,17 @@ def test_3_opening_and_closing_at_once_makes_nothing_or_loses_the_spread(db):
 
 
 def test_4_no_writing_or_futures_without_the_cash_for_the_margin(db):
-    player, account = pro(db, "asset_manager", "empty", level=10, cash_naira=1)
+    player, account = trader(db, "asset_manager", "empty", level=10, cash_naira=1)
     for kind, underlying, side in (("call", "BSX50", "short"), ("future", "BSX50", "long"), ("future", "NAIRA", "short")):
         x = series(db, kind, underlying)
-        with pytest.raises(derivatives.DerivativesError, match="needs"):
+        with pytest.raises(derivatives.DerivativesError, match="needs|not the cash"):
             derivatives.open_position(db, account, x["id"], side, 1, NOW9, player_id=player)
     with pytest.raises(lending.LendingError, match="150%|at most 2 times"):
         lending.open_short(db, account, "GGM", 1_000, NOW9)
 
 
 def test_5_one_free_run_a_day_and_two_at_once_cannot_both_be_free(db):
-    player, account = pro(db, "risk_manager", "curious", cash_naira=1_000_000)
+    player, account = trader(db, "risk_manager", "curious", cash_naira=1_000_000)
     give_shares(db, account, "IDC", 1_000)
     runs = [montecarlo.run(db, player, "portfolio", LATER + timedelta(seconds=n)) for n in range(3)]
     assert [r["fee"] for r in runs] == [0, naira(data.MONTE_CARLO_FEE_NAIRA), naira(data.MONTE_CARLO_FEE_NAIRA)]
@@ -115,7 +116,7 @@ def test_5_one_free_run_a_day_and_two_at_once_cannot_both_be_free(db):
 
 
 def test_6_nobody_sees_who_is_short_or_anybody_elses_book(db, client):
-    bear, bear_account = pro(db, "asset_manager", "secretbear", level=10, cash_naira=500_000_000)
+    bear, bear_account = trader(db, "asset_manager", "secretbear", level=10, cash_naira=500_000_000)
     lending.open_short(db, bear_account, "GGM", 10_000, NOW9)
     lending.take_personal(db, bear, naira(10_000), NOW9)
     assert join(client, ADULT).status_code == 201
@@ -131,7 +132,10 @@ def test_6_nobody_sees_who_is_short_or_anybody_elses_book(db, client):
 
 def test_7_splitting_a_trade_does_not_slip_past_the_risk_managers_limit(db):
     empire, team = firm_of(db, n_cash=5_000_000_000)
+    for who in ("head", "risk_manager"):
+        ready(db, team[who])
     am = member(db, empire, team["head"], "asset_manager", "splitter")
+    ready(db, am)
     x = series(db, "future", "BSX50")
     one = derivatives.value_of(db, x, derivatives.spot(db, x, NOW9)) * data.FUTURE_MARGIN_BPS // BPS
     signed(db, team, 0, 0, NOW9, derivatives_naira=(one * 3 // 2) // 100)
@@ -144,6 +148,8 @@ def test_7_splitting_a_trade_does_not_slip_past_the_risk_managers_limit(db):
 
 def test_8_joining_the_crash_fund_once_a_fall_is_under_way_buys_nothing_for_it(db):
     empire, team = firm_of(db, n_cash=5_000_000_000)
+    for who in ("head", "risk_manager"):
+        ready(db, team[who])
     quarters.close_due_quarters(db, after_quarters(9))            # the index is noted at the close
     # The market falls hard during quarter 10; the head joins late.
     db.execute("UPDATE market_instruments SET last_price = coalesce(last_price, reference_price) * 75 / 100,"
@@ -159,6 +165,8 @@ def test_8_joining_the_crash_fund_once_a_fall_is_under_way_buys_nothing_for_it(d
 
 def test_9_only_the_asset_manager_the_risk_manager_or_the_head_acts_for_the_empire(db):
     empire, team = firm_of(db, n_cash=5_000_000_000)
+    for who in ("head", "risk_manager"):
+        ready(db, team[who])
     x = series(db, "call", "BSX50")
     for who in ("accountant", "journalist", "lawyer"):
         with pytest.raises(Exception):
@@ -170,7 +178,7 @@ def test_9_only_the_asset_manager_the_risk_manager_or_the_head_acts_for_the_empi
 
 
 def test_10_every_escrow_matches_its_records_after_a_busy_quarter(db):
-    player, account = pro(db, "asset_manager", "busy", level=10, cash_naira=2_000_000_000)
+    player, account = trader(db, "asset_manager", "busy", level=10, cash_naira=2_000_000_000)
     give_shares(db, account, "IDC", 50_000_000)
     lending.take_margin(db, account, bank_id(db), naira(1_000_000), NOW9)
     lending.open_short(db, account, "GGM", 5_000, NOW9)

@@ -103,7 +103,7 @@ class Engine:
 
     def match(self, side: str, limit: int | None, quantity: int, opposite: list[dict], low: int, high: int) -> tuple[list[dict], int]:
         lines = [f"MATCH {'B' if side == 'buy' else 'S'} {limit if limit is not None else '-'} {quantity} {low} {high} {len(opposite)}"]
-        lines += [f"{o['id']} {o['limit_price']} {o['remaining']} {o['id']}" for o in opposite]
+        lines += [f"{o['id']} {o['limit_price']} {o['remaining']} {o.get('seq', o['id'])}" for o in opposite]
         answer = self._ask("\n".join(lines) + "\n")
         fills = [{"order_id": row[0], "price": row[1], "quantity": row[2]} for row in answer[1:]]
         return fills, answer[0][1]

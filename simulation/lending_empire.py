@@ -100,7 +100,7 @@ def _borrow(conn: Connection, player_id, empire: dict, head: bool, bank_company_
     if not head and lending.margin_owed(conn, empire["account_id"]) + amount > limit:
         return _ask(conn, empire, player_id, "empire_borrow", f"Borrow ₦{amount // 100:,} against the empire's holdings", amount,
                     {"bank": str(bank_company_id), "amount": amount}, now)
-    result = lending.take_margin(conn, empire["account_id"], bank_company_id, amount, now)
+    result = lending.take_margin(conn, empire["account_id"], bank_company_id, amount, now, player_id=player_id)
     empires._log(conn, empire["id"], f"The empire borrowed ₦{amount // 100:,} against its shares and bonds.", now)
     return result
 
@@ -123,7 +123,7 @@ def _short(conn: Connection, player_id, empire: dict, head: bool, ticker: str, s
     if not head and lending.short_liability(conn, empire["account_id"]) + value > limit:
         return _ask(conn, empire, player_id, "empire_short", f"Sell short {shares:,} {ticker} for the empire", value,
                     {"ticker": ticker, "shares": shares}, now)
-    result = lending.open_short(conn, empire["account_id"], ticker, shares, now)
+    result = lending.open_short(conn, empire["account_id"], ticker, shares, now, player_id=player_id)
     empires._log(conn, empire["id"], f"The empire borrowed {shares:,} {ticker} shares to sell short.", now)
     return result
 
@@ -140,7 +140,7 @@ def _execute_borrow(conn: Connection, approval: dict, now: datetime) -> None:
     empire = empires._empire(conn, approval["empire_id"])
     p = approval["payload"]
     try:
-        lending.take_margin(conn, empire["account_id"], p["bank"], p["amount"], now)
+        lending.take_margin(conn, empire["account_id"], p["bank"], p["amount"], now, player_id=approval["asked_by"])
     except lending.LendingError as refused:
         raise EmpireError(str(refused)) from None
 
@@ -149,7 +149,7 @@ def _execute_short(conn: Connection, approval: dict, now: datetime) -> None:
     empire = empires._empire(conn, approval["empire_id"])
     p = approval["payload"]
     try:
-        lending.open_short(conn, empire["account_id"], p["ticker"], p["shares"], now)
+        lending.open_short(conn, empire["account_id"], p["ticker"], p["shares"], now, player_id=approval["asked_by"])
     except lending.LendingError as refused:
         raise EmpireError(str(refused)) from None
 
@@ -188,10 +188,13 @@ def committed(conn: Connection, account) -> int:
     row = derivatives._one(conn, "SELECT coalesce(sum(margin), 0)::bigint AS m, coalesce(sum(CASE WHEN p.side = 'long' AND s.kind <> 'future'"
                                  " THEN p.entry_price * p.contracts ELSE 0 END), 0)::bigint AS paid FROM derivative_positions p"
                                  " JOIN derivative_series s ON s.id = p.series_id WHERE p.account = %s AND p.status = 'open'", (account,))
-    return row["m"] + row["paid"]
+    waiting = derivatives._one(conn, "SELECT coalesce(sum(reserved), 0)::bigint AS r FROM derivative_orders WHERE account = %s"
+                                     " AND status = 'open'", (account,))["r"]
+    return row["m"] + row["paid"] + waiting
 
 
-def trade(conn: Connection, player_id, series_id: int, side: str, contracts: int, now: datetime, purpose: str | None = None) -> dict:
+def trade(conn: Connection, player_id, series_id: int, side: str, contracts: int, now: datetime, purpose: str | None = None,
+          limit: int | None = None) -> dict:
     """The Asset Manager trades options and futures for the empire; the Risk Manager buys protection (a hedge,
     scored when it ends). Inside the derivatives limit they act; above it, the head decides."""
     with conn.transaction():
@@ -200,11 +203,11 @@ def trade(conn: Connection, player_id, series_id: int, side: str, contracts: int
         if not head and seat["build"] not in ("asset_manager", "risk_manager"):
             raise EmpireError("The Asset Manager trades options and futures for the empire; the Risk Manager buys protection.")
         _lock(conn, empire["account_id"])
-        return _trade(conn, player_id, seat, empire, head, series_id, side, contracts, now, purpose)
+        return _trade(conn, player_id, seat, empire, head, series_id, side, contracts, now, purpose, limit)
 
 
 def _trade(conn: Connection, player_id, seat: dict, empire: dict, head: bool, series_id: int, side: str, contracts: int,
-           now: datetime, purpose: str | None) -> dict:
+           now: datetime, purpose: str | None, limit: int | None = None) -> dict:
     from simulation import derivatives
     s = derivatives._series(conn, series_id)
     if seat["build"] == "risk_manager" and not head:
@@ -223,8 +226,9 @@ def _trade(conn: Connection, player_id, seat: dict, empire: dict, head: bool, se
     limit = naira(limits(conn, empire)["derivatives_limit_naira"])
     if not head and committed(conn, empire["account_id"]) + cost > limit:
         return _ask(conn, empire, player_id, "empire_derivative", f"{'Buy' if side == 'long' else 'Sell'} {contracts:,} {derivatives.describe(s)}",
-                    cost, {"series_id": series_id, "side": side, "contracts": contracts, "purpose": purpose}, now)
-    result = derivatives.open_position(conn, empire["account_id"], series_id, side, contracts, now, player_id=player_id, purpose=purpose)
+                    cost, {"series_id": series_id, "side": side, "contracts": contracts, "purpose": purpose, "limit": limit}, now)
+    result = derivatives.open_position(conn, empire["account_id"], series_id, side, contracts, now, player_id=player_id, purpose=purpose,
+                                       limit=limit)
     empires._log(conn, empire["id"], f"{'Bought' if side == 'long' else 'Sold'} {contracts:,} {derivatives.describe(s)}"
                                      + (f" as a hedge: {purpose}" if purpose else "") + ".", now)
     return result
@@ -244,7 +248,7 @@ def _execute_derivative(conn: Connection, approval: dict, now: datetime) -> None
     p = approval["payload"]
     try:
         derivatives.open_position(conn, empire["account_id"], p["series_id"], p["side"], p["contracts"], now,
-                                  player_id=approval["asked_by"], purpose=p.get("purpose"))
+                                  player_id=approval["asked_by"], purpose=p.get("purpose"), limit=p.get("limit"))
     except derivatives.DerivativesError as refused:
         raise EmpireError(str(refused)) from None
 
