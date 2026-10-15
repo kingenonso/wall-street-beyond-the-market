@@ -20,7 +20,7 @@ from server.db import get_connection
 from server.firm_routes import MONEY, wire
 from server.main import _exchange_time, app, current_player
 from server.schemas import Request
-from simulation import crashfund, derivatives, empires, firm, ledger, lending, lending_empire, montecarlo, risk
+from simulation import crashfund, derivatives, empires, firm, ledger, lending, lending_empire, montecarlo, risk, swaps
 from simulation import world_data as data
 
 MONEY.update({"principal", "outstanding", "collateral", "fees_paid", "gain", "limit", "owed", "personal_limit", "equity", "debts",
@@ -39,7 +39,8 @@ def _act(conn: Connection, player: dict, action, bucket: str = "borrowing", atte
     limits.allow(bucket, str(player["id"]), attempts=attempts, per_seconds=60)
     try:
         result = action(_exchange_time(conn))
-    except (lending.LendingError, empires.EmpireError, montecarlo.MonteCarloError, derivatives.DerivativesError) as refused:
+    except (lending.LendingError, empires.EmpireError, montecarlo.MonteCarloError, derivatives.DerivativesError,
+            swaps.SwapError) as refused:
         raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
     except DeadlockDetected:
         raise HTTPException(status.HTTP_409_CONFLICT, "Somebody else changed this at the same moment. Nothing was changed. Please try again.") from None
@@ -285,3 +286,51 @@ def derivatives_margin(body: CollateralRequest, position_id: int = _id(), player
 @app.post("/api/empire/crash-fund")
 def empire_crash_fund(body: CoverRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     return _act(conn, player, lambda now: crashfund.ask_cover(conn, player["id"], body.cover_kobo, now))
+
+
+# ---------------------------------------------------------------------------
+# The gap stage: swaps
+# ---------------------------------------------------------------------------
+
+class SwapRequest(ForRequest):
+    kind: Literal["rate", "oil"]
+    side: Literal["pay_fixed", "receive_fixed"]
+    quarters: int = Field(ge=1, le=8, strict=True)
+    notional_kobo: int | None = Field(default=None, gt=0, le=1_000_000_000_000, strict=True)
+    barrels: int | None = Field(default=None, gt=0, le=100_000, strict=True)
+    fixed: int | None = Field(default=None, gt=0, le=1_000_000_000_000, strict=True)
+    bank: UUID | None = None
+    player: str | None = Field(default=None, max_length=80)
+    empire: str | None = Field(default=None, max_length=80)
+
+
+@app.get("/api/swaps")
+def swaps_list(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """The player's own swaps, and their empire's if they sit in one. Each swap is shown only to its two sides."""
+    accounts = [ledger.player_account_id(conn, player["id"])]
+    seat = empires.seat_of(conn, player["id"])
+    empire_name = None
+    if seat is not None and seat.get("empire_status") == "active" and seat.get("empire_kind") != "pension":
+        accounts.append(seat["account_id"])
+        empire_name = seat["empire_name"]
+    banks = conn.execute("SELECT id, name FROM companies WHERE sector = 'banking' AND status = 'trading' ORDER BY name").fetchall()
+    return wire({"swaps": swaps.view(conn, accounts), "empire": empire_name, "banks": [{"id": str(b["id"]), "name": b["name"]} for b in banks],
+                 "rate_now": swaps.rate_for(conn, 10 ** 6), "oil_now": swaps.oil_for(conn), "unlock_level": derivatives.data.UNLOCK_ADVANCED_LEVEL})
+
+
+@app.post("/api/swaps")
+def swaps_propose(body: SwapRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    other = {"bank": str(body.bank)} if body.bank else {"player": body.player} if body.player else {"empire": body.empire} if body.empire else {}
+    return _act(conn, player, lambda now: swaps.propose(conn, player["id"], kind=body.kind, counterparty=other, side=body.side,
+                                                         quarters=body.quarters, notional=body.notional_kobo, barrels=body.barrels,
+                                                         fixed=body.fixed, now=now, for_empire=body.for_empire), bucket="derivatives")
+
+
+@app.post("/api/swaps/{swap_id}/accept")
+def swaps_accept(body: ForRequest, swap_id: int = _id(), player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: swaps.accept(conn, player["id"], swap_id, now, for_empire=body.for_empire), bucket="derivatives")
+
+
+@app.post("/api/swaps/{swap_id}/decline")
+def swaps_decline(body: ForRequest, swap_id: int = _id(), player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: swaps.decline(conn, player["id"], swap_id, now, for_empire=body.for_empire), bucket="derivatives")

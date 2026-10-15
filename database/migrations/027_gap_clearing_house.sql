@@ -42,6 +42,8 @@ CREATE INDEX derivative_trades_series ON derivative_trades (series_id, id DESC);
 -- is still scored as a whole.
 ALTER TABLE derivative_positions ADD COLUMN realised bigint NOT NULL DEFAULT 0;
 ALTER TABLE derivative_positions ADD COLUMN by_makers boolean NOT NULL DEFAULT false;
+-- Settled in cash every night with no margin held: the market makers' side, and companies hedging (on their banks' credit).
+ALTER TABLE derivative_positions ADD COLUMN cash_settled boolean NOT NULL DEFAULT false;
 -- A future's settlement price: every open position in the series is marked to it (set at the first trade, then nightly).
 ALTER TABLE derivative_series ADD COLUMN mark bigint;
 
@@ -69,12 +71,12 @@ CREATE INDEX short_bans_days ON short_bans (until_day);
 -- Positions opened before this change were dealt with the market makers without recording their side. Record it now,
 -- so every open contract has its two sides.
 INSERT INTO derivative_positions (account, series_id, side, contracts, entry_price, mark, margin, purpose, opened_by, status,
-                                  opened_at, realised, by_makers)
+                                  opened_at, realised, by_makers, cash_settled)
 SELECT (SELECT id FROM ledger_accounts WHERE code = 'investors:institutions'), p.series_id,
        CASE p.side WHEN 'long' THEN 'short' ELSE 'long' END, p.contracts, p.entry_price, p.mark, 0, NULL, NULL, 'open',
        p.opened_at,
        CASE WHEN s.kind = 'future' THEN 0 WHEN p.side = 'long' THEN p.entry_price * p.contracts ELSE -p.entry_price * p.contracts END,
-       true
+       true, true
 FROM derivative_positions p JOIN derivative_series s ON s.id = p.series_id
 WHERE p.status = 'open';
 UPDATE derivative_positions p SET realised = CASE WHEN s.kind = 'future' THEN 0 WHEN p.side = 'long' THEN -p.entry_price * p.contracts

@@ -637,10 +637,24 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         (lent_before - lent["gross"]) + (prev["customer_loans"] - customer_loans) - paid("capital_spending") - invested + asset_sales
     )
     cash_from_financing = -paid("dividend") - (prev["borrowings"] - borrowings - converted) + share_proceeds
+    # Its oil hedges (the gap stage): futures settled in cash every night, and their fees. A gain is other income, a
+    # loss a cost; both are part of its trading.
+    hedging = (received("variation_margin") - paid("variation_margin") + received("future_trade") - paid("future_trade")
+               - paid("derivative_fee") + received("swap_payment") - paid("swap_payment"))
+    if hedging:
+        notes.append(f"Its hedges and swaps {'made' if hedging > 0 else 'cost'} {in_words(abs(hedging))} this quarter.")
+        if hedging > 0:
+            revenue += hedging
+        else:
+            cost_of_sales -= hedging
+        operating_profit += hedging
+        profit_before_tax += hedging
+        net_profit += hedging
     trading_cash = (
         revenue + interest_income
         - supplies_bought - paid("cost_of_sales") - paid("wages") - paid("debt_interest") - paid("company_tax")
         - paid("insurance_claim") - paid("salary") - paid("professional_fee") - paid("deposit_interest")
+        + min(hedging, 0)                       # (a hedging gain is in revenue already; a loss is cash gone)
     )
     # Anything else that moved its cash did not come from the company's own quarter:
     # somebody paid it, or took from it, outside its normal business. Whatever it is,

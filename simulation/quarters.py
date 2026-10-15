@@ -20,7 +20,7 @@ from psycopg.rows import dict_row
 from simulation import (abroad, banking, bonds, careers, clock, companies, consumers, corporate, economy, events, exchange, grants, investors, ledger,
                         macro, marketview, mindsets, moneywatch, news, objectives, private, valuation)
 from simulation import empires
-from simulation import crashfund, derivatives, lending, stochastic
+from simulation import crashfund, derivatives, lending, stochastic, swaps
 from simulation import property as property_market
 from simulation import ranks
 from simulation.money import BPS
@@ -203,6 +203,7 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     # Options and futures that run to this close are settled in cash, and the next ones listed; the crash fund (Stage 9).
     # (After the oil price and the naira are set for the quarter, so a future settles at the new level, not one known all quarter.)
     derivatives.close(conn, period, now)
+    swaps.close(conn, period, now)
     crashfund.close(conn, period, now, derivatives.index_now(conn, now))
 
     for company, result in results:

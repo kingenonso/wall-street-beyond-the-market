@@ -388,12 +388,12 @@ def _fee(conn: Connection, s: dict, contracts: int, level: int) -> int:
 
 
 def trade(conn: Connection, account, series_id: int, side: str, contracts: int, now: datetime, *, limit: int | None = None,
-          player_id=None, purpose: str | None = None, forced: bool = False, prefer: int | None = None) -> dict:
+          player_id=None, purpose: str | None = None, forced: bool = False, prefer: int | None = None, company: bool = False) -> dict:
     """Buy or sell contracts. The order meets players' waiting orders and the market makers' quote through the
     order-matching engine; what is left of a limit order waits in the book until the Closing Bell. Buying closes the
     account's own short positions first, selling its long positions; the rest opens new ones."""
     with conn.transaction():
-        if not forced:
+        if not forced and not company:
             _desk_open(now)
         state = _state(conn, now)
         conn.execute("SELECT pg_advisory_xact_lock(hashtext('borrower:' || %s::text))", (str(account),))
@@ -409,7 +409,7 @@ def trade(conn: Connection, account, series_id: int, side: str, contracts: int, 
         closing = _one(conn, "SELECT coalesce(sum(contracts), 0)::bigint AS n FROM derivative_positions WHERE account = %s AND series_id = %s"
                              " AND status = 'open' AND side = %s", (account, series_id, "short" if side == "buy" else "long"))["n"]
         opening = max(contracts - closing, 0)
-        if opening and not forced:
+        if opening and not forced and not company:
             if _one(conn, "SELECT 1 FROM player_loans WHERE borrower = %s AND status = 'default'", (account,)):
                 raise DerivativesError("A debt of yours is in default. Nothing new can be opened for you until it is paid.")
             unlock(conn, player_id, "options" if s["kind"] != "future" and side == "buy" else "advanced")
@@ -432,7 +432,7 @@ def trade(conn: Connection, account, series_id: int, side: str, contracts: int, 
                 order = _one(conn, "SELECT * FROM derivative_orders WHERE id = %s FOR UPDATE", (f["order_id"],))
                 _release_order(conn, order, f["quantity"], state["period"])
                 other, other_meta = order["account"], {"maker": False, "player_id": order["placed_by"], "purpose": order["purpose"]}
-            me = {"maker": False, "player_id": player_id, "purpose": purpose, "prefer": prefer, "forced": forced}
+            me = {"maker": False, "player_id": player_id, "purpose": purpose, "prefer": prefer, "forced": forced, "company": company}
             buyer, seller = ((account, me), (other, other_meta)) if side == "buy" else ((other, other_meta), (account, me))
             done = _fill(conn, s, f["price"], f["quantity"], buyer, seller, state["period"], now)
             mine = done["buyer"] if side == "buy" else done["seller"]
@@ -551,6 +551,7 @@ def _apply(conn: Connection, s: dict, account, direction: int, n: int, price: in
            level: int) -> dict:
     """Bring one side's positions up to date after a fill: close its opposite positions first, then open the rest."""
     maker = bool(meta.get("maker"))
+    cash_settled = maker or bool(meta.get("company"))
     margin_acct = _margin_account(conn)
     label = describe(s)
     left = n
@@ -590,7 +591,7 @@ def _apply(conn: Connection, s: dict, account, direction: int, n: int, price: in
         left -= k
     if left > 0:
         margin = 0
-        if not maker:
+        if not cash_settled:
             if s["kind"] == "future":
                 margin = value_of(conn, s, level) * data.FUTURE_MARGIN_BPS // BPS * left
             elif direction < 0:
@@ -602,9 +603,10 @@ def _apply(conn: Connection, s: dict, account, direction: int, n: int, price: in
                 except ledger.InsufficientFunds:
                     raise DerivativesError(f"That needs {money(margin)} of cash as margin.") from None
         row = _one(conn, "INSERT INTO derivative_positions (account, series_id, side, contracts, entry_price, mark, margin, purpose, opened_by,"
-                         " opened_at, realised, by_makers) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                         " opened_at, realised, by_makers, cash_settled) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                    (account, s["id"], "long" if direction > 0 else "short", left, price, s["mark"] if s["kind"] == "future" else price,
-                    margin, None if maker else meta.get("purpose"), None if maker else meta.get("player_id"), now, per_cash * left, maker))
+                    margin, None if maker else meta.get("purpose"), None if maker else meta.get("player_id"), now, per_cash * left, maker,
+                    cash_settled))
         position_id = row["id"]
         added = margin
     return {"position_id": position_id, "margin": added}
@@ -667,7 +669,6 @@ def _settle_series(conn: Connection, s: dict, level_or_payoff: int, period: int,
     default fund (the player then owes the fund). What was collected is shared among the winners: in full, as the two
     sides of every contract add up to nothing; less only if the default fund itself ran dry."""
     margin_acct = _margin_account(conn)
-    desk = _desk(conn)
     fund = fund_account(conn)
     label = describe(s)
     positions = _rows(conn, "SELECT p.*, s.kind, s.underlying, s.company_id, s.strike, s.expiry_period FROM derivative_positions p"
@@ -682,9 +683,9 @@ def _settle_series(conn: Connection, s: dict, level_or_payoff: int, period: int,
         loss = -moves[p["id"]]
         if loss <= 0:
             continue
-        if p["by_makers"]:
-            got = ledger.pay_up_to(conn, payer=desk, receiver=margin_acct, wanted=loss, kind="variation_margin", memo=f"{label}: {why}",
-                                   period=period)
+        if p["cash_settled"]:
+            got = ledger.pay_up_to(conn, payer=p["account"], receiver=margin_acct, wanted=loss, kind="variation_margin",
+                                   memo=f"{label}: {why}", period=period)
         else:
             got = min(loss, p["margin"])
             p["margin"] -= got
@@ -697,7 +698,7 @@ def _settle_series(conn: Connection, s: dict, level_or_payoff: int, period: int,
             if cover:
                 conn.execute("INSERT INTO clearing_fund_events (kind, amount, account, words, at) VALUES ('cover', %s, %s, %s, %s)",
                              (cover, p["account"], f"Covered a loss beyond the margin on {label}", now))
-            if not p["by_makers"]:
+            if not p["cash_settled"]:
                 from simulation import lending
                 conn.execute("UPDATE derivative_positions SET realised = realised - %s WHERE id = %s", (short, p["id"]))
                 lending.record_shortfall(conn, p["account"], fund, short, f"Your {label}", period, now)
@@ -713,8 +714,9 @@ def _settle_series(conn: Connection, s: dict, level_or_payoff: int, period: int,
         paid_total += g
         if g <= 0:
             continue
-        if p["by_makers"]:
-            ledger.transfer(conn, payer=margin_acct, receiver=desk, amount=g, kind="variation_margin", memo=f"{label}: {why}", period=period)
+        if p["cash_settled"]:
+            ledger.transfer(conn, payer=margin_acct, receiver=p["account"], amount=g, kind="variation_margin", memo=f"{label}: {why}",
+                            period=period)
         else:
             p["margin"] += g
             conn.execute("UPDATE derivative_positions SET margin = margin + %s, realised = realised + %s WHERE id = %s", (g, g, p["id"]))
@@ -750,7 +752,7 @@ def at_bell(conn: Connection, now: datetime, ended) -> dict:
             _settle_series(conn, s, fair(conn, s, now), period, now, "tonight's settlement")
             done["settled"] += 1
     for p in _rows(conn, "SELECT p.id FROM derivative_positions p JOIN derivative_series s ON s.id = p.series_id"
-                         " WHERE p.status = 'open' AND NOT p.by_makers AND (s.kind = 'future' OR p.side = 'short') ORDER BY p.id"):
+                         " WHERE p.status = 'open' AND NOT p.cash_settled AND (s.kind = 'future' OR p.side = 'short') ORDER BY p.id"):
         with conn.transaction():
             p = _one(conn, "SELECT p.*, s.kind, s.underlying, s.company_id, s.strike, s.expiry_period FROM derivative_positions p"
                            " JOIN derivative_series s ON s.id = p.series_id WHERE p.id = %s AND p.status = 'open' FOR UPDATE OF p", (p["id"],))
@@ -778,7 +780,7 @@ def at_bell(conn: Connection, now: datetime, ended) -> dict:
 
 
 def _note(conn: Connection, p: dict, words: str, now: datetime) -> None:
-    if p.get("by_makers"):
+    if p.get("by_makers") or p.get("cash_settled"):
         return
     conn.execute("INSERT INTO lending_events (account, kind, words, at) VALUES (%s, 'derivatives', %s, %s)", (p["account"], words, now))
 
@@ -814,7 +816,38 @@ def close(conn: Connection, period: int, now: datetime) -> dict:
         conn.execute("UPDATE derivative_series SET status = 'settled', settled_spot = %s WHERE id = %s", (level, s["id"]))
     conn.execute("SELECT pg_advisory_xact_lock(hashtext('derivatives:listing'))")
     added = list_series(conn, period, now)
-    return {"settled": settled, "listed": added}
+    hedged = hedge_companies(conn, period, now)
+    return {"settled": settled, "listed": added, "hedged": hedged}
+
+
+def hedge_companies(conn: Connection, period: int, now: datetime) -> int:
+    """Oil and gas producers sell oil futures for part of next quarter's output; the big users of fuel (airlines,
+    transport, shipping, power) buy them. Each hedges in proportion to its last quarter's sales, settled in cash every
+    night on its bank's credit (no margin held), and the gain or loss runs through its own accounts."""
+    s = _one(conn, "SELECT * FROM derivative_series WHERE kind = 'future' AND underlying = 'OIL' AND status = 'open'"
+                   " AND expiry_period = %s", (period + 1,))
+    if s is None:
+        return 0
+    contract = value_of(conn, s, spot(conn, s, now))
+    if contract <= 0:
+        return 0
+    done = 0
+    for c in _rows(conn, "SELECT c.id, c.ticker, c.account_id, c.sector, (SELECT r.revenue FROM company_results r WHERE r.company_id = c.id"
+                         " ORDER BY r.period DESC LIMIT 1) AS sales FROM companies c WHERE c.status = 'trading'"
+                         " AND (c.ticker = ANY(%s) OR c.sector = ANY(%s)) ORDER BY c.ticker",
+                   (list(data.HEDGE_SELLERS), list(data.HEDGE_BUYERS_SECTORS))):
+        seller = c["ticker"] in data.HEDGE_SELLERS
+        share = data.HEDGE_SELL_SHARE_BPS if seller else data.HEDGE_BUY_SHARE_BPS
+        n = min((c["sales"] or 0) * share // BPS // contract, data.HEDGE_MOST_CONTRACTS)
+        if n <= 0 or _one(conn, "SELECT 1 FROM derivative_positions WHERE account = %s AND series_id = %s AND status = 'open'",
+                          (c["account_id"], s["id"])):
+            continue
+        try:
+            trade(conn, c["account_id"], s["id"], "sell" if seller else "buy", int(n), now, company=True)
+            done += 1
+        except DerivativesError:
+            continue                                     # (a company short of cash for the fee simply does not hedge)
+    return done
 
 
 def check_books(conn: Connection) -> list[str]:
