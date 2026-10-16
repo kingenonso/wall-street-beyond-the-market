@@ -482,7 +482,7 @@ function Owned({ h, act, forEmpire, canAct, m }: { h: Holdings; act: Act; forEmp
                 </form>
               )}
               {p.share_bps === 10000 && p.kind !== "land" && p.kind !== "farmland" && p.status === "standing" && !lease[p.id] && (
-                <button className="button-quiet" disabled={act.busy} onClick={() => askTerms(p.id)}><Term word="Sale and leaseback">Sell and lease back</Term>…</button>
+                <span><button className="button-quiet" disabled={act.busy} onClick={() => askTerms(p.id)}>Sell and lease back…</button> <Term word="Sale and leaseback">{""}</Term></span>
               )}
               {lease[p.id]?.error && <p className="error small">{lease[p.id].error}</p>}
               {lease[p.id]?.terms && (() => { const t = lease[p.id].terms!; return (
