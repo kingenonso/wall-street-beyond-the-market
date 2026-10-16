@@ -241,6 +241,9 @@ def budgets(conn: Connection, groups: list[dict], world, period: int, *, borrowe
         # Money that reached the households after the last close (players' living costs, empire pay, and so on)
         # is shared out first, so the groups' savings are exactly the location's account when they decide.
         _line_up(mine, "cash", ledger.balance(conn, household["account_id"]))
+        # Likewise their debts: home loans taken, repaid or gone bad at the close (the gap stage) are shared by what each owes.
+        _line_up(mine, "debt", int(_rows(conn, "SELECT coalesce(sum(principal), 0) AS total FROM household_debts WHERE location = %s",
+                                         (location,))[0]["total"]))
         spends, dips = _habit_scales(mine, household)
         # Last quarter's income is shared by what each group earns; the banks' takings by what each owes.
         income = {g["id"]: g["income"] for g in mine}

@@ -29,6 +29,7 @@ from psycopg.types.json import Jsonb
 
 from simulation import banking, careers, clock, empires, firm, leagues, ledger, private
 from simulation import firm_duties as fd
+from simulation import world_data as data
 from simulation.empires import EmpireError, _log, _money, _one, _open, _rows
 from simulation.money import BPS, apply_bps, million_naira
 
@@ -643,7 +644,16 @@ def loan_quote(conn: Connection, sale: dict, price: int, period: int) -> dict:
             "covenants": {"debt_x_most": COVENANTS["debt_x_most"], "cover_least_bps": COVENANTS["cover_least_bps"]}}
 
 
-def place_bid(conn: Connection, head_id, file_id: int, amount: int, loan: int, now: datetime) -> dict:
+def mezzanine_quote(conn: Connection, sale: dict, price: int, loan: int) -> dict:
+    """What the pension funds lend after the bank: up to a fifth of the price (and the bank's loan and theirs together no
+    more than four fifths), at the bank's rate plus six points, with warrants for 5% of the company used at once."""
+    most = max(min(apply_bps(price, data.MEZZ_MOST_BPS), apply_bps(price, data.MEZZ_WITH_LOAN_MOST_BPS) - loan), 0)
+    return {"most": most, "rate_bps": _rate_bps(conn, sale["company_id"]) + BUYOUT_SPREAD_BPS + data.MEZZ_EXTRA_BPS,
+            "equity_bps": data.MEZZ_EQUITY_BPS}
+
+
+def place_bid(conn: Connection, head_id, file_id: int, amount: int, loan: int, now: datetime, *, mezzanine: int = 0,
+              earnout: int = 0) -> dict:
     """The head bids. A deal needs all three: the Banker brought it, the Accountant has checked the
     accounts, the Risk Manager has signed the stress test (and a banker the fairness opinion, for a
     large deal). The empire's part of the price is held in escrow while the bid stands."""
@@ -659,7 +669,7 @@ def place_bid(conn: Connection, head_id, file_id: int, amount: int, loan: int, n
         conflict = _conflicted(conn, empire["id"], sale["id"])
         if conflict:
             raise EmpireError(f"{conflict}, run from your empire, is working for the seller on this sale. Your empire may not buy it.")
-        for value in (amount, loan):
+        for value in (amount, loan, mezzanine, earnout):
             if not isinstance(value, int) or isinstance(value, bool) or value < 0:
                 raise EmpireError("Amounts are whole kobo, nought or more.")
         if amount <= 0:
@@ -695,14 +705,24 @@ def place_bid(conn: Connection, head_id, file_id: int, amount: int, loan: int, n
         quote = loan_quote(conn, sale, price, state["period"])
         if loan > quote["most"]:
             raise EmpireError("No bank will lend that much against this company at this price. See the bank's offer in the file.")
+        mezz = mezzanine_quote(conn, sale, price, loan)
+        if mezzanine > mezz["most"]:
+            raise EmpireError(f"The pension funds lend at most {_money(mezz['most'])} after the bank on this deal.")
+        if earnout > apply_bps(price, data.EARNOUT_MOST_BPS):
+            raise EmpireError(f"At most {data.EARNOUT_MOST_BPS // 100}% of the price may be paid later, against the company's results.")
+        if sale["seller_empire_id"] and earnout:
+            raise EmpireError("An earn-out is agreed only with a seller the computer runs.")
         from simulation import firm_money
         promised = _one(conn, "SELECT coalesce(sum(loan), 0)::bigint AS n FROM deal_bids WHERE empire_id = %s AND status = 'live' AND process_id <> %s",
                         (empire["id"], sale["id"]))["n"]
         if loan + promised > firm_money.gearing_room(conn, empire, now) + price // 2:
             raise EmpireError("With this loan the empire would owe more than its rules allow.")
-        equity = price - loan - partners
+        equity = price - loan - mezzanine - earnout - partners
         if equity < 0:
             raise EmpireError("The partners and the loan come to more than the price. Bid more, or borrow less.")
+        if (mezzanine or earnout) and equity + partners < apply_bps(price, data.DEAL_LEAST_EQUITY_BPS):
+            raise EmpireError(f"With mezzanine or an earn-out, the buyers must still put in at least {data.DEAL_LEAST_EQUITY_BPS // 100}% "
+                              f"of the price in cash ({_money(apply_bps(price, data.DEAL_LEAST_EQUITY_BPS))}).")
         top_up = equity - (live["held"] if live else 0)
         if top_up > 0:
             try:
@@ -716,21 +736,23 @@ def place_bid(conn: Connection, head_id, file_id: int, amount: int, loan: int, n
                   "risk_manager": str(steps["stress"]["done_by"]) if steps["stress"]["done_by"] else "staff", "head": str(head_id)}
         if live:
             conn.execute("UPDATE deal_bids SET amount = %s, clause_charge = %s, equity = %s, loan = %s, lender_account = %s, loan_rate_bps = %s,"
-                         " covenants = %s, held = %s, signed_by = %s, at = %s WHERE id = %s",
+                         " covenants = %s, held = %s, signed_by = %s, at = %s, mezzanine = %s, mezz_rate_bps = %s, earnout = %s WHERE id = %s",
                          (amount, charge, equity, loan, quote["lender_account"] if loan else None, quote["rate_bps"], Jsonb(quote["covenants"]),
-                          equity, Jsonb(signed), now, live["id"]))
+                          equity, Jsonb(signed), now, mezzanine, mezz["rate_bps"], earnout, live["id"]))
             bid_id = live["id"]
         elif pending:
             conn.execute("UPDATE deal_bids SET amount = %s, clause_charge = %s, equity = %s, loan = %s, lender_account = %s, loan_rate_bps = %s,"
-                         " covenants = %s, held = %s, signed_by = %s, status = 'live', at = %s WHERE id = %s",
+                         " covenants = %s, held = %s, signed_by = %s, status = 'live', at = %s, mezzanine = %s, mezz_rate_bps = %s, earnout = %s"
+                         " WHERE id = %s",
                          (amount, charge, equity, loan, quote["lender_account"] if loan else None, quote["rate_bps"], Jsonb(quote["covenants"]),
-                          equity, Jsonb(signed), now, pending["id"]))
+                          equity, Jsonb(signed), now, mezzanine, mezz["rate_bps"], earnout, pending["id"]))
             bid_id = pending["id"]
         else:
             bid_id = _one(conn, "INSERT INTO deal_bids (process_id, empire_id, file_id, amount, clause_charge, equity, loan, lender_account, loan_rate_bps,"
-                                " covenants, held, status, signed_by, at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'live', %s, %s) RETURNING id",
+                                " covenants, held, status, signed_by, at, mezzanine, mezz_rate_bps, earnout) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,"
+                                " %s, %s, 'live', %s, %s, %s, %s, %s) RETURNING id",
                           (sale["id"], empire["id"], file_id, amount, charge, equity, loan, quote["lender_account"] if loan else None,
-                           quote["rate_bps"], Jsonb(quote["covenants"]), equity, Jsonb(signed), now))["id"]
+                           quote["rate_bps"], Jsonb(quote["covenants"]), equity, Jsonb(signed), now, mezzanine, mezz["rate_bps"], earnout))["id"]
         if top_up < 0:
             ledger.transfer(conn, payer=escrow_account(conn), receiver=empire["account_id"], amount=-top_up, kind="deal_escrow_back",
                             memo=f"{empire['name']}: escrow handed back as its bid changed", period=state["period"], reference=f"bid:{bid_id}")
@@ -740,7 +762,8 @@ def place_bid(conn: Connection, head_id, file_id: int, amount: int, loan: int, n
                       state["period"], now, reference=f"bid:{bid_id}")
         _log(conn, empire["id"], f"The head bid {_money(amount)} for {sale['company']} {_how(sale)}"
                                  + (f" (the seller adds {_money(charge)} for the clauses changed)" if charge else "") + ".", now)
-        return {"bid_id": bid_id, "price": price, "equity": equity, "loan": loan, "partners": partners}
+        return {"bid_id": bid_id, "price": price, "equity": equity, "loan": loan, "partners": partners, "mezzanine": mezzanine,
+                "earnout": earnout}
 
 
 def withdraw_bid(conn: Connection, head_id, file_id: int, now: datetime) -> None:
@@ -837,8 +860,13 @@ def _decide(conn: Connection, sale: dict, period: int, now: datetime) -> None:
     best_computer = max(computers, key=lambda c: (c["amount"], -c["order"]), default=None)
     seller_has = ledger.balance(conn, sale["seller_account"], sale["share_asset"])
     winner = None
-    if best_player and best_player["amount"] + best_player["clause_charge"] >= sale["reserve"] and (
-            best_computer is None or best_player["amount"] >= best_computer["amount"]):
+    # The seller counts an earn-out at only part of its face: it may never be paid.
+    def counted(bid: dict) -> int:
+        return bid["amount"] - apply_bps(bid["earnout"], BPS - data.EARNOUT_SELLER_COUNTS_BPS)
+    if best_player:
+        best_player = max(bids, key=lambda b: (counted(b) + b["clause_charge"], -b["id"]))
+    if best_player and counted(best_player) + best_player["clause_charge"] >= sale["reserve"] and (
+            best_computer is None or counted(best_player) >= best_computer["amount"]):
         winner = ("player", best_player)
     elif best_computer and best_computer["amount"] >= sale["reserve"]:
         winner = ("computer", best_computer)
@@ -877,6 +905,14 @@ def _complete(conn: Connection, sale: dict, bid: dict, period: int, now: datetim
     escrow = apply_bps(price, ESCROW_BPS) if terms.get("escrow") else 0
     pot = escrow_account(conn)
     reference = f"process:{sale['id']}"
+    if bid["mezzanine"] > 0 and ledger.balance(conn, ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)) < bid["mezzanine"]:
+        # The pension funds can no longer lend the mezzanine: the deal falls through, and everything held is handed back.
+        _release(conn, bid, "lost", period)
+        conn.execute("UPDATE sale_processes SET status = 'failed', outcome = %s WHERE id = %s",
+                     ("The winning bidder's mezzanine lender could no longer lend. The sale fell through.", sale["id"]))
+        conn.execute("UPDATE deal_files SET status = 'lost' WHERE id = %s", (bid["file_id"],))
+        _log(conn, empire["id"], f"The pension funds could no longer lend the mezzanine: the purchase of {sale['company']} fell through.", now)
+        return
     if bid["loan"] > 0:
         lender = _one(conn, "SELECT a.id, c.name FROM ledger_accounts a LEFT JOIN companies c ON c.account_id = a.id WHERE a.id = %s",
                       (bid["lender_account"],))
@@ -896,7 +932,17 @@ def _complete(conn: Connection, sale: dict, bid: dict, period: int, now: datetim
                           " due_period, company_id, covenants, signed_by, at) VALUES (%s, 'buyout', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
                     (empire["id"], bank["account_id"], lender["name"], bid["loan"], bid["loan"], bid["loan_rate_bps"], period, period + 20,
                      sale["company_id"], Jsonb(bid["covenants"]), empire["head_player_id"], now))
-    _pay_seller(conn, sale, price, escrow, pot, period, reference)
+    mezz_lender = None
+    if bid["mezzanine"] > 0:
+        mezz_lender = ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
+        ledger.transfer(conn, payer=mezz_lender, receiver=pot, amount=bid["mezzanine"], kind="empire_borrowing",
+                        memo=f"{empire['name']}: mezzanine from the pension funds for {sale['company']}", period=period, reference=reference)
+        _one(conn, "INSERT INTO empire_debts (empire_id, kind, lender_account, lender_name, principal, outstanding, rate_bps, taken_period,"
+                   " due_period, company_id, signed_by, at) VALUES (%s, 'mezzanine', %s, 'The pension funds (mezzanine)', %s, %s, %s, %s, %s, %s,"
+                   " %s, %s) RETURNING id",
+             (empire["id"], mezz_lender, bid["mezzanine"], bid["mezzanine"], bid["mezz_rate_bps"], period, period + 24, sale["company_id"],
+              empire["head_player_id"], now))
+    _pay_seller(conn, sale, price - bid["earnout"], escrow, pot, period, reference)
     adviser_fee = firm_practice().mandate_fee(conn, sale, price, period, now)        # the advisory firm that ran the sale, from the seller
     partners = _rows(conn, "SELECT * FROM deal_partners WHERE bid_id = %s AND status = 'pledged' FOR UPDATE", (bid["id"],))
     given = 0
@@ -906,6 +952,10 @@ def _complete(conn: Connection, sale: dict, bid: dict, period: int, now: datetim
         given += part
         legs.append((row["account_id"], part))
         conn.execute("UPDATE deal_partners SET status = 'used' WHERE id = %s", (row["id"],))
+    if mezz_lender is not None:
+        kicker = sale["shares"] * data.MEZZ_EQUITY_BPS // BPS          # the mezzanine's warrants, used at once
+        given += kicker
+        legs.append((mezz_lender, kicker))
     legs.insert(0, (empire["account_id"], sale["shares"] - given))
     for account, shares in legs:
         if shares > 0:
@@ -916,6 +966,15 @@ def _complete(conn: Connection, sale: dict, bid: dict, period: int, now: datetim
                       " escrow_until, terms, conditions, period, at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
                 (sale["id"], bid["id"], sale["company_id"], empire["id"], sale["seller_account"], price, sale["shares"], pot, escrow,
                  period + (1 if terms.get("short_window") else CLAIM_WINDOW), Jsonb(terms), Jsonb(conditions), period, now))
+    if bid["earnout"] > 0:
+        # Part of the price is paid later: in full a year on, if the company's sales over that year reach the target.
+        papers = private.papers(conn, sale["company_id"])
+        recent = papers[-4:]
+        yearly = sum(r["revenue"] for r in recent) * 4 // max(len(recent), 1)
+        conn.execute("INSERT INTO deal_earnouts (deal_id, empire_id, seller_account, amount, target_sales, from_period, due_period, at)"
+                     " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                     (deal["id"], empire["id"], sale["seller_account"], bid["earnout"], yearly * data.EARNOUT_TARGET_BPS // BPS, period + 1,
+                      period + data.EARNOUT_QUARTERS, now))
     conn.execute("UPDATE deal_bids SET status = 'won', held = 0 WHERE id = %s", (bid["id"],))
     conn.execute("UPDATE deal_files SET status = 'won' WHERE id = %s", (bid["file_id"],))
     conn.execute("UPDATE sale_processes SET status = 'sold', winner_bid = %s, price = %s, outcome = %s WHERE id = %s",
@@ -1263,7 +1322,8 @@ def _file_view(conn: Connection, f: dict, sale: dict, seat: dict, empire: dict, 
     out = {"id": f["id"], "status": f["status"], "nda": f["nda_at"] is not None, "steps": steps, "valuation": f["valuation"],
            "can_sign_nda": f["nda_at"] is None and _desk_ok(conn, empire, seat, "lawyer"),
            "can_negotiate": _desk_ok(conn, empire, seat, "lawyer"), "is_head": empire["head_player_id"] == me,
-           "bid": {"amount": bid["amount"], "charge": bid["clause_charge"], "equity": bid["equity"], "loan": bid["loan"], "status": bid["status"]}
+           "bid": {"amount": bid["amount"], "charge": bid["clause_charge"], "equity": bid["equity"], "loan": bid["loan"], "status": bid["status"],
+                   "mezzanine": bid.get("mezzanine") or 0, "earnout": bid.get("earnout") or 0}
                   if bid and bid["status"] == "live" else None,
            "partners": partners, "clauses": [{"code": k, "words": v[0], "escape": v[1]} for k, v in CLAUSES.items()],
            "protections": [{"code": k, "words": v[0]} for k, v in PROTECTIONS.items()]}
@@ -1274,6 +1334,8 @@ def _file_view(conn: Connection, f: dict, sale: dict, seat: dict, empire: dict, 
         if empire["head_player_id"] == me:
             out["loan_quote"] = {k: v for k, v in loan_quote(conn, sale, sale["highest"] or sale["asking"], careers.world_now(conn, now)["period"]).items()
                                  if k != "lender_account"}
+            out["mezzanine_quote"] = mezzanine_quote(conn, sale, sale["highest"] or sale["asking"], out["loan_quote"]["most"])
+            out["earnout_most_bps"] = data.EARNOUT_MOST_BPS if not sale["seller_empire_id"] else 0
     return out
 
 
@@ -1310,11 +1372,44 @@ def _bell(conn: Connection, now: datetime) -> None:
     _bell_auctions(conn, now)
 
 
+def settle_earnouts(conn: Connection, period: int, now: datetime) -> None:
+    """An earn-out falls due. If the company's sales over the earn-out quarters reached the target, the buyer pays the
+    seller the rest of the price; if they fell short, it pays in proportion (so holding sales back to avoid paying
+    saves little); what it cannot pay is owed."""
+    if _one(conn, "SELECT to_regclass('deal_earnouts') IS NOT NULL AS ok")["ok"] is not True:
+        return
+    from simulation import lending
+    for e in _rows(conn, "SELECT e.*, d.company_id, c.name AS company FROM deal_earnouts e JOIN deals d ON d.id = e.deal_id"
+                         " JOIN companies c ON c.id = d.company_id WHERE e.status = 'running' AND e.due_period <= %s ORDER BY e.id FOR UPDATE OF e",
+                   (period,)):
+        row = _one(conn, "SELECT coalesce(sum(revenue), 0)::bigint AS s, count(*) AS n FROM company_results WHERE company_id = %s"
+                         " AND period BETWEEN %s AND %s", (e["company_id"], e["from_period"], e["due_period"]))
+        sales = row["s"]
+        empire = empires._empire(conn, e["empire_id"])
+        due = e["amount"] if sales >= e["target_sales"] else e["amount"] * max(sales, 0) // max(e["target_sales"], 1)
+        if row["n"] < e["due_period"] - e["from_period"] + 1:
+            due = e["amount"]          # a company wound up, sold on or not reporting cannot be used to escape the earn-out
+        if due <= 0:
+            conn.execute("UPDATE deal_earnouts SET status = 'missed' WHERE id = %s", (e["id"],))
+            _log(conn, e["empire_id"], f"{e['company']} made no sales over the earn-out: the {_money(e['amount'])} still to pay is not owed.", now)
+            continue
+        paid = ledger.pay_up_to(conn, payer=empire["account_id"], receiver=e["seller_account"], wanted=due, kind="company_sale",
+                                memo=f"The earn-out on {e['company']}", period=period)
+        if paid < due:
+            lending.record_shortfall(conn, empire["account_id"], e["seller_account"], due - paid, f"The earn-out on {e['company']}", period, now)
+        status = "short" if paid < due else "paid" if due == e["amount"] else "part"
+        conn.execute("UPDATE deal_earnouts SET status = %s, paid = %s WHERE id = %s", (status, paid, e["id"]))
+        _log(conn, e["empire_id"], (f"{e['company']}'s sales reached the earn-out's target" if due == e["amount"] else
+                                    f"{e['company']}'s sales reached {_money(sales)} of the {_money(e['target_sales'])} the earn-out "
+                                    f"targeted, so it pays in proportion") + f": {_money(paid)} paid to the seller.", now)
+
+
 def _closed(conn: Connection, period: int, now: datetime) -> None:
     decide_sales(conn, period, now)
     with conn.transaction():
         _release_escrow(conn, period, now)
         _ownership_claims(conn, period, now)
+        settle_earnouts(conn, period, now)
 
 
 firm.BELL.append(_bell)

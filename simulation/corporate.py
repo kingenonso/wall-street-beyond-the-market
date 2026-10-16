@@ -387,6 +387,13 @@ def _complete_offers(conn: Connection, period: int, now: datetime) -> None:
                              f"{sold:,} new shares were issued at {_naira(price)}. The same company is now divided into more "
                              f"shares, so each is worth less: the price was adjusted from {_naira(listed)} to {_naira(new_price)}.")
             outcome += f" The share price was adjusted from {_naira(listed)} to {_naira(new_price)} to allow for the new shares."
+        if sold and offer["kind"] == "rights":
+            # Warrants come with the new shares: one for every five taken up (the gap stage).
+            from simulation import instruments
+            base = listed or price
+            instruments.grant_warrants(conn, company, {a: n // data.WARRANT_PER_NEW_SHARES for a, n in allot.items()},
+                                       strike=base * data.WARRANT_STRIKE_BPS // BPS, expiry_period=period + data.WARRANT_QUARTERS,
+                                       period=period, why="with the rights issue", now=now)
         if underwriter and sold:
             from simulation import firm_practice
             outcome += firm_practice.underwritten(conn, offer, company, underwriter, allot.get(underwriter["account_id"], 0), raised, period, now)
@@ -439,6 +446,8 @@ def _complete_splits(conn: Connection, period: int, now: datetime) -> None:
                      (ratio, ratio, ratio, company["id"]))
         conn.execute("UPDATE derivative_series SET strike = greatest(round(strike::numeric / %s), 1) WHERE company_id = %s AND status = 'open'",
                      (ratio, company["id"]))
+        from simulation import instruments
+        instruments.after_split(conn, company["id"], ratio)
         conn.execute("INSERT INTO share_splits (company_id, period, ratio, after_trade_id, session_date) VALUES (%s, %s, %s, %s, %s)",
                      (company["id"], period, ratio, _after_trade(conn), day))
         after = _market_price(conn, company["id"])
@@ -702,6 +711,8 @@ def _convert(conn: Connection, period: int, now: datetime) -> None:
         if pending and price:
             exchange.allow_index_for(conn, pending * price)
     done = bonds.convert_waiting(conn, period)
+    from simulation import instruments
+    instruments.exercise_waiting(conn, period, now)
     for company_id, (debt, shares) in done.items():
         company = _company(conn, company_id)
         notice(conn, period, company_id, "conversion", f"{company['name']}: bonds swapped for shares",

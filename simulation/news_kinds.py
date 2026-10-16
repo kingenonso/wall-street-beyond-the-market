@@ -138,6 +138,13 @@ KINDS: tuple[NewsKind, ...] = (
     NewsKind("property_forced_sale", 50, {"property": "Flat 3, Surulere", "why": "its mortgage was not paid"}),
     NewsKind("title_dispute", 58, {"property": "Ikeja Mall", "share": "40%"}),
     NewsKind("hq_collapse", 78, {"empire": "Harbour House", "building": "Victoria Island Tower", "city": "Lagos"}),
+    # --- The gap stage: zoning, infrastructure, claims, developments and home loans ---
+    NewsKind("rezoning", 50, {"property": "Plot 2, Epe", "city": "Lagos", "zone": "residential"}),
+    NewsKind("infrastructure_announced", 66, {"project": "Epe Expressway", "district": "Epe", "city": "Lagos", "finish": "Q1 2028"}),
+    NewsKind("infrastructure_done", 60, {"project": "Epe Expressway", "district": "Epe", "city": "Lagos"}),
+    NewsKind("property_claim", 54, {"property": "Ikoyi Court", "claim": "an old loan secured on it"}),
+    NewsKind("development_done", 48, {"property": "Plot 1, Maitama", "city": "Abuja", "kind": "homes"}),
+    NewsKind("home_repossessions", 70, {"city": "Lagos", "homes": "about 1,200", "rate": "26.5%"}),
     # --- The economy upgrade: the rest of the world ---
     NewsKind("oil_up", 70, {"price": "$82.40", "previous": "$75.00", "change": "9.9%"}),
     NewsKind("oil_down", 72, {"price": "$64.10", "previous": "$75.00", "change": "14.5%"}),

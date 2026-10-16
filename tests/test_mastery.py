@@ -74,7 +74,8 @@ def test_every_module_has_work_alone_with_the_empire_and_as_a_weekend_challenge(
     for track in (*TRACKS, "ceo"):
         modules = objectives.modules(track)
         size = 6 if track == "ceo" else 8                 # (each build gained a property module in Stage 8, and one in Stage 9)
-        assert len(modules) == size and len({m["module"] for m in modules}) == size
+        first = [m for m in modules if m["level"] <= 4]   # (the gap stage added the higher bands, Levels 41 to 100)
+        assert len(first) == size and len({m["module"] for m in modules}) == len(modules) and len(modules) >= size + 8
         for m in modules:
             versions = {t.setting for t in objectives.TEMPLATES.values() if t.build == track and t.module == m["module"] and t.listed}
             assert versions == {"solo", "empire", "live"}, (track, m["module"])
@@ -102,6 +103,8 @@ def test_every_piece_of_work_in_every_setting_can_really_be_offered(db):
         board = objectives.board(db, player, FRIDAY9)
         assert {o["track"] for o in board["offers"]} == {track}
         for offer in board["offers"]:
+            if objectives.TEMPLATES[offer["template"]].level > 20:
+                continue                                  # (the higher bands, Levels 41 to 100: tested in test_gap_library.py)
             if not offer["available"] and offer["template"] not in ("lw_pact",):
                 never.append((offer["template"], offer["why_not"]))
     # Work that waits on something in the world (a bid in progress, a company in difficulty) may not be on offer at
@@ -173,8 +176,9 @@ def test_a_module_is_learned_alone_practised_with_the_empire_and_proven_in_a_wee
     assert won["state"] == "passed" and won["setting"] == "live"
     assert stage(friday11)["stage"] == "proven" and stage(friday11)["stage_number"] == 3
     tracker = objectives.board(db, player, friday11)["tracks"][0]
-    assert (tracker["learned"], tracker["practised"], tracker["proven"], tracker["modules"]) == (1, 1, 1, 8)
-    assert tracker["learned_pct"] == round(100 / 8) and tracker["name"] == "Accountant"
+    total = len(objectives.modules("accountant"))
+    assert (tracker["learned"], tracker["practised"], tracker["proven"], tracker["modules"]) == (1, 1, 1, total)
+    assert tracker["learned_pct"] == round(100 / total) and tracker["name"] == "Accountant"
     # The empire gained league points for both.
     points = _dicts(db, "SELECT points, why FROM league_points WHERE empire_id = %s AND period IN (10, 11) AND reference LIKE 'objective:%%'"
                         " ORDER BY id", (empire["id"],))
@@ -355,11 +359,18 @@ def test_the_later_gates_ask_for_every_module_proven(db):
     player, _ = pro(db, "accountant", level=20, cash_naira=9_000_000)
     db.execute("UPDATE careers SET rank = 2, experience = %s WHERE player_id = %s", (careers.experience_for(60), player))
     assert careers.career(db, player)["level"] == 60
+    # The gate at 60 asks for every module that opens at or below Level 60 (the gap stage's higher bands included).
+    required = [m for m in objectives.modules("accountant") if m["level"] <= 60]
+    assert len(required) > 8
     master(db, player, "accountant", stages=("solo", "empire"))
-    master(db, player, "accountant", stages=("live",), modules=7)
+    for m in required[:-1]:
+        db.execute("INSERT INTO objectives (player_id, build, template, module, period, payer_account_id, payer_name, title, terms, reward,"
+                   " experience, accepted_at, state, judged_at, judged_period, judged_seq, setting, track, root) VALUES (%s, 'accountant', %s,"
+                   " %s, 3, %s, 'Test', %s, '{}', 0, 0, %s, 'passed', %s, 3, nextval('objectives_judged_seq'), 'live', 'accountant', %s)",
+                   (player, m["template"] + "_w", m["module"], ledger.player_account_id(db, player), m["title"], NOW9, NOW9, m["template"]))
     where = ranks.standing(db, player, NOW9)["tracks"][0]
-    assert where["gate"] == 60 and not where["can_begin"] and "8 modules must be proven" in where["why_not"]
-    assert where["needs"][2]["missing"] == ["Futures and the cost of carry"]
+    assert where["gate"] == 60 and not where["can_begin"] and f"{len(required)} modules must be proven" in where["why_not"]
+    assert where["needs"][2]["missing"] == [required[-1]["module"]]
     master(db, player, "accountant", stages=("live",))
     assert ranks.standing(db, player, NOW9)["tracks"][0]["can_begin"]
 

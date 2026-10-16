@@ -44,13 +44,14 @@ def hand_over(db, property_id, account, share=BPS):
                (property_id, account, share))
 
 
-def a_unit(db, city="Lagos", kind=None, *, flawless=True, standing=True):
+def a_unit(db, city="Lagos", kind=None, *, flawless=True, standing=True, claims_free=True):
     """A small, cheap building (or a plot) in a city."""
     rows = _dicts(db, "SELECT p.* FROM properties p JOIN districts d ON d.id = p.district_id WHERE d.city = %s"
                       " AND (%s::text IS NULL OR p.kind = %s) AND (NOT %s OR p.title_flaw_bps = 0)"
                       " AND ((%s AND p.status = 'standing' AND p.kind <> 'land') OR (NOT %s AND p.kind = 'land'))"
                       " AND NOT EXISTS (SELECT 1 FROM auctions a WHERE a.property_id = p.id AND a.status = 'open')"
-                      " ORDER BY p.size_m2, p.id", (city, kind, kind, flawless, standing, standing))
+                      " AND (NOT %s OR to_regclass('property_claims') IS NULL OR NOT EXISTS (SELECT 1 FROM property_claims c WHERE c.property_id = p.id))"
+                      " ORDER BY p.size_m2, p.id", (city, kind, kind, flawless, standing, standing, flawless and claims_free))
     return rows[0]
 
 
@@ -121,7 +122,9 @@ def test_the_eight_quarter_world_has_its_listings_open_at_the_auction_house_stag
 
 def test_a_property_company_that_still_owns_everything_earns_its_rent_inside_its_business(db):
     """No money moves for buildings the companies own: the economy runs as before Stage 8."""
-    assert db.execute("SELECT count(*) FROM ledger_transactions WHERE kind = 'rent'").fetchone()[0] == 0
+    # (The gap stage: the Nigeria Property Trust bought some buildings from them; only it is paid rent.)
+    assert db.execute("SELECT count(*) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id JOIN ledger_accounts a"
+                      " ON a.id = e.account_id WHERE t.kind = 'rent' AND e.amount > 0 AND a.kind <> 'fund'").fetchone()[0] == 0
     assert ledger.balance(db, ledger.account_id(db, prop.RENTS)) == 0
     sound(db)
 

@@ -61,7 +61,13 @@ class TestStageTwo:
             assert r["cash"] == in_and_out, r["name"]
             # Anything that has arrived since (the Government's orders, other companies' building
             # work) is in the bank already and will be counted as next quarter's sales.
-            assert ledger.balance(db, r["account_id"]) >= r["cash"], r["name"]
+            # (Two things are paid out after the accounts close, and counted next quarter: a bank's home loans to
+            # households, and a company's oil hedges settled and bought at the close.)
+            lent_after = db.execute("SELECT coalesce(-sum(e.amount), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
+                                    " WHERE e.account_id = %s AND e.amount < 0 AND ((t.period = 8 AND t.kind = 'household_loan'"
+                                    " AND t.memo LIKE %s) OR (t.period >= 8 AND t.kind IN ('variation_margin', 'future_trade', 'derivative_fee', 'swap_payment')))",
+                                    (r["account_id"], "%home loans to households%")).fetchone()[0]
+            assert ledger.balance(db, r["account_id"]) + lent_after >= r["cash"], r["name"]
             owed = db.execute("SELECT coalesce(sum(principal_outstanding), 0) FROM company_debts WHERE company_id = %s", (r["id"],)).fetchone()[0]
             # A lender shows its loans at what it still expects to be repaid: less what it has written off.
             lent = db.execute("SELECT coalesce(sum(principal_outstanding - provision), 0) FROM company_debts WHERE lender_account_id = %s", (r["account_id"],)).fetchone()[0]
@@ -106,6 +112,10 @@ class TestStageTwo:
         # The economy upgrade: trade with the rest of the world, the Government's oil share, foreign investors' money,
         # and households' savings moving with them.
         market |= {"imports", "exports", "oil_royalty", "foreign_investment", "foreign_withdrawal", "household_move"}
+        # The gap stage: the computer's property trust (its units, fee, purchases, rent and tax, and registering what it
+        # buys), companies hedging oil with futures, and their preferred shares and warrants.
+        market |= {"fund_units", "fund_fee", "asset_sale", "rent", "property_tax", "land_registration",
+                   "future_trade", "derivative_fee", "preferred_issue", "preferred_dividend", "warrant_issue"}
         assert kinds - market == {
             "opening_balance", "share_issue", "customer_revenue", "business_purchase", "cost_of_sales", "wages",
             "debt_interest", "company_tax", "debt_repayment", "capital_spending", "dividend",
@@ -492,7 +502,7 @@ def test_companies_in_one_sector_no_longer_move_in_step(db):
     """Before, every company in a sector grew by exactly the same percentage."""
     for (sector,) in db.execute("SELECT code FROM sectors").fetchall():
         growth = db.execute(
-            "SELECT count(DISTINCT round(a.revenue * 10000.0 / b.revenue)) FROM company_results a"
+            "SELECT count(DISTINCT round(a.revenue * 1000000.0 / b.revenue)) FROM company_results a"
             " JOIN company_results b ON b.company_id = a.company_id AND b.period = 7"
             " JOIN companies c ON c.id = a.company_id WHERE a.period = 8 AND c.sector = %s", (sector,),
         ).fetchone()[0]

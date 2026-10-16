@@ -422,8 +422,9 @@ def _default(conn: Connection, empire: dict, debt: dict, owed: int, period: int,
 def _close_debts(conn: Connection, empire: dict, period: int, now: datetime) -> None:
     """As a quarter closes: interest is paid, debts due are repaid, a called debt must be repaid now,
     and the promises are tested. A broken promise lets the lender call the debt for the next close."""
-    for debt in _rows(conn, "SELECT * FROM empire_debts WHERE empire_id = %s AND status IN ('open', 'called', 'defaulted') ORDER BY id FOR UPDATE",
-                      (empire["id"],)):
+    # (The bank is paid before the mezzanine lender: that is what ranking after the bank means.)
+    for debt in _rows(conn, "SELECT * FROM empire_debts WHERE empire_id = %s AND status IN ('open', 'called', 'defaulted')"
+                            " ORDER BY (kind = 'mezzanine'), id FOR UPDATE", (empire["id"],)):
         interest = _quarter_interest(debt)
         if interest:
             paid = ledger.pay_up_to(conn, payer=empire["account_id"], receiver=debt["lender_account"], wanted=interest, kind="empire_interest",
@@ -1050,3 +1051,97 @@ firm.RESOLUTIONS.update({
 })
 firm.ARTICLE_DEFAULTS.update({"treasury": POLICY_DEFAULT, "risk_appetite": {"worst_year_bps": 1500}})
 firm.CLOSED.insert(0, _closed_accounts)
+
+
+# ---------------------------------------------------------------------------
+# The gap stage, Part 3: empire-paid work above what is left of a desk's budget waits for the head
+# ---------------------------------------------------------------------------
+
+def committed_to_work(conn: Connection, empire: dict, period: int, desk: str) -> int:
+    """What the desk has taken on this quarter in work the empire pays for (rewards, paid or still to pay), by the build
+    each piece was taken under: members who have since left or moved still count."""
+    return _one(conn, """
+        SELECT coalesce(sum(o.reward), 0)::bigint AS n FROM objectives o
+        WHERE o.payer_account_id = %s AND o.period = %s AND o.state IN ('active', 'passed') AND NOT o.terms ? 'step_id'
+          AND o.build = %s AND o.player_id IS DISTINCT FROM %s""",
+                (empire["account_id"], period, desk, empire["head_player_id"]))["n"]
+
+
+def objectives_error(words: str):
+    from simulation import objectives
+    return objectives.ObjectiveError(words)
+
+
+def work_over_budget(conn: Connection, player_id, code: str, title: str, reward: int, period: int, now: datetime) -> dict | None:
+    """Inside objectives.accept: if this work would take the member's desk past what is left of its budget for the
+    quarter, ask the head and return what to tell the member; otherwise None. The head's own work never waits."""
+    seat = empires.seat_of(conn, player_id)
+    if seat is None:
+        return None
+    # (The empire's row is locked: two members of a desk asking at once are counted one after the other.)
+    empire = _one(conn, "SELECT * FROM empires WHERE id = %s FOR UPDATE", (seat["empire_id"],))
+    if empire["head_player_id"] == player_id or not firm.player_run(empire):
+        return None
+    desk = seat["build"]
+    budget = budget_of(conn, empire["id"], period, desk)
+    if budget is None:
+        return None
+    used = spent_by(conn, empire["id"], period, desk) + committed_to_work(conn, empire, period, desk)
+    if used + reward <= budget:
+        return None
+    asked = _one(conn, "SELECT status FROM empire_approvals WHERE empire_id = %s AND kind = 'empire_work' AND period = %s"
+                       " AND asked_by = %s AND payload->>'code' = %s AND status IN ('waiting', 'refused') ORDER BY id DESC LIMIT 1",
+                 (empire["id"], period, player_id, code))
+    if asked and asked["status"] == "waiting":
+        return {"waiting": True, "words": "Your request for this work is already with the head."}
+    if asked:
+        raise objectives_error("The head refused this work this quarter. It may be asked for again next quarter.")
+    approval = firm.ask(conn, empire, kind="empire_work", desk="head", asked_by=player_id, title=f"Work above the desk's budget: {title}",
+                        amount=reward, payload={"code": code, "member_id": str(player_id), "desk": desk, "budget": budget, "used": used},
+                        period=period, now=now)
+    _log(conn, empire["id"], f"A member asked to take on {title} ({_money(reward)}), past what is left of the "
+                             f"{firm.DESK_NAMES.get(desk, desk)}'s budget. It waits for the head.", now)
+    return {"waiting": True, "approval_id": approval["id"],
+            "words": f"That would take your desk past its budget for the quarter ({_money(used)} of {_money(budget)} used). "
+                     f"The head has been asked to approve it."}
+
+
+def _execute_work(conn: Connection, approval: dict, now: datetime) -> None:
+    from simulation import objectives
+    p = approval["payload"]
+    if careers.world_now(conn, now)["period"] != approval["period"]:
+        # A budget is for one quarter: approval given after it closed would let work past the next quarter's budget too.
+        raise EmpireError("That request was for a quarter that has closed. The member may ask again this quarter.")
+    seat = empires.seat_of(conn, approval["asked_by"])
+    if seat is None or seat["empire_id"] != approval["empire_id"] or seat["build"] != p.get("desk"):
+        raise EmpireError("The member no longer sits at that desk of the empire: the request lapses.")
+    try:
+        objectives.accept(conn, approval["asked_by"], p["code"], now, approved=True)
+    except objectives.ObjectiveError as refused:
+        raise EmpireError(f"Approved, but the work could not be taken on now: {refused}") from None
+
+
+def _work_view(conn: Connection, approval: dict, viewer_id, now: datetime) -> dict:
+    """What the head sees: the desk's budget and what is used of it now, and every other request of the desk still waiting."""
+    p = approval["payload"]
+    desk = p.get("desk")
+    empire = empires._empire(conn, approval["empire_id"])
+    budget = budget_of(conn, empire["id"], approval["period"], desk) or 0
+    used = spent_by(conn, empire["id"], approval["period"], desk) + committed_to_work(conn, empire, approval["period"], desk)
+    others = _one(conn, "SELECT count(*) AS n, coalesce(sum(amount), 0)::bigint AS a FROM empire_approvals WHERE empire_id = %s AND kind = 'empire_work'"
+                        " AND status = 'waiting' AND id <> %s AND payload->>'desk' = %s", (empire["id"], approval["id"], desk))
+    lines = [f"For the {firm.DESK_NAMES.get(desk, desk)} desk, whose budget for the quarter is {_money(budget)}",
+             f"{_money(used)} of it is spent or promised now; this work would pay {_money(approval['amount'])}"]
+    if others["n"]:
+        lines.append(f"{others['n']} other request{'s' if others['n'] != 1 else ''} from the desk wait too, for {_money(others['a'])}")
+    lines.append("Approve to let the member take it on; refuse and it is not taken")
+    return {"why": lines}
+
+
+def _work_staff(conn: Connection, approval: dict, now: datetime) -> tuple:
+    return False, "Only the head (or, after two days, the deputy) approves work past a desk's budget."
+
+
+firm.EXECUTORS["empire_work"] = _execute_work
+firm.VIEWERS["empire_work"] = _work_view
+firm.STAFF_RULES["empire_work"] = _work_staff

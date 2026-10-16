@@ -20,13 +20,14 @@ from server.db import get_connection
 from server.firm_routes import MONEY, wire
 from server.main import _exchange_time, app, current_player
 from server.schemas import Request
-from simulation import crashfund, derivatives, empires, firm, ledger, lending, lending_empire, montecarlo, risk
+from simulation import crashfund, derivatives, empires, firm, instruments, ledger, lending, lending_empire, montecarlo, risk, swaps
 from simulation import world_data as data
 
 MONEY.update({"principal", "outstanding", "collateral", "fees_paid", "gain", "limit", "owed", "personal_limit", "equity", "debts",
               "start", "median", "best_likely", "worst_likely", "value_at_risk", "p5", "p25", "p50", "p75", "p95", "fee", "opened_price",
               "price", "value", "shares_value", "cash", "bid", "ask", "spot", "entry_price", "margin", "margin_long", "margin_short",
-              "cover", "paid_in", "paid_out", "fund", "result"})
+              "cover", "paid_in", "paid_out", "fund", "result", "fair", "last_trade", "best_bid", "best_ask", "limit_price", "reserved",
+              "default_fund", "oil_now", "unpaid"})
 Money = Annotated[int, Field(gt=0, le=1_000_000_000_000_000, strict=True)]
 Count = Annotated[int, Field(gt=0, le=10_000_000_000, strict=True)]
 
@@ -39,7 +40,8 @@ def _act(conn: Connection, player: dict, action, bucket: str = "borrowing", atte
     limits.allow(bucket, str(player["id"]), attempts=attempts, per_seconds=60)
     try:
         result = action(_exchange_time(conn))
-    except (lending.LendingError, empires.EmpireError, montecarlo.MonteCarloError, derivatives.DerivativesError) as refused:
+    except (lending.LendingError, empires.EmpireError, montecarlo.MonteCarloError, derivatives.DerivativesError,
+            swaps.SwapError, instruments.InstrumentError) as refused:
         raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
     except DeadlockDetected:
         raise HTTPException(status.HTTP_409_CONFLICT, "Somebody else changed this at the same moment. Nothing was changed. Please try again.") from None
@@ -91,6 +93,7 @@ class TradeRequest(ForRequest):
     side: Literal["long", "short"]
     contracts: int = Field(gt=0, le=1_000, strict=True)
     purpose: str | None = Field(default=None, max_length=120)
+    limit_kobo: int | None = Field(default=None, gt=0, le=1_000_000_000_000, strict=True)
 
 
 class CoverRequest(Request):
@@ -213,15 +216,16 @@ def derivatives_board(underlying: str | None = None, player: dict = Depends(curr
     now = _exchange_time(conn)
     account = ledger.player_account_id(conn, player["id"])
     out = {**derivatives.board(conn, now, (underlying or "").upper() or None), "mine": derivatives.positions_of(conn, account, now),
-           "empire": None}
+           "my_orders": derivatives.orders_of(conn, account), "empire": None}
     seat, empire = _empire_for(conn, player)
     if empire is not None:
         head = empire["head_player_id"] == player["id"]
-        acts = head or seat["build"] in ("asset_manager", "risk_manager")
+        acts = head or seat["build"] in ("asset_manager", "risk_manager", "investment_banker")
         out["empire"] = {"name": empire["name"], "acts": acts, "head": head, "build": seat["build"],
                          "limit_naira": lending_empire.limits(conn, empire)["derivatives_limit_naira"],
                          "committed": lending_empire.committed(conn, empire["account_id"]),
                          "positions": derivatives.positions_of(conn, empire["account_id"], now) if acts else [],
+                         "orders": derivatives.orders_of(conn, empire["account_id"]) if acts else [],
                          "crash_fund": crashfund.view(conn, empire)}
     return wire(out)
 
@@ -229,10 +233,32 @@ def derivatives_board(underlying: str | None = None, player: dict = Depends(curr
 @app.post("/api/derivatives/{series_id}/trade")
 def derivatives_trade(body: TradeRequest, series_id: int = _id(), player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     if body.for_empire:
-        return _act(conn, player, lambda now: lending_empire.trade(conn, player["id"], series_id, body.side, body.contracts, now, body.purpose),
-                    bucket="derivatives")
+        return _act(conn, player, lambda now: lending_empire.trade(conn, player["id"], series_id, body.side, body.contracts, now, body.purpose,
+                                                                   limit=body.limit_kobo), bucket="derivatives")
     return _act(conn, player, lambda now: derivatives.open_position(conn, ledger.player_account_id(conn, player["id"]), series_id, body.side,
-                                                                    body.contracts, now, player_id=player["id"]), bucket="derivatives")
+                                                                    body.contracts, now, player_id=player["id"], limit=body.limit_kobo),
+                bucket="derivatives")
+
+
+@app.post("/api/derivatives/orders/{order_id}/cancel")
+def derivatives_cancel(body: ForRequest, order_id: int = _id(), player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    def act(now):
+        if body.for_empire:
+            seat, empire = firm._active(conn, player["id"])
+            if empire["head_player_id"] != player["id"] and seat["build"] not in ("asset_manager", "risk_manager", "investment_banker"):
+                raise empires.EmpireError("Only the members who trade for the empire cancel its orders.")
+            return derivatives.cancel_order(conn, empire["account_id"], order_id, now)
+        return derivatives.cancel_order(conn, ledger.player_account_id(conn, player["id"]), order_id, now)
+    return _act(conn, player, act, bucket="derivatives")
+
+
+@app.get("/api/derivatives/{series_id}/explain")
+def derivatives_explain(series_id: int = _id(), _: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """A contract's fair value at three depths, from public prices only."""
+    try:
+        return wire(derivatives.explain(conn, series_id, _exchange_time(conn)))
+    except derivatives.DerivativesError as missing:
+        raise HTTPException(status_code=404, detail=str(missing)) from None
 
 
 @app.post("/api/derivatives/positions/{position_id}/close")
@@ -261,3 +287,126 @@ def derivatives_margin(body: CollateralRequest, position_id: int = _id(), player
 @app.post("/api/empire/crash-fund")
 def empire_crash_fund(body: CoverRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     return _act(conn, player, lambda now: crashfund.ask_cover(conn, player["id"], body.cover_kobo, now))
+
+
+# ---------------------------------------------------------------------------
+# The gap stage: swaps
+# ---------------------------------------------------------------------------
+
+class SwapRequest(ForRequest):
+    kind: Literal["rate", "oil"]
+    side: Literal["pay_fixed", "receive_fixed"]
+    quarters: int = Field(ge=1, le=8, strict=True)
+    notional_kobo: int | None = Field(default=None, gt=0, le=1_000_000_000_000, strict=True)
+    barrels: int | None = Field(default=None, gt=0, le=100_000, strict=True)
+    fixed: int | None = Field(default=None, gt=0, le=1_000_000_000_000, strict=True)
+    bank: UUID | None = None
+    player: str | None = Field(default=None, max_length=80)
+    empire: str | None = Field(default=None, max_length=80)
+
+
+@app.get("/api/swaps")
+def swaps_list(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """The player's own swaps, and their empire's if they sit in one. Each swap is shown only to its two sides."""
+    accounts = [ledger.player_account_id(conn, player["id"])]
+    seat = empires.seat_of(conn, player["id"])
+    empire_name = None
+    if seat is not None and seat.get("empire_status") == "active" and seat.get("empire_kind") != "pension":
+        accounts.append(seat["account_id"])
+        empire_name = seat["empire_name"]
+    banks = conn.execute("SELECT id, name FROM companies WHERE sector = 'banking' AND status = 'trading' ORDER BY name").fetchall()
+    return wire({"swaps": swaps.view(conn, accounts), "empire": empire_name, "banks": [{"id": str(b["id"]), "name": b["name"]} for b in banks],
+                 "rate_now": swaps.rate_for(conn, 10 ** 6), "oil_now": swaps.oil_for(conn), "unlock_level": derivatives.data.UNLOCK_ADVANCED_LEVEL})
+
+
+@app.post("/api/swaps")
+def swaps_propose(body: SwapRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    other = {"bank": str(body.bank)} if body.bank else {"player": body.player} if body.player else {"empire": body.empire} if body.empire else {}
+    return _act(conn, player, lambda now: swaps.propose(conn, player["id"], kind=body.kind, counterparty=other, side=body.side,
+                                                         quarters=body.quarters, notional=body.notional_kobo, barrels=body.barrels,
+                                                         fixed=body.fixed, now=now, for_empire=body.for_empire), bucket="derivatives")
+
+
+@app.post("/api/swaps/{swap_id}/accept")
+def swaps_accept(body: ForRequest, swap_id: int = _id(), player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: swaps.accept(conn, player["id"], swap_id, now, for_empire=body.for_empire), bucket="derivatives")
+
+
+@app.post("/api/swaps/{swap_id}/decline")
+def swaps_decline(body: ForRequest, swap_id: int = _id(), player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: swaps.decline(conn, player["id"], swap_id, now, for_empire=body.for_empire), bucket="derivatives")
+
+
+# ---------------------------------------------------------------------------
+# The gap stage: preferred shares and warrants
+# ---------------------------------------------------------------------------
+
+class InstrumentTradeRequest(ForRequest):
+    side: Literal["buy", "sell"]
+    units: int = Field(gt=0, le=10_000_000, strict=True)
+
+
+class ExerciseRequest(ForRequest):
+    units: int = Field(gt=0, le=10_000_000, strict=True)
+
+
+def _instrument_account(conn: Connection, player: dict, for_empire: bool):
+    if not for_empire:
+        return ledger.player_account_id(conn, player["id"])
+    seat, empire = firm._active(conn, player["id"])
+    if empire["head_player_id"] != player["id"] and seat["build"] != "asset_manager":
+        raise empires.EmpireError("The Asset Manager (or the head) deals for the empire.")
+    return empire["account_id"]
+
+
+@app.get("/api/instruments")
+def instruments_board(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """Preferred shares and warrants at the pension funds' desk: their two prices (public), and what the player holds."""
+    now = _exchange_time(conn)
+    out = instruments.board(conn, now, ledger.player_account_id(conn, player["id"]))
+    out["empire"] = None
+    seat, empire = _empire_for(conn, player)
+    if empire is not None:
+        acts = empire["head_player_id"] == player["id"] or seat["build"] == "asset_manager"
+        mine = instruments.board(conn, now, empire["account_id"]) if acts else {"instruments": [], "waiting": []}
+        out["empire"] = {"name": empire["name"], "acts": acts, "held": {i["code"]: i["held"] for i in mine["instruments"] if i["held"]},
+                         "waiting": mine["waiting"]}
+    return wire(out)
+
+
+@app.post("/api/instruments/{code}/trade")
+def instruments_trade(body: InstrumentTradeRequest, code: Annotated[str, FastPath(pattern=r"^(PRF-[A-Z]{3}|WRT-[A-Z]{3}[0-9]{1,4})$")],
+                      player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    def act(now):
+        account = _instrument_account(conn, player, body.for_empire)
+        if body.for_empire and body.side == "buy":
+            # The Asset Manager buys inside the limit the Risk Manager signed for options and futures; above it, the head
+            # does it. A warrant is an option on new shares: it opens at the Level buying options does.
+            seat, empire = firm._active(conn, player["id"])
+            inst = instruments.find(conn, code)
+            if inst["kind"] == "warrant":
+                derivatives.unlock(conn, player["id"], "options")
+            if empire["head_player_id"] != player["id"]:
+                cost = instruments.quote(conn, inst, now)["ask"] * body.units
+                room = lending_empire.naira(lending_empire.limits(conn, empire)["derivatives_limit_naira"]) - lending_empire.committed(conn, account)
+                if cost > room:
+                    raise empires.EmpireError("That is above the limit the Risk Manager signed for the empire's options and the like. "
+                                              "The head may buy it.")
+        elif not body.for_empire and body.side == "buy" and instruments.find(conn, code)["kind"] == "warrant":
+            derivatives.unlock(conn, player["id"], "options")
+        return instruments.trade(conn, account, code, body.side, body.units, now)
+    return _act(conn, player, act, bucket="derivatives")
+
+
+@app.post("/api/instruments/{code}/exercise")
+def instruments_exercise(body: ExerciseRequest, code: Annotated[str, FastPath(pattern=r"^WRT-[A-Z]{3}[0-9]{1,4}$")],
+                         player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: instruments.ask_to_exercise(conn, _instrument_account(conn, player, body.for_empire), code,
+                                                                       body.units, now), bucket="derivatives")
+
+
+@app.post("/api/instruments/exercises/{exercise_id}/cancel")
+def instruments_exercise_cancel(body: ForRequest, exercise_id: int = _id(), player: dict = Depends(current_player),
+                                conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: instruments.cancel_exercise(conn, _instrument_account(conn, player, body.for_empire), exercise_id,
+                                                                       now), bucket="derivatives")

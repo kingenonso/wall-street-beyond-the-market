@@ -210,6 +210,7 @@ function OfferCard({ offer, skill, canTake, onTake, busy }: { offer: ObjectiveOf
 export function WorkWork({ player, onLoggedOut, onChanged }: { player: Player; onLoggedOut: () => void; onChanged: () => void }) {
   const board = useLoad(api.objectives, "objectives", onLoggedOut);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
   const [rules, setRules] = useState(false);
@@ -232,6 +233,7 @@ export function WorkWork({ player, onLoggedOut, onChanged }: { player: Player; o
     try {
       const started = await api.takeWork(template);
       changed();
+      if ("waiting" in started) { setNotice(started.words); return; }
       if (started.kind === "hand_in") window.location.hash = `#/work/${started.id}`;
     }
     catch (problem) { setError(problem instanceof ApiError ? problem.message : "Could not reach the server. Please try again."); }
@@ -255,6 +257,7 @@ export function WorkWork({ player, onLoggedOut, onChanged }: { player: Player; o
       )}
       {player.build && !data.ready && <Panel><p>{data.why} <a href="#/career">Go to your career</a>.</p></Panel>}
       {error && <p className="error" role="alert">{error}</p>}
+      {notice && <p className="saved" role="status">{notice}</p>}
 
       {data.active.length > 0 && (
         <section aria-labelledby="in-progress">

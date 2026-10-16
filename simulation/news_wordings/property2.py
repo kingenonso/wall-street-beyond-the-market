@@ -1,0 +1,165 @@
+"""News wordings for the gap stage's property pieces: rezonings, infrastructure, claims on property, finished developments
+and households' homes repossessed."""
+
+KINDS = (
+    "rezoning", "infrastructure_announced", "infrastructure_done", "property_claim", "development_done", "home_repossessions",
+)
+
+WORDINGS = {
+    "rezoning": {
+        "herald": [
+            ("Planners rezone {property} in {city} for {zone} use",
+             "The planning office has rezoned {property}. Its owners may now build for {zone} use, and its land is valued accordingly."),
+            ("{city} makes room: {property} rezoned",
+             "With {city} short of land for {zone} use, the planners have rezoned {property}."),
+            ("New use for {property} as {city} rezones",
+             "{property} in {city} is now zoned for {zone} use. Neighbouring owners will be watching."),
+        ],
+        "ogene": [
+            ("{property} rezoned",
+             "{city} planners switch {property} to {zone} use."),
+            ("Zoning change in {city}",
+             "{property} can now be built on for {zone} use."),
+            ("{city}: {property} gets a new zone",
+             "It is now {zone}."),
+        ],
+        "ledger": [
+            ("Rezoning: {property}, {city}, to {zone}",
+             "The change alters what may be built and so the land's value. Owners of nearby plots may apply on the same grounds."),
+            ("{property} rezoned for {zone} use",
+             "Planning decisions follow demand: {city}'s districts for {zone} use are nearly full."),
+            ("Planning office grants {zone} zoning for {property}",
+             "Land zoned for a scarcer use is worth more. Expect the plot's valuation to move."),
+        ],
+    },
+    "infrastructure_announced": {
+        "herald": [
+            ("Government to build the {project} by {finish}",
+             "Work starts on the {project} beside {district}, {city}. Land nearby is expected to rise in value as it goes ahead."),
+            ("{city} gets the {project}",
+             "The Government has announced the {project}, to be finished by {finish}. Owners in {district} stand to gain."),
+            ("Big works for {district}: the {project}",
+             "Cement, steel and building companies will share the Government's spending on the {project} until {finish}."),
+        ],
+        "ogene": [
+            ("{project} announced",
+             "Works beside {district}, {city}, until {finish}."),
+            ("New {project} for {city}",
+             "Land in {district} set to rise."),
+            ("Government starts the {project}",
+             "Due {finish}. {district} land marked."),
+        ],
+        "ledger": [
+            ("Infrastructure: the {project}, {city}, due {finish}",
+             "Land beside major works typically reprices as they progress. A quarter of the expected gain is often priced on announcement."),
+            ("{project} approved for {district}",
+             "Contractors in cement, steel and construction are the first beneficiaries. Landowners in {district} are the longer-term ones."),
+            ("Public works: the {project} begins",
+             "Completion is set for {finish}. Watch {district}'s land prices and the contractors' order books."),
+        ],
+    },
+    "infrastructure_done": {
+        "herald": [
+            ("The {project} opens in {city}",
+             "The {project} beside {district} is finished. Property there is now worth what the works promised."),
+            ("Ribbon cut on the {project}",
+             "{district}, {city}, has its new {project}. Owners have seen their land rise as the works went ahead."),
+            ("{city} celebrates the {project}",
+             "The Government's works beside {district} are complete."),
+        ],
+        "ogene": [
+            ("{project} opens",
+             "{district}, {city}: works done."),
+            ("{project} finished",
+             "Land beside it is worth more."),
+            ("Done: the {project}",
+             "{city} gets its new link."),
+        ],
+        "ledger": [
+            ("{project} completed",
+             "With the works done, {district}'s land carries the full benefit. The contractors' government orders end."),
+            ("Infrastructure complete: {project}, {city}",
+             "The value uplift in {district} is now fully reflected in prices."),
+            ("{project}: delivered",
+             "Further gains in {district} now depend on rents, not on the works."),
+        ],
+    },
+    "property_claim": {
+        "herald": [
+            ("Owners of {property} discover {claim}",
+             "A search at the Land Registry has turned up {claim}. The owners must deal with it."),
+            ("Surprise at {property}: {claim}",
+             "New owners of {property} have found {claim}. A claims search before buying would have shown it."),
+            ("{property} hit by {claim}",
+             "The Land Registry records {claim}. It changes what the property is worth to its owners."),
+        ],
+        "ogene": [
+            ("Claim on {property}",
+             "Owners find {claim}."),
+            ("{property}: {claim}",
+             "It came to light this quarter."),
+            ("Trouble at {property}",
+             "{claim} comes to light."),
+        ],
+        "ledger": [
+            ("Encumbrance found: {property}",
+             "The registry shows {claim}. Buyers who skip the claims search bear this risk."),
+            ("{property}: {claim} on the record",
+             "An undisclosed claim reduces the owners' interest. Due diligence on claims costs little against this."),
+            ("Claim surfaces on {property}",
+             "{claim}. The owners' valuation must now allow for it."),
+        ],
+    },
+    "development_done": {
+        "herald": [
+            ("New {kind} opens in {city}: {property}",
+             "{property} is finished after a year of building. Its owners can let it or sell it."),
+            ("{property} completed",
+             "Builders have finished the new {kind} at {property}, {city}."),
+            ("{city} skyline grows: {property} done",
+             "The development at {property} is complete."),
+        ],
+        "ogene": [
+            ("{property} finished",
+             "New {kind} in {city}."),
+            ("Built: {property}",
+             "{city} has a new {kind}."),
+            ("{property} opens",
+             "The {kind} is ready."),
+        ],
+        "ledger": [
+            ("Development completed: {property}, {city}",
+             "A new {kind} adds to the city's stock. Its rent will depend on demand in the district."),
+            ("{property}: construction finished",
+             "The project's construction loan, if any, now runs as a mortgage."),
+            ("Completion at {property}",
+             "Supply of {kind} in {city} rises."),
+        ],
+    },
+    "home_repossessions": {
+        "herald": [
+            ("Banks take back {homes} homes in {city}",
+             "With mortgage rates at {rate}, more households in {city} cannot keep up. Forced sales are pulling prices down."),
+            ("Home owners in trouble in {city}",
+             "Repossessions have reached {homes} homes this quarter as mortgages cost {rate}."),
+            ("{city}: families lose {homes} homes",
+             "Banks are selling repossessed homes cheaply. Mortgages now cost {rate}."),
+        ],
+        "ogene": [
+            ("{homes} homes repossessed in {city}",
+             "Mortgage rate: {rate}."),
+            ("{city} repossessions rise",
+             "{homes} homes taken back."),
+            ("Mortgage pain in {city}",
+             "{homes} homes lost at {rate}."),
+        ],
+        "ledger": [
+            ("Mortgage defaults climb in {city}",
+             "{homes} homes repossessed with mortgage rates at {rate}. Banks' losses and falling home prices follow."),
+            ("Repossessions: {homes} homes, {city}",
+             "Rising rates feed through to defaults. Forced sales weigh on the homes districts' prices."),
+            ("{city} housing: {homes} repossessions",
+             "At {rate}, repayments outrun incomes for more households."),
+        ],
+    },
+}

@@ -306,6 +306,8 @@ def test_an_empire_borrows_and_shorts_inside_the_risk_managers_limits_and_above_
     member_of_am = None
     from tests.test_firm import member
     member_of_am = member(db, empire, team["head"], "asset_manager", "trader")
+    from tests.test_derivatives import ready
+    ready(db, member_of_am)
     inside = lending_empire.borrow(db, member_of_am, bank_id(db), naira(500_000), NOW9)
     assert "loan_id" in inside
     above = lending_empire.borrow(db, member_of_am, bank_id(db), naira(900_000), NOW9)

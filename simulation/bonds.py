@@ -552,6 +552,15 @@ def issue_for_company(conn: Connection, company: dict, *, period: int, amount: i
     bond = _create(conn, prefix="C", name=name, issuer="company", issuer_account=company["account_id"], company_id=company["id"],
                    debt_id=debt_id, kind=kind, coupon_bps=rate, issued=period, maturity=period + quarters, **extra)
     _sell_new(conn, bond, company["account_id"], dealer, units, FACE, period + 1)
+    if high_yield and kind == "fixed" and units >= data.WARRANT_PER_BONDS:
+        # A high-yield bond comes with warrants for its first buyer (the gap stage).
+        from simulation import instruments
+        price = _one(conn, "SELECT coalesce(last_price, reference_price) AS p FROM market_instruments WHERE company_id = %s", (company["id"],))
+        if price and price["p"]:
+            from datetime import datetime, timezone
+            instruments.grant_warrants(conn, company, {dealer: units // data.WARRANT_PER_BONDS},
+                                       strike=price["p"] * data.WARRANT_STRIKE_BPS // BPS, expiry_period=period + data.WARRANT_QUARTERS,
+                                       period=period, why="with a high-yield bond", now=datetime.now(timezone.utc))
     return {**bond, "units": units, "rate": rate, "words": words}
 
 

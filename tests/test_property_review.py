@@ -124,7 +124,10 @@ def test_5_property_and_bid_cash_count_in_the_closing_bells_net_worth():
     # Each registered once: bonds, offer cash, property, and (Stage 9) loans and shorts, options and futures.
     from simulation import derivatives, lending
     assert lending._players_lending in marketview._OTHER_HOLDINGS and derivatives._players_derivatives in marketview._OTHER_HOLDINGS
-    assert len(marketview._OTHER_HOLDINGS) == len(set(marketview._OTHER_HOLDINGS)) == 5
+    # (The gap stage adds swaps, preferred shares and warrants, and property-fund units.)
+    from simulation import instruments, propfunds, swaps
+    assert {swaps._players_swaps, instruments._players_instruments, propfunds._players_units} <= set(marketview._OTHER_HOLDINGS)
+    assert len(marketview._OTHER_HOLDINGS) == len(set(marketview._OTHER_HOLDINGS)) == 8
 
 
 def test_6_a_lot_is_searched_once_for_an_empire_and_the_fee_is_in_its_books(db):

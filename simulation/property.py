@@ -162,6 +162,11 @@ def create(conn: Connection, seed: str, policy_rate_bps: int) -> None:
         conn.execute("UPDATE properties SET book_value = %s WHERE id = %s", (int(worth[pid] * scale), pid))
     for company, total in _rows_to_dict(made).items():
         conn.execute("INSERT INTO property_company_base (company_id, base_rent) VALUES (%s, %s)", (company, total))
+    # The gap stage: zones, a hotel and a mall in each city, and the claims hidden on some property.
+    from simulation import conveyancing, zoning
+    if zoning.ready(conn):
+        zoning.first_zones(conn)
+        conveyancing.first_claims(conn)
     record(conn, 0, policy_rate_bps)
 
 
@@ -177,7 +182,15 @@ def _rows_to_dict(made: list[tuple]) -> dict:
 # ---------------------------------------------------------------------------
 
 def districts(conn: Connection) -> dict[int, dict]:
-    return {d["id"]: d for d in _rows(conn, "SELECT * FROM districts ORDER BY id")}
+    """Every district, with how hotels and malls are doing (the same in every district)."""
+    kinds = {}
+    if _one(conn, "SELECT to_regclass('property_kind_index') IS NOT NULL AS ok")["ok"]:
+        kinds = {r["kind"]: r["bps"] for r in _rows(conn, "SELECT kind, bps FROM property_kind_index")}
+    return {d["id"]: {**d, "kind_bps": kinds} for d in _rows(conn, "SELECT * FROM districts ORDER BY id")}
+
+
+def _kind_bps(prop: dict, district: dict) -> int:
+    return (district.get("kind_bps") or {}).get(prop["kind"], BPS)
 
 
 def company_accounts(conn: Connection) -> set:
@@ -192,24 +205,27 @@ def policy_rate(conn: Connection) -> int:
 def rent_due(prop: dict, district: dict) -> int:
     """This quarter's rent for a building: its rent at the start, moved with its district, times how full it
     is (a run-down building loses tenants)."""
-    if prop["status"] != "standing" or prop["kind"] == "land":
-        return 0
+    if prop["status"] != "standing" or prop["kind"] == "land" or prop.get("frozen"):
+        return 0                                      # (a disputed property's rent is held back until the dispute is settled)
     occupancy = district["occupancy_bps"]
     if prop["condition"] < data.POOR_CONDITION:
         occupancy = occupancy * prop["condition"] // data.POOR_CONDITION
-    return prop["base_rent"] * district["rent_bps"] // BPS * occupancy // BPS
+    return prop["base_rent"] * district["rent_bps"] // BPS * occupancy // BPS * _kind_bps(prop, district) // BPS
 
 
 def value(prop: dict, district: dict, policy_rate_bps: int) -> int:
     """What a property is worth today: a building, its yearly rent (when full) over the yield investors want,
     less for being run down; a plot, or a fallen building, its land. Both carry the district's bubble."""
-    premium = BPS + district["premium_bps"]
-    land = prop["land_value"] * district["rent_bps"] // BPS * premium // BPS
+    infra = district.get("infra_bps", 0)
+    premium = BPS + district["premium_bps"] + infra
+    beside = infra * (data.INFRA_BESIDE_TIMES - 1) if prop.get("beside_project") else 0      # land right beside the works gains more
+    cut = BPS - min(prop.get("value_cut_bps", 0), BPS)                                         # a known right of way
+    land = prop["land_value"] * district["rent_bps"] // BPS * (premium + beside) // BPS * cut // BPS
     if prop["status"] != "standing" or prop["kind"] == "land":
         return max(land, 0)
-    full = prop["base_rent"] * district["rent_bps"] // BPS * district["occupancy_bps"] // BPS
+    full = prop["base_rent"] * district["rent_bps"] // BPS * district["occupancy_bps"] // BPS * _kind_bps(prop, district) // BPS
     condition = BPS // 2 + prop["condition"] * BPS // 200
-    building = full * 4 * BPS // yield_bps(policy_rate_bps) * condition // BPS * premium // BPS
+    building = full * 4 * BPS // yield_bps(policy_rate_bps) * condition // BPS * premium // BPS * cut // BPS
     return max(building, land)
 
 
@@ -330,6 +346,25 @@ def _update_districts(conn: Connection, period: int, prices_bps: int, farm_bps: 
                      (max(rent, 1000), occupancy, premium, d["id"]))
 
 
+def _update_kinds(conn: Connection, period: int, prices_bps: int) -> None:
+    """Hotels follow the hospitality companies' sales; malls the cities' shopping, with a big mall's swings larger.
+    Both against the first quarter, after prices."""
+    if _one(conn, "SELECT to_regclass('property_kind_index') IS NOT NULL AS ok")["ok"] is not True:
+        return
+    def total(sql: str, p: int) -> int:
+        row = _one(conn, sql, (p,))
+        return int(row["v"] or 0) if row else 0
+    hosp = "SELECT sum(r.revenue) AS v FROM company_results r JOIN companies c ON c.id = r.company_id WHERE c.sector = 'hospitality' AND r.period = %s"
+    shop = "SELECT sum(spending) AS v FROM household_results WHERE period = %s"
+    for kind, sql, swing in (("hotel", hosp, 1), ("mall", shop, 2)):
+        first, now = total(sql, 1), total(sql, period)
+        if first <= 0 or now <= 0:
+            continue
+        real = now * BPS // first * BPS // max(prices_bps, 1)
+        bps = min(max(BPS + (real - BPS) * swing, 5000), 20_000)
+        conn.execute("UPDATE property_kind_index SET bps = %s WHERE kind = %s", (bps, kind))
+
+
 def _pay_builders(conn: Connection, payer, amount: int, city: str, why: str, period: int) -> int:
     """Building work and upkeep are bought from the property and construction companies, those in the city first."""
     if amount <= 0:
@@ -352,6 +387,13 @@ def close(conn: Connection, world, period: int, now: datetime, seed: str, measur
     # Auctions whose time ran out before the close are settled first, so the quarter's owners are the right ones.
     auctions.run(conn, now)
     _update_districts(conn, period, measured["price_index_bps"], measured.get("agriculture_bps", BPS))
+    _update_kinds(conn, period, measured["price_index_bps"])
+    # The gap stage: infrastructure works and the districts' gains from them; households' home loans, defaults and
+    # repossessions (which move the homes districts' prices); the planning office's decisions.
+    from simulation import homes, infrastructure, zoning
+    infrastructure.close(conn, period, now, seed)
+    homes.close(conn, world, period, now)
+    zoning.close(conn, period, now)
     rate = measured["next_policy_rate_bps"]
     ds = districts(conn)
     companies_ = company_accounts(conn)
@@ -376,8 +418,12 @@ def close(conn: Connection, world, period: int, now: datetime, seed: str, measur
     total_due = sum(due.values())
     paid_rent: dict[int, int] = defaultdict(int)
     if pot > 0 and total_due > 0:
-        for (pid, account), amount in sorted(due.items(), key=lambda kv: (kv[0][0], str(kv[0][1]))):
-            part = pot * amount // total_due
+        ordered = sorted(due.items(), key=lambda kv: (kv[0][0], str(kv[0][1])))
+        shared = 0
+        for n, ((pid, account), amount) in enumerate(ordered):
+            # (The last owner takes what rounding leaves, so the rent account keeps not a kobo.)
+            part = pot * amount // total_due if n < len(ordered) - 1 else pot - shared
+            shared += part
             if part > 0:
                 ledger.transfer(conn, payer=rents, receiver=account, amount=part, kind="rent",
                                 memo=f"Rent from the tenants of {props[pid]['name']}, {label}", period=period)
@@ -427,6 +473,14 @@ def close(conn: Connection, world, period: int, now: datetime, seed: str, measur
 
     # 4. A flawed title: the true owner of part of a property bought outside the property companies comes forward.
     _title_claims(conn, period, label, companies_)
+
+    # 4b. Sale-and-leaseback (the gap stage): the rent, and leases that end or are broken.
+    from simulation import conveyancing, development, leaseback, propfunds
+    leaseback.close(conn, period, now)
+    # 4c. Claims besides a bad title come to light; developments build a phase; property funds pay fees and rebalance.
+    conveyancing.close_claims(conn, period, now)
+    development.close(conn, period, now, seed)
+    propfunds.close(conn, period, now)
 
     # 5. The headquarters: upkeep, wear, warnings and collapse.
     headquarters.close(conn, period, now, seed)
@@ -590,6 +644,8 @@ def renovate(conn: Connection, account, property_id: int, now: datetime) -> dict
             raise PropertyError("Only an owner of at least half of a property orders building work.")
         if p["status"] != "standing" or p["kind"] == "land":
             raise PropertyError("There is no building here to renovate. Build first.")
+        if p.get("frozen"):
+            raise PropertyError("A family dispute over it freezes it: nothing may be done with it until the owner settles it.")
         if p["condition"] >= 100:
             raise PropertyError("It is already in perfect condition.")
         d = districts(conn)[p["district_id"]]
@@ -601,12 +657,16 @@ def renovate(conn: Connection, account, property_id: int, now: datetime) -> dict
         return {"cost": paid}
 
 
-def build_cost(p: dict) -> int:
-    return apply_bps(naira(data.BUILD_A_METRE_NAIRA) * p["size_m2"], data.CITY_COST_BPS[p["city"]])
+def build_cost(p: dict, kind: str | None = None) -> int:
+    """What a building costs to put up: by its size and the city, and (the gap stage) more for a hotel or a mall."""
+    return apply_bps(apply_bps(naira(data.BUILD_A_METRE_NAIRA) * p["size_m2"], data.CITY_COST_BPS[p["city"]]),
+                     data.BUILD_KIND_BPS.get(kind or "", BPS))
 
 
-def build(conn: Connection, account, property_id: int, now: datetime) -> dict:
-    """Put up a building on an empty plot (or rebuild a fallen one): it becomes the district's kind of building."""
+def build(conn: Connection, account, property_id: int, now: datetime, *, kind: str | None = None) -> dict:
+    """Put up a building on an empty plot (or rebuild a fallen one), at a builder's turnkey price: of the kind named,
+    or the district's own kind, as the plot's zone allows."""
+    from simulation import conveyancing, zoning
     with conn.transaction():
         state = _state(conn, now)
         p = _property(conn, property_id, lock=True)
@@ -614,11 +674,18 @@ def build(conn: Connection, account, property_id: int, now: datetime) -> dict:
             raise PropertyError("Only the sole owner of a plot may build on it.")
         if p["status"] == "standing" and p["kind"] != "land":
             raise PropertyError("A building already stands here.")
-        cost = build_cost(p)
+        conveyancing.not_frozen(p)
+        if _one(conn, "SELECT to_regclass('developments') IS NOT NULL AS ok")["ok"] and \
+                _one(conn, "SELECT 1 FROM developments WHERE property_id = %s AND status IN ('permit', 'building')", (property_id,)):
+            raise PropertyError("It is being developed already.")
+        chosen = zoning.check_build(p, kind) if "zone" in p else (kind or data.DISTRICT_BUILDINGS[p["district_kind"]][0])
+        cost = build_cost(p, chosen)
         if ledger.balance(conn, account) < cost:
             raise PropertyError(f"Building here costs {money(cost)}. There is not the cash.")
         _pay_builders(conn, account, cost, p["city"], f"Building on {p['name']}", state["period"])
-        kind = p["kind"] if p["kind"] != "land" else data.DISTRICT_BUILDINGS[p["district_kind"]][0]
+        kind = chosen if (kind or p["kind"] == "land") else p["kind"]
+        if "zone" in p and not zoning.allows(p["zone"], kind):
+            kind = chosen
         conn.execute("UPDATE properties SET kind = %s, status = 'standing', condition = 100, base_rent = %s, built_period = %s WHERE id = %s",
                      (kind, base_rent(p["city"], kind, p["size_m2"]), state["period"], p["id"]))
         return {"cost": cost, "kind": kind}
@@ -645,7 +712,8 @@ def title_search(conn: Connection, account, property_id: int, now: datetime) -> 
 # Mortgages
 # ---------------------------------------------------------------------------
 
-def mortgage_limit(conn: Connection, account, price: int, now: datetime, *, except_auction: int | None = None) -> int:
+def mortgage_limit(conn: Connection, account, price: int, now: datetime, *, except_auction: int | None = None,
+                   except_sale: int | None = None) -> int:
     """The most a bank will lend this account against a property at this price."""
     from simulation import careers
     kind = _one(conn, "SELECT kind FROM ledger_accounts WHERE id = %s", (account,))["kind"]
@@ -663,6 +731,10 @@ def mortgage_limit(conn: Connection, account, price: int, now: datetime, *, exce
         owed += _one(conn, "SELECT coalesce(sum(limit_price * mortgage_bps / 10000), 0)::bigint AS o FROM auction_bids"
                            " WHERE bidder = %s AND status = 'live' AND mortgage_bps > 0 AND auction_id IS DISTINCT FROM %s",
                      (account, except_auction))["o"]
+        # ...and one promised on a private purchase agreed but not yet signed (the gap stage).
+        if _one(conn, "SELECT to_regclass('property_sales') IS NOT NULL AS ok")["ok"]:
+            owed += _one(conn, "SELECT coalesce(sum(mortgage), 0)::bigint AS o FROM property_sales WHERE buyer = %s"
+                               " AND status IN ('agreed', 'consent') AND id IS DISTINCT FROM %s", (account, except_sale))["o"]
         return max(min(salary * data.MORTGAGE_SALARY_QUARTERS - owed, price * (BPS - data.MORTGAGE_DEPOSIT_BPS) // BPS), 0)
     if kind == "empire":
         return price * data.EMPIRE_MORTGAGE_MOST_BPS // BPS
@@ -730,7 +802,10 @@ def public_property(conn: Connection, p: dict, d: dict, rate: int, *, viewer=Non
             "district_id": p["district_id"], "district": d["name"], "city": d["city"], "size_m2": p["size_m2"],
             "condition": p["condition"], "status": p["status"], "value": value(p, d, rate), "rent_due": rent_due(p, d),
             "owners": names, "my_share_bps": mine, "upkeep": p["upkeep"],
-            "build_cost": build_cost({**p, "city": d["city"]}) if p["status"] != "standing" or p["kind"] == "land" else None}
+            "build_cost": build_cost({**p, "city": d["city"]}) if p["status"] != "standing" or p["kind"] == "land" else None,
+            "zone": p.get("zone"), "zone_name": data.ZONE_NAMES.get(p.get("zone"), ""),
+            "may_build": list(data.ZONE_ALLOWS.get(p.get("zone"), ())), "frozen": bool(p.get("frozen")),
+            "beside_works": bool(p.get("beside_project")), "right_of_way": bool(p.get("value_cut_bps"))}
 
 
 def market_view(conn: Connection, viewer=None) -> dict:
@@ -745,10 +820,14 @@ def market_view(conn: Connection, viewer=None) -> dict:
         props = _rows(conn, "SELECT * FROM properties WHERE district_id = %s ORDER BY id", (d["id"],))
         out.append({"id": d["id"], "name": d["name"], "city": d["city"], "kind": d["kind"], "kind_name": data.DISTRICT_KIND_NAMES[d["kind"]],
                     "rent_bps": d["rent_bps"], "occupancy_bps": d["occupancy_bps"], "price_bps": d["rent_bps"] * (BPS + d["premium_bps"]) // BPS,
+                    "infra_bps": d.get("infra_bps", 0),
                     "history": history[d["id"]][-13:],
                     "properties": [public_property(conn, p, d, rate, viewer=viewer) for p in props]})
+    from simulation import homes, infrastructure
     return {"districts": out, "yield_bps": yield_bps(rate), "mortgage_rate_bps": rate + data.MORTGAGE_SPREAD_BPS,
-            "tax_bps": data.PROPERTY_TAX_BPS + data.LAND_TAX_BPS}
+            "tax_bps": data.PROPERTY_TAX_BPS + data.LAND_TAX_BPS, "infrastructure": infrastructure.view(conn),
+            "home_loans": homes.summary(conn), "zones": [{"zone": z, "name": data.ZONE_NAMES[z], "allows": list(data.ZONE_ALLOWS[z])}
+                                                         for z in data.ZONES]}
 
 
 def mine_view(conn: Connection, account, now: datetime) -> dict:
@@ -767,7 +846,11 @@ def mine_view(conn: Connection, account, now: datetime) -> dict:
                  for m in _rows(conn, "SELECT m.*, c.name AS bank FROM mortgages m JOIN companies c ON c.id = m.bank_company_id"
                                       " WHERE m.borrower = %s AND m.status IN ('open', 'shortfall') ORDER BY m.id", (account,))]
     eq = equity_of(conn, account)
-    return {"properties": props, "mortgages": mortgages, **eq}
+    from simulation import conveyancing, development, leaseback, zoning
+    for p in props:
+        p["claims"] = conveyancing.known_claims(conn, p["id"])
+    return {"properties": props, "mortgages": mortgages, "leases": leaseback.view(conn, account), "sales": conveyancing.view(conn, account, now),
+            "developments": development.view(conn, account), "rezonings": zoning.view(conn, account), **eq}
 
 
 def summary(conn: Connection) -> dict:

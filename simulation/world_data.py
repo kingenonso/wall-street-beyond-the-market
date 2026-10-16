@@ -979,3 +979,130 @@ EMPIRE_DERIVATIVES_DEFAULT_NAIRA = 0   # an empire trades derivatives only insid
 CRASH_PREMIUM_BPS = 300                # 3% of the cover, each quarter...
 CRASH_TRIGGER_BPS = 1500               # ...and it pays the cover when the BSX 50 falls 15% or more in a quarter
 CRASH_MOST_COVER_BPS = 5000            # cover at most half of what the empire is worth
+
+# ---------------------------------------------------------------------------
+# The gap stage, Part 1: the clearing house, unlocking by level and mastery, the Securities Regulator.
+# ---------------------------------------------------------------------------
+DERIVATIVE_FEE_BPS = 5                 # each side of an option or futures trade pays 0.05% of what the contracts are on...
+DEFAULT_FUND_SHARE_BPS = 1000          # ...and a tenth of that fee goes to the clearing house's default fund
+MAKER_SEQUENCE = 2 ** 62               # the market makers' standing quote waits behind every player's order at the same price
+UNLOCK_BORROW_LEVEL = 10               # loans against shares and short selling open at Level 10
+UNLOCK_OPTIONS_LEVEL = 15              # buying options at Level 15
+UNLOCK_ADVANCED_LEVEL = 25             # futures, writing options and swaps at Level 25, with the build's own Stage 9 module learned
+STAGE9_MODULE = {"asset_manager": "Leverage and margin", "accountant": "Futures and the cost of carry",
+                 "investment_banker": "Option pricing", "risk_manager": "Value at risk", "lawyer": "Securities lending",
+                 "journalist": "Market positioning"}
+SHORT_BAN_SHARE_FALL_BPS = 1500        # the Securities Regulator stops new short sales in a share that falls 15% in a day...
+SHORT_BAN_MARKET_FALL_BPS = 1000       # ...and in every share when the BSX 50 falls 10% in a day...
+SHORT_BAN_DAYS = 3                     # ...for three trading days
+HEDGE_SELLERS = ("OPP", "BRE", "DCG", "UGS")            # oil and gas producers sell oil futures for part of next quarter's output...
+HEDGE_BUYERS_SECTORS = ("aviation", "transport", "shipping", "power")   # ...and the big users of fuel buy them
+HEDGE_SELL_SHARE_BPS = 2500            # a producer hedges about a quarter of a quarter's sales...
+HEDGE_BUY_SHARE_BPS = 1000             # ...a user about a tenth
+HEDGE_MOST_CONTRACTS = 400             # and never more than this many contracts a company
+SWAP_MOST_QUARTERS = 8                 # a swap runs one to eight quarters
+SWAP_MOST_NOTIONAL = 1_000_000_000_000 # a rate swap on at most ₦10bn
+SWAP_MOST_BARRELS = 100_000            # an oil swap on at most 100,000 barrels a quarter
+SWAP_BANK_RATE_SPREAD_BPS = 50         # a bank's fixed rate: half a point in its favour
+SWAP_BANK_OIL_SPREAD_BPS = 200         # a bank's fixed oil price: 2% in its favour
+SWAP_MOST_TIMES_WORTH = 5              # swaps carry no collateral: all of an account's together on at most five times its worth
+PREFERRED_SECTORS = ("banking", "insurance", "telecoms", "power", "real_estate")   # who may sell preferred shares...
+PREFERRED_RATINGS = ("AAA", "AA", "A")  # ...if sound...
+PREFERRED_ONE_IN = 4                    # ...about one quarter in four for each such company
+PREFERRED_SIZE_BPS = 200                # 2% of what the company owns
+PREFERRED_PAR = 10_000                  # ₦100 each
+PREFERRED_DEALER_MOST_BPS = 1000        # the pension funds put at most a tenth of their cash into one issue
+PREFERRED_EXTRA_BPS = 100               # their yield: a long Government bond's, plus the company's spread, plus 1%
+PREFERRED_SPREAD_BPS = 100              # the desk's two prices, 1% either side
+WARRANT_SPREAD_BPS = 500                # warrants, 5% either side
+WARRANT_PER_NEW_SHARES = 5              # one warrant with every five new shares taken up in a rights issue
+WARRANT_PER_BONDS = 4                   # one warrant with every four high-yield bonds
+WARRANT_STRIKE_BPS = 12_000             # at 120% of the share price when handed out
+WARRANT_QUARTERS = 8                    # usable for eight quarters
+MEZZ_MOST_BPS = 2000                    # mezzanine: at most a fifth of the price...
+MEZZ_WITH_LOAN_MOST_BPS = 8000          # ...and the bank's loan and the mezzanine together at most four fifths
+MEZZ_EXTRA_BPS = 600                    # six points dearer than the bank's buyout loan
+MEZZ_EQUITY_BPS = 500                   # its warrants: 5% of the company, used at once
+EARNOUT_MOST_BPS = 3000                 # an earn-out: at most 30% of the price paid later...
+EARNOUT_QUARTERS = 4                    # ...after four quarters...
+EARNOUT_TARGET_BPS = 10_000             # ...in full if the company's sales over them match its last year's (in proportion if less)
+EARNOUT_SELLER_COUNTS_BPS = 6000        # a seller counts an earn-out at 60% of its face when judging bids
+DEAL_LEAST_EQUITY_BPS = 1000           # with mezzanine or an earn-out, at least a tenth of the price is the buyers' own cash
+LEASEBACK_DISCOUNT_BPS = 300           # sale-and-leaseback: sold at 3% below its value...
+LEASEBACK_EXTRA_YIELD_BPS = 200        # ...and rented back at the yield investors want, plus two points...
+LEASEBACK_LEAST_QUARTERS = 4           # ...for four...
+LEASEBACK_MOST_QUARTERS = 20           # ...to twenty quarters
+LEASEBACK_MISSES_TO_BREAK = 2          # two rents missed and the lease is broken
+
+# ---------------------------------------------------------------------------
+# The gap stage, Part 2: Stage 8's missing pieces (zoning, infrastructure, the twelve-step purchase, claims,
+# development, hotels and malls, households' home loans, valuation work and property funds).
+# ---------------------------------------------------------------------------
+ZONES = ("residential", "commercial", "industrial", "agricultural", "resource", "mixed")
+ZONE_NAMES = {"residential": "Residential", "commercial": "Commercial", "industrial": "Industrial", "agricultural": "Agricultural",
+              "resource": "Resource (mining and oil)", "mixed": "Mixed use"}
+DISTRICT_ZONE = {"business": "commercial", "homes": "residential", "shops": "commercial", "industry": "industrial", "farmland": "agricultural"}
+ZONE_ALLOWS = {"residential": ("home",), "commercial": ("office", "shop", "hotel", "mall"), "industrial": ("factory", "warehouse"),
+               "agricultural": ("farmland",), "resource": ("warehouse", "factory"), "mixed": ("home", "office", "shop", "hotel", "mall")}
+RESOURCE_CITIES = ("Port Harcourt",)     # where some farmland plots sit on oil and gas and are zoned for it
+ZONE_LAND_TIMES_BPS = {"residential": 10_000, "commercial": 13_500, "industrial": 5_000, "agricultural": 200, "resource": 3_000, "mixed": 14_000}
+REZONE_FEE_NAIRA = 500_000             # applying to the planning office to rezone a plot
+REZONE_STRONG_OCCUPANCY_BPS = 9300     # a rezoning is granted when the city's district of the new use is this full...
+REZONE_PLANNER_OCCUPANCY_BPS = 9600    # ...and the planners rezone a plot themselves when a district stays this full
+INFRA_EVERY_QUARTERS = 4               # about one big project a game year
+INFRA_KINDS = {"road": ("Expressway", 4, 1200), "rail": ("Rail Line", 6, 1800), "port": ("Port Terminal", 6, 2200)}  # name, quarters, uplift
+INFRA_PORT_CITIES = ("Lagos", "Port Harcourt")
+INFRA_COST_A_QUARTER_NAIRA = 6_000_000_000    # what the Government spends on the works each quarter they run (before the city's costs)
+INFRA_BESIDE_TIMES = 2                 # land beside the works gains twice the district's uplift
+# The twelve-step purchase, outside the Auction House.
+SALE_STEPS = ("seller", "title", "claims", "zoning", "valuation", "money", "terms", "consent_asked", "consent", "contract", "registered", "handover")
+SALE_CHECK_STEPS = ("seller", "title", "claims", "zoning", "valuation")      # skipping these never blocks; the risk shows later
+CONSENT_DAYS = 2                       # the Governor's consent takes about two real days
+CONSENT_FEE_BPS = 50                   # the consent fee: half of one percent of the price
+REGISTRATION_FEE_BPS = 50              # registering any transfer at the Land Registry: half of one percent, paid by the buyer
+CLAIMS_SEARCH_FEE_NAIRA = 30_000
+# Claims besides a bad title (secret until searched for or they come to light).
+CLAIM_OLD_LOAN_BPS = 500               # about one property in twenty has an old loan secured on it...
+CLAIM_OLD_LOAN_SIZE_BPS = (500, 2000)  # ...for 5% to 20% of its value, which the owner must pay off
+CLAIM_RIGHT_OF_WAY_BPS = 400           # one in twenty-five has a right of way across it...
+CLAIM_RIGHT_OF_WAY_CUT_BPS = 1000      # ...which takes a tenth off its value
+CLAIM_DISPUTE_BPS = 300                # one in thirty-odd has a family or community dispute...
+CLAIM_DISPUTE_SETTLE_BPS = 500         # ...frozen until settled with the claimants for 5% of its value (courts come later)
+CLAIM_DISPUTE_FADES_QUARTERS = 8       # ...or, unsettled, it fades after eight quarters
+# Development projects.
+PERMIT_FEE_BPS = 100                   # a building permit: 1% of the budget
+PERMIT_DAYS = 2
+PERMIT_DELAY_CHANCE_BPS = 2000         # one permit in five is held up a quarter
+DEVELOPMENT_PHASES = 4                 # foundations, frame, building, fitting out: one a quarter
+DEVELOPMENT_SAVING_BPS = 1000          # managing the work yourself saves a tenth on a turnkey build...
+DEVELOPMENT_SPLIT_BPS = {"cement": 3500, "steel": 2500, "works": 4000}      # ...bought from the cement, steel and building companies
+STEEL_SECTOR = "manufacturing"
+STRIKE_CHANCE_BPS = 800                # a strike holds a phase up a quarter
+CONSTRUCTION_LOAN_MOST_BPS = 7000      # a bank lends at most 70% of the budget, paid out phase by phase
+CONSTRUCTION_LOAN_SPREAD_BPS = 600     # at the Central Bank's rate plus six points
+# Hotels and malls.
+RENT_KIND_TIMES_BPS.update({"hotel": 14_000, "mall": 16_000})
+PROPERTY_KIND_NAMES.update({"hotel": "Hotel", "mall": "Shopping mall"})
+BUILD_KIND_BPS = {"hotel": 13_000, "mall": 13_000}    # fitting out a hotel or a mall costs 30% more than other buildings
+BETTERMENT_LEVY_BPS = 5000             # a rezoning granted on request: half of the land's gain in value is paid to the Government
+# Households' home loans.
+HOME_LOAN_SHARE_BPS = 150              # each quarter households borrow about 1.5% of their income for homes, at the neutral rate...
+HOME_LOAN_RATE_SENSITIVITY_BPS = 1500  # ...15% less for each point the mortgage rate stands above it (more below)...
+HOME_LOAN_TERM_QUARTERS = 60           # ...repaid over fifteen game years
+HOME_LOAN_SPREAD_BPS = 500             # the Central Bank's rate plus five points
+HOME_DEFAULT_BASE_BPS = 40             # a quarter's defaults: 0.4% of the book in calm times...
+HOME_DEFAULT_PER_RATE_POINT_BPS = 30   # ...plus 0.3% for each point the rate rose over the last year...
+HOME_DEFAULT_PER_JOBS_FALL_BPS = 50    # ...plus 0.5% for each percent fewer jobs...
+HOME_DEFAULT_BURDEN_BPS = 3000         # ...and more when repayments take over 30% of income
+HOME_RECOVERY_BPS = 6000               # a repossessed home sells for 60% of the loan
+HOME_BUILD_COST_BPS = 5500             # the property companies spend 55% of a new home's price on cement and steel
+HOME_PRICE_FROM_BUYING_BPS = 1400      # home buying lifts the homes districts' prices (by 14% of what was lent, against their worth)
+HOME_SEED_SHARE_BPS = 2000             # at the start, a fifth of what households owe the banks is home loans
+HOME_REPOSSESSION_PRICE_HIT = 1        # repossessions push the homes districts' prices down (by what defaulted, against their worth)
+# Property funds.
+PROPERTY_FUND_LEVEL = 20
+PROPERTY_FUND_FEE_MOST_BPS = 200       # a manager's fee: at most 2% of the fund a year
+PROPERTY_FUND_ONE_BUILDING_BPS = 3000  # no building more than 30% of the fund
+PROPERTY_FUND_LEAST_CASH_BPS = 1000    # at least 10% in cash, for those who leave
+PROPERTY_FUND_SPREAD_BPS = 100         # units bought at 1% above their value, sold at 1% below (kept by the fund)
+PROPERTY_FUND_SEED_NAIRA = 3_000_000_000   # the pension funds' stake in the computer-run property trust

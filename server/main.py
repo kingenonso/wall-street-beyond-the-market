@@ -1517,7 +1517,15 @@ def _objective_step(player: dict, action) -> ObjectiveRow:
 
 @app.post("/api/objectives", response_model=ObjectiveRow, status_code=status.HTTP_201_CREATED)
 def take_on_work(body: AcceptRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _objective_step(player, lambda: objectives.accept(conn, player["id"], body.template, _exchange_time(conn)))
+    limits.allow("objective", str(player["id"]), attempts=30, per_seconds=60)
+    try:
+        taken = objectives.accept(conn, player["id"], body.template, _exchange_time(conn))
+    except objectives.ObjectiveError as refused:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
+    if taken.get("waiting"):
+        # (The gap stage: work the empire pays for, past what is left of the desk's budget, waits for the head.)
+        return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content={"waiting": True, "words": taken["words"]})
+    return _objective(taken)
 
 
 @app.post("/api/objectives/{objective_id}/hand-in", response_model=ObjectiveRow)
@@ -1587,3 +1595,4 @@ from server import message_routes  # noqa: E402,F401
 from server import settings_routes  # noqa: E402,F401
 from server import property_routes  # noqa: E402,F401
 from server import lending_routes  # noqa: E402,F401
+from server import property2_routes  # noqa: E402,F401

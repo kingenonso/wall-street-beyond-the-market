@@ -20,7 +20,7 @@ from psycopg.rows import dict_row
 from simulation import (abroad, banking, bonds, careers, clock, companies, consumers, corporate, economy, events, exchange, grants, investors, ledger,
                         macro, marketview, mindsets, moneywatch, news, objectives, private, valuation)
 from simulation import empires
-from simulation import crashfund, derivatives, lending, stochastic
+from simulation import conveyancing, crashfund, derivatives, development, instruments, lending, propfunds, stochastic, swaps
 from simulation import property as property_market
 from simulation import ranks
 from simulation.money import BPS
@@ -50,7 +50,8 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
             from simulation import firm_deals
             problems = (ledger.audit(conn) + exchange.check_books(conn) + corporate.check_books(conn) + firm_deals.check_books(conn)
                         + lending.check_books(conn) + derivatives.check_books(conn)
-                        + crashfund.check_books(conn))
+                        + crashfund.check_books(conn) + instruments.check_books(conn)
+                        + conveyancing.check_books(conn) + development.check_books(conn) + propfunds.check_books(conn))
             if problems:
                 raise ledger.LedgerError("The ledger failed its end-of-quarter check: " + " ".join(problems))
             conn.execute("UPDATE world_state SET last_closed_period = %s", (period,))
@@ -203,6 +204,8 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     # Options and futures that run to this close are settled in cash, and the next ones listed; the crash fund (Stage 9).
     # (After the oil price and the naira are set for the quarter, so a future settles at the new level, not one known all quarter.)
     derivatives.close(conn, period, now)
+    swaps.close(conn, period, now)
+    instruments.issue_preferred(conn, period, now)
     crashfund.close(conn, period, now, derivatives.index_now(conn, now))
 
     for company, result in results:

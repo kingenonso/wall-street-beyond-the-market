@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from simulation import careers, ledger
+from simulation import careers, ledger, objectives
 from simulation.money import naira
 from tests.conftest import ADULT, join, money_accounted_for
 from tests.test_mastery import master
@@ -33,9 +33,12 @@ def test_a_player_sees_the_gate_ahead_sits_a_case_and_reports_marking(db, client
 
     # The work board now carries the three settings, the map and the tracker.
     board = client.get("/api/objectives").json()
-    assert {o["setting"] for o in board["offers"]} == {"solo", "empire", "live"} and len(board["offers"]) == 24
-    assert board["tracks"][0]["name"] == "Accountant" and board["tracks"][0]["modules"] == 8
-    assert set(board["weekend"]) == {"open", "opens", "closes", "hours"} and len(board["skills"]) == 8
+    # (Eight modules in the first band, each three ways; the gap stage's higher bands are listed too, locked until their level.)
+    first = [o for o in board["offers"] if objectives.TEMPLATES[o["template"]].level <= 4]
+    assert {o["setting"] for o in board["offers"]} == {"solo", "empire", "live"} and len(first) == 24
+    total = len(objectives.modules("accountant"))
+    assert board["tracks"][0]["name"] == "Accountant" and board["tracks"][0]["modules"] == total
+    assert set(board["weekend"]) == {"open", "opens", "closes", "hours"} and len(board["skills"]) == total
 
     player = client.get("/api/me").json()
     account = ledger.player_account_id(db, player["id"])

@@ -31,6 +31,38 @@ def _one(db, sql, params=()):
     return rows[0] if rows else None
 
 
+def learn(db, player, build):
+    """Test set-up: the build's Stage 9 module passed on the player's own (as if they had done the work)."""
+    from psycopg.types.json import Jsonb
+    from simulation import objectives
+    module = data.STAGE9_MODULE[build]
+    code = next(t.code for t in objectives.TEMPLATES.values() if t.build == build and t.module == module and t.setting == "solo")
+    account = ledger.player_account_id(db, player)
+    db.execute("INSERT INTO objectives (player_id, build, template, module, period, payer_account_id, payer_name, title, terms, reward,"
+               " experience, accepted_at, judged_at, state, setting, track, root) VALUES (%s, %s, %s, %s, 8, %s, 'Test', 'Test', %s, 0, 0, %s, %s,"
+               " 'passed', 'solo', %s, %s)", (player, build, code, module, account, Jsonb({}), NOW9, NOW9, build, code))
+
+
+def trader(db, build, name, level=30, cash_naira=0):
+    """A player past the first rank case, at a level that opens every instrument, with the Stage 9 module learned."""
+    from simulation import careers
+    player, account = pro(db, build, name, level=10, cash_naira=cash_naira)
+    db.execute("UPDATE careers SET rank = 1, experience = %s WHERE player_id = %s AND build = %s",
+               (careers.experience_for(max(level, 30)), player, build))
+    learn(db, player, build)
+    return player, account
+
+
+def ready(db, player):
+    """An existing member (such as one of firm_of's team) brought up to trade every instrument."""
+    from simulation import careers
+    build = db.execute("SELECT build FROM players WHERE id = %s", (player,)).fetchone()[0]
+    db.execute("UPDATE careers SET rank = 1, experience = %s WHERE player_id = %s AND build = %s",
+               (careers.experience_for(30), player, build))
+    learn(db, player, build)
+    return player
+
+
 def series(db, kind, underlying, expiry=9, nearest=None):
     derivatives.ensure(db, OPEN)
     rows = _dicts(db, "SELECT * FROM derivative_series WHERE kind = %s AND underlying = %s AND expiry_period = %s ORDER BY strike",
@@ -79,23 +111,24 @@ def test_prices_follow_the_model_calls_rise_with_the_share_and_the_desk_keeps_a_
 
 
 def test_a_bought_call_pays_out_at_the_close_when_the_share_rises(db):
-    player, account = pro(db, "asset_manager", "bull", cash_naira=50_000_000)
+    player, account = trader(db, "asset_manager", "bull", cash_naira=50_000_000)
     s = series(db, "call", "IDC", nearest=derivatives.spot(db, series(db, "call", "IDC"), OPEN))
     before = ledger.balance(db, account)
     done = derivatives.open_position(db, account, s["id"], "long", 10, OPEN, player_id=player)
-    assert ledger.balance(db, account) == before - done["price"] * 10
+    fee = derivatives._fee(db, s, 10, derivatives.spot(db, s, OPEN))          # the exchange's fee, a tenth of it to the default fund
+    assert fee > 0 and ledger.balance(db, account) == before - done["price"] * 10 - fee
     set_price(db, "IDC", s["strike"] * 13 // 10)            # 30% above the strike at the close
     quarters.close_due_quarters(db, after_quarters(9))
     p = _one(db, "SELECT * FROM derivative_positions WHERE id = %s", (done["position_id"],))
     assert p["status"] == "expired"
     payoff = (s["strike"] * 13 // 10 - s["strike"]) * 100 * 10
-    assert ledger.balance(db, account) >= before - done["price"] * 10 + payoff - 1000
+    assert ledger.balance(db, account) >= before - done["price"] * 10 - fee + payoff - 1000
     assert p["result"] == payoff - done["price"] * 10
     sound(db)
 
 
 def test_writing_an_option_needs_margin_and_a_rise_brings_a_call_then_a_forced_close(db):
-    player, account = pro(db, "asset_manager", "writer", cash_naira=50_000_000)
+    player, account = trader(db, "asset_manager", "writer", cash_naira=50_000_000)
     s = series(db, "call", "IDC", nearest=derivatives.spot(db, series(db, "call", "IDC"), OPEN))
     done = derivatives.open_position(db, account, s["id"], "short", 10, OPEN, player_id=player)
     assert done["margin"] == derivatives.writer_margin(db, s, OPEN) * 10
@@ -112,7 +145,7 @@ def test_writing_an_option_needs_margin_and_a_rise_brings_a_call_then_a_forced_c
 
 
 def test_a_future_is_settled_every_night_and_its_margin_moves_with_the_price(db):
-    player, account = pro(db, "asset_manager", "futures", cash_naira=50_000_000)
+    player, account = trader(db, "asset_manager", "futures", cash_naira=50_000_000)
     f = series(db, "future", "BSX50")
     done = derivatives.open_position(db, account, f["id"], "long", 2, OPEN, player_id=player)
     margin0 = done["margin"]
@@ -130,7 +163,7 @@ def test_a_future_is_settled_every_night_and_its_margin_moves_with_the_price(db)
 
 
 def test_every_future_settles_at_the_quarters_close_and_the_next_are_listed(db):
-    player, account = pro(db, "asset_manager", "macro", cash_naira=500_000_000)
+    player, account = trader(db, "asset_manager", "macro", cash_naira=500_000_000)
     ids = []
     for u in derivatives.FUTURES:
         f = series(db, "future", u)
@@ -142,7 +175,7 @@ def test_every_future_settles_at_the_quarters_close_and_the_next_are_listed(db):
 
 
 def test_the_desk_deals_only_while_the_market_is_open_and_limits_contracts(db):
-    player, account = pro(db, "asset_manager", "night", cash_naira=500_000_000)
+    player, account = trader(db, "asset_manager", "night", cash_naira=500_000_000)
     s = series(db, "future", "OIL")
     with pytest.raises(derivatives.DerivativesError, match="market is open"):
         derivatives.open_position(db, account, s["id"], "long", 1, OPEN.replace(hour=23), player_id=player)
@@ -152,6 +185,7 @@ def test_the_desk_deals_only_while_the_market_is_open_and_limits_contracts(db):
 
 def test_the_risk_manager_buys_protection_inside_the_limit_and_the_hedge_is_scored(db):
     empire, team = firm_of(db, n_cash=5_000_000_000)
+    ready(db, team["risk_manager"])
     put = series(db, "put", "BSX50", nearest=derivatives.index_now(db, OPEN))
     with pytest.raises(Exception):
         lending_empire.trade(db, team["journalist"], put["id"], "long", 1, OPEN)

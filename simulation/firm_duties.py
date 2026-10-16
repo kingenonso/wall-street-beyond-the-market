@@ -412,6 +412,39 @@ def _ac_bonus(ctx):
 # The Investment Banker's desk
 # ---------------------------------------------------------------------------
 
+def _ac_positions(ctx):
+    """The gap stage: the Accountant values the empire's options, futures and swaps at the desk's fair prices."""
+    from simulation import derivatives, swaps
+    conn, empire, now = ctx["conn"], ctx["empire"], ctx["now"]
+    account = empire["account_id"]
+    positions = _rows(conn, "SELECT p.*, s.kind, s.underlying, s.company_id, s.strike, s.expiry_period FROM derivative_positions p"
+                            " JOIN derivative_series s ON s.id = p.series_id WHERE p.account = %s AND p.status = 'open' ORDER BY p.id", (account,))
+    held = _rows(conn, "SELECT * FROM swaps WHERE status = 'active' AND (fixed_payer = %s OR float_payer = %s) ORDER BY id", (account, account))
+    if not positions and not held:
+        return None
+    given = []
+    for p in positions:
+        fair = derivatives.fair(conn, p, now)
+        sign = "bought" if p["side"] == "long" else ("sold" if p["kind"] == "future" else "written")
+        given.append(fact(f"{derivatives.describe(p)}: {p['contracts']:,} {sign}; fair price a contract / "
+                          f"{'last settlement price' if p['kind'] == 'future' else 'margin held'}",
+                          f"{_money(fair)} / {_money(p['mark'] if p['kind'] == 'future' else p['margin'])}", "text"))
+        if p["kind"] == "future":
+            given.append(fact(f"{derivatives.describe(p)}: margin held", p["margin"]))
+    waiting = _one(conn, "SELECT coalesce(sum(reserved), 0)::bigint AS r FROM derivative_orders WHERE account = %s AND status = 'open'",
+                   (account,))["r"]
+    if waiting:
+        given.append(fact("Cash held for orders still waiting", waiting))
+    for s in held:
+        given.append(fact(f"{swaps.describe(s)}: worth to the empire at today's levels", swaps.value_to(conn, s, account)))
+    truth = derivatives.held_value(conn, account, now) + sum(swaps.value_to(conn, s, account) for s in held)
+    return terms("Value the empire's options, futures and swaps for the quarter's books.", given,
+                 [q_number("value", "What they are worth to the empire in all (margin held included)")], {"value": truth},
+                 method="A future: (fair price − last settlement price) × contracts, + for bought and − for sold, plus its margin. "
+                        "A bought option: fair price × contracts. A written option: its margin − fair price × contracts. Add the cash held "
+                        "for waiting orders and each swap's worth.")
+
+
 def _ib_capital(ctx):
     from simulation import firm_money
     conn, empire = ctx["conn"], ctx["empire"]
@@ -768,6 +801,8 @@ duty("ac_budget", "accountant", "Run the budget war room", "Overspending shows f
 duty("ac_covenants", "accountant", "Watch the promises in the empire's debts", "A broken promise lets a lender call in its money.", _ac_covenants)
 duty("ac_partners", "accountant", "Report to the partners", "Everybody who put money in is owed a plain statement of what it is worth.", _ac_partners,
      player_run_only=True)
+duty("ac_positions", "accountant", "Value the empire's options, futures and swaps", "The partners' figures must include what the "
+     "empire's contracts are worth today, not what they cost.", _ac_positions)
 duty("ac_bonus", "accountant", "Work out the bonus pool", "Bonuses must stay inside what the rules allow.", _ac_bonus, player_run_only=True)
 duty("ib_capital", "investment_banker", "Advise on how much to borrow", "Borrowing well makes the empire bigger; too much can break it.", _ib_capital,
      player_run_only=True)
