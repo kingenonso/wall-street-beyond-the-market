@@ -1627,7 +1627,7 @@ def board(conn: Connection, player_id, now: datetime) -> dict:
                                 f"which is the most one member may.")
         elif template.setting == "live" and not window["open"]:
             offer["why_not"] = f"Weekend challenges open on {window['opens']:%A %d %B} at {window['opens']:%H:%M} (Lagos time)."
-        elif ctx["job"] is None and template.payer not in ("empire", "client"):
+        elif ctx["job"] is None and template.payer != "empire" and template.code not in _client_pieces():
             offer["why_not"] = "Work comes through an employer. Find a job first."
         else:
             terms = template.offer(ctx)
@@ -1678,7 +1678,7 @@ def accept(conn: Connection, player_id, code: str, now: datetime, step: dict | N
             raise ObjectiveError("Weekend challenges are open from Friday 18:00 to Sunday 22:00 (Lagos time).")
         if template.payer == "empire" and not step and _empire_work_done(conn, player_id, ctx["period"]) >= data.EMPIRE_WORK_A_QUARTER:
             raise ObjectiveError(f"One member may do {data.EMPIRE_WORK_A_QUARTER} pieces of work for their empire in a quarter.")
-        if ctx["job"] is None and not step and template.payer not in ("empire", "client"):
+        if ctx["job"] is None and not step and template.payer != "empire" and template.code not in _client_pieces():
             raise ObjectiveError("Work comes through an employer. Find a job first.")
         if mine["level"] < template.level and not step:
             raise ObjectiveError(f"That work opens at Level {template.level}.")
