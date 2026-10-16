@@ -1005,6 +1005,7 @@ SWAP_MOST_NOTIONAL = 1_000_000_000_000 # a rate swap on at most ₦10bn
 SWAP_MOST_BARRELS = 100_000            # an oil swap on at most 100,000 barrels a quarter
 SWAP_BANK_RATE_SPREAD_BPS = 50         # a bank's fixed rate: half a point in its favour
 SWAP_BANK_OIL_SPREAD_BPS = 200         # a bank's fixed oil price: 2% in its favour
+SWAP_MOST_TIMES_WORTH = 5              # swaps carry no collateral: all of an account's together on at most five times its worth
 PREFERRED_SECTORS = ("banking", "insurance", "telecoms", "power", "real_estate")   # who may sell preferred shares...
 PREFERRED_RATINGS = ("AAA", "AA", "A")  # ...if sound...
 PREFERRED_ONE_IN = 4                    # ...about one quarter in four for each such company

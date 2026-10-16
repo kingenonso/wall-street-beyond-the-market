@@ -275,7 +275,8 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     exported = received("exports")
     # (What it sold abroad is counted with its sales to businesses: the buyers abroad are businesses.)
     sales_business = (received("business_purchase") + received("capital_spending") + claims_received + exported
-                      + received("lease_rent"))          # (rent from a building it bought and leased back to its seller)
+                      + received("lease_rent")           # (rent from a building it bought and leased back to its seller)
+                      + received("shortfall_repayment"))  # (a rent or a swap payment it was owed once, paid late)
     sales_government = received("government_purchase")
     revenue = sales_households + sales_business + sales_government
     imported = moves.get("imports", {}).get("paid", 0)
@@ -417,8 +418,33 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     elif loan_losses < 0:
         notes.append(f"It recovered {in_words(-loan_losses)} of loans it had written off.")
 
+    # Its oil hedges (the gap stage): futures settled in cash every night, and their fees. A gain is other income, a
+    # loss a cost; both are part of its trading, before tax.
+    def paid_so_far(kind: str) -> int:
+        return moves.get(kind, {}).get("paid", 0)
+
+    hedging = (received("variation_margin") - paid_so_far("variation_margin") + received("future_trade") - paid_so_far("future_trade")
+               - paid_so_far("derivative_fee") + received("swap_payment") - paid_so_far("swap_payment"))
+    if hedging:
+        notes.append(f"Its hedges and swaps {'made' if hedging > 0 else 'cost'} {in_words(abs(hedging))} this quarter.")
+        if hedging > 0:
+            revenue += hedging
+        else:
+            cost_of_sales -= hedging
+    # Home loans households did not repay (the gap stage): the loss is the bank's; what the repossessed homes fetched came
+    # back as cash with its other loan repayments.
+    home_losses = 0
+    if company["sector"] == "banking":
+        from simulation import homes
+        home_losses = homes.losses_to_count(conn, company["id"], period)
+    if home_losses:
+        notes.append(f"It lost {in_words(home_losses)} on home loans households could not repay.")
+    # Fees paid to register property, and losses it could not pay at the time (hedges, swaps) paid late.
+    registration = paid_so_far("land_registration") + paid_so_far("shortfall_repayment")
+    cost_of_sales += registration
+
     operating_profit = (revenue + interest_income - cost_of_sales - operating_expenses - professional_fees
-                        - depreciation - loan_losses)
+                        - depreciation - loan_losses - home_losses)
     profit_before_tax = operating_profit - interest_expense
     tax = apply_bps(profit_before_tax, ctx.tax_bps) if profit_before_tax > 0 else 0
     # A tax assessment from years past that a private company's founders never disclosed falls due.
@@ -645,23 +671,11 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         (lent_before - lent["gross"]) + (prev["customer_loans"] - customer_loans) - paid("capital_spending") - invested + asset_sales
     )
     cash_from_financing = -paid("dividend") - paid("preferred_dividend") - (prev["borrowings"] - borrowings - converted) + share_proceeds
-    # Its oil hedges (the gap stage): futures settled in cash every night, and their fees. A gain is other income, a
-    # loss a cost; both are part of its trading.
-    hedging = (received("variation_margin") - paid("variation_margin") + received("future_trade") - paid("future_trade")
-               - paid("derivative_fee") + received("swap_payment") - paid("swap_payment"))
-    if hedging:
-        notes.append(f"Its hedges and swaps {'made' if hedging > 0 else 'cost'} {in_words(abs(hedging))} this quarter.")
-        if hedging > 0:
-            revenue += hedging
-        else:
-            cost_of_sales -= hedging
-        operating_profit += hedging
-        profit_before_tax += hedging
-        net_profit += hedging
+    cash_from_investing -= home_losses             # (what households did not repay never came back as cash)
     trading_cash = (
         revenue + interest_income
         - supplies_bought - paid("cost_of_sales") - paid("wages") - paid("debt_interest") - paid("company_tax")
-        - paid("insurance_claim") - paid("salary") - paid("professional_fee") - paid("deposit_interest")
+        - paid("insurance_claim") - paid("salary") - paid("professional_fee") - paid("deposit_interest") - registration
         + min(hedging, 0)                       # (a hedging gain is in revenue already; a loss is cash gone)
     )
     # Anything else that moved its cash did not come from the company's own quarter:
@@ -724,7 +738,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         "cash_from_investing": cash_from_investing, "cash_from_financing": cash_from_financing,
         "cash_closing": cash_closing, "capital_spending": capital_spending,
         "debt_repaid": prev["borrowings"] - borrowings - converted, "dividends_paid": dividends_paid,
-        "cash": cash_closing, "customer_loans": customer_loans, "loan_losses": loan_losses,
+        "cash": cash_closing, "customer_loans": customer_loans, "loan_losses": loan_losses + home_losses,
         "loans_to_companies": loans_to_companies, "fixed_assets": fixed_assets, "investments": investments,
         "total_assets": total_assets, "borrowings": borrowings, "payables": payables,
         "customer_funds": prev["customer_funds"], "total_liabilities": total_liabilities,

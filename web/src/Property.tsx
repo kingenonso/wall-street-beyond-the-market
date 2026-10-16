@@ -13,10 +13,11 @@ import { formatCompact, formatNaira, formatPercent } from "./format";
 import { useLoad } from "./hooks";
 import { NumberTile } from "./Parts";
 import { Failed, Loading, Panel } from "./Shell";
+import { LotExtras, ProjectsTab, SalesAndDevelopments } from "./PropertyMore";
 import { Term } from "./Term";
 
 type Props = { player: Player; onLoggedOut: () => void; onChanged?: () => void };
-type Tab = "auctions" | "map" | "mine" | "empire";
+type Tab = "auctions" | "map" | "mine" | "empire" | "projects";
 
 const CITIES = ["Lagos", "Abuja", "Port Harcourt", "Kano", "Aba"];
 const STEP_NAMES = { title: "Legal Counsel checks the title", valuation: "The Accountant values it", limit: "The Risk Manager sets the top price", money: "The Investment Banker arranges the money" } as const;
@@ -61,7 +62,7 @@ function countdown(ms: number): string {
   return `${m}m ${String(s).padStart(2, "0")}s`;
 }
 
-function useAct(reload: () => void, onLoggedOut: () => void, onChanged?: () => void) {
+export function useAct(reload: () => void, onLoggedOut: () => void, onChanged?: () => void) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -81,7 +82,7 @@ function useAct(reload: () => void, onLoggedOut: () => void, onChanged?: () => v
   }
   return { busy, error, notice, run };
 }
-type Act = ReturnType<typeof useAct>;
+export type Act = ReturnType<typeof useAct>;
 
 function Messages({ act }: { act: Act }) {
   return (
@@ -461,6 +462,7 @@ function Owned({ h, act, forEmpire, canAct, m }: { h: Holdings; act: Act; forEmp
             <div><div className="lbl">Paid</div><div className="mono">{formatCompact(p.paid)}</div></div>
           </div>
           {p.kind !== "land" && p.status === "standing" && <div className="row small"><span>Condition</span><Condition value={p.condition} /></div>}
+          {canAct && <LotExtras p={p} act={act} forEmpire={forEmpire} m={m} />}
           {canAct && (
             <div className="inline-form">
               {p.kind !== "land" && p.status === "standing" && (
@@ -495,6 +497,7 @@ function Owned({ h, act, forEmpire, canAct, m }: { h: Holdings; act: Act; forEmp
           )}
         </article>
       ))}
+      <SalesAndDevelopments sales={h.sales ?? []} developments={h.developments ?? []} act={act} forEmpire={forEmpire} m={m} />
       {(h.leases ?? []).length > 0 && (
         <Panel title="Leased back" aside="you keep the use; the rent is paid at each quarter's close">
           {(h.leases ?? []).map((l) => (
@@ -547,7 +550,7 @@ export function PropertyWork({ onLoggedOut, onChanged }: Props) {
   if (m.districts.length === 0) {
     return <Panel title="Property"><p className="muted">The property market opens at the next quarter's close.</p></Panel>;
   }
-  const tabs: [Tab, string][] = [["auctions", "Auction House"], ["map", "Districts"], ["mine", "My property"], ...(m.empire ? [["empire", "Empire's property"] as [Tab, string]] : [])];
+  const tabs: [Tab, string][] = [["auctions", "Auction House"], ["map", "Districts"], ["mine", "My property"], ...(m.empire ? [["empire", "Empire's property"] as [Tab, string]] : []), ["projects", "Projects and funds"]];
   const chosen = m.districts.find((d) => d.id === district) ?? null;
   return (
     <>
@@ -579,6 +582,7 @@ export function PropertyWork({ onLoggedOut, onChanged }: Props) {
           <p className="muted small">{m.mortgage_limit_note} Rent is paid at each quarter's close; tax and upkeep are taken then too. Unpaid tax grows by a twentieth each quarter, and the Government sells a property whose unpaid tax reaches a tenth of its value.</p>
         </Panel>
       )}
+      {tab === "projects" && <ProjectsTab m={m} act={act} onLoggedOut={onLoggedOut} />}
       {tab === "empire" && m.empire && (
         <>
           <Panel title={`${m.empire.name}: property`} aside={m.empire.head ? "You decide, as head" : "The head decides"}>

@@ -64,6 +64,11 @@ def sell_and_lease_back(conn: Connection, player_id, property_id: int, quarters:
             raise PropertyError("Only a building can be leased back.")
         if prop.mortgage_on(conn, property_id):
             raise PropertyError("Repay the mortgage on it first.")
+        if p.get("frozen"):
+            raise PropertyError("A family dispute over it freezes it: nothing may be done with it until the owner settles it.")
+        if _one(conn, "SELECT to_regclass('property_sales') IS NOT NULL AS ok")["ok"] and \
+                _one(conn, "SELECT 1 FROM property_sales WHERE property_id = %s AND status IN ('offered', 'agreed', 'consent')", (property_id,)):
+            raise PropertyError("A private sale of it is under way.")
         if _one(conn, "SELECT 1 FROM auctions WHERE property_id = %s AND status = 'open'", (property_id,)):
             raise PropertyError("It is up for auction.")
         t = terms(conn, property_id, quarters)
@@ -77,6 +82,8 @@ def sell_and_lease_back(conn: Connection, player_id, property_id: int, quarters:
         conn.execute("DELETE FROM property_holdings WHERE property_id = %s", (property_id,))
         conn.execute("INSERT INTO property_holdings (property_id, account_id, share_bps, since_period, paid) VALUES (%s, %s, %s, %s, %s)",
                      (property_id, buyer["account_id"], BPS, state["period"], t["price"]))
+        from simulation import conveyancing
+        conveyancing.register(conn, property_id, "leaseback", t["price"], state["period"], now)
         row = _one(conn, "INSERT INTO property_leases (property_id, tenant, landlord, rent, first_period, last_period, at)"
                          " VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
                    (property_id, account, buyer["account_id"], t["rent"], state["period"], state["period"] + quarters - 1, now))

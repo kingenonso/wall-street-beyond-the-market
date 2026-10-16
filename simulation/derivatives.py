@@ -413,33 +413,52 @@ def trade(conn: Connection, account, series_id: int, side: str, contracts: int, 
             if _one(conn, "SELECT 1 FROM player_loans WHERE borrower = %s AND status = 'default'", (account,)):
                 raise DerivativesError("A debt of yours is in default. Nothing new can be opened for you until it is paid.")
             unlock(conn, player_id, "options" if s["kind"] != "future" and side == "buy" else "advanced")
+            # (Orders still waiting count too: five waiting orders cannot each pass the limit and then all fill.)
             held = _one(conn, "SELECT coalesce(sum(contracts), 0)::bigint AS n FROM derivative_positions WHERE account = %s AND series_id = %s"
-                              " AND status = 'open'", (account, series_id))["n"]
+                              " AND status = 'open'", (account, series_id))["n"] \
+                + _one(conn, "SELECT coalesce(sum(remaining), 0)::bigint AS n FROM derivative_orders WHERE account = %s AND series_id = %s"
+                             " AND status = 'open'", (account, series_id))["n"]
             if held + opening > data.MOST_CONTRACTS_A_SERIES:
                 raise DerivativesError(f"At most {data.MOST_CONTRACTS_A_SERIES:,} contracts of one kind.")
         if s["kind"] == "future":
             series_mark(conn, s, now)
-        book = _book(conn, s, side, account, now)
-        fills, left = exchange.engine.match(side, limit, contracts, book, 1, 10 ** 15)
-        if not fills and limit is None:
-            raise DerivativesError("Nobody is selling that now." if side == "buy" else "The market makers will not buy an option worth nothing, "
-                                   "and nobody else is buying it now.")
         result = {"filled": 0, "value": 0, "position_id": None, "order_id": None, "margin": 0}
-        for f in fills:
-            if f["order_id"] == MAKER:
-                other, other_meta = _desk(conn), {"maker": True}
-            else:
-                order = _one(conn, "SELECT * FROM derivative_orders WHERE id = %s FOR UPDATE", (f["order_id"],))
-                _release_order(conn, order, f["quantity"], state["period"])
-                other, other_meta = order["account"], {"maker": False, "player_id": order["placed_by"], "purpose": order["purpose"]}
-            me = {"maker": False, "player_id": player_id, "purpose": purpose, "prefer": prefer, "forced": forced, "company": company}
-            buyer, seller = ((account, me), (other, other_meta)) if side == "buy" else ((other, other_meta), (account, me))
-            done = _fill(conn, s, f["price"], f["quantity"], buyer, seller, state["period"], now)
-            mine = done["buyer"] if side == "buy" else done["seller"]
-            result["filled"] += f["quantity"]
-            result["value"] += f["price"] * f["quantity"]
-            result["position_id"] = mine["position_id"] or result["position_id"]
-            result["margin"] += mine["margin"]
+        me = {"maker": False, "player_id": player_id, "purpose": purpose, "prefer": prefer, "forced": forced, "company": company}
+        while True:
+            book = _book(conn, s, side, account, now)
+            fills, left = exchange.engine.match(side, limit, contracts - result["filled"], book, 1, 10 ** 15)
+            if not fills and limit is None and not result["filled"]:
+                raise DerivativesError("Nobody is selling that now." if side == "buy" else "The market makers will not buy an option worth "
+                                       "nothing, and nobody else is buying it now.")
+            again = False
+            for f in fills:
+                if f["order_id"] == MAKER:
+                    other, other_meta = _desk(conn), {"maker": True}
+                    buyer, seller = ((account, me), (other, other_meta)) if side == "buy" else ((other, other_meta), (account, me))
+                    done = _fill(conn, s, f["price"], f["quantity"], buyer, seller, state["period"], now)
+                else:
+                    order = _one(conn, "SELECT * FROM derivative_orders WHERE id = %s FOR UPDATE", (f["order_id"],))
+                    other, other_meta = order["account"], {"maker": False, "player_id": order["placed_by"], "purpose": order["purpose"]}
+                    buyer, seller = ((account, me), (other, other_meta)) if side == "buy" else ((other, other_meta), (account, me))
+                    try:
+                        with conn.transaction():
+                            _release_order(conn, order, f["quantity"], state["period"])
+                            done = _fill(conn, s, f["price"], f["quantity"], buyer, seller, state["period"], now)
+                    except DerivativesError as failed:
+                        if getattr(failed, "account", None) != other:
+                            raise
+                        # The waiting order's owner can no longer pay for it at today's prices: it is cancelled (what it
+                        # held goes back), and the matching starts again without it.
+                        _cancel(conn, order, state["period"], "cancelled")
+                        again = True
+                        break
+                mine = done["buyer"] if side == "buy" else done["seller"]
+                result["filled"] += f["quantity"]
+                result["value"] += f["price"] * f["quantity"]
+                result["position_id"] = mine["position_id"] or result["position_id"]
+                result["margin"] += mine["margin"]
+            if not again:
+                break
         if left and limit is not None and not forced:
             per = _per_contract(conn, s, side, limit, now)
             try:
@@ -511,7 +530,12 @@ def _fill(conn: Connection, s: dict, price: int, n: int, buyer: tuple, seller: t
                 from simulation import lending
                 lending.record_shortfall(conn, payer, receiver, amount - got, f"The forced close of your {label}", period, now)
             return
-        ledger.transfer(conn, payer=payer, receiver=receiver, amount=amount, kind=kind, memo=memo, period=period)
+        try:
+            ledger.transfer(conn, payer=payer, receiver=receiver, amount=amount, kind=kind, memo=memo, period=period)
+        except ledger.InsufficientFunds:
+            failed = DerivativesError("There is not the cash for that trade and its fee.")
+            failed.account = payer
+            raise failed from None
 
     try:
         if s["kind"] == "future":
@@ -601,7 +625,9 @@ def _apply(conn: Connection, s: dict, account, direction: int, n: int, price: in
                     ledger.transfer(conn, payer=account, receiver=margin_acct, amount=margin, kind="derivative_margin",
                                     memo=f"Margin for {left:,} {label}", period=period)
                 except ledger.InsufficientFunds:
-                    raise DerivativesError(f"That needs {money(margin)} of cash as margin.") from None
+                    failed = DerivativesError(f"That needs {money(margin)} of cash as margin.")
+                    failed.account = account
+                    raise failed from None
         row = _one(conn, "INSERT INTO derivative_positions (account, series_id, side, contracts, entry_price, mark, margin, purpose, opened_by,"
                          " opened_at, realised, by_makers, cash_settled) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                    (account, s["id"], "long" if direction > 0 else "short", left, price, s["mark"] if s["kind"] == "future" else price,
@@ -679,6 +705,7 @@ def _settle_series(conn: Connection, s: dict, level_or_payoff: int, period: int,
         sign = 1 if p["side"] == "long" else -1
         moves[p["id"]] = (level_or_payoff * p["contracts"] * sign) if payoff else (level_or_payoff - p["mark"]) * p["contracts"] * sign
     pot = 0
+    unpaid: list[tuple] = []          # (loser, what it could not pay, what the fund covered of it)
     for p in positions:
         loss = -moves[p["id"]]
         if loss <= 0:
@@ -699,19 +726,19 @@ def _settle_series(conn: Connection, s: dict, level_or_payoff: int, period: int,
                 conn.execute("INSERT INTO clearing_fund_events (kind, amount, account, words, at) VALUES ('cover', %s, %s, %s, %s)",
                              (cover, p["account"], f"Covered a loss beyond the margin on {label}", now))
             if not p["cash_settled"]:
-                from simulation import lending
                 conn.execute("UPDATE derivative_positions SET realised = realised - %s WHERE id = %s", (short, p["id"]))
-                lending.record_shortfall(conn, p["account"], fund, short, f"Your {label}", period, now)
-                _note(conn, p, f"Your {label} lost {money(short)} more than its margin. The default fund paid it; you owe the fund.", now)
+            unpaid.append((p, short, cover))
             got += cover
         pot += got
     gains = {pid: m for pid, m in moves.items() if m > 0}
     wanted = sum(gains.values())
     paid_total = 0
     winners = [p for p in positions if p["id"] in gains]
+    paid_to: dict = {}
     for i, p in enumerate(winners):
         g = gains[p["id"]] if pot >= wanted else (pot - paid_total if i == len(winners) - 1 else gains[p["id"]] * pot // wanted)
         paid_total += g
+        paid_to[p["id"]] = max(g, 0)
         if g <= 0:
             continue
         if p["cash_settled"]:
@@ -720,6 +747,28 @@ def _settle_series(conn: Connection, s: dict, level_or_payoff: int, period: int,
         else:
             p["margin"] += g
             conn.execute("UPDATE derivative_positions SET margin = margin + %s, realised = realised + %s WHERE id = %s", (g, g, p["id"]))
+    # What a loser could not pay is owed: what the fund covered, to the fund; the rest (when the fund ran dry), to the
+    # winners who were paid short, in proportion to what each is still owed.
+    if unpaid:
+        from simulation import lending
+        still = {p["id"]: gains[p["id"]] - paid_to.get(p["id"], 0) for p in winners if gains[p["id"]] > paid_to.get(p["id"], 0)}
+        still_total = sum(still.values())
+        for loser, short, cover in unpaid:
+            if cover:
+                lending.record_shortfall(conn, loser["account"], fund, cover, f"Your {label}", period, now)
+            rest = short - cover
+            if rest > 0 and still_total > 0:
+                shared = 0
+                owed_to = [w for w in winners if w["id"] in still]
+                for j, w in enumerate(owed_to):
+                    part = rest - shared if j == len(owed_to) - 1 else rest * still[w["id"]] // still_total
+                    shared += part
+                    if part > 0 and w["account"] != loser["account"]:
+                        lending.record_shortfall(conn, loser["account"], w["account"], part, f"Your {label}", period, now)
+            if not loser["cash_settled"]:
+                _note(conn, loser, f"Your {label} lost {money(short)} more than its margin. "
+                                   + ("The default fund paid it; you owe the fund." if cover == short else
+                                      "The default fund paid what it could; you owe the fund and the other side the rest."), now)
     if pot > paid_total:                                   # (only if nobody won: nothing is left behind in the escrow)
         ledger.transfer(conn, payer=margin_acct, receiver=fund, amount=pot - paid_total, kind="default_fund_cover",
                         memo=f"Left over from settling {label}", period=period)
@@ -839,6 +888,11 @@ def hedge_companies(conn: Connection, period: int, now: datetime) -> int:
         seller = c["ticker"] in data.HEDGE_SELLERS
         share = data.HEDGE_SELL_SHARE_BPS if seller else data.HEDGE_BUY_SHARE_BPS
         n = min((c["sales"] or 0) * share // BPS // contract, data.HEDGE_MOST_CONTRACTS)
+        # Only as much as its cash would stand as margin (it settles from its cash each night), and not while it owes for
+        # an earlier loss it could not pay.
+        n = min(n, ledger.balance(conn, c["account_id"]) // max(contract * data.FUTURE_MARGIN_BPS // BPS, 1))
+        if _one(conn, "SELECT 1 FROM player_loans WHERE borrower = %s AND status = 'default'", (c["account_id"],)):
+            continue
         if n <= 0 or _one(conn, "SELECT 1 FROM derivative_positions WHERE account = %s AND series_id = %s AND status = 'open'",
                           (c["account_id"], s["id"])):
             continue

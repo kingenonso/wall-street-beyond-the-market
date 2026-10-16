@@ -98,6 +98,30 @@ def _acting(conn: Connection, player_id, for_empire: bool) -> tuple:
     return empire["account_id"], empire
 
 
+def _exposure(kind: str, notional: int | None, barrels: int | None, oil: int) -> int:
+    """What a swap is on, in kobo: the sum for a rate swap; for an oil swap, a quarter's barrels at today's price."""
+    # (What is at risk is the difference that changes hands, not the whole sum: a rate swap counts at a tenth of its sum,
+    # an oil swap at three tenths of a quarter's oil.)
+    return (notional or 0) // 10 if kind == "rate" else (barrels or 0) * oil * 3 // 10
+
+
+def check_room(conn: Connection, account, kind: str, notional: int | None, barrels: int | None, now: datetime) -> None:
+    """A swap carries no collateral, so nobody may take on more than their worth supports, nor any while a debt of theirs
+    is in default. (A bank's own side is its business.)"""
+    from simulation import objectives
+    if _one(conn, "SELECT 1 FROM player_loans WHERE borrower = %s AND status = 'default'", (account,)):
+        raise SwapError("A debt of yours is in default. No new swap can be agreed until it is paid.")
+    oil = oil_for(conn)
+    held = sum(_exposure(r["kind"], r["notional"], r["barrels"], oil) for r in _rows(
+        conn, "SELECT kind, notional, barrels FROM swaps WHERE (proposer = %s OR counterparty = %s)"
+              " AND status IN ('signing', 'proposed', 'countersigning', 'active')", (account, account)))
+    worth = max(objectives.wealth(conn, account, now)["total"], 0)
+    most = worth * data.SWAP_MOST_TIMES_WORTH
+    if held + _exposure(kind, notional, barrels, oil) > most:
+        raise SwapError(f"Your swaps, counted by what is at risk, may come to at most {data.SWAP_MOST_TIMES_WORTH} times what you are "
+                        f"worth ({money(most)} in all; {money(held)} is taken already).")
+
+
 def _empire_of(conn: Connection, account) -> dict | None:
     return _one(conn, "SELECT * FROM empires WHERE account_id = %s", (account,))
 
@@ -165,6 +189,7 @@ def propose(conn: Connection, player_id, *, kind: str, counterparty: dict, side:
             if not isinstance(barrels, int) or isinstance(barrels, bool) or not 0 < barrels <= data.SWAP_MOST_BARRELS:
                 raise SwapError(f"Name the barrels a quarter, at most {data.SWAP_MOST_BARRELS:,}.")
             notional = None
+        check_room(conn, account, kind, notional, barrels, now)
         other, bank = _counterparty(conn, counterparty)
         if other == account:
             raise SwapError("A swap needs two different sides.")
@@ -210,6 +235,7 @@ def accept(conn: Connection, player_id, swap_id: int, now: datetime, *, for_empi
         if swap is None:
             raise SwapError("There is no such swap offered to you.")
         derivatives.unlock(conn, player_id, "advanced")
+        check_room(conn, account, swap["kind"], swap["notional"], swap["barrels"], now)
         if empire is not None:
             conn.execute("UPDATE swaps SET status = 'countersigning', accepted_by = %s WHERE id = %s", (player_id, swap_id))
             _ask(conn, swap, empire, "swap_draft", "lawyer", player_id, "counter", state["period"], now)
@@ -234,6 +260,12 @@ def decline(conn: Connection, player_id, swap_id: int, now: datetime, *, for_emp
 def _activate(conn: Connection, swap: dict, accepted_by, now: datetime) -> dict:
     state = _state(conn, now)
     first = state["period"] + 1
+    if swap["bank_company_id"]:
+        # A bank's price is its price on the day the swap is signed (an empire's signing can take days).
+        fixed = _bank_fixed(conn, swap["kind"], swap["proposer_side"], now)
+        conn.execute("UPDATE swaps SET fixed_bps = %s, fixed_price = %s WHERE id = %s",
+                     (fixed if swap["kind"] == "rate" else None, fixed if swap["kind"] == "oil" else None, swap["id"]))
+        swap = {**swap, "fixed_bps": fixed if swap["kind"] == "rate" else None, "fixed_price": fixed if swap["kind"] == "oil" else None}
     payer, other = (swap["proposer"], swap["counterparty"]) if swap["proposer_side"] == "pay_fixed" else (swap["counterparty"], swap["proposer"])
     conn.execute("UPDATE swaps SET status = 'active', fixed_payer = %s, float_payer = %s, first_period = %s, last_period = %s,"
                  " accepted_by = coalesce(accepted_by, %s), active_at = %s WHERE id = %s",

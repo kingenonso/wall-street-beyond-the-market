@@ -1006,3 +1006,6 @@ button.chip { background: transparent; cursor: pointer; font-family: inherit; pa
 .tiny-input { width: 64px; padding: 5px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; }
 .trade-cell { margin: 0; gap: 6px; flex-wrap: nowrap; }
 label.check { display: inline-flex; gap: 6px; align-items: center; }
+
+/* The gap stage: extra actions on an owned property */
+.lot-extras { display: grid; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }

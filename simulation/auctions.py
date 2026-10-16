@@ -85,6 +85,9 @@ def list_for_quarter(conn: Connection, period: int, now: datetime, seed: str) ->
         WHERE NOT EXISTS (SELECT 1 FROM auctions a WHERE a.property_id = p.id AND a.status = 'open')
           AND NOT EXISTS (SELECT 1 FROM headquarters q WHERE q.property_id = p.id)
         ORDER BY p.id""")
+    if _one(conn, "SELECT to_regclass('property_leases') IS NOT NULL AS ok")["ok"]:
+        leased = {r["property_id"] for r in _rows(conn, "SELECT property_id FROM property_leases WHERE status = 'running'")}
+        candidates = [c for c in candidates if c["id"] not in leased]
     candidates.sort(key=lambda c: _uniform(seed, f"list:{c['id']}", period))
     opened = []
     week = timedelta(days=clock.REAL_DAYS_PER_QUARTER)
@@ -127,12 +130,28 @@ def owner_list(conn: Connection, account, property_id: int, reserve: int, now: d
             raise PropertyError("It is already up for auction.")
         if _one(conn, "SELECT 1 FROM headquarters WHERE property_id = %s", (property_id,)):
             raise PropertyError("This is an empire's headquarters. Move the headquarters first.")
+        _free_to_sell(conn, property_id)
         if not isinstance(reserve, int) or reserve < 0:
             raise PropertyError("Name the lowest price you will take, in kobo (0 for none).")
         fair = _fair(conn, property_id)
         auction = _open_auction(conn, property_id, account, "owner", reserve, max(fair // 2, 100), fair, now, state["period"])
         _computer_bids(conn, auction, now)
         return auction
+
+
+def _free_to_sell(conn: Connection, property_id: int) -> None:
+    """(The gap stage.) Not while a dispute freezes it, a private sale of it is under way, it is being developed, or it
+    is leased."""
+    if _one(conn, "SELECT to_regclass('property_sales') IS NOT NULL AS ok")["ok"] is not True:
+        return
+    if _one(conn, "SELECT 1 FROM properties WHERE id = %s AND frozen", (property_id,)):
+        raise PropertyError("A family dispute over it freezes it: nothing may be done with it until the owner settles it.")
+    if _one(conn, "SELECT 1 FROM property_sales WHERE property_id = %s AND status IN ('offered', 'agreed', 'consent')", (property_id,)):
+        raise PropertyError("A private sale of it is under way. Withdraw it first.")
+    if _one(conn, "SELECT 1 FROM developments WHERE property_id = %s AND status IN ('permit', 'building')", (property_id,)):
+        raise PropertyError("It is being developed.")
+    if _one(conn, "SELECT 1 FROM property_leases WHERE property_id = %s AND status = 'running'", (property_id,)):
+        raise PropertyError("It is leased.")
 
 
 # ---------------------------------------------------------------------------
@@ -584,6 +603,9 @@ def _settle(conn: Connection, a: dict, now: datetime) -> None:
                  (price if win["computer"] else 0, p["id"]))
     conn.execute("UPDATE auctions SET status = 'sold', settled_at = %s, period = %s, price = %s WHERE id = %s", (now, period, price, a["id"]))
     _event(conn, a["id"], now, price, f"Sold for {money(price)}.")
+    # The Land Registry records the transfer; the buyer pays its fee.
+    from simulation import conveyancing
+    conveyancing.register(conn, p["id"], "auction", price, period, now, payer=buyer)
     # 4. A building sold from under an empire's headquarters (a forced sale): the headquarters must move.
     from simulation import headquarters
     headquarters.lost_building(conn, p["id"], buyer, period, now)

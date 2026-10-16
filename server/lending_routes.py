@@ -377,8 +377,25 @@ def instruments_board(player: dict = Depends(current_player), conn: Connection =
 @app.post("/api/instruments/{code}/trade")
 def instruments_trade(body: InstrumentTradeRequest, code: Annotated[str, FastPath(pattern=r"^(PRF-[A-Z]{3}|WRT-[A-Z]{3}[0-9]{1,4})$")],
                       player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _act(conn, player, lambda now: instruments.trade(conn, _instrument_account(conn, player, body.for_empire), code, body.side,
-                                                             body.units, now), bucket="derivatives")
+    def act(now):
+        account = _instrument_account(conn, player, body.for_empire)
+        if body.for_empire and body.side == "buy":
+            # The Asset Manager buys inside the limit the Risk Manager signed for options and futures; above it, the head
+            # does it. A warrant is an option on new shares: it opens at the Level buying options does.
+            seat, empire = firm._active(conn, player["id"])
+            inst = instruments.find(conn, code)
+            if inst["kind"] == "warrant":
+                derivatives.unlock(conn, player["id"], "options")
+            if empire["head_player_id"] != player["id"]:
+                cost = instruments.quote(conn, inst, now)["ask"] * body.units
+                room = lending_empire.naira(lending_empire.limits(conn, empire)["derivatives_limit_naira"]) - lending_empire.committed(conn, account)
+                if cost > room:
+                    raise empires.EmpireError("That is above the limit the Risk Manager signed for the empire's options and the like. "
+                                              "The head may buy it.")
+        elif not body.for_empire and body.side == "buy" and instruments.find(conn, code)["kind"] == "warrant":
+            derivatives.unlock(conn, player["id"], "options")
+        return instruments.trade(conn, account, code, body.side, body.units, now)
+    return _act(conn, player, act, bucket="derivatives")
 
 
 @app.post("/api/instruments/{code}/exercise")

@@ -1587,3 +1587,4 @@ from server import message_routes  # noqa: E402,F401
 from server import settings_routes  # noqa: E402,F401
 from server import property_routes  # noqa: E402,F401
 from server import lending_routes  # noqa: E402,F401
+from server import property2_routes  # noqa: E402,F401

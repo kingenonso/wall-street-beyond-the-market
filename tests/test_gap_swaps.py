@@ -52,8 +52,8 @@ def test_a_bank_takes_a_rate_swap_at_once_at_its_own_price_and_it_pays_from_the_
 
 
 def test_two_players_agree_an_oil_swap_and_a_side_that_cannot_pay_owes_the_other(db):
-    a, a_acct = trader(db, "risk_manager", "producer", cash_naira=100_000_000)
-    b, b_acct = trader(db, "asset_manager", "airline", cash_naira=100_000_000)
+    a, a_acct = trader(db, "risk_manager", "producer", cash_naira=1_000_000_000)
+    b, b_acct = trader(db, "asset_manager", "airline", cash_naira=1_000_000_000)
     price = swaps.oil_for(db)
     offered = swaps.propose(db, a, kind="oil", counterparty={"player": name_of(db, b)}, side="receive_fixed", quarters=1,
                             barrels=50_000, fixed=price * 3, now=NOW9)       # B would pay three times today's price

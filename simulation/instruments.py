@@ -155,8 +155,14 @@ def grant_warrants(conn: Connection, company: dict, holders: dict, *, strike: in
     if not holders or strike <= 0:
         return None
     ticker = _one(conn, "SELECT ticker FROM companies WHERE id = %s", (company["id"],))["ticker"]
+    # One code for each issue: the quarter, and a second issue in the same quarter numbered after it (WRT-ABC9, WRT-ABC91...).
     code = f"WRT-{ticker}{period}"
     inst = _one(conn, "SELECT * FROM instruments WHERE asset = %s", (code,))
+    n = 0
+    while inst is not None and (inst["strike"] != strike or inst["expiry_period"] != expiry_period):
+        n += 1
+        code = f"WRT-{ticker}{period}{n}"[:12] if len(f"{period}{n}") <= 4 else f"WRT-{ticker}{(period * 10 + n) % 10000}"
+        inst = _one(conn, "SELECT * FROM instruments WHERE asset = %s", (code,))
     if inst is None:
         name = f"{company['name']} warrants at {money(strike)}, to {clock.period_label(expiry_period)}"
         _new_asset(conn, code, "warrant", name, company)

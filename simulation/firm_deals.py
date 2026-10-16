@@ -1382,10 +1382,13 @@ def settle_earnouts(conn: Connection, period: int, now: datetime) -> None:
     for e in _rows(conn, "SELECT e.*, d.company_id, c.name AS company FROM deal_earnouts e JOIN deals d ON d.id = e.deal_id"
                          " JOIN companies c ON c.id = d.company_id WHERE e.status = 'running' AND e.due_period <= %s ORDER BY e.id FOR UPDATE OF e",
                    (period,)):
-        sales = _one(conn, "SELECT coalesce(sum(revenue), 0)::bigint AS s FROM company_results WHERE company_id = %s AND period BETWEEN %s AND %s",
-                     (e["company_id"], e["from_period"], e["due_period"]))["s"]
+        row = _one(conn, "SELECT coalesce(sum(revenue), 0)::bigint AS s, count(*) AS n FROM company_results WHERE company_id = %s"
+                         " AND period BETWEEN %s AND %s", (e["company_id"], e["from_period"], e["due_period"]))
+        sales = row["s"]
         empire = empires._empire(conn, e["empire_id"])
         due = e["amount"] if sales >= e["target_sales"] else e["amount"] * max(sales, 0) // max(e["target_sales"], 1)
+        if row["n"] < e["due_period"] - e["from_period"] + 1:
+            due = e["amount"]          # a company wound up, sold on or not reporting cannot be used to escape the earn-out
         if due <= 0:
             conn.execute("UPDATE deal_earnouts SET status = 'missed' WHERE id = %s", (e["id"],))
             _log(conn, e["empire_id"], f"{e['company']} made no sales over the earn-out: the {_money(e['amount'])} still to pay is not owed.", now)

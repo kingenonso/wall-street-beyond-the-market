@@ -79,7 +79,8 @@ def test_3_bidding_walking_away_and_being_outbid_neither_make_nor_lose_a_kobo(db
         auctions.withdraw(db, one_account, first["bid_id"], LATER)                                # already beaten, nothing to withdraw
     end(db, a)
     price = auctions._auction(db, a["id"])["price"]
-    assert ledger.balance(db, two_account) == start[two_account] - price
+    fee = price * data.REGISTRATION_FEE_BPS // BPS                      # (the gap stage: registering the transfer)
+    assert ledger.balance(db, two_account) == start[two_account] - price - fee
     assert ledger.balance(db, ledger.account_id(db, prop.HELD)) == 0
     sound(db)
 
@@ -148,12 +149,13 @@ def test_7_building_on_a_plot_costs_more_than_it_adds_in_every_city(db):
     rate = prop.policy_rate(db)
     ds = prop.districts(db)
     for city in data.DISTRICTS:
-        plot = a_unit(db, city, standing=False)
+        plot = a_unit(db, city, standing=False, claims_free=False)          # (the same plots as before the gap stage)
         d = ds[plot["district_id"]]
         before = prop.value(plot, d, rate)
         kind = data.DISTRICT_BUILDINGS[d["kind"]][0]
         built = {**plot, "kind": kind, "status": "standing", "condition": 100, "base_rent": prop.base_rent(city, kind, plot["size_m2"])}
-        added = prop.value(built, {**d, "premium_bps": 0}, rate) - prop.value(plot, {**d, "premium_bps": 0}, rate)
+        plain = {**d, "premium_bps": 0, "infra_bps": 0, "rent_bps": 10000, "occupancy_bps": 9000}   # (at the start's rents: booms and works are real gains)
+        added = prop.value(built, plain, rate) - prop.value(plot, plain, rate)
         assert prop.build_cost({**plot, "city": city}) > added, city
         assert before >= 0
 

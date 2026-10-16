@@ -815,16 +815,32 @@ export type PropertyLot = {
   id: number; name: string; kind: string; kind_name: string; district_id: number; district: string; city: string; size_m2: number;
   condition: number; status: "standing" | "plot" | "collapsed"; value: Kobo; rent_due: Kobo; owners: string[]; my_share_bps: number;
   upkeep: boolean; build_cost: Kobo | null;
+  zone?: string; zone_name?: string; may_build?: string[]; frozen?: boolean; beside_works?: boolean; right_of_way?: boolean;
 };
-export type MyLot = PropertyLot & { share_bps: number; paid: Kobo; tax_owed: Kobo; last_rent: Kobo; last_tax: Kobo };
+export type KnownClaim = { id: number; kind: "old_loan" | "right_of_way" | "dispute"; words: string; amount: Kobo };
+export type MyLot = PropertyLot & { share_bps: number; paid: Kobo; tax_owed: Kobo; last_rent: Kobo; last_tax: Kobo; claims?: KnownClaim[] };
+export type SaleStep = { step: string; done: boolean; words: string | null };
+export type PrivateSale = { id: number; property_id: number; name: string; price: Kobo; role: "buyer" | "seller"; status: string; mortgage: Kobo;
+  consent_due: string | null; consent_ready: boolean; steps: SaleStep[]; price_words: string };
+export type Development = { id: number; property_id: number; name: string; kind: string; budget: Kobo; spent: Kobo; phase: number; phases: number;
+  status: string; loan_most: Kobo; loan_drawn: Kobo; then_what: string; log: { label: string; words: string }[] };
+export type Rezoning = { id: number; property_id: number; name: string; from: string; to: string; status: string; words: string | null };
+export type InfraProject = { id: number; kind: string; name: string; district: string; city: string; announced: string; finish: string; status: string;
+  uplift_bps: number; gain_now_bps: number };
+export type HomeLoanRow = { period: number; label: string; location: string; lent: Kobo; defaulted: Kobo; repossessed: number; book: Kobo; rate_bps: number };
+export type PropertyFund = { id: number; name: string; manager: string; fee_bps: number; value: Kobo; cash: Kobo; buildings_value: Kobo; buildings: number;
+  unit_price_kobo: number; units: number; my_units: number; my_value: Kobo; history: { label: string; value: Kobo; units: number }[] };
+export type PropertyFunds = { funds: PropertyFund[]; managed: number | null; open_level: number; fee_most_bps: number };
+export type Valuation = { comparables: Kobo; income: Kobo; cost: Kobo; comparable_note: string; yield_bps: number; yearly_rent: Kobo; land: Kobo; rebuild: Kobo };
 export type DistrictPoint = { period: number; label: string; price_bps: number; rent_bps: number; occupancy_bps: number };
 export type District = {
   id: number; name: string; city: string; kind: string; kind_name: string; rent_bps: number; occupancy_bps: number; price_bps: number;
-  history: DistrictPoint[]; properties: PropertyLot[];
+  history: DistrictPoint[]; properties: PropertyLot[]; infra_bps?: number;
 };
 export type Mortgage = { id: number; property_id: number; bank: string; principal: Kobo; outstanding: Kobo; rate_bps: number; missed: number; status: string };
 export type Lease = { id: number; property_id: number; name: string; rent: number; landlord: string; until: string; missed: number; status: string };
-export type Holdings = { properties: MyLot[]; mortgages: Mortgage[]; value: Kobo; owed: Kobo; equity: Kobo; leases?: Lease[] };
+export type Holdings = { properties: MyLot[]; mortgages: Mortgage[]; value: Kobo; owed: Kobo; equity: Kobo; leases?: Lease[]; sales?: PrivateSale[];
+  developments?: Development[]; rezonings?: Rezoning[] };
 export type LeasebackTerms = { worth: Kobo; price: Kobo; rent: number; quarters: number; city: string };
 export type AuctionEvent = { at: string; price: Kobo | null; words: string };
 export type Auction = {
@@ -836,6 +852,7 @@ export type Auction = {
 export type EmpireCheck = { clean?: boolean; words?: string; value?: number; limit?: number; bank?: string | null; mortgage_bps?: number };
 export type PropertyMarket = {
   districts: District[]; yield_bps: number; mortgage_rate_bps: number; tax_bps: number; auctions: Auction[]; mine: Holdings;
+  infrastructure?: InfraProject[]; home_loans?: HomeLoanRow[]; zones?: { zone: string; name: string; allows: string[] }[];
   mortgage_limit_note: string; banks: { id: string; name: string }[]; mortgage_most: Kobo; now: string; my_partner_asks: PartnerAsk[];
   empire: null | {
     id: number; name: string; head: boolean; build: string; property: Holdings; auctions: Auction[]; partner_asks: PartnerAsk[]; desks_with_members: string[];
@@ -980,6 +997,8 @@ export const api = {
   borrowing: () => request<BorrowingDesk>("/borrowing"),
   shareRisk: () => request<{ shares: ShareRisk[]; year_sessions: number }>("/share-risk"),
   derivatives: (underlying?: string) => request<DerivativesBoard>(`/derivatives${underlying ? `?underlying=${encodeURIComponent(underlying)}` : ""}`),
+  propertyFunds: () => request<PropertyFunds>("/property-funds"),
+  valuation: (id: number) => request<Valuation>(`/property/${id}/valuation`),
   leasebackTerms: (id: number) => request<LeasebackTerms>(`/property/${id}/leaseback`),
   explainSeries: (id: number) => request<FairExplained>(`/derivatives/${id}/explain`),
   swaps: () => request<SwapsDesk>("/swaps"),
