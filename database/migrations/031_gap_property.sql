@@ -72,7 +72,7 @@ CREATE TABLE property_claims (
     amount       bigint NOT NULL DEFAULT 0,                          -- an old loan: what is owed on it; a dispute: what settles it
     cut_bps      integer NOT NULL DEFAULT 0,                         -- a right of way: what it takes off the value
     lender       uuid REFERENCES companies (id),                     -- an old loan: the bank it is owed to
-    status       text NOT NULL DEFAULT 'hidden' CHECK (status IN ('hidden', 'known', 'settled', 'faded')),
+    status       text NOT NULL DEFAULT 'hidden' CHECK (status IN ('hidden', 'found', 'known', 'settled', 'faded')),   -- found: by a search, applied at the next close
     known_period integer,
     at           timestamptz NOT NULL
 );

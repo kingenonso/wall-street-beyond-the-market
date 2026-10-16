@@ -646,7 +646,8 @@ def test_the_skill_tree_shows_what_has_been_learned_and_what_to_practise_again(d
     objectives.submit(db, player, taken["id"], {"closing": 1}, NOW9)
     seen = objectives.board(db, player, NOW9)
     skills = {s["title"]: s for s in seen["skills"]}
-    assert seen["coverage"] == {"learned": 1, "modules": 8} and len(skills) == 8
+    total = len(objectives.modules("accountant"))           # (the gap stage's higher bands are on the map, locked until their level)
+    assert seen["coverage"] == {"learned": 1, "modules": total} and len(skills) == total
     assert skills["The lender's one-page view"]["stage"] == "learned" and not skills["The lender's one-page view"]["practise_again"]
     assert skills["Sort the quarter's cash"]["practise_again"] and skills["Sort the quarter's cash"]["stage"] == "not yet"
     assert not skills["Call the credit rating"]["open"]
@@ -656,7 +657,8 @@ def test_the_library_has_six_pieces_of_work_for_each_build_and_every_module_has_
     for build in careers.BUILDS:
         mine = [t for t in objectives.TEMPLATES.values() if t.build == build and t.listed and t.setting == "solo"]
         assert len(mine) >= 5 and len({t.module for t in mine}) == len(mine)
-        assert min(t.level for t in mine) == 1 and max(t.level for t in mine) <= 4
+        # (The first bands open from Level 1 to 4; the gap stage added the higher bands, Levels 41 to 100.)
+        assert min(t.level for t in mine) == 1 and all(t.level <= 4 or 41 <= t.level <= 100 for t in mine)
     names = " ".join(f"{t.module} {t.title} {t.idea}" for t in objectives.TEMPLATES.values()).upper()
     for body in ("CFA", "ACCA", "ICAN", "FRM", "CPA", "CRM"):       # exam bodies' names are never used in the game
         assert body not in names.replace("ICANT", "")

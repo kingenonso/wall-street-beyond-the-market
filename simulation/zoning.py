@@ -89,6 +89,8 @@ def ask(conn: Connection, account, property_id: int, to_zone: str, now: datetime
             raise prop.PropertyError("Name a zone: residential, commercial, industrial, agricultural, resource or mixed.")
         if to_zone == p["zone"]:
             raise prop.PropertyError("It is zoned that way already.")
+        if {to_zone, p["zone"]} & {"agricultural", "resource"}:
+            raise prop.PropertyError("Farmland and oil and gas land are zoned by the planners alone: they cannot be asked for.")
         if p["frozen"]:
             raise prop.PropertyError("A dispute over it must be settled first.")
         if p["status"] == "standing" and p["kind"] != "land" and not allows(to_zone, p["kind"]):
@@ -116,11 +118,14 @@ def _needed(conn: Connection, city: str, zone: str) -> bool:
     return bool(row and row["o"] is not None and row["o"] >= data.REZONE_STRONG_OCCUPANCY_BPS)
 
 
-def _rezone(conn: Connection, p: dict, to_zone: str) -> None:
-    """The plot's land is now worth land for its new use."""
+def _rezone(conn: Connection, p: dict, to_zone: str) -> int:
+    """The plot's land is now worth land for its new use. Returns the gain in its land's value (at today's rents)."""
     before = data.ZONE_LAND_TIMES_BPS[p["zone"]]
     after = data.ZONE_LAND_TIMES_BPS[to_zone]
-    conn.execute("UPDATE properties SET zone = %s, land_value = land_value * %s / %s WHERE id = %s", (to_zone, after, max(before, 1), p["id"]))
+    row = _one(conn, "SELECT p.land_value, d.rent_bps FROM properties p JOIN districts d ON d.id = p.district_id WHERE p.id = %s", (p["id"],))
+    new_land = row["land_value"] * after // max(before, 1)
+    conn.execute("UPDATE properties SET zone = %s, land_value = %s WHERE id = %s", (to_zone, new_land, p["id"]))
+    return max(new_land - row["land_value"], 0) * row["rent_bps"] // BPS
 
 
 def close(conn: Connection, period: int, now: datetime) -> dict:
@@ -139,7 +144,17 @@ def close(conn: Connection, period: int, now: datetime) -> dict:
         else:
             ok, words = False, f"{r['city']} has room enough for {data.ZONE_NAMES[r['to_zone']].lower()} use already."
         if ok:
-            _rezone(conn, {"id": r["property_id"], "zone": r["zone"]}, r["to_zone"])
+            gain = _rezone(conn, {"id": r["property_id"], "zone": r["zone"]}, r["to_zone"])
+            # A betterment levy: half of what the rezoning added to the land's value goes to the Government.
+            levy = gain * data.BETTERMENT_LEVY_BPS // BPS
+            if levy:
+                from simulation import lending
+                paid = ledger.pay_up_to(conn, payer=r["asked_by"], receiver=ledger.account_id(conn, ledger.TREASURY), wanted=levy,
+                                        kind="property_tax", memo=f"Betterment levy on rezoning {r['name']}", period=period)
+                if paid < levy:
+                    lending.record_shortfall(conn, r["asked_by"], ledger.account_id(conn, ledger.TREASURY), levy - paid,
+                                             f"The betterment levy on {r['name']}", period, now)
+                words += f" A betterment levy of ₦{levy / 100:,.0f} (half the land's gain) is due."
             granted += 1
             news.publish(conn, period=period + 1, day=2, kind="rezoning", story=f"rezone:{r['id']}",
                          facts={"property": r["name"], "city": r["city"], "zone": data.ZONE_NAMES[r["to_zone"]].lower()},

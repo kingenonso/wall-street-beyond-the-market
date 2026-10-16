@@ -657,8 +657,10 @@ def renovate(conn: Connection, account, property_id: int, now: datetime) -> dict
         return {"cost": paid}
 
 
-def build_cost(p: dict) -> int:
-    return apply_bps(naira(data.BUILD_A_METRE_NAIRA) * p["size_m2"], data.CITY_COST_BPS[p["city"]])
+def build_cost(p: dict, kind: str | None = None) -> int:
+    """What a building costs to put up: by its size and the city, and (the gap stage) more for a hotel or a mall."""
+    return apply_bps(apply_bps(naira(data.BUILD_A_METRE_NAIRA) * p["size_m2"], data.CITY_COST_BPS[p["city"]]),
+                     data.BUILD_KIND_BPS.get(kind or "", BPS))
 
 
 def build(conn: Connection, account, property_id: int, now: datetime, *, kind: str | None = None) -> dict:
@@ -677,7 +679,7 @@ def build(conn: Connection, account, property_id: int, now: datetime, *, kind: s
                 _one(conn, "SELECT 1 FROM developments WHERE property_id = %s AND status IN ('permit', 'building')", (property_id,)):
             raise PropertyError("It is being developed already.")
         chosen = zoning.check_build(p, kind) if "zone" in p else (kind or data.DISTRICT_BUILDINGS[p["district_kind"]][0])
-        cost = build_cost(p)
+        cost = build_cost(p, chosen)
         if ledger.balance(conn, account) < cost:
             raise PropertyError(f"Building here costs {money(cost)}. There is not the cash.")
         _pay_builders(conn, account, cost, p["city"], f"Building on {p['name']}", state["period"])
@@ -710,7 +712,8 @@ def title_search(conn: Connection, account, property_id: int, now: datetime) -> 
 # Mortgages
 # ---------------------------------------------------------------------------
 
-def mortgage_limit(conn: Connection, account, price: int, now: datetime, *, except_auction: int | None = None) -> int:
+def mortgage_limit(conn: Connection, account, price: int, now: datetime, *, except_auction: int | None = None,
+                   except_sale: int | None = None) -> int:
     """The most a bank will lend this account against a property at this price."""
     from simulation import careers
     kind = _one(conn, "SELECT kind FROM ledger_accounts WHERE id = %s", (account,))["kind"]
@@ -728,6 +731,10 @@ def mortgage_limit(conn: Connection, account, price: int, now: datetime, *, exce
         owed += _one(conn, "SELECT coalesce(sum(limit_price * mortgage_bps / 10000), 0)::bigint AS o FROM auction_bids"
                            " WHERE bidder = %s AND status = 'live' AND mortgage_bps > 0 AND auction_id IS DISTINCT FROM %s",
                      (account, except_auction))["o"]
+        # ...and one promised on a private purchase agreed but not yet signed (the gap stage).
+        if _one(conn, "SELECT to_regclass('property_sales') IS NOT NULL AS ok")["ok"]:
+            owed += _one(conn, "SELECT coalesce(sum(mortgage), 0)::bigint AS o FROM property_sales WHERE buyer = %s"
+                               " AND status IN ('agreed', 'consent') AND id IS DISTINCT FROM %s", (account, except_sale))["o"]
         return max(min(salary * data.MORTGAGE_SALARY_QUARTERS - owed, price * (BPS - data.MORTGAGE_DEPOSIT_BPS) // BPS), 0)
     if kind == "empire":
         return price * data.EMPIRE_MORTGAGE_MOST_BPS // BPS

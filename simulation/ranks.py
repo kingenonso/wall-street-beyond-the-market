@@ -153,7 +153,7 @@ def _track_standing(conn, player_id, mine: dict, track: str, state: dict, now: d
         player = _one(conn, "SELECT reputation, ceo_since FROM players WHERE id = %s", (player_id,))
         passed = bool(_one(conn, "SELECT 1 FROM rank_cases WHERE player_id = %s AND track = 'ceo' AND state = 'passed'", (player_id,)))
         gate, done = data.CEO_LEVEL, player["ceo_since"] is not None
-        needs = _needs(track, gate, rows)
+        needs = _needs(track, gate, [r for r in rows if r["level"] <= gate])
         why = ("You hold the CEO rank." if done else "You have passed the CEO rank case." if passed else None)
         extra = {"ceo": {"earned": done, "since": player["ceo_since"], "case_passed": passed,
                          "level": {"need": data.CEO_LEVEL, "have": mine["level"], "met": mine["level"] >= data.CEO_LEVEL},
@@ -164,7 +164,8 @@ def _track_standing(conn, player_id, mine: dict, track: str, state: dict, now: d
     else:
         gate = careers.level_cap(mine["rank"])
         finished = mine["rank"] >= len(data.RANK_GATES)
-        needs = [] if finished else _needs(track, gate, rows)
+        # (A gate asks for the modules that open at or below it: the higher bands come after it.)
+        needs = [] if finished else _needs(track, gate, [r for r in rows if r["level"] <= gate])
         at_gate = mine["level"] >= gate
         why = "You have passed every rank case. The road to Level 100 is open." if finished else None
         extra = {}

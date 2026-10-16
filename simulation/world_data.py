@@ -1083,6 +1083,8 @@ CONSTRUCTION_LOAN_SPREAD_BPS = 600     # at the Central Bank's rate plus six poi
 # Hotels and malls.
 RENT_KIND_TIMES_BPS.update({"hotel": 14_000, "mall": 16_000})
 PROPERTY_KIND_NAMES.update({"hotel": "Hotel", "mall": "Shopping mall"})
+BUILD_KIND_BPS = {"hotel": 13_000, "mall": 13_000}    # fitting out a hotel or a mall costs 30% more than other buildings
+BETTERMENT_LEVY_BPS = 5000             # a rezoning granted on request: half of the land's gain in value is paid to the Government
 # Households' home loans.
 HOME_LOAN_SHARE_BPS = 150              # each quarter households borrow about 1.5% of their income for homes, at the neutral rate...
 HOME_LOAN_RATE_SENSITIVITY_BPS = 1500  # ...15% less for each point the mortgage rate stands above it (more below)...

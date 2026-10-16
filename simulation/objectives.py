@@ -1292,6 +1292,7 @@ from simulation import objectives_property  # noqa: E402,F401  (adds the work ab
 from simulation import objectives_stage9  # noqa: E402,F401  (adds the work about borrowing, short selling and derivatives, Stage 9)
 from simulation import empires  # noqa: E402,F401          (adds the work that exists only inside an empire)
 from simulation import objectives_ceo  # noqa: E402,F401   (adds the leadership work of the CEO track)
+from simulation import objectives_gap  # noqa: E402,F401   (the gap stage: the library brought to 350, Levels 41 to 100)
 from simulation import leagues, ranks  # noqa: E402
 
 
@@ -1491,6 +1492,9 @@ def how_to(template: Template) -> str | None:
     if template.base and template.base in TEMPLATES and template.base != template.code:
         _HOW[template.code] = how_to(TEMPLATES[template.base])
         return _HOW[template.code]
+    if getattr(template.submit, "method_text", None):
+        _HOW[template.code] = template.submit.method_text
+        return _HOW[template.code]
     import ast
     import inspect
     import textwrap
@@ -1641,11 +1645,13 @@ def board(conn: Connection, player_id, now: datetime) -> dict:
             "in_empire": in_empire, "empire_work": {"done": empire_done, "most": data.EMPIRE_WORK_A_QUARTER}}
 
 
-def accept(conn: Connection, player_id, code: str, now: datetime, step: dict | None = None) -> dict:
+def accept(conn: Connection, player_id, code: str, now: datetime, step: dict | None = None, *, approved: bool = False) -> dict:
     """Take on a piece of work. Its terms are fixed at this moment.
 
     `step` is given only by the empires module, when the work is a step in an empire's task: the
-    company is then the one the task is about, and the empire pays."""
+    company is then the one the task is about, and the empire pays. Work the empire pays for that would take a desk
+    past what is left of its budget for the quarter waits for the head's approval (the gap stage); `approved` is given
+    when the head has approved it."""
     template = TEMPLATES.get(code)
     with conn.transaction():
         try:
@@ -1692,6 +1698,12 @@ def accept(conn: Connection, player_id, code: str, now: datetime, step: dict | N
         payer = _payer(conn, ctx, template, terms)
         if payer is None:
             raise ObjectiveError("Nobody with the cash to pay for it is asking for this work at the moment.")
+        if template.payer == "empire" and not step and not approved:
+            from simulation import firm_money
+            reward = _reward(template, ctx["wage_index_bps"])
+            waiting = firm_money.work_over_budget(conn, player_id, code, template.title, reward, ctx["period"], now)
+            if waiting is not None:
+                return waiting
         try:
             with conn.transaction():
                 row = _one(

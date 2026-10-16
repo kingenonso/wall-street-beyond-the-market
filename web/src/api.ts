@@ -1089,7 +1089,8 @@ export const api = {
   reportMarking: (what: { objective_id?: number; case_id?: number }, words: string) =>
     request<{ words: string }>("/reports", { method: "POST", body: JSON.stringify({ ...what, words }) }),
   buildTable: (build: string) => request<BuildTable>(`/league/builds/${build}`),
-  takeWork: (template: string) => request<Objective>("/objectives", { method: "POST", body: JSON.stringify({ template }) }),
+  /** Taking on work; work the empire pays for past the desk's budget comes back { waiting, words } until the head approves. */
+  takeWork: (template: string) => request<Objective | { waiting: true; words: string }>("/objectives", { method: "POST", body: JSON.stringify({ template }) }),
   handIn: (id: number, answers: Record<string, unknown>) =>
     request<Objective>(`/objectives/${id}/hand-in`, { method: "POST", body: JSON.stringify({ answers }) }),
   giveUp: (id: number) => request<Objective>(`/objectives/${id}`, { method: "DELETE" }),

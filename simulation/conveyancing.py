@@ -151,8 +151,11 @@ def claims_search(conn: Connection, account, property_id: int, now: datetime) ->
         except ledger.InsufficientFunds:
             raise _err(f"A claims search costs {prop.money(fee)}.") from None
         worth = _worth(conn, property_id)
-        found = [_draw(conn, c, worth) for c in _rows(conn, "SELECT * FROM property_claims WHERE property_id = %s AND status IN ('hidden', 'known')"
+        found = [_draw(conn, c, worth) for c in _rows(conn, "SELECT * FROM property_claims WHERE property_id = %s AND status IN ('hidden', 'found', 'known')"
                                                             " ORDER BY id", (property_id,))]
+        # A claim the registry has found is on its record from now on: it comes to bear at the next close on whoever owns
+        # the property then (so it cannot be dodged by selling quickly to somebody who did not search).
+        conn.execute("UPDATE property_claims SET status = 'found' WHERE property_id = %s AND status = 'hidden'", (property_id,))
         return {"fee": fee, "clean": not found, "claims": [{"kind": c["kind"], "words": _describe(c)} for c in found],
                 "words": "The registry shows no claims on it." if not found else " ".join(_describe(c) for c in found)}
 
@@ -161,7 +164,7 @@ def known_claims(conn: Connection, property_id: int) -> list[dict]:
     if not ready(conn):
         return []
     return [{"id": c["id"], "kind": c["kind"], "words": _describe(c), "amount": c["amount"]}
-            for c in _rows(conn, "SELECT * FROM property_claims WHERE property_id = %s AND status = 'known' ORDER BY id", (property_id,))]
+            for c in _rows(conn, "SELECT * FROM property_claims WHERE property_id = %s AND status IN ('found', 'known') ORDER BY id", (property_id,))]
 
 
 def _come_to_light(conn: Connection, c: dict, period: int, now: datetime) -> None:
@@ -181,7 +184,7 @@ def _come_to_light(conn: Connection, c: dict, period: int, now: datetime) -> Non
             part = c["amount"] * h["share_bps"] // BPS
             if part <= 0 or bank is None:
                 continue
-            got = ledger.pay_up_to(conn, payer=h["account_id"], receiver=bank["account_id"], wanted=part, kind="mortgage_repayment",
+            got = ledger.pay_up_to(conn, payer=h["account_id"], receiver=bank["account_id"], wanted=part, kind="shortfall_repayment",
                                    memo=f"An old loan secured on {p['name']}, paid off", period=period)
             if got < part:
                 lending.record_shortfall(conn, h["account_id"], bank["account_id"], part - got, f"The old loan secured on {p['name']}", period, now)
@@ -221,9 +224,10 @@ def close_claims(conn: Connection, period: int, now: datetime) -> None:
         return
     for c in _rows(conn, """
             SELECT c.* FROM property_claims c
-            WHERE c.status = 'hidden'
-              AND EXISTS (SELECT 1 FROM property_holdings h WHERE h.property_id = c.property_id AND h.since_period < %s
-                          AND NOT EXISTS (SELECT 1 FROM companies co WHERE co.account_id = h.account_id))
+            WHERE c.status = 'found'
+               OR (c.status = 'hidden'
+                   AND EXISTS (SELECT 1 FROM property_holdings h WHERE h.property_id = c.property_id AND h.since_period < %s
+                               AND NOT EXISTS (SELECT 1 FROM companies co WHERE co.account_id = h.account_id)))
             ORDER BY c.id FOR UPDATE OF c""", (period,)):
         _come_to_light(conn, c, period, now)
     for c in _rows(conn, "SELECT * FROM property_claims WHERE kind = 'dispute' AND status = 'known' AND known_period <= %s",
@@ -286,6 +290,8 @@ def offer(conn: Connection, seller, property_id: int, buyer_who: dict, price: in
             raise _err("It is up for auction.")
         if _one(conn, "SELECT 1 FROM property_leases WHERE property_id = %s AND status = 'running'", (property_id,)):
             raise _err("It is leased.")
+        if _one(conn, "SELECT 1 FROM developments WHERE property_id = %s AND status IN ('permit', 'building')", (property_id,)):
+            raise _err("It is being developed.")
         if _one(conn, "SELECT 1 FROM property_sales WHERE property_id = %s AND status IN ('offered', 'agreed', 'consent', 'contracted')",
                 (property_id,)):
             raise _err("A sale of it is already under way.")
@@ -357,8 +363,9 @@ def accept(conn: Connection, buyer, sale_id: int, now: datetime, *, mortgage_ban
             if mortgage_bank is None or not _one(conn, "SELECT 1 FROM companies WHERE id = %s AND sector = 'banking' AND status = 'trading'",
                                                  (mortgage_bank,)):
                 raise _err("Choose a bank for the mortgage.")
-            if mortgage > prop.mortgage_limit(conn, buyer, sale["price"], now):
-                raise _err(f"A bank lends you at most {prop.money(prop.mortgage_limit(conn, buyer, sale['price'], now))} against it.")
+            most = prop.mortgage_limit(conn, buyer, sale["price"], now, except_sale=sale["id"])
+            if mortgage > most:
+                raise _err(f"A bank lends you at most {prop.money(most)} against it.")
         if ledger.balance(conn, buyer) < sale["price"] - mortgage:
             raise _err(f"You need {prop.money(sale['price'] - mortgage)} of your own for it.")
         conn.execute("UPDATE property_sales SET status = 'agreed', mortgage = %s, mortgage_bank = %s WHERE id = %s",
@@ -410,11 +417,19 @@ def sign(conn: Connection, buyer, sale_id: int, now: datetime) -> dict:
         _mark(conn, sale, "consent", {"words": "The Governor's consent was granted."})
         held = _held(conn)
         own = sale["price"] - sale["mortgage"]
+        # (The seller's own mortgage, read before the buyer's new one exists, and by who owes it.)
+        sellers_mortgage = _one(conn, "SELECT * FROM mortgages WHERE property_id = %s AND borrower = %s AND status = 'open' FOR UPDATE",
+                                (sale["property_id"], sale["seller"]))
         try:
             ledger.transfer(conn, payer=buyer, receiver=held, amount=own, kind="auction_hold", memo=f"Contract to buy {sale['name']}", period=period)
         except ledger.InsufficientFunds:
             raise _err(f"The contract needs your {prop.money(own)}.") from None
         if sale["mortgage"]:
+            if sale["mortgage"] > prop.mortgage_limit(conn, buyer, sale["price"], now, except_sale=sale["id"]):
+                ledger.transfer(conn, payer=held, receiver=buyer, amount=own, kind="auction_release", memo="The bank would not lend", period=period)
+                conn.execute("UPDATE property_sales SET status = 'failed' WHERE id = %s", (sale["id"],))
+                return {"status": "failed", "words": "The bank will no longer lend that much to you: your other borrowing has used it. "
+                                                     "The sale fails and your money is back."}
             bank = _one(conn, "SELECT account_id FROM companies WHERE id = %s", (sale["mortgage_bank"],))
             if ledger.balance(conn, bank["account_id"]) < sale["mortgage"]:
                 ledger.transfer(conn, payer=held, receiver=buyer, amount=own, kind="auction_release", memo="The bank could not lend", period=period)
@@ -426,7 +441,6 @@ def sign(conn: Connection, buyer, sale_id: int, now: datetime) -> dict:
         _mark(conn, {**sale, "steps": _one(conn, "SELECT steps FROM property_sales WHERE id = %s", (sale["id"],))["steps"]}, "contract",
               {"words": "Signed: the price is held by the Land Registry."})
         # The seller's own mortgage and unpaid tax come out of the price.
-        sellers_mortgage = prop.mortgage_on(conn, sale["property_id"])
         ledger.transfer(conn, payer=held, receiver=sale["seller"], amount=sale["price"], kind="property_sale", memo=f"Sold: {sale['name']}",
                         period=period)
         if p["tax_owed"]:
@@ -479,7 +493,7 @@ def view(conn: Connection, account, now: datetime) -> list[dict]:
                     "consent_due": s["consent_due"].isoformat() if s["consent_due"] else None,
                     "consent_ready": bool(s["consent_due"] and s["consent_due"] <= now),
                     "steps": [{"step": k, "done": k in steps, "words": steps.get(k, {}).get("words") if mine == "buyer" else None}
-                              for k in data.SALE_STEPS],
+                              for k in data.SALE_STEPS if mine == "buyer" or k not in data.SALE_CHECK_STEPS],
                     "price_words": money(s["price"])})
     return out
 

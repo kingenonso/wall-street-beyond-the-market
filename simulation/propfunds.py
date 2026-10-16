@@ -107,7 +107,17 @@ def buy_units(conn: Connection, account, fund_id: int, amount: int, now: datetim
             raise FundError("Name how much to put in.")
         if account == fund["account_id"]:
             raise FundError("A fund does not buy its own units.")
-        price = unit_price(fund, worth(conn, fund)["total"], side="buy")
+        total = worth(conn, fund)["total"]
+        if fund["units"] <= 0 and total > 0:
+            # Value left in a fund nobody holds units in (rent, after the last holder left) belongs to its manager (the
+            # pension funds, for the trust): units are issued for it first, so a newcomer cannot take it for nothing.
+            owner = ledger.player_account_id(conn, fund["manager"]) if fund["manager"] else ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
+            left = total * UNIT // FIRST_PRICE
+            conn.execute("INSERT INTO property_fund_units (fund_id, account, units) VALUES (%s, %s, %s) ON CONFLICT (fund_id, account)"
+                         " DO UPDATE SET units = property_fund_units.units + EXCLUDED.units", (fund_id, owner, left))
+            conn.execute("UPDATE property_funds SET units = units + %s WHERE id = %s", (left, fund_id))
+            fund = {**fund, "units": fund["units"] + left}
+        price = unit_price(fund, total, side="buy")
         units = amount * UNIT // price
         if units <= 0:
             raise FundError("That is less than one unit.")
@@ -219,10 +229,11 @@ def bid(conn: Connection, manager_id, auction_id: int, limit: int, now: datetime
             raise FundError(f"No building may be more than {data.PROPERTY_FUND_ONE_BUILDING_BPS // 100}% of the fund.")
         if w["cash"] - limit < (w["total"]) * data.PROPERTY_FUND_LEAST_CASH_BPS // BPS:
             raise FundError(f"The fund must keep {data.PROPERTY_FUND_LEAST_CASH_BPS // 100}% of itself in cash.")
-    try:
-        return auctions.place_bid(conn, fund["account_id"], auction_id, limit, now, player_id=manager_id)
-    except prop.PropertyError as refused:
-        raise FundError(str(refused)) from None
+        # (Placed inside the same transaction, with the fund's row locked: two bids at once cannot both pass the checks.)
+        try:
+            return auctions.place_bid(conn, fund["account_id"], auction_id, limit, now, player_id=manager_id)
+        except prop.PropertyError as refused:
+            raise FundError(str(refused)) from None
 
 
 def sell(conn: Connection, manager_id, property_id: int, reserve: int, now: datetime) -> int:
@@ -231,6 +242,11 @@ def sell(conn: Connection, manager_id, property_id: int, reserve: int, now: date
     fund = _one(conn, "SELECT * FROM property_funds WHERE manager = %s AND status = 'open'", (manager_id,))
     if fund is None:
         raise FundError("You manage no property fund.")
+    # The unitholders' building is never given away: its lowest price is at least nine tenths of what it is worth.
+    p = prop._property(conn, property_id)
+    least = prop.value(p, prop.districts(conn)[p["district_id"]], prop.policy_rate(conn)) * 9 // 10
+    if not isinstance(reserve, int) or reserve < least:
+        raise FundError(f"A fund's building is sold for at least nine tenths of its worth: a lowest price of {_money(least)} or more.")
     try:
         return auctions.owner_list(conn, fund["account_id"], property_id, reserve, now)
     except prop.PropertyError as refused:
@@ -274,7 +290,7 @@ def _trust_buys(conn: Connection, fund: dict, period: int, now: datetime) -> Non
             WHERE p.status = 'standing' AND p.kind IN ('office', 'shop', 'mall', 'warehouse', 'hotel') AND NOT p.frozen
               AND NOT EXISTS (SELECT 1 FROM auctions a WHERE a.property_id = p.id AND a.status = 'open')
               AND NOT EXISTS (SELECT 1 FROM property_leases l WHERE l.property_id = p.id AND l.status = 'running')
-              AND NOT EXISTS (SELECT 1 FROM property_claims k WHERE k.property_id = p.id AND k.status IN ('hidden', 'known'))
+              AND NOT EXISTS (SELECT 1 FROM property_claims k WHERE k.property_id = p.id AND k.status IN ('found', 'known'))
               AND p.title_flaw_bps = 0
             ORDER BY p.id"""):
         price = prop.value(p, ds[p["district_id"]], rate)
@@ -284,8 +300,9 @@ def _trust_buys(conn: Connection, fund: dict, period: int, now: datetime) -> Non
                         memo=f"{TRUST_NAME} buys {p['name']}", period=period)
         fixed = _one(conn, "SELECT fixed_assets FROM company_results WHERE company_id = %s ORDER BY period DESC LIMIT 1", (p["company_id"],))
         book = min(p["book_value"], max(fixed["fixed_assets"] * 9 // 10, 0) if fixed else 0)
+        # (Recorded for the company's next accounts: the trust buys at a quarter's close, after the companies have filed.)
         conn.execute("INSERT INTO company_asset_sales (company_id, asset_id, property_id, period, book, proceeds, at) VALUES (%s, NULL, %s, %s, %s, %s, %s)",
-                     (p["company_id"], p["id"], period, book, price, now))
+                     (p["company_id"], p["id"], period + 1, book, price, now))
         conn.execute("UPDATE property_holdings SET account_id = %s, since_period = %s, paid = %s WHERE property_id = %s",
                      (fund["account_id"], period, price, p["id"]))
         conn.execute("UPDATE properties SET book_value = 0, upkeep = true WHERE id = %s", (p["id"],))

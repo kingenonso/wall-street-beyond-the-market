@@ -1051,3 +1051,68 @@ firm.RESOLUTIONS.update({
 })
 firm.ARTICLE_DEFAULTS.update({"treasury": POLICY_DEFAULT, "risk_appetite": {"worst_year_bps": 1500}})
 firm.CLOSED.insert(0, _closed_accounts)
+
+
+# ---------------------------------------------------------------------------
+# The gap stage, Part 3: empire-paid work above what is left of a desk's budget waits for the head
+# ---------------------------------------------------------------------------
+
+def committed_to_work(conn: Connection, empire: dict, period: int, desk: str) -> int:
+    """What the desk's members have taken on this quarter in work the empire pays for (rewards, paid or still to pay)."""
+    return _one(conn, """
+        SELECT coalesce(sum(o.reward), 0)::bigint AS n FROM objectives o JOIN empire_seats s ON s.player_id = o.player_id AND s.empire_id = %s
+        WHERE o.payer_account_id = %s AND o.period = %s AND o.state IN ('active', 'passed') AND NOT o.terms ? 'step_id'
+          AND (CASE WHEN %s = 'head' THEN o.player_id = %s ELSE s.build = %s AND o.player_id IS DISTINCT FROM %s END)""",
+                (empire["id"], empire["account_id"], period, desk, empire["head_player_id"], desk, empire["head_player_id"]))["n"]
+
+
+def work_over_budget(conn: Connection, player_id, code: str, title: str, reward: int, period: int, now: datetime) -> dict | None:
+    """Inside objectives.accept: if this work would take the member's desk past what is left of its budget for the
+    quarter, ask the head and return what to tell the member; otherwise None. The head's own work never waits."""
+    seat = empires.seat_of(conn, player_id)
+    if seat is None:
+        return None
+    empire = empires._empire(conn, seat["empire_id"])
+    if empire["head_player_id"] == player_id or not firm.player_run(empire):
+        return None
+    desk = seat["build"]
+    budget = budget_of(conn, empire["id"], period, desk)
+    if budget is None:
+        return None
+    used = spent_by(conn, empire["id"], period, desk) + committed_to_work(conn, empire, period, desk)
+    if used + reward <= budget:
+        return None
+    if _one(conn, "SELECT 1 FROM empire_approvals WHERE empire_id = %s AND kind = 'empire_work' AND status = 'waiting'"
+                  " AND asked_by = %s AND payload->>'code' = %s", (empire["id"], player_id, code)):
+        return {"waiting": True, "words": "Your request for this work is already with the head."}
+    approval = firm.ask(conn, empire, kind="empire_work", desk="head", asked_by=player_id, title=f"Work above the desk's budget: {title}",
+                        amount=reward, payload={"code": code, "member_id": str(player_id), "desk": desk, "budget": budget, "used": used},
+                        period=period, now=now)
+    _log(conn, empire["id"], f"A member asked to take on {title} ({_money(reward)}), past what is left of the "
+                             f"{firm.DESK_NAMES.get(desk, desk)}'s budget. It waits for the head.", now)
+    return {"waiting": True, "approval_id": approval["id"],
+            "words": f"That would take your desk past its budget for the quarter ({_money(used)} of {_money(budget)} used). "
+                     f"The head has been asked to approve it."}
+
+
+def _execute_work(conn: Connection, approval: dict, now: datetime) -> None:
+    from simulation import objectives
+    p = approval["payload"]
+    if careers.world_now(conn, now)["period"] != approval["period"]:
+        # A budget is for one quarter: approval given after it closed would let work past the next quarter's budget too.
+        raise EmpireError("That request was for a quarter that has closed. The member may ask again this quarter.")
+    try:
+        objectives.accept(conn, approval["asked_by"], p["code"], now, approved=True)
+    except objectives.ObjectiveError as refused:
+        raise EmpireError(f"Approved, but the work could not be taken on now: {refused}") from None
+
+
+def _work_view(conn: Connection, approval: dict, viewer_id, now: datetime) -> dict:
+    p = approval["payload"]
+    return {"why": [f"For the {firm.DESK_NAMES.get(p.get('desk'), p.get('desk'))} desk, whose budget for the quarter is {_money(p.get('budget') or 0)}",
+                    f"{_money(p.get('used') or 0)} of it is spent or promised already; this work would pay {_money(approval['amount'])}",
+                    "Approve to let the member take it on; refuse and it is not taken"]}
+
+
+firm.EXECUTORS["empire_work"] = _execute_work
+firm.VIEWERS["empire_work"] = _work_view

@@ -64,7 +64,7 @@ def materials_bps(conn: Connection) -> int:
 
 def budget_for(p: dict, kind: str) -> int:
     from simulation import property as prop
-    return prop.build_cost(p) * (BPS - data.DEVELOPMENT_SAVING_BPS) // BPS
+    return prop.build_cost(p, kind) * (BPS - data.DEVELOPMENT_SAVING_BPS) // BPS
 
 
 def start(conn: Connection, account, property_id: int, kind: str | None, now: datetime, *, loan_bank=None, loan: int = 0,
@@ -87,6 +87,8 @@ def start(conn: Connection, account, property_id: int, kind: str | None, now: da
             raise _err("It is being developed already.")
         if _one(conn, "SELECT 1 FROM auctions WHERE property_id = %s AND status = 'open'", (property_id,)):
             raise _err("It is up for auction.")
+        if _one(conn, "SELECT 1 FROM property_sales WHERE property_id = %s AND status IN ('offered', 'agreed', 'consent')", (property_id,)):
+            raise _err("A private sale of it is under way.")
         budget = budget_for(p, kind)
         rate = None
         if not isinstance(loan, int) or isinstance(loan, bool) or loan < 0:
@@ -146,6 +148,9 @@ def close(conn: Connection, period: int, now: datetime, seed: str) -> dict:
         if prop.share_of(conn, dev["property_id"], dev["owner"]) < BPS:
             conn.execute("UPDATE developments SET status = 'stopped' WHERE id = %s", (dev["id"],))
             _log(conn, dev, period, "The owner no longer owns all of the plot: the work stops.")
+            continue
+        if _one(conn, "SELECT frozen FROM properties WHERE id = %s", (dev["property_id"],))["frozen"]:
+            _log(conn, dev, period, "A family dispute over the plot stops the work until it is settled.")
             continue
         if _chance(seed, f"strike:{dev['id']}:{period}") < data.STRIKE_CHANCE_BPS / BPS:
             _log(conn, dev, period, "A strike on site: no work this quarter.")

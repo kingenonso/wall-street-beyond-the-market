@@ -71,7 +71,7 @@ def test_every_plot_has_a_zone_and_what_is_built_must_fit_it(db):
 
 
 def test_a_rezoning_is_decided_by_rule_at_the_close_and_is_in_the_news(db):
-    player, account = pro(db, "asset_manager", "rezoner", cash_naira=50_000_000)
+    player, account = pro(db, "asset_manager", "rezoner", cash_naira=50_000_000_000)
     plot = clean(db, district_kind="industry", standing=False)
     hand_over(db, plot["id"], account)
     with pytest.raises(prop.PropertyError, match="already"):

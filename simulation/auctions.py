@@ -232,6 +232,17 @@ def place_bid(conn: Connection, account, auction_id: int, limit: int, now: datet
             raise PropertyError("This auction is not taking bids now.")
         if player_id is not None and empire_id is None and _member_of_seller(conn, a["seller"], player_id):
             raise PropertyError("This is your empire's property. A member does not buy the empire's property for themselves.")
+        # (The gap stage.) A property fund's manager, and the manager's empire, never buy the fund's buildings.
+        if _one(conn, "SELECT to_regclass('property_funds') IS NOT NULL AS ok")["ok"]:
+            fund = _one(conn, "SELECT manager FROM property_funds WHERE account_id = %s", (a["seller"],))
+            if fund and fund["manager"] is not None:
+                sides = {ledger.player_account_id(conn, fund["manager"])}
+                seat = _one(conn, "SELECT e.account_id FROM empire_seats s JOIN empires e ON e.id = s.empire_id WHERE s.player_id = %s",
+                            (fund["manager"],))
+                if seat:
+                    sides.add(seat["account_id"])
+                if account in sides or (player_id is not None and str(player_id) == str(fund["manager"])):
+                    raise PropertyError("A property fund's manager never buys the fund's buildings, for themselves or their empire.")
         if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
             raise PropertyError("Name the highest price you will go to, in kobo.")
         if prop.share_of(conn, a["property_id"], account) > 0 or a["seller"] == account:
