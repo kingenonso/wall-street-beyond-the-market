@@ -100,7 +100,10 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     for their empire, and moves money only through the ledger. Stage 9 added borrowing (personal and margin loans, repaying),
     short selling, an empire's limits, "What could happen?", options and futures, and the crash fund (test_lending.py,
     test_derivatives.py, test_stage9_*.py): each acts as the player, or for their empire inside its Risk Manager's limits,
-    and moves money only through the ledger."""
+    and moves money only through the ledger. Stage 10 added the newsroom (test_newsroom.py, test_stage10a_*.py): a journalist
+    writes from confirmed facts only, a head answers a question on the record, any player may raise an undeclared
+    interest, and a journalist adds a signed account to the Chronicle; none of them moves money except the fees a paper
+    pays its journalists, through the ledger."""
     from server.main import app
 
     writes = sorted(
@@ -150,6 +153,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/borrowing/margin"),
         ("POST", "/api/borrowing/personal"),
         ("POST", "/api/career/retirement/pension"),
+        ("POST", "/api/chronicle/{entry_id}/accounts"),
         ("POST", "/api/combinations/join"),
         ("POST", "/api/combinations/merger"),
         ("POST", "/api/combinations/spinoff"),
@@ -219,6 +223,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/instruments/exercises/{exercise_id}/cancel"),
         ("POST", "/api/instruments/{code}/exercise"),
         ("POST", "/api/instruments/{code}/trade"),
+        ("POST", "/api/interviews/{interview_id}/answer"),
         ("POST", "/api/market/orders"),
         ("POST", "/api/me/grant"),
         ("POST", "/api/messages"),
@@ -226,6 +231,14 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/messages/clear"),
         ("POST", "/api/messages/report"),
         ("POST", "/api/messages/unblock"),
+        ("POST", "/api/newsroom/ask"),
+        ("POST", "/api/newsroom/check"),
+        ("POST", "/api/newsroom/drop"),
+        ("POST", "/api/newsroom/facts"),
+        ("POST", "/api/newsroom/facts/remove"),
+        ("POST", "/api/newsroom/publish"),
+        ("POST", "/api/newsroom/stories/{story_id}/correct"),
+        ("POST", "/api/newsroom/story"),
         ("POST", "/api/objectives"),
         ("POST", "/api/objectives/{objective_id}/hand-in"),
         ("POST", "/api/owned/assets/{asset_id}/repair"),
@@ -274,6 +287,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/shorts/{short_id}/collateral"),
         ("POST", "/api/stake-offers/{offer_id}"),
         ("POST", "/api/stakes"),
+        ("POST", "/api/stories/{story_id}/expose"),
         ("POST", "/api/swaps"),
         ("POST", "/api/swaps/{swap_id}/accept"),
         ("POST", "/api/swaps/{swap_id}/decline"),
@@ -321,6 +335,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("PUT", "/api/firm/votes/{resolution_id}"),
         ("PUT", "/api/firms/loans/{offer_id}"),
         ("PUT", "/api/market/watchlist/{ticker}"),
+        ("PUT", "/api/newsroom/words"),
         ("PUT", "/api/owned/assets/{asset_id}/route"),
         ("PUT", "/api/owned/routes/{route_id}/fare"),
         ("PUT", "/api/owned/{company_id}/dials"),

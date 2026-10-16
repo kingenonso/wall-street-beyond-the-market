@@ -13,7 +13,7 @@ How it avoids repeating itself:
   * small items are gathered into one "in brief" column instead of flooding the page.
 
 An item belongs to a quarter and a day in it. Players are shown it only once
-that day has come. The full articles written from these facts arrive in Stage 10.
+that day has come. The full articles written from these facts are in articles.py (Stage 10).
 """
 
 from __future__ import annotations
@@ -190,6 +190,13 @@ def publish(conn: Connection, *, period: int, day: int, kind: str, story: str, f
                      (kind, outlet, period, day))
         if last and last[0]["wording"] is not None and int(last[0]["wording"]) == choice:
             choice = (choice + 1) % len(options)          # never the same words twice running
+        # No item twice: the same paper never prints the same kind of news about the same affair on the same day.
+        if _rows(conn, "SELECT 1 AS x FROM news_items WHERE story = %s AND kind = %s AND outlet = %s AND period = %s AND day = %s LIMIT 1",
+                 (story, kind, outlet, period, min(max(day, 1), clock.GAME_DAYS_PER_QUARTER))):
+            continue
+        # A follow-up points at the first item about the same affair (Stage 10).
+        first_item = _rows(conn, "SELECT id FROM news_items WHERE story = %s AND (period, day) < (%s, %s) ORDER BY period, day, id LIMIT 1",
+                           (story, period, day))
         headline, body = (text.format(**facts) for text in options[choice])
         if facts.get("yearly"):
             for old, new in _YEARLY_WORDS:
@@ -199,6 +206,7 @@ def publish(conn: Connection, *, period: int, day: int, kind: str, story: str, f
             "story": story, "importance": importance, "headline": headline, "body": body,
             "tickers": list(tickers), "sectors": list(sectors), "locations": list(locations),
             "facts": Jsonb({**facts, "wording": choice}),
+            "follows": first_item[0]["id"] if first_item else None,
         }
         columns = list(item)
         conn.execute(
@@ -733,7 +741,8 @@ def visible(conn: Connection, period_now: int, day_now: int, *, limit: int = 60,
     params.append(limit)
     return _rows(
         conn,
-        "SELECT period, day, outlet, kind, story, importance, headline, body, tickers, sectors, locations FROM news_items"
+        "SELECT id, period, day, outlet, kind, story, importance, headline, body, tickers, sectors, locations, follows, author_id,"
+        " facts->>'author' AS author, facts->>'outlet' AS byline, (facts->>'story_id')::bigint AS story_id FROM news_items"
         f" WHERE {' AND '.join(conditions)} ORDER BY period DESC, day DESC, importance DESC, id DESC LIMIT %s",
         params,
     )

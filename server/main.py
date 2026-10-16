@@ -94,6 +94,10 @@ def _close_due_quarters_once() -> None:
             investors.act(conn, now)
             # After 22:00 the Closing Bell goes out, once for each trading day.
             closingbell.ring(conn, now)
+        # Stage 10: journalists' questions that ran out of time, and stories that must be corrected.
+        if conn.execute("SELECT to_regclass('stories') IS NOT NULL").fetchone()[0]:
+            from simulation import newsroom
+            newsroom.tick(conn, now)
         # The Auction House settles every auction whose countdown has ended.
         if conn.execute("SELECT to_regclass('auctions') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
             auctions.run(conn, now)
@@ -184,11 +188,23 @@ def _player_response(conn: Connection, row: dict) -> PlayerResponse:
         news_alerts=row.get("news_alerts", True),
         unread_messages=messages.unread_count(conn, row["id"]),
         margin_calls=_margin_calls(conn, row["id"]),
+        press_questions=_press(conn, row["id"])[0], corrections_due=_press(conn, row["id"])[1],
         theme=row.get("theme", "dark"), sound_on=row.get("sound_on", True),
         sound_volume=row.get("sound_volume", 30), tour_done=row.get("tour_done", False),
         work_in_hand=conn.execute("SELECT count(*) AS n FROM objectives WHERE player_id = %s AND state = 'active'", (row["id"],)).fetchone()["n"]
         if mine else 0,
     )
+
+
+def _press(conn: Connection, player_id) -> tuple[int, int]:
+    """Stage 10: journalists' questions waiting for this player (as a head), and their own stories to correct."""
+    if conn.execute("SELECT to_regclass('interviews') IS NOT NULL AS ok").fetchone()["ok"] is not True:
+        return 0, 0
+    row = conn.execute("SELECT (SELECT count(*) FROM interviews i JOIN empires e ON e.id = i.empire_id WHERE e.head_player_id = %s"
+                       " AND i.status = 'asked' AND i.due_at > now()) AS q,"
+                       " (SELECT count(*) FROM stories WHERE author_id = %s AND correction_due AND correction_id IS NULL) AS c",
+                       (player_id, player_id)).fetchone()
+    return row["q"], row["c"]
 
 
 def _margin_calls(conn: Connection, player_id) -> int:
@@ -702,6 +718,26 @@ def economy(_: dict = Depends(current_player), conn: Connection = Depends(get_co
 # an event later in the running quarter is already decided, and stays unseen.
 # ---------------------------------------------------------------------------
 
+def news_ref(item: dict) -> str:
+    """Stage 10: how the website names a news item without its number (numbers would show how many items are still to come).
+    A paper prints one item of a kind about an affair on a day, so these five things name it."""
+    import base64
+    import json as _json
+    key = _json.dumps([item["period"], item["day"], item["outlet"], item["kind"], item["story"]], separators=(",", ":"))
+    return base64.urlsafe_b64encode(key.encode()).decode().rstrip("=")
+
+
+def news_by_ref(conn: Connection, ref: str) -> dict | None:
+    import base64
+    import json as _json
+    try:
+        period, day, outlet, kind, story = _json.loads(base64.urlsafe_b64decode(ref + "=" * (-len(ref) % 4)).decode())
+    except Exception:
+        return None
+    return conn.execute("SELECT * FROM news_items WHERE period = %s AND day = %s AND outlet = %s AND kind = %s AND story = %s"
+                        " ORDER BY id LIMIT 1", (period, day, outlet, kind, story)).fetchone()
+
+
 @app.get("/api/news", response_model=NewsResponse)
 def read_news(
     outlet: str | None = Query(default=None, max_length=40),
@@ -715,6 +751,8 @@ def read_news(
     if world is None:
         return NewsResponse(outlets=papers, items=[])
     code = next((key for key, name in news_kinds.OUTLETS.items() if outlet in (key, name)), None)
+    if outlet in ("press", news_kinds.PRESS_NAME):
+        code = "press"
     if outlet and code is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no newspaper of that name.")
     today = clock.game_date(datetime.now(timezone.utc), clock.effective_start(world["world_start"], world["weeks_ahead"]))
@@ -726,8 +764,9 @@ def read_news(
     return NewsResponse(outlets=papers, items=[
         NewsItem(
             period=r["period"], period_label=clock.period_label(r["period"]), day=r["day"],
-            outlet=news_kinds.OUTLETS[r["outlet"]], kind=r["kind"], story=r["story"], importance=r["importance"],
+            outlet=news_kinds.outlet_name(r["outlet"]), kind=r["kind"], story=r["story"], importance=r["importance"],
             headline=r["headline"], body=r["body"], tickers=r["tickers"], locations=r["locations"],
+            ref=news_ref(r), follows_up=r["follows"] is not None, author=r["author"], byline=r["byline"], story_id=r["story_id"],
             moves={t: moves[(r["period"], r["day"], t)] for t in r["tickers"] if (r["period"], r["day"], t) in moves},
         ) for r in found
     ])
@@ -1596,3 +1635,4 @@ from server import settings_routes  # noqa: E402,F401
 from server import property_routes  # noqa: E402,F401
 from server import lending_routes  # noqa: E402,F401
 from server import property2_routes  # noqa: E402,F401
+from server import news_routes  # noqa: E402,F401

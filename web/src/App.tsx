@@ -100,7 +100,7 @@ export function App() {
     rail = <PortfolioRail onLoggedOut={loggedOut} />;
   } else if (section === "news") {
     current = "news";
-    work = <NewsWork onLoggedOut={loggedOut} />;
+    work = <NewsWork key={item ?? ""} player={player} tab={item} onLoggedOut={loggedOut} />;
     rail = <NewsRail />;
   } else if (section === "borrow") {
     current = "borrow";

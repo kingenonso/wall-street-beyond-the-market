@@ -110,7 +110,7 @@ function Directory({ view, player, act }: { view: EmpireView; player: Player; ac
             <div className="why-title">DIVISION {division.division}</div>
             <div className="scroll" tabIndex={0}>
               <table>
-                <thead><tr><th scope="col" className="num">Place</th><th scope="col">Empire</th><th scope="col">Run by</th><th scope="col" className="num">Points</th><th scope="col" className="num">Worth</th><th scope="col" className="num">Players</th><th scope="col" className="num">Trust</th><th scope="col"><span className="sr-only">Action</span></th></tr></thead>
+                <thead><tr><th scope="col" className="num">Place</th><th scope="col">Empire</th><th scope="col">Run by</th><th scope="col" className="num">Points</th><th scope="col" className="num">Worth</th><th scope="col" className="num">Players</th><th scope="col" className="num">Trust</th><th scope="col" className="num">Reputation</th><th scope="col"><span className="sr-only">Action</span></th></tr></thead>
                 <tbody>
                   {division.empires.map((row) => {
                     const entry = d.league.find((e) => e.id === row.id);
@@ -123,6 +123,7 @@ function Directory({ view, player, act }: { view: EmpireView; player: Player; ac
                         <td className="num mono">{formatCompact(row.worth_kobo)}</td>
                         <td className="num mono">{row.members} of 12</td>
                         <td className="num mono">{row.trust}</td>
+                        <td className="num mono">{row.reputation ?? 50}</td>
                         <td className="num">
                           {row.yours ? <span className="saved small">✓ Yours</span>
                             : entry?.applied ? <button className="button-quiet" disabled={act.busy} onClick={() => act.run("DELETE", "/empire/application")}>Withdraw application</button>
@@ -808,6 +809,10 @@ export function EmpireRail({ player, onLoggedOut, onChanged }: Props) {
         <div className="row"><span>Head approves</span><span>investments, bonuses, recruits, pacts</span></div>
         {room.division && <div className="row"><span>In the league</span><span>Division {room.division.division}, place {room.division.place} of {room.division.of} · <span className="mono">{room.division.points} points</span></span></div>}
         <div className="row"><span>Trust in the empire</span><span className="mono">{room.trust} of 100 <span className="muted">({formatPercent(room.trust * 100, 0)})</span></span></div>
+        <div className="row"><span>Public reputation</span><span className="mono">{room.reputation ?? 50} of 100</span></div>
+        {(room.reputation_history ?? []).slice(0, 5).map((h, i) => (
+          <div key={i} className="row small"><span className="muted">{h.label}: {h.why}</span><span className={`mono ${h.change > 0 ? "change-up" : "change-down"}`}>{h.change > 0 ? "+" : ""}{h.change}</span></div>
+        ))}
       </Panel>
       {room.league_points.length > 0 && (
         <Panel title="League points this game year">

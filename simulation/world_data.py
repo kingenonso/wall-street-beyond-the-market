@@ -1106,3 +1106,42 @@ PROPERTY_FUND_ONE_BUILDING_BPS = 3000  # no building more than 30% of the fund
 PROPERTY_FUND_LEAST_CASH_BPS = 1000    # at least 10% in cash, for those who leave
 PROPERTY_FUND_SPREAD_BPS = 100         # units bought at 1% above their value, sold at 1% below (kept by the fund)
 PROPERTY_FUND_SEED_NAIRA = 3_000_000_000   # the pension funds' stake in the computer-run property trust
+
+# ---------------------------------------------------------------------------
+# Stage 10, Part 1: the newsroom (owner's answers, 16 October 2026: the suggested defaults)
+# ---------------------------------------------------------------------------
+STORY_MOST_FACTS = 5                   # a story uses one to five confirmed facts
+STORY_COMMENT_MOST = 280               # the author's own view, in words: at most this many characters, no figures
+STORIES_A_DAY = 3                      # a journalist publishes at most three stories a game day
+AUDIENCE_PER_STAFF = 10                # a media house reaches about ten readers for each person it employs
+INDEPENDENT_AUDIENCE = 2_000           # an independent starts with a small audience of their own, plus their following
+SCOOP_READERS_BPS = 15_000             # a scoop is read half as much again
+OLD_NEWS_READERS_BPS = 4_000           # news the wire already carried is read less than half as much
+FOLLOWERS_READ_BPS = 3_000             # about a third of an author's following read each new story
+INTERVIEW_READERS_BPS = 1_000          # each answered interview brings a tenth more readers
+FOLLOW_SHARE_BPS = 200                 # 2% of a story's readers start following its author
+REACH_PAY_PER_FOLLOWER_BPS_MILLION = 10_000   # an employed journalist's pay rises 100% per million followers...
+REACH_PAY_MOST_BPS = 5_000             # ...up to half as much again
+FREELANCE_KOBO_PER_READER = 500        # an independent is paid ₦5 a reader by the paper that picks the story up...
+FREELANCE_MOST_NAIRA = 2_000_000       # ...at most ₦2 million a story
+SCOOP_BONUS_NAIRA = 250_000            # a scoop: ₦250,000...
+SCOOP_REPUTATION = 2                   # ...and two points of reputation
+CORRECTION_REPUTATION = 3              # a correction costs three points
+LATE_CORRECTION_REPUTATION = 6         # a correction not made within the day costs six...
+LATE_CORRECTION_FOLLOWING_BPS = 1_000  # ...and a tenth of the author's following
+DISMISS_BELOW_CREDIBILITY = 20         # a media house lets go a journalist whose credibility falls below this after a late correction
+CORRECTION_HOURS = 24                  # a story whose facts changed in the record must be corrected within 24 real hours
+CORRECTION_WATCH_DAYS = 120            # stories are watched for changed facts for about a game year
+INTERVIEW_HOURS = 24                   # a company or empire has 24 real hours to answer a journalist
+WIDELY_READ = 10_000                   # a story read by this many moves investors, and enters the Chronicle
+NUDGE_MOST_BPS = 200                   # a story moves how investors value a company by at most 2%...
+NUDGE_DAYS = 5                         # ...fading to nothing over five trading days; one nudge per company a day
+READERS_PER_NUDGE_BPS = 1_000          # a hundredth of a percent for each thousand readers
+NUDGE_MOST_COMPANIES = 3               # a story about more than three companies moves none of them
+STORY_BLOCK_TRADING_DAYS = 2           # no trading a company from the first draft until two trading days after publication
+UNDECLARED_REPUTATION = 5              # an undeclared interest, exposed: five points of the author's reputation...
+UNDECLARED_CREDIBILITY = 10            # ...ten of their credibility...
+UNDECLARED_EMPIRE_REPUTATION = 5       # ...and five of the empire's reputation
+# How late each kind of computer-run investor reads the news, in trading days (None: never).
+NEWS_LAG_DAYS = {"investors:public": 0, "investors:institutions": 1, "investors:foreign": 2, "investors:founders": None}
+ARTICLES_A_DAY = 20                    # full articles written for the wire each game day, at most

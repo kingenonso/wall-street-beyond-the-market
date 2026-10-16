@@ -1293,6 +1293,7 @@ from simulation import objectives_stage9  # noqa: E402,F401  (adds the work abou
 from simulation import empires  # noqa: E402,F401          (adds the work that exists only inside an empire)
 from simulation import objectives_ceo  # noqa: E402,F401   (adds the leadership work of the CEO track)
 from simulation import objectives_gap  # noqa: E402,F401   (the gap stage: the library brought to 350, Levels 41 to 100)
+from simulation import objectives_news  # noqa: E402,F401  (Stage 10: work about the news, and the editors who come back)
 from simulation import leagues, ranks  # noqa: E402
 
 

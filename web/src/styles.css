@@ -1009,3 +1009,23 @@ label.check { display: inline-flex; gap: 6px; align-items: center; }
 
 /* The gap stage: extra actions on an owned property */
 .lot-extras { display: grid; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+
+/* --- Stage 10: the newsroom --- */
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 14px; align-items: end; margin: 10px 0; }
+.form-grid > button { justify-self: start; }
+.article-below { margin-top: 10px; }
+.article-text { margin-top: 10px; padding: 12px 14px; border-left: 2px solid var(--gold); background: var(--raised); border-radius: 6px; }
+.article-text p { margin: 0 0 10px; line-height: 1.55; }
+.archive-row { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.archive-row:last-child { border-bottom: 0; }
+.account { margin: 10px 0; padding: 8px 12px; border-left: 2px solid var(--info); background: var(--raised); border-radius: 4px; }
+.fact-row { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.fact-row:last-child { border-bottom: 0; }
+.fact-row .button-row { flex-shrink: 0; }
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px; margin-bottom: 8px; }
+.tag-good { color: var(--up); font-weight: 600; }
+.tag-bad { color: var(--down); font-weight: 600; }
+.panel-warn { border-color: var(--warn); }
+@media (max-width: 640px) {
+  .fact-row { flex-direction: column; }
+}

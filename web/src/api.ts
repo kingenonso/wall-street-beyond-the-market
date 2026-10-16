@@ -26,6 +26,9 @@ export type Player = {
   news_alerts: boolean;
   unread_messages: number;
   margin_calls?: number;
+  /** Stage 10: journalists' questions waiting on the head of an empire; the player's own stories to correct. */
+  press_questions?: number;
+  corrections_due?: number;
   /** The redesign: the player's own look and sound, and whether the first-time tour has been seen. */
   theme: "dark" | "light";
   sound_on: boolean;
@@ -166,7 +169,7 @@ export type BuildTable = {
   top: { place: number; name: string; level: number; rank_name: string; you: boolean }[];
 };
 export type DivisionRow = {
-  id: number; name: string; kind: string; division: number; run_by: string; members: number; trust: number; points: number;
+  id: number; name: string; kind: string; division: number; run_by: string; members: number; trust: number; points: number; reputation?: number;
   worth_kobo: Kobo; place: number; zone: "up" | "down" | null; yours?: boolean; of?: number;
 };
 export type Resignation = {
@@ -385,9 +388,44 @@ export type NewsItem = {
   locations: string[];
   /** The redesign: each named company's share price move since the story came out, in hundredths of a percent. */
   moves: Record<string, number>;
+  /** Stage 10: a name for the item (for its article and "Why?"), whether it follows up an earlier item, and a player's byline. */
+  ref?: string | null;
+  follows_up?: boolean;
+  author?: string | null;
+  byline?: string | null;
+  story_id?: number | null;
 };
 
 export type News = { outlets: string[]; items: NewsItem[] };
+
+/** Stage 10: the newsroom. */
+export type Fact = { id: string; kind: string; title: string; line: string; tickers: string[]; tone: number; record: string; importance: number };
+export type DraftFact = { id: string; title: string; line: string; tickers: string[]; record: string; checked: boolean };
+export type Interview = { id: number; question: string; answer: string | null; status: string; due_at: string; who: string };
+export type JournalistProfile = { following: number; readers: number; stories: number; scoops: number; corrections: number; credibility: number };
+export type Editor = { client: string; name: string; role: string; trust: number; offering: boolean };
+export type NewsroomDesk = {
+  profile: JournalistProfile;
+  angles: Record<string, string>;
+  writing_for: string;
+  empire: string | null;
+  editors: Editor[];
+  to_correct: { id: number; headline: string; correct_by: string; late: boolean }[];
+  draft: null | { id: number; facts: DraftFact[]; angle: string; comment: string; declared: boolean; tickers: string[]; interviews: Interview[] };
+  published: { id: number; headline: string; readers: number; scoop: boolean; period: number; day: number; correction_due: boolean; corrected: boolean }[];
+};
+export type PlayerStory = {
+  id: number; headline: string; body: string; readers: number; scoop: boolean; period: number; day: number; label: string;
+  tickers: string[]; author: string; outlet: string; corrected: boolean; news_item_id: number;
+};
+export type ArchiveItem = { ref: string; period: number; day: number; label: string; outlet: string; kind: string; headline: string; body: string;
+  tickers: string[]; follows_up: boolean; author: string | null };
+export type WhyChain = { key: string; one_line: string; chain: string[]; numbers: { step: string; figures: Record<string, string> }[] };
+export type Article = { article: { body: string; writer: string } | null; thread: { day: number; headline: string; label: string; this: boolean }[];
+  why: string | null };
+export type ChronicleEntry = { id: number; layer: string; kind: string; ref: string; title: string; words: string; period: number; day: number;
+  label: string; accounts: { words: string; credibility: number; evidence: number[]; author: string }[] };
+export type PressQuestion = { id: number; question: string; due_at: string; empire: string; journalist: string };
 
 export type PriceLevel = { price_kobo: Kobo; quantity: number; orders: number };
 export type PublicTrade = { price_kobo: Kobo; quantity: number; in_auction: boolean; traded_at: string };
@@ -648,6 +686,8 @@ export type EmpireOrder = {
 };
 export type EmpireRoom = {
   id: number; name: string; kind: string; status: "forming" | "active" | "closed"; trust: number; run_by_computer: boolean; is_head: boolean;
+  /** Stage 10: the empire's public reputation (0 to 100) and why it last moved. */
+  reputation?: number; reputation_history?: { change: number; after: number; why: string; label: string }[];
   your_build: BuildCode; place: number | null; empires: number; worth_kobo: Kobo; cash_kobo: Kobo; shares_value_kobo: Kobo; bonds_value_kobo: Kobo;
   holdings: { ticker: string; shares: number; value_kobo: Kobo }[];
   bond_holdings: { code: string; name: string; units: number; value_kobo: Kobo }[];
@@ -1012,6 +1052,21 @@ export const api = {
   /** Every property, auction and headquarters action: the server answers { result }. */
   propertyAct: (path: string, body: unknown = {}) =>
     request<{ result: unknown }>(path, { method: "POST", body: JSON.stringify(body) }),
+  newsroom: () => request<{ desk: NewsroomDesk }>("/newsroom"),
+  newsroomFacts: (ticker?: string) => request<{ facts: Fact[] }>(`/newsroom/facts${ticker ? `?ticker=${ticker}` : ""}`),
+  newsroomWords: (body: { angle: string; comment: string; declared: boolean }) =>
+    request<{ result: unknown }>("/newsroom/words", { method: "PUT", body: JSON.stringify(body) }),
+  stories: (author?: string) => request<{ stories: PlayerStory[]; profile?: JournalistProfile }>(`/stories${author ? `?author=${encodeURIComponent(author)}` : ""}`),
+  archive: (q?: string, ticker?: string) => {
+    const query = new URLSearchParams();
+    if (q) query.set("q", q);
+    if (ticker) query.set("ticker", ticker);
+    return request<{ items: ArchiveItem[] }>(`/news/archive?${query}`);
+  },
+  article: (ref: string) => request<Article>(`/news/article?ref=${encodeURIComponent(ref)}`),
+  whyChain: (key: string) => request<WhyChain>(`/why?key=${encodeURIComponent(key)}`),
+  chronicle: (layer: string, ticker?: string) => request<{ entries: ChronicleEntry[] }>(`/chronicle?layer=${layer}${ticker ? `&ticker=${ticker}` : ""}`),
+  pressQuestions: () => request<{ questions: PressQuestion[] }>("/interviews"),
   news: (filter: { outlet?: string; ticker?: string; limit?: number } = {}) => {
     const query = new URLSearchParams();
     if (filter.outlet) query.set("outlet", filter.outlet);

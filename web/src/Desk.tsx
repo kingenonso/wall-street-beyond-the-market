@@ -35,6 +35,22 @@ function cardsFor(player: Player, latestQuarter: string | null, live: LiveClock 
       action: "See what you owe", href: "#/borrow",
     });
   }
+  if ((player.press_questions ?? 0) > 0) {
+    cards.unshift({
+      tag: "● PRESS", when: "Within a day",
+      title: player.press_questions === 1 ? "A journalist has asked your empire a question" : `${player.press_questions} journalists' questions are waiting`,
+      text: "Answer on the record, or decline. A question left to run out of time costs the empire a little of its good name.",
+      action: "Answer the press", href: "#/news/questions",
+    });
+  }
+  if ((player.corrections_due ?? 0) > 0) {
+    cards.unshift({
+      tag: "■ CORRECTION", when: "Within a day",
+      title: "A story of yours must be corrected",
+      text: "The record has changed since you published it. Correct it within a day; a late correction costs more reputation and readers.",
+      action: "Open the newsroom", href: "#/news/newsroom",
+    });
+  }
   if (player.unread_messages > 0) {
     cards.push({
       tag: "● MESSAGES", when: `${player.unread_messages} unread`,

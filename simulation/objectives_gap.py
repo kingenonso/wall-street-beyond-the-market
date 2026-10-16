@@ -78,7 +78,8 @@ NEW: list = []
 
 
 def piece(code: str, build: str, module: str, title: str, level: int, idea: str, setup: Callable, questions: list[Q], *,
-          plain: Callable, method: str, maths: Callable, need: int | None = None, reward: int = 0, experience: int = 0) -> None:
+          plain: Callable, method: str, maths: Callable, need: int | None = None, reward: int = 0, experience: int = 0,
+          into: list | None = None, client: str | None = None) -> None:
     """Add one piece of work. `setup(ctx, roll)` returns the brief: situation, task, given (label, text) pairs, and the
     figures `f` the answers are worked out from; or None when it cannot be offered now."""
     need = need if need is not None else max(len(questions) - 1, 1)
@@ -86,9 +87,15 @@ def piece(code: str, build: str, module: str, title: str, level: int, idea: str,
     experience = experience or 100 + level * 3
 
     def offer(ctx):
+        if client is not None:
+            from simulation import clients
+            if not clients.offers(ctx["conn"], ctx["player_id"], client, level):
+                return None
         brief = setup(ctx, Roll(ctx, code))
         if brief is None:
             return None
+        if client is not None:
+            brief = {**brief, "situation": clients.introduce(client) + " " + brief["situation"]}
         fields = []
         for q in questions:
             spec = {"key": q.key, "label": q.label, "kind": q.kind}
@@ -103,10 +110,15 @@ def piece(code: str, build: str, module: str, title: str, level: int, idea: str,
         f = objective["terms"]["figures"]
         truths = {q.key: q.work(f) for q in questions}
         marked = [(q.key, q.label, truths[q.key], q.tol if q.tol is not None else TOL.get(q.kind, 0.1)) for q in questions]
-        return _marked(objective, answers, marked, need, plain=plain(f, truths), method=method, maths=maths(f, truths))
+        verdict = _marked(objective, answers, marked, need, plain=plain(f, truths), method=method, maths=maths(f, truths))
+        if client is not None and answers:
+            from simulation import clients
+            clients.judged(ctx["conn"], ctx["player_id"], client, verdict["state"] == "passed")
+        return verdict
 
     submit.method_text = method          # ("How to do this": read by objectives.how_to)
-    NEW.append(o.Template(code, build, module, title, level, reward, experience, "hand_in", idea, "employer", offer, submit=submit))
+    (NEW if into is None else into).append(o.Template(code, build, module, title, level, reward, experience, "hand_in", idea, "employer",
+                                                      offer, submit=submit))
 
 
 def choice(key, label, work, *options) -> Q:

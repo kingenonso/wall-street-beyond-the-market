@@ -199,6 +199,11 @@ def trade(conn: Connection, account, code: str, side: str, units: int, now: date
         inst = find(conn, code)
         if inst["status"] != "open":
             raise InstrumentError("Those warrants have lapsed.")
+        from simulation import newsroom
+        try:
+            newsroom.check_trade(conn, account, inst["company_id"], now)
+        except exchange.ExchangeError as e:
+            raise InstrumentError(str(e)) from e
         q = quote(conn, inst, now)
         price = q["ask"] if side == "buy" else q["bid"]
         if price <= 0:
