@@ -429,6 +429,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         notes.append(f"Its hedges and swaps {'made' if hedging > 0 else 'cost'} {in_words(abs(hedging))} this quarter.")
         if hedging > 0:
             revenue += hedging
+            sales_business += hedging              # (shown with its other sales, so the sales add up to the revenue)
         else:
             cost_of_sales -= hedging
     # Home loans households did not repay (the gap stage): the loss is the bank's; what the repossessed homes fetched came
@@ -695,6 +696,13 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         profit_before_tax += unexplained
         net_profit += unexplained              # no tax is worked out on it this quarter
     cash_from_operations = cash_closing - cash_opening - cash_from_investing - cash_from_financing
+    # A gain on an asset sold is shown as other income, a loss as a cost, so the income statement adds up line by line.
+    # (The cash came in as an investing flow, so this is done after the cash has been accounted for.)
+    if asset_sales - sold_book > 0:
+        revenue += asset_sales - sold_book
+        sales_business += asset_sales - sold_book
+    elif asset_sales - sold_book < 0:
+        cost_of_sales -= asset_sales - sold_book
 
     fixed_assets = prev["fixed_assets"] + capital_spending - depreciation - sold_book
     retained_earnings = prev["retained_earnings"] + net_profit - dividends_paid - preferred_paid

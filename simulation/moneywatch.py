@@ -34,7 +34,7 @@ HOLDERS = (
     ("Pension funds", "a.code = 'investors:institutions'"),
     ("Private investors", "a.code IN ('investors:founders', 'investors:public')"),
     ("Government", "a.kind IN ('government', 'prize_pool')"),
-    ("The exchange", "a.kind = 'exchange'"),
+    ("The exchange", "(a.kind = 'exchange' OR a.code LIKE 'clearing:%%')"),     # with the clearing house and its default fund
     ("Players", "a.kind = 'player'"),
     ("Empires and funds", "a.kind IN ('empire', 'fund')"),
     ("Abroad", "a.code IN ('abroad', 'investors:foreign')"),           # the rest of the world and its investors

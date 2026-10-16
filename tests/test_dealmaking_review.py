@@ -242,11 +242,12 @@ def test_r17_shares_offered_to_a_takeover_still_count_as_held(db):
     other, them = house(db, "Delta Partners")
     target = target_of(db)
     issued = ledger.amount_in_existence(db, target["share_asset"])
-    hand(db, target, other["account_id"], issued // 10)
+    tenth = -(-issued // 10)                    # a tenth, rounded up, so the holding is 10% whatever the number of shares
+    hand(db, target, other["account_id"], tenth)
     with db.transaction():
         firm_dealmaking.disclose(db, LATER)
     bid = offer(db, team, target)
-    firm_dealmaking.tender(db, them["head"], bid["id"], issued // 10, LATER)
+    firm_dealmaking.tender(db, them["head"], bid["id"], tenth, LATER)
     with db.transaction():
         firm_dealmaking.disclose(db, LATER)
     assert _one(db, "SELECT bps FROM stake_disclosures WHERE empire_id = %s AND company_id = %s", (other["id"], target["id"]))["bps"] == 1000

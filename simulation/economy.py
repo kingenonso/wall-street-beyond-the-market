@@ -371,7 +371,9 @@ def companies_buy_inputs(conn: Connection, world: World, companies: list[dict], 
 
 
 CAPITAL_RETURNED = ("bond_redemption", "bond_trade", "bond_issue", "takeover_payment", "takeover_refund")
-GOVERNMENT_INCOME = ("company_tax", "debt_interest", "share_trade", "exchange_surplus", "salary", "oil_royalty", "property_tax")   # "salary": the income tax taken from players' pay
+# "salary": the income tax taken from players' pay. Property tax is not here: it is taken at the property market's close,
+# after the Government has spent, so it (like the Land Registry's fees and the betterment levy) adds to the reserve.
+GOVERNMENT_INCOME = ("company_tax", "debt_interest", "share_trade", "exchange_surplus", "salary", "oil_royalty")
 
 
 def government_spends(conn: Connection, world: World, period: int, *, borrowed: int = 0, debt_cost: int = 0) -> None:
@@ -387,13 +389,17 @@ def government_spends(conn: Connection, world: World, period: int, *, borrowed: 
     # It spends what it collected, plus what it borrowed to spend, less what its borrowing cost it.
     collected = max(collected + borrowed - debt_cost, 0)
     purchases = apply_bps(collected, data.GOVERNMENT_PURCHASE_BPS)
+    # The public works under way are paid for later in the close, out of this same share (see infrastructure.py).
+    from simulation import infrastructure
+    wages = collected - purchases
+    purchases -= min(infrastructure.cost_this_quarter(conn), purchases)
     weights = {sector: row["government_bps"] for sector, row in world.demand.items()}
     ledger.pay_split_up_to(
         conn, payer=world.treasury, amounts=allocate(world, purchases, weights, location=data.ABUJA),
         kind="government_purchase", memo=f"Government purchases from companies, {label}", period=period,
     )
     ledger.pay_split_up_to(
-        conn, payer=world.treasury, amounts=split(collected - purchases, world.population),
+        conn, payer=world.treasury, amounts=split(wages, world.population),
         kind="government_wages", memo=f"Public-sector pay, {label}", period=period,
     )
 

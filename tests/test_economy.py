@@ -112,9 +112,12 @@ def test_households_spend_from_what_they_earned_last_quarter_and_never_more_than
 
 @pytest.mark.world("eight")
 def test_household_spending_reaches_only_companies(db):
+    # (Or the rent gathered for property owned outside the property companies, such as the property trust's hotels and
+    # malls, which take a share of travel and shopping spending: the gap stage.)
     receivers = {r[0] for r in db.execute(
         "SELECT DISTINCT a.kind FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
-        " JOIN ledger_accounts a ON a.id = e.account_id WHERE t.kind = 'customer_revenue' AND e.amount > 0").fetchall()}
+        " JOIN ledger_accounts a ON a.id = e.account_id WHERE t.kind = 'customer_revenue' AND e.amount > 0"
+        " AND a.code IS DISTINCT FROM 'property:rents'").fetchall()}
     assert receivers == {"company"}
 
 
@@ -136,7 +139,8 @@ def test_when_jobs_are_lost_in_a_location_its_households_spend_less_the_next_qua
 def test_companies_buy_from_other_companies(db):
     kinds = {r[0] for r in db.execute(
         "SELECT DISTINCT a.kind FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
-        " JOIN ledger_accounts a ON a.id = e.account_id WHERE t.kind = 'business_purchase'").fetchall()}
+        " JOIN ledger_accounts a ON a.id = e.account_id WHERE t.kind = 'business_purchase'"
+        " AND a.code IS DISTINCT FROM 'property:rents'").fetchall()}       # (hotels and malls owned outside the property companies)
     assert kinds == {"company"}                       # buyer and seller are both companies
     # Nobody buys from itself.
     assert db.execute(

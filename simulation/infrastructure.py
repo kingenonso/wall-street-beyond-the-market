@@ -65,6 +65,15 @@ def _choose(conn: Connection, period: int, seed: str) -> tuple[dict, str] | None
     return None
 
 
+def cost_this_quarter(conn: Connection) -> int:
+    """What the works under way will cost the Government this quarter. It comes out of the Government's purchases
+    from companies, so the Government still spends no more than it collected."""
+    if not ready(conn):
+        return 0
+    return sum(naira(data.INFRA_COST_A_QUARTER_NAIRA) * data.CITY_COST_BPS[p["city"]] // BPS
+               for p in _rows(conn, "SELECT d.city FROM infrastructure_projects i JOIN districts d ON d.id = i.district_id WHERE i.status = 'building'"))
+
+
 def close(conn: Connection, period: int, now: datetime, seed: str) -> dict:
     """At the quarter's close: the works are paid for and progress, a finished project is opened, and about once a game
     year a new one is announced. The districts' infrastructure gains are set."""
