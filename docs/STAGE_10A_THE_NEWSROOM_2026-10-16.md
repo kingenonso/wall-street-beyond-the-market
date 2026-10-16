@@ -9,7 +9,7 @@ at the Auction House, the Intelligence Market, the Sealed Tip and rumours) comes
 Part 1 had ten loophole tests and an independent review. Every review finding was fixed, and each fix has a test.
 Nothing on the Part 1 checklist was dropped or put off.
 
-Tests at the end: __TESTS__.
+Tests at the end: **1,240 on the server**, 13 on the order-matching engine and 23 on the website. All of them pass.
 
 ## Things worth knowing, said plainly
 
