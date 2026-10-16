@@ -398,7 +398,11 @@ def test_stamp_duty_and_the_exchanges_fees_are_spent_by_the_government(db):
     earned = ledger.balance(db, fees)
     assert earned > 0 and ledger.balance(db, treasury) > reserve                    # stamp duty arrives with each trade
     assert quarters.close_due_quarters(db, after_quarters(9)) == [9]
-    assert ledger.balance(db, fees) == 0                                           # handed to the Government at the quarter's end
+    # Handed to the Government at the quarter's end (all but the fees on the companies' oil hedges for the next quarter,
+    # bought after the hand-over and counted in the next quarter).
+    later = db.execute("SELECT coalesce(sum(e.amount), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
+                       " WHERE e.account_id = %s AND t.period = 10", (fees,)).fetchone()[0]
+    assert ledger.balance(db, fees) == later
     received = dict(db.execute(
         "SELECT t.kind, sum(e.amount) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
         " WHERE e.account_id = %s AND e.amount > 0 AND t.period = 9 GROUP BY 1", (treasury,)).fetchall())

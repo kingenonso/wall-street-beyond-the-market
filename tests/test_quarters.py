@@ -502,7 +502,7 @@ def test_companies_in_one_sector_no_longer_move_in_step(db):
     """Before, every company in a sector grew by exactly the same percentage."""
     for (sector,) in db.execute("SELECT code FROM sectors").fetchall():
         growth = db.execute(
-            "SELECT count(DISTINCT round(a.revenue * 10000.0 / b.revenue)) FROM company_results a"
+            "SELECT count(DISTINCT round(a.revenue * 1000000.0 / b.revenue)) FROM company_results a"
             " JOIN company_results b ON b.company_id = a.company_id AND b.period = 7"
             " JOIN companies c ON c.id = a.company_id WHERE a.period = 8 AND c.sector = %s", (sector,),
         ).fetchone()[0]

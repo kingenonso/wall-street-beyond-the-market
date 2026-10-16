@@ -47,11 +47,19 @@ def test_households_pay_interest_repay_and_borrow_through_the_ledger(db):
     lent = sum(v for (_, kind), v in moved.items() if kind == "household_loan")
     repaid = sum(v for (_, kind), v in moved.items() if kind == "household_loan_repayment")
     owed = db.execute("SELECT sum(principal) FROM household_debts").fetchone()[0]
-    assert owed == opening + lent - repaid
-    # And each bank's balance sheet shows exactly what its households owe it.
-    for r in _dicts(db, "SELECT r.customer_loans, (SELECT sum(principal) FROM household_debts h WHERE h.bank_company_id = c.id) AS owed"
+    # (Less the home loans that went bad: what the repossessed homes fetched is in the repayments, the rest the banks lost.)
+    lost = db.execute("SELECT coalesce(sum(amount), 0) FROM bank_home_losses").fetchone()[0]
+    assert owed == opening + lent - repaid - lost
+    # And each bank's balance sheet shows exactly what its households owe it (as it stood when its accounts closed:
+    # home loans made or gone bad at the property close come after, and are counted next quarter).
+    for r in _dicts(db, "SELECT r.customer_loans, c.id, c.account_id, (SELECT sum(principal) FROM household_debts h WHERE h.bank_company_id = c.id) AS owed"
                         " FROM company_results r JOIN companies c ON c.id = r.company_id WHERE r.period = 8 AND c.sector = 'banking'"):
-        assert r["customer_loans"] == r["owed"]
+        after = db.execute(
+            "SELECT coalesce(-sum(e.amount), 0) FROM ledger_entries e"           # lent out, less what repossessions fetched
+            " JOIN ledger_transactions t ON t.id = e.transaction_id WHERE e.account_id = %s AND t.period = 8"
+            " AND (t.memo LIKE %s OR t.memo LIKE %s)", (r["account_id"], "%home loans to households%", "Repossessed homes%")).fetchone()[0]
+        gone = db.execute("SELECT coalesce(sum(amount), 0) FROM bank_home_losses WHERE bank_company_id = %s AND period = 8", (r["id"],)).fetchone()[0]
+        assert r["customer_loans"] == r["owed"] - after + gone
 
 
 @pytest.mark.world("eight")
@@ -63,6 +71,10 @@ def test_the_interest_a_household_pays_follows_the_central_banks_rate(db):
         owed_before = db.execute("SELECT sum(debt) FROM household_results WHERE period = %s", (period - 1,)).fetchone()[0] \
             if period > 1 else db.execute("SELECT sum(customer_loans) FROM company_results r JOIN companies c ON c.id = r.company_id"
                                           " WHERE r.period = 0 AND c.sector = 'banking'").fetchone()[0]
+        # (Home loans made, or gone bad, at the last close came after the households' figures were recorded.)
+        if period > 1:
+            owed_before += db.execute("SELECT coalesce(sum(lent - defaulted), 0) FROM home_loan_results WHERE period = %s",
+                                      (period - 1,)).fetchone()[0]
         expected = owed_before * rate // (4 * BPS)
         assert abs(paid - expected) <= expected // 500          # within a fifth of a percent: only rounding
 
@@ -89,8 +101,12 @@ def test_a_lender_loses_money_when_a_borrower_fails(db):
     assert bad, "expected at least one loan past its date in eight quarters"
     for loan in bad:
         assert loan["maturity_period"] <= 8 and loan["principal_outstanding"] > 0      # only loans past their date
-    lenders = _dicts(db, "SELECT c.name, c.account_id, sum(r.loan_losses)::bigint AS lost FROM company_results r"
-                         " JOIN companies c ON c.id = r.company_id GROUP BY 1, 2 HAVING sum(r.loan_losses) <> 0")
+    # (A bank's losses on home loans households could not repay are counted apart: here, only loans to companies.)
+    lenders = _dicts(db, "SELECT c.name, c.account_id, (sum(r.loan_losses) - coalesce((SELECT sum(h.amount) FROM bank_home_losses h"
+                         " WHERE h.bank_company_id = c.id AND h.counted_in IS NOT NULL), 0))::bigint AS lost FROM company_results r"
+                         " JOIN companies c ON c.id = r.company_id GROUP BY 1, 2, c.id"
+                         " HAVING sum(r.loan_losses) - coalesce((SELECT sum(h.amount) FROM bank_home_losses h"
+                         " WHERE h.bank_company_id = c.id AND h.counted_in IS NOT NULL), 0) <> 0")
     assert {l["name"] for l in lenders} == {loan["lender"] for loan in bad}
     for lender in lenders:
         # What it has written off in its accounts is what its loan records say, to the kobo.
