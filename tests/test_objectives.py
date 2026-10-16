@@ -657,8 +657,9 @@ def test_the_library_has_six_pieces_of_work_for_each_build_and_every_module_has_
     for build in careers.BUILDS:
         mine = [t for t in objectives.TEMPLATES.values() if t.build == build and t.listed and t.setting == "solo"]
         assert len(mine) >= 5 and len({t.module for t in mine}) == len(mine)
-        # (The first bands open from Level 1 to 4; the gap stage added the higher bands, Levels 41 to 100.)
-        assert min(t.level for t in mine) == 1 and all(t.level <= 4 or 41 <= t.level <= 100 for t in mine)
+        # (The first bands open from Level 1 to 4; the gap stage added the higher bands, Levels 41 to 100; Stage 10 added work
+        # about the news, from Level 21.)
+        assert min(t.level for t in mine) == 1 and all(t.level <= 4 or 21 <= t.level <= 100 for t in mine)
     names = " ".join(f"{t.module} {t.title} {t.idea}" for t in objectives.TEMPLATES.values()).upper()
     for body in ("CFA", "ACCA", "ICAN", "FRM", "CPA", "CRM"):       # exam bodies' names are never used in the game
         assert body not in names.replace("ICANT", "")

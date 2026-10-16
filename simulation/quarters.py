@@ -223,6 +223,12 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
         conn, period, before=before, now=measured, watch=watch, happening=happening, companies=all_companies,
         results=results, damages=damages, claims_paid=claims_paid, policy_rate_bps=policy_rate, abroad_now=abroad_now,
     )
+    # Stage 10: the Ripple links what caused what this quarter, and the Chronicle writes the quarter's record.
+    from simulation import chronicle, ripple
+    ripple.at_close(conn, period, results, happening, measured, watch, now)
+    chronicle.at_close(conn, period, now)
+    from simulation import newsroom
+    newsroom.at_close(conn, period)
     news.for_events(conn, events.generate(conn, period + 1, fortune_seed))
     # Private companies after the close: wear, morale, secrets, rivals' prices, failures, sales and start-ups.
     private.after_close(conn, period, results, measured["wage_index_bps"], fortune_seed, now)

@@ -18,6 +18,13 @@ OUTLETS = {
 }
 
 
+PRESS_NAME = "Players' stories"         # Stage 10: stories by players, on the wire under their own names
+
+
+def outlet_name(code: str) -> str:
+    return OUTLETS.get(code, PRESS_NAME)
+
+
 @dataclass(frozen=True)
 class NewsKind:
     name: str

@@ -122,6 +122,8 @@ class PlayerResponse(BaseModel):
     news_alerts: bool = True
     unread_messages: int = 0
     margin_calls: int = 0              # Stage 9: margin calls (and recalled shares) waiting on the player
+    press_questions: int = 0           # Stage 10: journalists' questions waiting on the player, as the head of an empire
+    corrections_due: int = 0           # Stage 10: the player's stories that must be corrected
     # The redesign: the player's own look and sound, and whether they have seen the first-time tour.
     theme: str = "dark"
     sound_on: bool = True
@@ -421,6 +423,13 @@ class NewsItem(BaseModel):
     locations: list[str]
     # The redesign: how each named company's share price has moved since the story came out.
     moves: dict[str, int] = {}
+    # Stage 10: a name for the item (for its full article and "Why?"; never its number), whether it follows up an earlier
+    # item, and a player's byline.
+    ref: str | None = None
+    follows_up: bool = False
+    author: str | None = None
+    byline: str | None = None
+    story_id: int | None = None
 
 
 class NewsResponse(BaseModel):

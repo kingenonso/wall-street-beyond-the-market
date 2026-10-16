@@ -400,6 +400,12 @@ def trade(conn: Connection, account, series_id: int, side: str, contracts: int, 
         s = _series(conn, series_id, lock=True)
         if s["status"] != "open" or s["expiry_period"] < state["period"]:
             raise DerivativesError("That contract has settled.")
+        if not forced and not company and s.get("company_id"):
+            from simulation import exchange as _exchange, newsroom
+            try:
+                newsroom.check_trade(conn, account, s["company_id"], now)
+            except _exchange.ExchangeError as e:
+                raise DerivativesError(str(e)) from e
         if side not in ("buy", "sell"):
             raise DerivativesError("Buy or sell.")
         if not isinstance(contracts, int) or isinstance(contracts, bool) or contracts <= 0:

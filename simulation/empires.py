@@ -796,6 +796,9 @@ def bonus_limit(conn: Connection, empire: dict, now: datetime) -> int:
 
 def _book(conn: Connection, empire_id, period: int, category: str, description: str, amount: int, genuine: bool, now: datetime,
           entered_by=None, thief_level: int | None = None, kind: str = "cost", desk: str | None = None, company_id=None) -> int:
+    if category == "Fines" and genuine:
+        from simulation import standing          # Stage 10: a regulator's fine is public, and costs the empire its good name
+        standing.change(conn, empire_id, -2, f"Fined: {description}", period, now)
     return _one(conn, "INSERT INTO empire_books (empire_id, period, category, description, amount, genuine, entered_by, thief_level, at, kind, desk,"
                       " company_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                 (empire_id, period, category, description, amount, genuine, entered_by, thief_level, now,
@@ -1294,6 +1297,10 @@ def _ai_audit(conn: Connection, empire: dict, period: int, now: datetime, *, pay
                              f"{clock.period_label(period)} and called {len(found)} false. Its fee was {_money(fee)}.", now)
     for entry in found:
         _prove(conn, empire, entry, audit, now)
+    if not found:
+        # Stage 10: a clean audit is good for the empire's public name. (What an audit finds stays inside the empire.)
+        from simulation import standing
+        standing.change(conn, empire["id"], 1, "Its books passed an independent audit", period, now)
     return {"id": audit, "fee": fee, "examined": len(entries), "found": len(found)}
 
 
@@ -1830,6 +1837,10 @@ def report_pact(conn: Connection, head_id, pact_id: int, now: datetime) -> None:
         for side in (empire["id"], other):                 # both signed it: both pay for it in the league, whoever came forward
             leagues.award(conn, side, data.LEAGUE_POINTS["theft"], "An unlawful pact came to light", careers.world_now(conn, now)["period"],
                           now, reference=f"pact:{pact_id}")
+        from simulation import standing                    # Stage 10: and in their public reputation (less for the one that came forward)
+        period_now = careers.world_now(conn, now)["period"]
+        standing.change(conn, empire["id"], -2, "Reported an unlawful pact it had signed", period_now, now)
+        standing.change(conn, other, -6, "An unlawful pact it signed came to light", period_now, now)
 
 
 def investigate(conn: Connection, player_id, empire_id: int, now: datetime) -> dict:
@@ -1869,6 +1880,8 @@ def investigate(conn: Connection, player_id, empire_id: int, now: datetime) -> d
             for side in (pact["from_empire"], pact["to_empire"]):
                 leagues.award(conn, side, data.LEAGUE_POINTS["theft"], "An unlawful pact came to light", state["period"], now,
                               reference=f"pact:{pact['id']}")
+                from simulation import standing            # Stage 10: and in its public reputation
+                standing.change(conn, side, -6, "An unlawful pact it signed came to light", state["period"], now)
         if not pact["legal"]:
             # Uncovering an offence is a story. A lawful agreement coming to light is only news.
             careers.add_experience(conn, player_id, "journalist", 100, now)
@@ -1998,6 +2011,13 @@ def badge(conn: Connection, player_id, now: datetime) -> dict | None:
     waiting += firm.waiting(conn, seat, now)
     place = next((e["place"] for e in league(conn, now) if e["id"] == seat["empire_id"]), None)
     return {"name": seat["empire_name"], "place": place, "is_head": is_head, "waiting": waiting, "forming": seat["empire_status"] == "forming"}
+
+
+def _reputation_history(conn: Connection, empire_id) -> list[dict]:
+    if not _one(conn, "SELECT to_regclass('empire_reputation') IS NOT NULL AS ok")["ok"]:
+        return []
+    from simulation import standing
+    return [{**r, "label": clock.period_label(r["period"])} for r in standing.history(conn, empire_id, 10)]
 
 
 def directory(conn: Connection, player_id, now: datetime) -> dict:
@@ -2132,6 +2152,7 @@ def war_room(conn: Connection, player_id, now: datetime) -> dict | None:
     may_trade = trade_limit(conn, seat, now)
     return {
         "id": empire["id"], "name": empire["name"], "kind": empire["kind"], "status": empire["status"], "trust": empire["trust"],
+        "reputation": empire.get("reputation", 50), "reputation_history": _reputation_history(conn, empire["id"]),
         "run_by_computer": empire["head_player_id"] is None, "is_head": is_head, "your_build": seat["build"], "place": place,
         "empires": len(table), "worth": have["total"], "cash": have["cash"], "shares_value": have["shares"], "bonds_value": have["bonds"],
         "holdings": [{"ticker": line["ticker"], "shares": line["shares"], "value": line["value"]} for line in have["lines"]],

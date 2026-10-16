@@ -64,8 +64,9 @@ def test_the_library_now_has_work_for_all_six_builds():
     for build in careers.BUILDS:
         mine = [t for t in objectives.TEMPLATES.values() if t.build == build and t.setting == "solo" and t.listed]
         assert len(mine) >= 5 and len({t.module for t in mine}) == len(mine), build
-        # (The first bands open from Level 1 to 4; the gap stage added the higher bands, Levels 41 to 100.)
-        assert min(t.level for t in mine) == 1 and all(t.level <= 4 or 41 <= t.level <= 100 for t in mine)
+        # (The first bands open from Level 1 to 4; the gap stage added the higher bands, Levels 41 to 100; Stage 10 added work
+        # about the news, from Level 21.)
+        assert min(t.level for t in mine) == 1 and all(t.level <= 4 or 21 <= t.level <= 100 for t in mine)
     words = " ".join(f"{t.module} {t.title} {t.idea}" for t in objectives.TEMPLATES.values()).upper().split()
     for body in ("CFA", "ACCA", "ICAN", "FRM", "CPA", "CRM"):
         assert body not in words

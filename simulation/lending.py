@@ -481,7 +481,11 @@ def open_short(conn: Connection, account, ticker: str, shares: int, now: datetim
         if q is None:
             raise LendingError("Only shares listed on the exchange can be borrowed.")
         _unlocked(conn, account, player_id)
-        from simulation import exchange
+        from simulation import exchange, newsroom
+        try:
+            newsroom.check_trade(conn, account, q["id"], now)
+        except exchange.ExchangeError as e:
+            raise LendingError(str(e)) from e
         ban = short_ban(conn, q["id"], exchange.session_of(now)[0])
         if ban:
             raise LendingError(f"The Securities Regulator has stopped new short sales until {ban['until_day']:%d %b}: {ban['reason']}.")

@@ -100,7 +100,7 @@ _EVENT_WORDS = {
     "sector_demand_surge": "a jump in demand for its industry", "good_harvest": "a good harvest",
     "network_outage": "a network outage", "new_competition": "new competition", "company_strike": "a strike by its staff",
     "scandal": "a scandal", "contract_win": "a contract it won", "factory_fire": "a fire at one of its sites",
-    "product_recall": "a product recall", "new_product": "a new product",
+    "product_recall": "a product recall", "new_product": "a new product", "story": "a widely read news story",
 }
 
 
@@ -133,7 +133,16 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
     shares = _rows(conn, "SELECT c.id, c.ticker, c.sector, c.headquarters FROM market_instruments m"
                          " JOIN companies c ON c.id = m.company_id ORDER BY c.ticker")
     today = clock.game_date(now, clock.effective_start(world["world_start"], world["weeks_ahead"]))
-    mood = _mood_from_todays_news(conn, shares, world["last_closed_period"] + 1, today.day_of_quarter) if today else {}
+    # Stage 10: each kind of investor reads the news at its own pace (some at once, some a day or two late, the founders
+    # not at all), and players' widely read stories nudge how they value a company for a few days.
+    from simulation import newsroom
+    game_days_a_day = clock.GAME_DAYS_PER_QUARTER // clock.REAL_DAYS_PER_QUARTER
+    moods: dict = {}
+    nudged: dict = {}
+    for lag in {v for v in data.NEWS_LAG_DAYS.values() if v is not None}:
+        seen = today.day_of_quarter - lag * game_days_a_day if today else 0
+        moods[lag] = _mood_from_todays_news(conn, shares, world["last_closed_period"] + 1, seen) if today and seen >= 1 else {}
+        nudged[lag] = newsroom.nudges_today(conn, day, lag_days=lag)
     day_number = day.toordinal()
     placed = 0
     from simulation import abroad
@@ -198,7 +207,11 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
                 pressure = _within(carried + todays)
                 view = fortune_bps(seed, f"investor:{code}:{share['ticker']}", day_number, "view", own_view)
                 view += temper_bps(code, recent.get(share["company_id"]), shorted.get(share["company_id"], 0))
-                news, cause = mood.get(share["company_id"], (0, None)) if code == "investors:public" else (0, None)
+                lag = data.NEWS_LAG_DAYS.get(code)
+                news, cause = moods[lag].get(share["company_id"], (0, None)) if lag is not None else (0, None)
+                story = nudged[lag].get(share["company_id"], 0) if lag is not None else 0
+                if story:
+                    news, cause = news + story, (cause if abs(news) > abs(story) else "story")
                 if code == abroad.FOREIGN and foreign_tilt and foreign_left > 0:
                     # Keen to bring money in (or to take it out) this quarter, until they have traded their share of the day:
                     # after that their orders only wait.

@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { api, type NewsItem } from "./api";
+import { api, type NewsItem, type Player } from "./api";
 import { useLoad } from "./hooks";
+import { Archive, ArticleBelow, Chronicle, NewsroomDeskView, PlayersStories, PressQuestions } from "./Newsroom";
 import { Change, Failed, Loading, Panel } from "./Shell";
 
 /** "Year 2 Q3, day 14": when an item came out, on the game's calendar. */
@@ -34,16 +35,18 @@ export function Story({ item, lead = false }: { item: NewsItem; lead?: boolean }
       <div className={lead ? "story-lead-grid" : undefined}>
         <div>
           <div className="story-top">
-            <span className="card-tag">{item.outlet.toUpperCase()}{lead ? " · LEAD STORY" : ""}</span>
+            <span className="card-tag">{(item.byline ?? item.outlet).toUpperCase()}{lead ? " · LEAD STORY" : ""}{item.follows_up ? " · FOLLOW-UP" : ""}</span>
             <span className="mono muted">{newsDate(item)}</span>
           </div>
           <h2 className="h3-look">{item.headline}</h2>
           <p className="muted">{item.body}</p>
+          {item.author && <p className="small muted">By {item.author}</p>}
           {item.tickers.length > 0 && item.tickers.length <= 6 && (
             <div className="chips">
               {item.tickers.map((ticker) => <MoveChip key={ticker} ticker={ticker} bps={item.moves[ticker]} />)}
             </div>
           )}
+          <ArticleBelow item={item} />
         </div>
         {lead && moved.length > 0 && (
           <div className="story-moves">
@@ -61,7 +64,35 @@ export function Story({ item, lead = false }: { item: NewsItem; lead?: boolean }
 
 type NewsFilter = "" | "mine" | "moved";
 
-export function NewsWork({ onLoggedOut }: { onLoggedOut: () => void }) {
+type NewsTab = "wire" | "stories" | "archive" | "chronicle" | "newsroom" | "questions";
+
+export function NewsWork({ player, tab: start, onLoggedOut }: { player: Player; tab?: string; onLoggedOut: () => void }) {
+  const known: NewsTab[] = ["wire", "stories", "archive", "chronicle", "newsroom", "questions"];
+  const [tab, setTab] = useState<NewsTab>(known.includes(start as NewsTab) ? (start as NewsTab) : "wire");
+  const choose = (next: NewsTab) => { setTab(next); window.history.replaceState(null, "", `#/news/${next}`); };
+  const tabs: [NewsTab, string][] = [["wire", "The wire"], ["stories", "Players' stories"], ["archive", "Archive"], ["chronicle", "The Chronicle"],
+    ...(player.build === "journalist" ? [["newsroom", "My newsroom"] as [NewsTab, string]] : []),
+    ...((player.press_questions ?? 0) > 0 || tab === "questions" ? [["questions", "Questions for you"] as [NewsTab, string]] : [])];
+  return (
+    <>
+      <div className="work-head">
+        <h1>News</h1>
+        <span className="muted small">Every headline comes from something that really happened in the game</span>
+      </div>
+      <div className="underline-tabs" role="tablist" aria-label="News">
+        {tabs.map(([key, label]) => <button key={key} role="tab" aria-selected={tab === key} className={tab === key ? "active" : undefined} onClick={() => choose(key)}>{label}</button>)}
+      </div>
+      {tab === "wire" && <Wire onLoggedOut={onLoggedOut} />}
+      {tab === "stories" && <PlayersStories onLoggedOut={onLoggedOut} />}
+      {tab === "archive" && <Archive onLoggedOut={onLoggedOut} />}
+      {tab === "chronicle" && <Chronicle player={player} onLoggedOut={onLoggedOut} />}
+      {tab === "newsroom" && player.build === "journalist" && <NewsroomDeskView onLoggedOut={onLoggedOut} />}
+      {tab === "questions" && <PressQuestions onLoggedOut={onLoggedOut} />}
+    </>
+  );
+}
+
+function Wire({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [outlet, setOutlet] = useState<string>("");
   const [only, setOnly] = useState<NewsFilter>("");
   const { data, error, loading, reload } = useLoad(
@@ -80,10 +111,6 @@ export function NewsWork({ onLoggedOut }: { onLoggedOut: () => void }) {
 
   return (
     <>
-      <div className="work-head">
-        <h1>News</h1>
-        <span className="muted small">Every headline comes from something that really happened in the game</span>
-      </div>
       <div className="filter-row" role="group" aria-label="Which news">
         {["", ...(data?.outlets ?? [])].map((name) => (
           <button key={name} className="filter-chip" aria-pressed={outlet === name} onClick={() => setOutlet(name)}>{name || "All papers"}</button>
@@ -131,7 +158,11 @@ export function NewsRail() {
           <li>The bigger the story, the more papers carry it, each in its own words.</li>
           <li>Company results come out over the first three weeks of the next quarter.</li>
         </ul>
-        <p className="muted small">Full articles behind each headline arrive in a later stage.</p>
+        <ul className="reasons">
+          <li>“Read the full article” opens the story behind a headline, written from the record; every figure in it is checked.</li>
+          <li>Financial Journalists publish their own stories from confirmed facts, under their own names.</li>
+          <li>“Why?” shows the chain of causes behind a story, in one line, in full, or with the numbers.</li>
+        </ul>
         </details>
       </Panel>
     </>

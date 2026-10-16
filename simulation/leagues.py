@@ -90,6 +90,7 @@ def table(conn: Connection, now: datetime, period: int | None = None) -> list[di
         divisions.setdefault(empire["division"], []).append({
             "id": empire["id"], "name": empire["name"], "kind": empire["kind"], "division": empire["division"],
             "run_by": "players" if empire["head_player_id"] else "the computer", "members": empire["members"], "trust": empire["trust"],
+            "reputation": empire.get("reputation", 50),
             "points": points.get(empire["id"], {}).get("points", 0), "worth": _worth_now(conn, empire, now)})
     out = []
     lowest = max(divisions) if divisions else 1

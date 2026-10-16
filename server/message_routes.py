@@ -77,7 +77,7 @@ def news_alerts(
         found = {**found, "items": [], "more": 0}
     p, d, t = found["mark"]
     return {
-        "items": [{"headline": r["headline"], "outlet": news_kinds.OUTLETS[r["outlet"]], "period_label": clock.period_label(r["period"]),
+        "items": [{"headline": r["headline"], "outlet": news_kinds.outlet_name(r["outlet"]), "period_label": clock.period_label(r["period"]),
                    "day": r["day"], "important": r["importance"] >= 80, "tickers": r["tickers"]} for r in found["items"]],
         "more": found["more"], "mark": {"period": p, "day": d, "top": t},
     }

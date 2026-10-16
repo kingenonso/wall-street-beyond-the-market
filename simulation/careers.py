@@ -92,8 +92,18 @@ def _one(conn: Connection, sql: str, params=()) -> dict | None:
 
 
 def _event(conn: Connection, player_id, build, kind: str, words: str, now: datetime) -> None:
-    conn.execute("INSERT INTO career_events (player_id, build, kind, words, at) VALUES (%s, %s, %s, %s, %s)",
-                 (player_id, build, kind, words, now))
+    row = _one(conn, "INSERT INTO career_events (player_id, build, kind, words, at) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+               (player_id, build, kind, words, now))
+    # Stage 10: the milestones of a career enter the player's Chronicle.
+    milestone = kind in ("build_chosen", "hired", "left_job", "retired") or (kind == "level_up" and words.startswith("Reached Level ")
+                                                                               and words.split()[2].isdigit() and int(words.split()[2]) % 10 == 0)
+    if milestone:
+        from simulation import chronicle
+        w = _one(conn, "SELECT world_start, weeks_ahead, last_closed_period FROM world_state")
+        if w:
+            date = clock.game_date(now, clock.effective_start(w["world_start"], w["weeks_ahead"]))
+            chronicle.write(conn, "personal", f"career:{row['id']}", kind, words.rstrip("."), words, w["last_closed_period"] + 1,
+                            date.day_of_quarter if date else 1, now, player_id=player_id)
 
 
 # ---------------------------------------------------------------------------
@@ -416,6 +426,8 @@ def salaries_due(conn: Connection, company: dict, period: int, wage_index_bps: i
         days = clock.GAME_DAYS_PER_QUARTER - job["started_day"] + 1 if job["started_period"] == period else clock.GAME_DAYS_PER_QUARTER
         worked = has_worked(conn, job["player_id"], period)
         gross = salary_per_quarter(mine["level"], wage_index_bps) * days // clock.GAME_DAYS_PER_QUARTER if worked else 0
+        if job["build"] == "journalist" and gross:
+            gross = gross * (BPS + reach_pay_bps(conn, job["player_id"])) // BPS        # Stage 10: pay rises with reach
         grosses.append(gross)
         saving = _one(conn, "SELECT extra_bps FROM retirement_accounts WHERE player_id = %s", (job["player_id"],))
         packets.append({"extra_bps": saving["extra_bps"] if saving else 0,
@@ -435,6 +447,16 @@ def salaries_due(conn: Connection, company: dict, period: int, wage_index_bps: i
         cash_due = pay["take_home"] + pay["tax"] + pay["living_costs"] + pay["extra_saving"] + pay["employer_match"]
         out.append({**pay, **packet, "cash_due": cash_due})
     return out
+
+
+def reach_pay_bps(conn: Connection, player_id) -> int:
+    """How much more a journalist is paid for the readers who follow their name (Stage 10)."""
+    if not _one(conn, "SELECT to_regclass('journalist_profiles') IS NOT NULL AS ok")["ok"]:
+        return 0
+    row = _one(conn, "SELECT following FROM journalist_profiles WHERE player_id = %s", (player_id,))
+    if not row:
+        return 0
+    return min(row["following"] * data.REACH_PAY_PER_FOLLOWER_BPS_MILLION // 1_000_000, data.REACH_PAY_MOST_BPS)
 
 
 def pay_salaries(conn: Connection, company: dict, households, treasury, pension_funds, packets: list[dict], period: int, owe) -> int:

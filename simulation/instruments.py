@@ -199,6 +199,11 @@ def trade(conn: Connection, account, code: str, side: str, units: int, now: date
         inst = find(conn, code)
         if inst["status"] != "open":
             raise InstrumentError("Those warrants have lapsed.")
+        from simulation import newsroom
+        try:
+            newsroom.check_trade(conn, account, inst["company_id"], now)
+        except exchange.ExchangeError as e:
+            raise InstrumentError(str(e)) from e
         q = quote(conn, inst, now)
         price = q["ask"] if side == "buy" else q["bid"]
         if price <= 0:
@@ -230,6 +235,11 @@ def ask_to_exercise(conn: Connection, account, code: str, units: int, now: datet
             raise InstrumentError("Only warrants that have not lapsed can be used.")
         if not isinstance(units, int) or isinstance(units, bool) or units <= 0:
             raise InstrumentError("Name how many.")
+        from simulation import newsroom
+        try:
+            newsroom.check_trade(conn, account, inst["company_id"], now)
+        except exchange.ExchangeError as e:
+            raise InstrumentError(str(e)) from e
         cash = units * inst["shares_per"] * inst["strike"]
         held = _held(conn)
         try:

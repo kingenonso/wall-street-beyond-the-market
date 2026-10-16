@@ -78,7 +78,8 @@ NEW: list = []
 
 
 def piece(code: str, build: str, module: str, title: str, level: int, idea: str, setup: Callable, questions: list[Q], *,
-          plain: Callable, method: str, maths: Callable, need: int | None = None, reward: int = 0, experience: int = 0) -> None:
+          plain: Callable, method: str, maths: Callable, need: int | None = None, reward: int = 0, experience: int = 0,
+          into: list | None = None, client: str | None = None) -> None:
     """Add one piece of work. `setup(ctx, roll)` returns the brief: situation, task, given (label, text) pairs, and the
     figures `f` the answers are worked out from; or None when it cannot be offered now."""
     need = need if need is not None else max(len(questions) - 1, 1)
@@ -86,16 +87,25 @@ def piece(code: str, build: str, module: str, title: str, level: int, idea: str,
     experience = experience or 100 + level * 3
 
     def offer(ctx):
+        if client is not None:
+            from simulation import clients
+            if not clients.offers(ctx["conn"], ctx["player_id"], client, level):
+                return None
         brief = setup(ctx, Roll(ctx, code))
         if brief is None:
             return None
+        if client is not None:
+            brief = {**brief, "situation": clients.introduce(client) + " " + brief["situation"]}
+            paper = o._one(ctx["conn"], "SELECT id FROM companies WHERE ticker = %s", (clients.PAPER[client],))
+            brief["company_id"] = str(paper["id"]) if paper else None
         fields = []
         for q in questions:
             spec = {"key": q.key, "label": q.label, "kind": q.kind}
             if q.kind == "choice":
                 spec["options"] = [{"code": c, "label": lbl} for c, lbl in q.options]
             fields.append(spec)
-        return {"situation": brief["situation"], "task": brief["task"],
+        extra = {"company_id": brief["company_id"]} if brief.get("company_id") else {}
+        return {**extra, "situation": brief["situation"], "task": brief["task"],
                 "pass_when": f"At least {need} of the {len(questions)} answers are right.", "deadline": HAND_IN,
                 "given": [_text(label, text) for label, text in brief["given"]], "fields": fields, "figures": brief["f"]}
 
@@ -106,7 +116,11 @@ def piece(code: str, build: str, module: str, title: str, level: int, idea: str,
         return _marked(objective, answers, marked, need, plain=plain(f, truths), method=method, maths=maths(f, truths))
 
     submit.method_text = method          # ("How to do this": read by objectives.how_to)
-    NEW.append(o.Template(code, build, module, title, level, reward, experience, "hand_in", idea, "employer", offer, submit=submit))
+    if client is not None:
+        from simulation import clients
+        clients.PIECES[code] = client
+    (NEW if into is None else into).append(o.Template(code, build, module, title, level, reward, experience, "hand_in", idea,
+                                                      "client" if client else "employer", offer, submit=submit))
 
 
 def choice(key, label, work, *options) -> Q:
