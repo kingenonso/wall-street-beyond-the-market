@@ -1467,9 +1467,12 @@ def _payer(conn, ctx, template: Template, terms: dict) -> dict | None:
         if ledger.balance(conn, seat["account_id"]) < _reward(template, ctx["wage_index_bps"]):
             return None
         return {"account": seat["account_id"], "name": seat["empire_name"], "why": "pay for work done for the empire"}
-    if ctx["job"] is None:
+    if template.payer == "client" and template.root in _client_pieces() and terms.get("company_id"):
+        company = _one(conn, "SELECT id, name, account_id FROM companies WHERE id = %s", (terms["company_id"],))
+        why = "a fee for work for the paper"              # Stage 10: an editor's paper pays, employed or independent
+    elif ctx["job"] is None:
         return None
-    if template.payer == "client":
+    elif template.payer == "client":
         company = _one(conn, "SELECT id, name, account_id FROM companies WHERE id = %s", (terms["company_id"],))
         why = "an accountancy fee"
     else:
@@ -1478,6 +1481,11 @@ def _payer(conn, ctx, template: Template, terms: dict) -> dict | None:
     if ledger.balance(conn, company["account_id"]) < 20 * _reward(template, ctx["wage_index_bps"]):
         return None
     return {"account": company["account_id"], "name": company["name"], "why": why, "company_id": company["id"]}
+
+
+def _client_pieces() -> dict:
+    from simulation import clients
+    return clients.PIECES
 
 
 _HOW: dict[str, str | None] = {}
@@ -1619,7 +1627,7 @@ def board(conn: Connection, player_id, now: datetime) -> dict:
                                 f"which is the most one member may.")
         elif template.setting == "live" and not window["open"]:
             offer["why_not"] = f"Weekend challenges open on {window['opens']:%A %d %B} at {window['opens']:%H:%M} (Lagos time)."
-        elif ctx["job"] is None and template.payer != "empire":
+        elif ctx["job"] is None and template.payer not in ("empire", "client"):
             offer["why_not"] = "Work comes through an employer. Find a job first."
         else:
             terms = template.offer(ctx)
@@ -1670,7 +1678,7 @@ def accept(conn: Connection, player_id, code: str, now: datetime, step: dict | N
             raise ObjectiveError("Weekend challenges are open from Friday 18:00 to Sunday 22:00 (Lagos time).")
         if template.payer == "empire" and not step and _empire_work_done(conn, player_id, ctx["period"]) >= data.EMPIRE_WORK_A_QUARTER:
             raise ObjectiveError(f"One member may do {data.EMPIRE_WORK_A_QUARTER} pieces of work for their empire in a quarter.")
-        if ctx["job"] is None and not step and template.payer != "empire":
+        if ctx["job"] is None and not step and template.payer not in ("empire", "client"):
             raise ObjectiveError("Work comes through an employer. Find a job first.")
         if mine["level"] < template.level and not step:
             raise ObjectiveError(f"That work opens at Level {template.level}.")
@@ -1797,6 +1805,11 @@ def _finish(conn: Connection, objective: dict, verdict: dict, now: datetime, jud
         from simulation import firm_people
         firm_people.apprentice_gain(conn, objective["player_id"], objective["build"], objective["experience"], now)
         conn.execute("UPDATE players SET reputation = least(reputation + 1, 100) WHERE id = %s", (objective["player_id"],))
+    root = TEMPLATES[objective["template"]].root if objective["template"] in TEMPLATES else None
+    if root in _client_pieces():
+        # Stage 10: the editor remembers. Work given up, not handed in or done badly counts against them.
+        from simulation import clients
+        clients.judged(conn, objective["player_id"], _client_pieces()[root], state == "passed")
     result = {k: v for k, v in verdict.items() if k != "state"}
     seq = _one(conn, "UPDATE objectives SET state = %s, result = %s, judged_at = %s, judged_period = %s, paid = %s, progress = %s,"
                      " judged_seq = nextval('objectives_judged_seq') WHERE id = %s AND state = 'active' RETURNING judged_seq",

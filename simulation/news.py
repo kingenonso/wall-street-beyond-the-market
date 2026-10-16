@@ -750,20 +750,23 @@ def visible(conn: Connection, period_now: int, day_now: int, *, limit: int = 60,
 
 def alerts(conn: Connection, period_now: int, day_now: int, after: tuple[int, int, int] | None, *, limit: int = 3) -> dict:
     """The stories published since the player last looked, for the quiet pop-ups. `after` is the
-    mark the last look returned: (period, day, the highest story number already published that day).
+    mark the last look returned: (period, day, how many stories had been published that day).
     The first look returns no stories, only a mark, so nobody is shown the whole past at once.
     Nothing dated later than today is ever returned, and a mark from the future is treated as today."""
-    today = _rows(conn, "SELECT coalesce(max(id), 0) AS top FROM news_items WHERE period = %s AND day = %s", (period_now, day_now))[0]
-    mark = (period_now, day_now, today["top"])
+    # The mark holds how many of that day's items had been published, never an item's number (Stage 10: numbers would show how many
+    # items are still to come). Items of a day only ever grow at the end (players' stories), so "after the first n" is exact.
+    today = _rows(conn, "SELECT count(*) AS n FROM news_items WHERE period = %s AND day = %s", (period_now, day_now))[0]
+    mark = (period_now, day_now, today["n"])
     if after is None or tuple(after[:2]) > (period_now, day_now):
         return {"items": [], "more": 0, "mark": mark}
-    p, d, top = after
+    p, d, seen = after
     found = _rows(conn, """
+        WITH that_day AS (SELECT id, row_number() OVER (ORDER BY id) AS n FROM news_items WHERE period = %(p)s AND day = %(d)s)
         SELECT period, day, outlet, headline, importance, tickers FROM news_items
         WHERE (period < %(pn)s OR (period = %(pn)s AND day <= %(dn)s))
-          AND ((period, day) > (%(p)s, %(d)s) OR (period = %(p)s AND day = %(d)s AND id > %(top)s))
+          AND ((period, day) > (%(p)s, %(d)s) OR id IN (SELECT id FROM that_day WHERE n > %(seen)s))
         ORDER BY period DESC, day DESC, importance DESC, id DESC LIMIT 200
-    """, {"pn": period_now, "dn": day_now, "p": p, "d": d, "top": top})
+    """, {"pn": period_now, "dn": day_now, "p": p, "d": d, "seen": seen})
     return {"items": found[:limit], "more": max(0, len(found) - limit), "mark": mark}
 
 

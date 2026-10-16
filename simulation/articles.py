@@ -88,17 +88,10 @@ def figures_in(text: str) -> list[str]:
 
 
 def check(text: str, allowed: set[str]) -> list[str]:
-    """The figures in `text` that are not in the record. An empty list means every figure stands."""
-    known = {f.replace(",", "") for a in allowed for f in [a, *figures_in(a)]}
-    bare = {re.sub(r"^₦|%$| (million|billion|trillion)$", "", k) for k in known}
-    out = []
-    for f in figures_in(text):
-        plain = f.replace(",", "")
-        core = re.sub(r"^₦|%$| (million|billion|trillion)$", "", plain)
-        if plain in known or core in bare:
-            continue
-        out.append(f)
-    return out
+    """The figures in `text` that are not in the record. An empty list means every figure stands. A figure must match one in
+    the record with its unit: "₦12 billion" is not vouched for by "12%"."""
+    known = {f.replace(",", "") for a in allowed for f in figures_in(a)}
+    return [f for f in figures_in(text) if f.replace(",", "") not in known]
 
 
 def _background(conn: Connection, item: dict, label_period: int) -> tuple[list[str], set[str]]:
@@ -106,8 +99,7 @@ def _background(conn: Connection, item: dict, label_period: int) -> tuple[list[s
     from simulation import news
     parts, allowed = [], set()
     for ticker in (item["tickers"] or [])[:2]:
-        c = _one(conn, "SELECT c.id, c.name, c.sector, c.headquarters, coalesce(m.last_price, m.reference_price) AS price"
-                       " FROM companies c LEFT JOIN market_instruments m ON m.company_id = c.id WHERE c.ticker = %s", (ticker,))
+        c = _one(conn, "SELECT c.id, c.name, c.sector, c.headquarters FROM companies c WHERE c.ticker = %s", (ticker,))
         if c is None:
             continue
         reports = insight._filed(conn, c["id"], label_period)
@@ -118,10 +110,6 @@ def _background(conn: Connection, item: dict, label_period: int) -> tuple[list[s
             p, s = _money(profit), _money(sales)
             line += f" In {clock.period_label(r['period'])} it {'made' if profit >= 0 else 'lost'} {p} on sales of {s}."
             allowed |= {p, s, clock.period_label(r["period"])}
-        if c["price"]:
-            price = f"₦{int(c['price']) / 100:,.2f}"
-            line += f" Its shares last traded at {price}."
-            allowed.add(price)
         parts.append(line)
     econ = _one(conn, "SELECT next_policy_rate_bps, inflation_bps, period FROM economy_results WHERE period <= %s ORDER BY period DESC LIMIT 1",
                 (label_period,))
@@ -161,25 +149,30 @@ def article(conn: Connection, item_id: int, period_now: int, day_now: int, now: 
     done = _one(conn, "SELECT * FROM news_articles WHERE news_item_id = %s", (item_id,))
     if done:
         return {"body": done["body"], "writer": done["writer"]}
-    if _quota_left(conn, period_now, day_now) <= 0:
+    # Articles are written for the latest news only (the last few game days), so old archive items cannot use up the day's quota.
+    if (period_now - item["period"]) * clock.GAME_DAYS_PER_QUARTER + day_now - item["day"] > data.ARTICLE_FRESH_DAYS:
         return None
-    facts = {k: v for k, v in (item["facts"] or {}).items() if k != "wording"}
-    allowed = {str(v) for v in facts.values()} | set(figures_in(item["headline"])) | set(figures_in(item["body"]))
-    allowed |= {str(item["day"]), clock.period_label(item["period"]), clock.period_label(item["period"] - 1)}
-    background, more = _background(conn, item, item["period"] - 1)
-    allowed |= more
-    writer, body = "built_in", None
-    text = _service_text({"headline": item["headline"], "wire": item["body"], "facts": facts, "background": background})
-    if text and not check(text, allowed):
-        writer, body = "service", text.strip()
-    if body is None:
-        family = FAMILY.get(item["kind"]) or ("event" if item["kind"] in _event_kinds() else "market")
-        body = "\n\n".join([item["body"], " ".join(background), "What it means: " + MEANS[family]])
-        if check(body, allowed):
-            return None                      # a figure not on the record: no article, the wire item stands alone
-    conn.execute("INSERT INTO news_articles (news_item_id, writer, body, figures, period, day, at) VALUES (%s, %s, %s, %s, %s, %s, %s)"
-                 " ON CONFLICT DO NOTHING", (item_id, writer, body, Jsonb(figures_in(body)), period_now, day_now, now))
-    return {"body": body, "writer": writer}
+    with conn.transaction():          # one writer at a time for the day's quota
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext('articles:' || %s || ':' || %s))", (period_now, day_now))
+        if _quota_left(conn, period_now, day_now) <= 0:
+            return None
+        facts = {k: v for k, v in (item["facts"] or {}).items() if k != "wording"}
+        allowed = {str(v) for v in facts.values()} | set(figures_in(item["headline"])) | set(figures_in(item["body"]))
+        allowed |= {str(item["day"]), clock.period_label(item["period"]), clock.period_label(item["period"] - 1)}
+        background, more = _background(conn, item, item["period"] - 1)
+        allowed |= more
+        writer, body = "built_in", None
+        text = _service_text({"headline": item["headline"], "wire": item["body"], "facts": facts, "background": background})
+        if text and not check(text, allowed):
+            writer, body = "service", text.strip()
+        if body is None:
+            family = FAMILY.get(item["kind"]) or ("event" if item["kind"] in _event_kinds() else "market")
+            body = "\n\n".join([item["body"], " ".join(background), "What it means: " + MEANS[family]])
+            if check(body, allowed):
+                return None                      # a figure not on the record: no article, the wire item stands alone
+        conn.execute("INSERT INTO news_articles (news_item_id, writer, body, figures, period, day, at) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+                     " ON CONFLICT DO NOTHING", (item_id, writer, body, Jsonb(figures_in(body)), period_now, day_now, now))
+        return {"body": body, "writer": writer}
 
 
 def _event_kinds() -> set[str]:

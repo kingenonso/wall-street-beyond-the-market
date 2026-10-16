@@ -40,6 +40,16 @@ def _rows(conn: Connection, sql: str, params=()) -> list[dict]:
         return cur.execute(sql, params).fetchall()
 
 
+def event_key(conn: Connection, event: dict) -> str:
+    """An event's key. Never its number: events are numbered in the order they were drawn, not by day, so numbers would show
+    how many are still to come this quarter. The key is a keyed hash, which says nothing about order or count."""
+    import hashlib
+    import hmac
+    seed = _rows(conn, "SELECT fortune_seed FROM world_state")[0]["fortune_seed"]
+    mark = hmac.new(seed.encode(), f"event:{event['id']}".encode(), hashlib.sha256).hexdigest()[:12]
+    return f"event:{event['period']}:{event['day']}:{mark}"
+
+
 def link(conn: Connection, effect: str, cause: str, words: str, period: int, now: datetime, numbers: dict | None = None) -> None:
     """Record that `cause` led to `effect`. Recording the same link twice changes nothing."""
     if effect == cause or not words:
@@ -103,7 +113,7 @@ def at_close(conn: Connection, period: int, results: list, happening: list[dict]
                 continue
             kind = e["kind"].replace("_", " ")
             change = effect["sales_bps"] - 10_000
-            link(conn, key, f"event:{e['id']}",
+            link(conn, key, event_key(conn, e),
                  f"A {kind} on day {e['day']} of {label} changed what {company['name']} could sell.", period, now,
                  {"sales effect of the quarter's events": f"{'+' if change >= 0 else '-'}{_percent(change)}"})
         if result.get("interest_expense"):

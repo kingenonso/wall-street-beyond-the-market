@@ -49,24 +49,30 @@ piece("jn_check_story", "journalist", "Checking stories", "Does the story match 
 def _jn_readers(ctx, r):
     staff = r.int(8000, 32000, 1000)
     importance = r.int(45, 90, 5)
-    scoop = r.pick([True, False])
-    credibility = r.int(30, 80, 5)
+    fresh = r.pick(["scoop", "new", "old"])
+    credibility = r.int(20, 90, 5)
     following = r.int(0, 40000, 1000)
     return {"situation": "Your editor wants to know how many people your next story will reach before giving it the front page.",
             "task": ["Work out the readers: the paper's audience (ten readers for each person it employs) × the story's importance (as a share of "
-                     "100) × 1.5 for a scoop × your credibility ÷ 50, plus a third of your following."],
-            "given": [("The paper's staff", f"{staff:,}"), ("The story's importance", str(importance)), ("A scoop?", "Yes" if scoop else "No"),
+                     "100) × how fresh it is (1.5 for a scoop, 1 for news, 0.4 for what the wire already carried) × your credibility ÷ 50 (counted "
+                     "between 0.5 and 1.5), plus a third of your following."],
+            "given": [("The paper's staff", f"{staff:,}"), ("The story's importance", str(importance)),
+                      ("How fresh", {"scoop": "a scoop", "new": "news, not a scoop", "old": "the wire already carried it"}[fresh]),
                       ("Your credibility", str(credibility)), ("Your following", f"{following:,}")],
-            "f": {"st": staff, "im": importance, "sc": 1.5 if scoop else 1.0, "cr": credibility, "fo": following}}
+            "f": {"st": staff, "im": importance, "sc": {"scoop": 1.5, "new": 1.0, "old": 0.4}[fresh], "cr": credibility, "fo": following}}
+
+
+def _cred(f) -> float:
+    return min(max(f["cr"] / 50, 0.5), 1.5)
 
 
 piece("jn_readers", "journalist", "Readers and reach", "How many will read it?", 23,
       "Reach comes from the size of the news, how early it is, where it is printed and the name on it.", _jn_readers,
-      [Q("readers", "Readers", "number", lambda f: f["st"] * 10 * f["im"] / 100 * f["sc"] * f["cr"] / 50 + f["fo"] * 0.3, 50)],
+      [Q("readers", "Readers", "number", lambda f: f["st"] * 10 * f["im"] / 100 * f["sc"] * _cred(f) + f["fo"] * 0.3, 50)],
       plain=lambda f, t: f"About {t['readers']:,.0f} readers.", need=1,
-      method="Start from the audience (staff × 10). Scale it by importance out of 100, by 1.5 for a scoop, and by credibility out of 50. Then add "
-             "the third of your followers who read everything you write.",
-      maths=lambda f, t: f"{f['st']} × 10 × {f['im']}/100 × {f['sc']} × {f['cr']}/50 + {f['fo']} × 0.3 = {t['readers']:,.0f}.",
+      method="Start from the audience (staff × 10). Scale it by importance out of 100, by how fresh it is, and by credibility out of 50 "
+             "(never below half or above one and a half). Then add the third of your followers who read everything you write.",
+      maths=lambda f, t: f"{f['st']} × 10 × {f['im']}/100 × {f['sc']} × {_cred(f):.2f} + {f['fo']} × 0.3 = {t['readers']:,.0f}.",
       into=NEWS, client="ogene_editor")
 
 
@@ -262,8 +268,8 @@ piece("am_news_trade", "asset_manager", "Trading on news", "What is the story wo
 
 def _ib_announce(ctx, r):
     published = r.int(1, 25)
-    return {"situation": "Your empire's journalist will publish the story of the deal. Nobody in the empire may trade the company from the first "
-                         "draft until two trading days after it is published.",
+    return {"situation": "Your empire's journalist will publish the story of the deal. Neither the journalist nor the empire may trade the "
+                         "company from the first draft until two trading days after it is published.",
             "task": ["The first trading day the empire may trade again.", "May the empire trade it on the day of publication?"],
             "given": [("Published on trading day", str(published))],
             "f": {"d": published}}

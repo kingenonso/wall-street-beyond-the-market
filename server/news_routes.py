@@ -121,7 +121,12 @@ def newsroom_ask(body: AskRequest, player: dict = Depends(current_player), conn:
 
 @app.post("/api/newsroom/publish")
 def newsroom_publish(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _act(conn, player, lambda now: newsroom.publish(conn, player["id"], now), bucket="newsroom-publish", attempts=6)
+    # (Never the news item's number: it would show how many items are still to come this quarter.)
+    return _act(conn, player, lambda now: _no_number(newsroom.publish(conn, player["id"], now)), bucket="newsroom-publish", attempts=6)
+
+
+def _no_number(result: dict) -> dict:
+    return {k: v for k, v in result.items() if k != "news_item_id"}
 
 
 @app.post("/api/newsroom/drop")
@@ -131,7 +136,7 @@ def newsroom_drop(player: dict = Depends(current_player), conn: Connection = Dep
 
 @app.post("/api/newsroom/stories/{story_id}/correct")
 def newsroom_correct(story_id: int, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _act(conn, player, lambda now: newsroom.correct(conn, player["id"], story_id, now))
+    return _act(conn, player, lambda now: _no_number(newsroom.correct(conn, player["id"], story_id, now)))
 
 
 @app.post("/api/stories/{story_id}/expose")
@@ -212,8 +217,13 @@ def news_article(ref: str = Query(min_length=8, max_length=400, pattern=r"^[A-Za
     item = _visible_item(conn, ref)
     period, day = _today(conn)
     found = articles.article(conn, item["id"], period, day, _exchange_time(conn))
-    thread = conn.execute("SELECT id, period, day, headline FROM news_items WHERE story = %s AND (period < %s OR (period = %s AND day <= %s))"
-                          " ORDER BY period, day, id LIMIT 20", (item["story"], period, period, day)).fetchall()
+    # The items of the same affair around this one (the five before it and the five after it that are already out).
+    before = conn.execute("SELECT id, period, day, headline FROM news_items WHERE story = %s AND (period, day, id) < (%s, %s, %s)"
+                          " ORDER BY period DESC, day DESC, id DESC LIMIT 5", (item["story"], item["period"], item["day"], item["id"])).fetchall()
+    after = conn.execute("SELECT id, period, day, headline FROM news_items WHERE story = %s AND (period, day, id) >= (%s, %s, %s)"
+                         " AND (period < %s OR (period = %s AND day <= %s)) ORDER BY period, day, id LIMIT 6",
+                         (item["story"], item["period"], item["day"], item["id"], period, period, day)).fetchall()
+    thread = list(reversed(before)) + list(after)
     return {"article": found, "thread": [{"label": clock.period_label(t["period"]), "day": t["day"], "headline": t["headline"],
                                           "this": t["id"] == item["id"]} for t in thread],
             "why": why_key(conn, item)}
@@ -234,10 +244,13 @@ def why_key(conn: Connection, item: dict) -> str | None:
         return f"story:{item['facts']['story_id']}"
     from simulation import events
     if kind in events.BY_NAME:
-        row = conn.execute("SELECT id FROM events WHERE kind = %s AND period = %s AND day = %s ORDER BY id LIMIT 1",
-                           (kind, period, item["day"])).fetchone()
-        if row:
-            return f"event:{row['id']}"
+        found = conn.execute("SELECT * FROM events WHERE kind = %s AND period = %s AND day = %s ORDER BY id", (kind, period, item["day"])).fetchall()
+        from simulation import ripple as r
+        companies = {c["id"]: c for c in conn.execute("SELECT id, ticker, sector, headquarters FROM companies").fetchall()}
+        for e in found:
+            # The event this item reports: the one that touches the companies it names (or the only one of its kind that day).
+            if len(found) == 1 or any(events.touches(e, c) for c in companies.values() if c["ticker"] in tickers):
+                return r.event_key(conn, e)
     return None
 
 

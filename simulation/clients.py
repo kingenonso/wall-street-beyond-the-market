@@ -15,7 +15,10 @@ CLIENTS = {
     "ledger_editor": ("Mr Tunde Bakare", "the editor of The Naira Ledger"),
     "ogene_editor": ("Ms Halima Sani", "the news editor at Ogene News Network"),
 }
+PAPER = {"herald_editor": "TLH", "ledger_editor": "TNL", "ogene_editor": "ONN"}    # the paper that pays for the editor's work
+PIECES: dict[str, str] = {}             # piece of work -> the editor who gives it (filled in by objectives_gap.piece)
 START, RISE, FALL = 50, 5, 10
+HEALS = 5                               # each quarter's close, an editor who has cooled comes back towards 50
 STOPS_BELOW, TRUSTED = 30, 70
 PREMIUM_LEVELS = (36,)                 # the front-page piece: offered only by an editor who trusts the player
 
@@ -49,6 +52,11 @@ def judged(conn: Connection, player_id, client: str, passed: bool) -> int:
                       " pieces = client_trust.pieces + 1 RETURNING trust",
                 (player_id, client, min(max(START + change, 0), 100), change))
     return row[0]["trust"]
+
+
+def at_close(conn: Connection) -> None:
+    """Time heals: an editor below the middle comes back a little each quarter, so a player can win them round again."""
+    conn.execute("UPDATE client_trust SET trust = least(trust + %s, %s) WHERE trust < %s", (HEALS, START, START))
 
 
 def view(conn: Connection, player_id) -> list[dict]:

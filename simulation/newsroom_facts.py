@@ -125,16 +125,20 @@ def _takeovers(conn: Connection, period: int) -> list[dict]:
 
 
 def _stakes(conn: Connection, period: int) -> list[dict]:
+    world = _rows(conn, "SELECT world_start, weeks_ahead FROM world_state")[0]
+    start = clock.effective_start(world["world_start"], world["weeks_ahead"])
     out = []
     for s in _rows(conn, "SELECT s.*, e.name AS empire, c.name AS company, c.ticker FROM stake_disclosures s"
                          " JOIN empires e ON e.id = s.empire_id JOIN companies c ON c.id = s.company_id"
                          " WHERE s.bps > 0 ORDER BY s.at DESC LIMIT 40"):
+        when = clock.game_date(s["at"], start)
+        said_period = ((when.year - 1) * clock.QUARTERS_PER_YEAR + when.quarter) if when else period
         out.append(_card(
             id=f"stake:{s['empire_id']}:{s['ticker']}:{s['bps']}", kind="stake",
             title=f"{s['empire']} holds {percent(s['bps'])} of {s['company']}",
             line=f"{s['empire']} has disclosed that it holds {percent(s['bps'])} or more of {s['company']}.",
             figures={"stake": percent(s["bps"])}, tone=0, tickers=[s["ticker"]], empire_id=s["empire_id"],
-            period=period, day=1, importance=50, wire_kinds=["stake_disclosed"],
+            period=said_period, day=when.day_of_quarter if when else 1, importance=50, wire_kinds=["stake_disclosed"],
             source=f"stake:{s['empire_id']}:{s['company_id']}", ripple=f"stake:{s['empire_id']}:{s['ticker']}",
             record="the disclosures on the company's page"))
     return out
@@ -176,24 +180,28 @@ def _events(conn: Connection, period: int, day: int) -> list[dict]:
             where = e["location"]
         word, _ = news.severity(e)
         good = e["kind"] in news.GOOD_NEWS
+        from simulation import ripple
+        key = ripple.event_key(conn, e)
         out.append(_card(
-            id=f"event:{e['id']}", kind="event",
+            id=key, kind="event",
             title=f"{e['kind'].replace('_', ' ').capitalize()}: {where}",
             line=f"A {word} {e['kind'].replace('_', ' ')} hit {where} on day {e['day']} of {clock.period_label(period)}.",
             figures={"day": str(e["day"])}, tone=1 if good else -1, tickers=[c["ticker"] for c in touched][:6],
-            period=period, day=e["day"], importance=60, wire_kinds=[e["kind"]], source=f"event:{e['id']}",
-            ripple=f"event:{e['id']}", record="the news wire for that day"))
+            period=period, day=e["day"], importance=60, wire_kinds=[e["kind"]], source=key,
+            ripple=key, record="the news wire for that day"))
     return out
 
 
-def _price_moves(conn: Connection, period: int, day: int) -> list[dict]:
+def _price_moves(conn: Connection, period: int, day: int, now: datetime) -> list[dict]:
+    from simulation import exchange
+    today, _ = exchange.session_of(now)          # only trading days that have closed: today's prices are still moving
     rows = _rows(conn, """
-        WITH days AS (SELECT DISTINCT session_date AS d FROM market_trades ORDER BY d DESC LIMIT 2),
+        WITH days AS (SELECT DISTINCT session_date AS d FROM market_trades WHERE session_date < %s ORDER BY d DESC LIMIT 2),
              closes AS (SELECT DISTINCT ON (company_id, session_date) company_id, session_date, price / split_factor(company_id, id) AS price
                         FROM market_trades WHERE session_date IN (SELECT d FROM days) ORDER BY company_id, session_date, id DESC)
         SELECT c.ticker, c.name, a.session_date AS day, a.price AS now, b.price AS before
         FROM closes a JOIN closes b ON b.company_id = a.company_id AND b.session_date < a.session_date
-        JOIN companies c ON c.id = a.company_id""")
+        JOIN companies c ON c.id = a.company_id""", (today,))
     out = []
     for r in rows:
         if not r["before"]:
@@ -238,7 +246,7 @@ def facts(conn: Connection, now: datetime) -> list[dict]:
     """Every confirmed fact a story may use today, newest and most important first."""
     period, day = _now(conn, now)
     cards = (_rate(conn, period) + _takeovers(conn, period) + _results(conn, period) + _stakes(conn, period)
-             + _events(conn, period, day) + _price_moves(conn, period, day) + _property(conn, period))
+             + _events(conn, period, day) + _price_moves(conn, period, day, now) + _property(conn, period))
     seen, out = set(), []
     for c in sorted(cards, key=lambda c: (-c["importance"], c["id"])):
         if c["id"] not in seen:

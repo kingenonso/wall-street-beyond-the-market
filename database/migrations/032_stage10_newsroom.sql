@@ -137,7 +137,8 @@ CREATE TABLE empire_reputation (
     after       integer NOT NULL,
     why         text NOT NULL,
     period      integer NOT NULL,
-    at          timestamptz NOT NULL
+    at          timestamptz NOT NULL,
+    press       boolean NOT NULL DEFAULT false      -- moved by the press (answers, lapsed questions): capped each day
 );
 CREATE INDEX empire_reputation_by_empire ON empire_reputation (empire_id, id DESC);
 CREATE TRIGGER empire_reputation_permanent BEFORE UPDATE OR DELETE ON empire_reputation
@@ -172,7 +173,7 @@ CREATE TABLE chronicle_entries (
     period      integer NOT NULL,
     day         integer NOT NULL,
     at          timestamptz NOT NULL,
-    UNIQUE (layer, ref, player_id)
+    UNIQUE NULLS NOT DISTINCT (layer, ref, player_id)
 );
 CREATE INDEX chronicle_by_layer ON chronicle_entries (layer, period DESC, day DESC, id DESC);
 CREATE INDEX chronicle_by_player ON chronicle_entries (player_id, id DESC) WHERE player_id IS NOT NULL;

@@ -45,7 +45,8 @@ def test_l1_no_figure_reaches_print_except_from_the_record(db, client):
     assert sneaky.status_code == 422                      # no headline of one's own
     client.post("/api/newsroom/check", json={"fact_id": card["id"]})
     published = client.post("/api/newsroom/publish").json()["result"]
-    body = _one(db, "SELECT headline, body FROM news_items WHERE id = %s", (published["news_item_id"],))
+    assert "news_item_id" not in published                       # no item numbers leave the server
+    body = _one(db, "SELECT headline, body FROM news_items WHERE story = %s", (f"story:{published['story_id']}",))
     from simulation import articles
     allowed = {str(v) for v in card["figures"].values()} | {card["line"], card["title"]}
     assert articles.check(body["headline"] + " " + body["body"].split(" By ")[0], allowed) == []
@@ -111,8 +112,17 @@ def test_l4_nudges_are_capped(db):
 def test_l5_one_scoop_per_fact(db):
     j, _ = pro(db, "journalist", "twice", level=10)
     card = results_card(db)
-    assert write(db, j, [card])["scoop"]
-    assert not write(db, j, [card], now=NOW9 + timedelta(minutes=5))["scoop"]
+    first = write(db, j, [card])
+    assert first["scoop"]
+    with pytest.raises(newsroom.NewsroomError, match="already published"):
+        write(db, j, [card], now=NOW9)                                        # the same fact again: not news
+    newsroom.drop(db, j, NOW9)
+    # A second scoop the same game day is a scoop, but its bonus and reputation are paid once a day.
+    rep = _one(db, "SELECT reputation FROM players WHERE id = %s", (j,))["reputation"]
+    other = [c for c in newsroom_facts.facts(db, NOW9) if c["kind"] == "results"][1]
+    second = write(db, j, [other], now=NOW9)
+    assert second["scoop"] and first["paid"] > 0 and second["paid"] == 0
+    assert _one(db, "SELECT reputation FROM players WHERE id = %s", (j,))["reputation"] == rep
 
 
 # 6. Can anyone see another journalist's draft, or what an empire held?
@@ -132,7 +142,11 @@ def test_l6_drafts_and_holdings_stay_private(db, client):
 def test_l7_only_the_head_answers_in_time(db):
     empire, team = firm_of(db)
     j, _ = pro(db, "journalist", "asker", level=10)
+    card = results_card(db)
+    company = _one(db, "SELECT id FROM companies WHERE ticker = %s", (card["tickers"][0],))["id"]
+    db.execute("INSERT INTO stake_disclosures (empire_id, company_id, bps, at) VALUES (%s, %s, 500, %s)", (empire["id"], company, NOW9))
     newsroom.start(db, j, NOW9)
+    newsroom.add_fact(db, j, card["id"], NOW9)
     newsroom.ask(db, j, ticker=None, empire_name=empire["name"], question="Is the empire buying more?", now=NOW9)
     q = newsroom.to_answer(db, team["head"], NOW9)[0]
     with pytest.raises(newsroom.NewsroomError, match="not yours"):
@@ -200,3 +214,15 @@ def test_l10_exposing_is_once_per_story_and_a_false_alarm_costs_the_accuser(db):
         newsroom.expose(db, accuser, out["story_id"], LATER)
     with pytest.raises(newsroom.NewsroomError, match="your own"):
         newsroom.expose(db, j, out["story_id"], LATER)
+
+
+# Review fix: a story that repeats what the wire already carries is old news, and moves no price.
+def test_review_a_story_repeating_the_wire_moves_no_price(db):
+    w = careers.world_now(db, NOW9)
+    j, _ = pro(db, "journalist", "repeater", level=10)
+    on_wire = [c for c in newsroom_facts.facts(db, NOW9) if c["kind"] == "results" and c["tone"] != 0
+               and newsroom._on_wire(db, c, w["period"], w["day"])]
+    if not on_wire:
+        pytest.skip("no results on the wire in this world")
+    out = write(db, j, [on_wire[0]])
+    assert not out["scoop"] and out["nudges"] == []

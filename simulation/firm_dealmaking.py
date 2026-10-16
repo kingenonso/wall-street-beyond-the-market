@@ -537,6 +537,17 @@ def _block_check(conn: Connection, seller: dict, buyer: dict, company: dict, sha
         raise EmpireError("With the block the buyer would hold 30% or more: at that point an empire must make an offer to every owner instead.")
 
 
+def _story_block(conn: Connection, sides, company: dict, now: datetime) -> None:
+    """Stage 10: an empire whose journalist is writing (or has just published) a story about the company cannot trade it,
+    by a block either."""
+    from simulation import newsroom
+    for side in sides:
+        try:
+            newsroom.check_trade(conn, side["account_id"], company["id"], now)
+        except exchange.ExchangeError as e:
+            raise EmpireError(f"{side['name']}: {e}") from e
+
+
 def offer_block(conn: Connection, head_id, buyer_empire_id: int, company_id, shares: int, price: int, now: datetime) -> dict:
     """The head offers a block of the empire's shares in a listed company to another empire."""
     with conn.transaction():
@@ -549,6 +560,7 @@ def offer_block(conn: Connection, head_id, buyer_empire_id: int, company_id, sha
             raise EmpireError("A block is sold to another empire run by players.")
         company = _listed(conn, company_id)
         _block_check(conn, seller, buyer, company, shares, price)
+        _story_block(conn, (seller, buyer), company, now)
         if _one(conn, "SELECT 1 FROM block_trades WHERE seller_empire_id = %s AND company_id = %s AND status = 'offered'", (seller["id"], company_id)):
             raise EmpireError("The empire already has a block of these shares on offer.")
         block = _one(conn, "INSERT INTO block_trades (seller_empire_id, buyer_empire_id, company_id, shares, price, offered_by, at)"
@@ -573,6 +585,7 @@ def answer_block(conn: Connection, head_id, block_id: int, accept: bool, now: da
         seller = empires._empire(conn, block["seller_empire_id"], lock=True)
         company = _listed(conn, block["company_id"])
         _block_check(conn, seller, buyer, company, block["shares"], block["price"])
+        _story_block(conn, (seller, buyer), company, now)
         cost = block["shares"] * block["price"]
         if ledger.balance(conn, buyer["account_id"]) < cost:
             raise EmpireError(f"The block costs {_money(cost)}. The empire has not that much cash.")

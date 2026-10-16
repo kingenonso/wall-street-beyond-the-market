@@ -96,13 +96,16 @@ def piece(code: str, build: str, module: str, title: str, level: int, idea: str,
             return None
         if client is not None:
             brief = {**brief, "situation": clients.introduce(client) + " " + brief["situation"]}
+            paper = o._one(ctx["conn"], "SELECT id FROM companies WHERE ticker = %s", (clients.PAPER[client],))
+            brief["company_id"] = str(paper["id"]) if paper else None
         fields = []
         for q in questions:
             spec = {"key": q.key, "label": q.label, "kind": q.kind}
             if q.kind == "choice":
                 spec["options"] = [{"code": c, "label": lbl} for c, lbl in q.options]
             fields.append(spec)
-        return {"situation": brief["situation"], "task": brief["task"],
+        extra = {"company_id": brief["company_id"]} if brief.get("company_id") else {}
+        return {**extra, "situation": brief["situation"], "task": brief["task"],
                 "pass_when": f"At least {need} of the {len(questions)} answers are right.", "deadline": HAND_IN,
                 "given": [_text(label, text) for label, text in brief["given"]], "fields": fields, "figures": brief["f"]}
 
@@ -110,15 +113,14 @@ def piece(code: str, build: str, module: str, title: str, level: int, idea: str,
         f = objective["terms"]["figures"]
         truths = {q.key: q.work(f) for q in questions}
         marked = [(q.key, q.label, truths[q.key], q.tol if q.tol is not None else TOL.get(q.kind, 0.1)) for q in questions]
-        verdict = _marked(objective, answers, marked, need, plain=plain(f, truths), method=method, maths=maths(f, truths))
-        if client is not None and answers:
-            from simulation import clients
-            clients.judged(ctx["conn"], ctx["player_id"], client, verdict["state"] == "passed")
-        return verdict
+        return _marked(objective, answers, marked, need, plain=plain(f, truths), method=method, maths=maths(f, truths))
 
     submit.method_text = method          # ("How to do this": read by objectives.how_to)
-    (NEW if into is None else into).append(o.Template(code, build, module, title, level, reward, experience, "hand_in", idea, "employer",
-                                                      offer, submit=submit))
+    if client is not None:
+        from simulation import clients
+        clients.PIECES[code] = client
+    (NEW if into is None else into).append(o.Template(code, build, module, title, level, reward, experience, "hand_in", idea,
+                                                      "client" if client else "employer", offer, submit=submit))
 
 
 def choice(key, label, work, *options) -> Q:

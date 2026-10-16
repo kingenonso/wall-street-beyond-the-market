@@ -139,6 +139,8 @@ def test_interviews_answers_refusals_and_deadlines_go_into_the_story(db):
     empire, team = firm_of(db)
     j, _ = pro(db, "journalist", "interviewer", level=10)
     card = results_card(db)
+    company = _one(db, "SELECT id FROM companies WHERE ticker = %s", (card["tickers"][0],))["id"]
+    db.execute("INSERT INTO stake_disclosures (empire_id, company_id, bps, at) VALUES (%s, %s, 500, %s)", (empire["id"], company, NOW9))
     newsroom.start(db, j, NOW9)
     newsroom.add_fact(db, j, card["id"], NOW9)
     newsroom.check_fact(db, j, card["id"], NOW9)
@@ -146,8 +148,14 @@ def test_interviews_answers_refusals_and_deadlines_go_into_the_story(db):
     newsroom.ask(db, j, ticker=None, empire_name=empire["name"], question="Does the empire plan to buy more?", now=NOW9)
     with pytest.raises(newsroom.NewsroomError, match="already asked"):
         newsroom.ask(db, j, ticker=card["tickers"][0], empire_name=None, question="And again, please explain?", now=NOW9)
+    other = next(c for c in newsroom_facts.facts(db, NOW9) if c["kind"] == "results" and c["tickers"] != card["tickers"])
+    with pytest.raises(newsroom.NewsroomError, match="your story is about"):
+        newsroom.ask(db, j, ticker=other["tickers"][0], empire_name=None, question="A company the story does not name?", now=NOW9)
+    with pytest.raises(newsroom.NewsroomError, match="in words"):
+        newsroom.answer(db, team["head"], newsroom.to_answer(db, team["head"], NOW9)[0]["id"], "Profit will double to 40%", NOW9)
     waiting = newsroom.to_answer(db, team["head"], NOW9)
     assert len(waiting) == 1
+    assert empires_rep(db, empire["id"]) == 50                            # an answer counts only when it goes to print
     with pytest.raises(newsroom.NewsroomError, match="not yours"):
         newsroom.answer(db, team["accountant"], waiting[0]["id"], "Yes.", NOW9)
     newsroom.answer(db, team["head"], waiting[0]["id"], "We do not comment on our plans.", NOW9)
@@ -218,8 +226,14 @@ def test_a_story_whose_facts_the_record_changes_must_be_corrected_and_late_costs
 
 def test_full_articles_are_written_from_the_record_with_every_figure_checked_and_twenty_a_day(db):
     w = careers.world_now(db, NOW9)
-    items = [r[0] for r in db.execute("SELECT id FROM news_items WHERE author_id IS NULL AND (period, day) <= (%s, %s) ORDER BY id DESC LIMIT 25",
-                                         (w["period"], w["day"])).fetchall()]
+    # Articles are written for news still fresh (a few game days old): read as on a busy news day of the record.
+    last = _one(db, "SELECT period, day FROM news_items WHERE author_id IS NULL AND (period, day) <= (%s, %s) ORDER BY period DESC, day DESC LIMIT 1",
+                (w["period"], w["day"]))
+    w = {"period": last["period"], "day": last["day"]}
+    items = [r[0] for r in db.execute("SELECT id FROM news_items WHERE author_id IS NULL AND ((period = %s AND day BETWEEN %s AND %s)"
+                                      " OR (period = %s - 1 AND day > %s + 90 - %s)) ORDER BY id DESC LIMIT 25",
+                                      (w["period"], w["day"] - data.ARTICLE_FRESH_DAYS, w["day"], w["period"], w["day"],
+                                       data.ARTICLE_FRESH_DAYS)).fetchall()]
     first = articles.article(db, items[0], w["period"], w["day"], NOW9)
     assert first and first["writer"] == "built_in" and "What it means" in first["body"]
     item = _one(db, "SELECT * FROM news_items WHERE id = %s", (items[0],))
@@ -238,13 +252,17 @@ def test_full_articles_are_written_from_the_record_with_every_figure_checked_and
         articles.SERVICE = None
     for i in items[3:]:
         articles.article(db, i, w["period"], w["day"], NOW9)
-    assert _one(db, "SELECT count(*) AS n FROM news_articles WHERE period = %s AND day = %s", (w["period"], w["day"]))["n"] == data.ARTICLES_A_DAY
+    assert _one(db, "SELECT count(*) AS n FROM news_articles WHERE period = %s AND day = %s", (w["period"], w["day"]))["n"] == min(len(items), data.ARTICLES_A_DAY)
+    data_old = _one(db, "SELECT id FROM news_items WHERE author_id IS NULL AND period < %s - 1 AND NOT (id = ANY(%s)) ORDER BY id LIMIT 1",
+                    (w["period"], items))
+    assert articles.article(db, data_old["id"], w["period"], w["day"], NOW9) is None   # old archive items do not use up the day's articles
     # Nothing is written for an item dated later than today.
     future = _one(db, "SELECT id FROM news_items WHERE (period, day) > (%s, %s) LIMIT 1", (w["period"], w["day"]))
     if future:
         assert articles.article(db, future["id"], w["period"], w["day"], NOW9) is None
     assert articles.check("Sales rose 12% to ₦3 billion.", {"12%", "₦3 billion"}) == []
     assert articles.check("Sales rose 13% to ₦3 billion.", {"12%", "₦3 billion"}) == ["13%"]
+    assert articles.check("Sales reached ₦12 billion.", {"12%"}) == ["₦12 billion"]          # a figure must match with its unit
 
 
 def test_the_ripple_links_causes_and_the_chronicle_keeps_the_quarter(db):
@@ -272,10 +290,16 @@ def test_a_year_in_review_closes_each_game_year(db):
 
 def test_journalists_write_signed_accounts_beside_the_record_with_a_credibility_score(db):
     j, _ = pro(db, "journalist", "historian", level=10)
-    out = write(db, j, [results_card(db)])
     quarters.close_due_quarters(db, after_quarters(9))
-    entry = _one(db, "SELECT id FROM chronicle_entries WHERE layer = 'world' ORDER BY id LIMIT 1") or \
-        _one(db, "SELECT id FROM chronicle_entries WHERE layer = 'company' ORDER BY id LIMIT 1")
+    later = after_quarters(9) + timedelta(hours=12)
+    entry = _one(db, "SELECT e.id, c.ticker FROM chronicle_entries e JOIN companies c ON c.id = e.company_id WHERE e.layer = 'company' ORDER BY e.id LIMIT 1")
+    card = next(c for c in newsroom_facts.facts(db, later) if c["kind"] == "results" and entry["ticker"] in c["tickers"])
+    out = write(db, j, [card], now=later)
+    unrelated = write(db, j, [next(c for c in newsroom_facts.facts(db, later) if c["kind"] == "results" and entry["ticker"] not in c["tickers"])],
+                      now=later)
+    with pytest.raises(chronicle.ChronicleError, match="about this entry"):
+        chronicle.add_account(db, j, entry["id"], "An account citing a story about something else entirely, to look well sourced.",
+                              [unrelated["story_id"]], 10, LATER)
     words = "The quarter turned on borrowing costs: the rate decision squeezed the weakest borrowers first."
     got = chronicle.add_account(db, j, entry["id"], words, [out["story_id"]], 10, LATER)
     assert got["credibility"] > 40
@@ -284,8 +308,7 @@ def test_journalists_write_signed_accounts_beside_the_record_with_a_credibility_
     other, _ = pro(db, "journalist", "rival", level=10)
     with pytest.raises(chronicle.ChronicleError, match="your own published stories"):
         chronicle.add_account(db, other, entry["id"], words, [out["story_id"]], 10, LATER)
-    shown = chronicle.entries(db, "world" if _one(db, "SELECT layer FROM chronicle_entries WHERE id = %s", (entry["id"],))["layer"] == "world"
-                              else "company", period_now=11, day_now=1)
+    shown = chronicle.entries(db, "company", company_ticker=entry["ticker"], period_now=11, day_now=1)
     assert any(a["author"] for e in shown for a in e["accounts"])
 
 
@@ -329,16 +352,24 @@ def test_the_news_work_comes_three_ways_with_named_editors_who_remember(db):
     assert "Mrs Adaeze Okafor" in terms["situation"]
     right = t.submit(ctx, {"terms": terms}, {})["answers"]
     assert t.submit(ctx, {"terms": terms}, right)["state"] == "passed"
-    assert clients.trust(db, j, "herald_editor") == clients.START + clients.RISE
-    # Done badly twice, and the editor stops offering work; the front page waits for trust.
-    wrong = {k: ("no" if v == "yes" else "yes") for k, v in right.items()}
-    for _ in range(3):
-        t.submit(ctx, {"terms": terms}, wrong)
-    assert clients.trust(db, j, "herald_editor") < clients.STOPS_BELOW
-    assert t.offer(ctx) is None
+    # The paper pays for the editor's work.
+    taken = objectives.accept(db, j, "jn_check_story", NOW9)
+    assert taken["payer"] == "The Lagoon Herald"
+    # Work given up counts against the editor, twice as fast as work done well counts for them.
+    objectives.withdraw(db, j, taken["id"], NOW9)
+    assert clients.trust(db, j, "herald_editor") == clients.START - clients.FALL
+    db.execute("UPDATE client_trust SET trust = 20 WHERE player_id = %s", (j,))
+    assert t.offer(ctx) is None                                             # an editor who has cooled stops offering work
     assert objectives.TEMPLATES["jn_front_page"].offer(ctx) is None
+    clients.at_close(db)
+    assert clients.trust(db, j, "herald_editor") == 25                      # ...and comes back a little each quarter
     db.execute("UPDATE client_trust SET trust = 80 WHERE player_id = %s", (j,))
-    assert objectives.TEMPLATES["jn_front_page"].offer(ctx) is not None
+    assert objectives.TEMPLATES["jn_front_page"].offer(ctx) is not None     # the front page, for a journalist they trust
+    # An independent journalist (no employer) is offered the editors' work too.
+    free, _ = pro(db, "journalist", "nojob", level=10)
+    db.execute("UPDATE careers SET rank = 2, experience = %s WHERE player_id = %s", (careers.experience_for(40), free))
+    careers.leave_job(db, free, NOW9)
+    assert objectives.accept(db, free, "jn_check_story", NOW9)["payer"] == "The Lagoon Herald"
 
 
 def test_the_stage_test_a_journalist_verifies_and_publishes_the_price_reacts_and_the_chronicle_keeps_it_with_its_causes(db):
@@ -347,8 +378,10 @@ def test_the_stage_test_a_journalist_verifies_and_publishes_the_price_reacts_and
     quarters.close_due_quarters(db, after_quarters(9))
     now = after_quarters(9) + timedelta(hours=12)
     j, _ = pro(db, "journalist", "stagetest", level=10)
+    w = careers.world_now(db, now)
+    # News the wire has not yet carried: a story that is first with it moves investors (one repeating the wire does not).
     cards = [c for c in newsroom_facts.facts(db, now) if c["kind"] == "results" and c["tone"] != 0
-             and ripple.causes(db, c["ripple"])]
+             and ripple.causes(db, c["ripple"]) and not newsroom._on_wire(db, c, w["period"], w["day"])]
     card = cards[0]
     newsroom.start(db, j, now)
     newsroom.add_fact(db, j, card["id"], now)

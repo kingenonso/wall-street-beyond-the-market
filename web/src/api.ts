@@ -416,7 +416,7 @@ export type NewsroomDesk = {
 };
 export type PlayerStory = {
   id: number; headline: string; body: string; readers: number; scoop: boolean; period: number; day: number; label: string;
-  tickers: string[]; author: string; outlet: string; corrected: boolean; news_item_id: number;
+  tickers: string[]; author: string; outlet: string; corrected: boolean;
 };
 export type ArchiveItem = { ref: string; period: number; day: number; label: string; outlet: string; kind: string; headline: string; body: string;
   tickers: string[]; follows_up: boolean; author: string | null };

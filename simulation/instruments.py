@@ -235,6 +235,11 @@ def ask_to_exercise(conn: Connection, account, code: str, units: int, now: datet
             raise InstrumentError("Only warrants that have not lapsed can be used.")
         if not isinstance(units, int) or isinstance(units, bool) or units <= 0:
             raise InstrumentError("Name how many.")
+        from simulation import newsroom
+        try:
+            newsroom.check_trade(conn, account, inst["company_id"], now)
+        except exchange.ExchangeError as e:
+            raise InstrumentError(str(e)) from e
         cash = units * inst["shares_per"] * inst["strike"]
         held = _held(conn)
         try:

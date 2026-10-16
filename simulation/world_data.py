@@ -1145,3 +1145,9 @@ UNDECLARED_EMPIRE_REPUTATION = 5       # ...and five of the empire's reputation
 # How late each kind of computer-run investor reads the news, in trading days (None: never).
 NEWS_LAG_DAYS = {"investors:public": 0, "investors:institutions": 1, "investors:foreign": 2, "investors:founders": None}
 ARTICLES_A_DAY = 20                    # full articles written for the wire each game day, at most
+INTERVIEWS_A_STORY = 3                 # a story may ask at most three companies or empires for comment...
+INTERVIEWS_COUNTED = 2                 # ...and at most two answers add readers
+FREELANCE_MOST_A_QUARTER_NAIRA = 20_000_000       # an independent is paid at most ₦20 million a quarter...
+FREELANCE_HOUSE_MOST_A_QUARTER_NAIRA = 200_000_000  # ...and the paper that picks up independents' stories pays out at most ₦200 million
+FOLLOWING_FADES_BPS = 500              # each quarter a twentieth of a journalist's following drifts away
+ARTICLE_FRESH_DAYS = 3                 # full articles are written for items from the last three game days

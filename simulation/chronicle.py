@@ -153,10 +153,20 @@ def add_account(conn: Connection, player_id, entry_id: int, words: str, evidence
     if entry is None or entry["layer"] == "personal":
         raise ChronicleError("Accounts are written for the company and world layers.")
     evidence = sorted(set(int(e) for e in evidence or []))[:5]
-    stories = _rows(conn, "SELECT id, correction_due, correction_id FROM stories WHERE id = ANY(%s) AND author_id = %s AND status = 'published'",
-                    (evidence, player_id))
+    stories = _rows(conn, "SELECT id, correction_due, correction_id, tickers, facts, period FROM stories WHERE id = ANY(%s) AND author_id = %s"
+                          " AND status = 'published'", (evidence, player_id))
     if len(stories) != len(evidence):
         raise ChronicleError("Evidence is your own published stories.")
+    # Evidence must be about the entry: the same company, the same record, or (for a year's review) that year.
+    ticker = _one(conn, "SELECT ticker FROM companies WHERE id = %s", (entry["company_id"],))["ticker"] if entry["company_id"] else None
+    entry_tickers = {ticker} if ticker else set(entry["ref"].split(":")[1:2]) if entry["ref"].split(":")[0] in ("results", "rating") else set()
+    for s in stories:
+        refs = {f.get("ripple") for f in s["facts"]}
+        about = (entry["ref"] in refs or bool(entry_tickers & set(s["tickers"]))
+                 or (entry["kind"] == "year_in_review" and (s["period"] - 1) // 4 + 1 == int(entry["ref"].split(":")[1]))
+                 or (entry["ref"].startswith("rate:") and any((r or "").startswith("rate:") for r in refs)))
+        if not about:
+            raise ChronicleError("Each story you cite must be about this entry: the same company, the same record, or that year.")
     standing_stories = sum(1 for s in stories if not s["correction_due"])
     profile = _one(conn, "SELECT credibility FROM journalist_profiles WHERE player_id = %s", (player_id,))
     credibility = min(20 + 15 * standing_stories + (profile["credibility"] if profile else 50) // 2, 100)
