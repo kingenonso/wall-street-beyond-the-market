@@ -105,7 +105,31 @@ Tests at the end: __TESTS__.
 
 ## The ten-year run
 
-__RUN__
+Forty quarters with computer Journalists (two at papers, one independent) among the other players, after every fix.
+It took about an hour.
+
+| | After ten years |
+| --- | --- |
+| Players' stories published | 450, of which 283 were scoops |
+| Readers in all | 14.2 million |
+| Paid to Journalists (bonuses and fees) | ₦72.5 million |
+| Price nudges from stories | 317 (each at most 2%, fading over five days) |
+| Full articles written by the built-in writer | 277 (only articles that pass the figure check are kept) |
+| Chronicle entries | 1,177, with a year in review for each of the ten years |
+| Ripple links | 5,541 |
+| Corrections due | none (nothing restated the record; see point 8) |
+| Money appearing from nowhere or vanishing | none; every book balanced |
+
+What the run showed:
+- The Journalists at papers built a following of about 65,000 to 70,000; the independent about 3,000. An
+  independent's reach grows much more slowly, as intended: they have no paper's audience behind them.
+- Credibility stayed at 50 for all three, because no correction was ever due. It will start to move with Part 2.
+- The computer-run empires' reputations stayed at 50: none of them was fined, audited or interviewed. Reputation
+  moved as designed for player empires in the tests and screenshots (51 after an answer on the record).
+- 18 attempts to publish were refused because every fact had already been printed by the same Journalist. This is the
+  rule that stops one fact being sold twice.
+- The economy behaved as before Stage 10: the Central Bank's rate moved between 12% and 14%, prices rose 5% to 9% a
+  year, and the property and lending checks from the gap stage held.
 
 ## Screenshots
 
