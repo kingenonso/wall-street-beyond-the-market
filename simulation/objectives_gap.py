@@ -1,6 +1,6 @@
 """The gap stage, Part 3: the work library brought to the design's 350 pieces.
 
-Sixty-two new pieces of work, each in the three settings (alone, with the empire, and the weekend challenge), so 186
+Sixty-six new pieces of work, each in the three settings (alone, with the empire, and the weekend challenge), so 198
 more templates. They fill the higher bands of each syllabus (Levels 41 to 100) and the subjects of Stages 8 and 9
 (property, development, home loans, funds, swaps, preferred shares, warrants, mezzanine, earn-outs, hedging). Every piece
 is practical work judged by the server from figures it gives, with a "How to do this" card (the method, never the
@@ -503,7 +503,7 @@ def _am_covered(ctx, r):
     price = r.int(20, 200)
     strike = price + r.int(-10, 30)
     premium = r.int(1, 15)
-    end = price + r.int(-40, 50)
+    end = max(price + r.int(-40, 50), 1)
     return {"situation": "A client holds shares and writes (sells) call options on them for income: if the price ends above the strike, the "
                          "shares are given up at the strike.",
             "task": ["Work out the premium received.", "Work out the shares' value at the end, capped at the strike if called.",
@@ -599,7 +599,8 @@ def _am_immunise(ctx, r):
     rate = _rate_bps(ctx) / 100
     return {"situation": "A pension fund must pay a lump sum in some years' time. It buys a zero-coupon government bond maturing on that date, "
                          "so rate changes cannot hurt it: immunisation.",
-            "task": ["Work out what to invest today (the lump sum brought back at the yield).", "Give the duration the investment must have (years)."],
+            "task": ["Work out what to invest today (the lump sum brought back at the yield).",
+                     "Work out the price of the zero-coupon bond for ₦100 of face."],
             "given": [("Lump sum owed", m(owed)), ("Years until it is due", str(years)), ("Yield on government bonds", pc(rate))],
             "f": {"o": owed, "t": years, "y": rate}}
 
@@ -607,11 +608,11 @@ def _am_immunise(ctx, r):
 piece("am_immunise", "asset_manager", "Matching assets to debts", "Lock in the pension payment", 95,
       "A fund that owes a fixed sum on a fixed date is safest holding a bond that pays that sum on that date.", _am_immunise,
       [Q("invest", "To invest today (₦m)", "millions", lambda f: f["o"] / (1 + f["y"] / 100) ** f["t"]),
-       Q("duration", "Duration needed (years)", "number", lambda f: f["t"], 0.01)],
+       Q("price", "Price for ₦100 of face (₦)", "naira", lambda f: 100 / (1 + f["y"] / 100) ** f["t"], 0.02)],
       plain=lambda f, t: f"Invest {m(t['invest'])} in a bond paying out in {f['t']} years.", need=2,
       method="Bring the sum owed back to today at the yield: that is what to invest. Match the duration of what is held to the date it "
              "is owed, so a rise in rates lowers both by the same amount.",
-      maths=lambda f, t: f"{f['o']} ÷ (1 + {f['y'] / 100:.4f})^{f['t']} = {t['invest']:.2f}m.")
+      maths=lambda f, t: f"{f['o']} ÷ (1 + {f['y'] / 100:.4f})^{f['t']} = {t['invest']:.2f}m; ₦100 ÷ (1 + y)^{f['t']} = ₦{t['price']:.2f}.")
 
 
 # ===========================================================================
@@ -719,14 +720,15 @@ def _ib_earnout(ctx, r):
     earn = int(upfront * r.int(10, 30) / 100)
     chance = r.int(30, 90)
     seller_weight = data.EARNOUT_SELLER_COUNTS_BPS // 100
+    cash_share = r.int(30, 90)                     # the cash bid offers this share of the earn-out on top of the upfront sum
     return {"situation": "Two bids for a company: one all cash, one with part of the price as an earn-out paid a year later if the company "
                          "hits its sales target. The seller counts an earn-out at only part of its face, because it may never come.",
             "task": ["Work out what the seller counts the earn-out bid at.", "Work out what the earn-out bid is expected to cost the buyer "
                      "(the chance of paying it × the earn-out).", "Say whether the earn-out bid beats the cash bid in the seller's eyes."],
             "given": [("Earn-out bid: paid now", m(upfront)), ("Earn-out bid: paid later if the target is hit", m(earn)),
                       ("Chance the target is hit", f"{chance}%"), ("Seller counts an earn-out at", f"{seller_weight}%"),
-                      ("Cash bid", m(int(upfront + earn * 0.5)))],
-            "f": {"u": upfront, "e": earn, "c": chance, "w": seller_weight, "cash": int(upfront + earn * 0.5)}}
+                      ("Cash bid", m(upfront + earn * cash_share // 100))],
+            "f": {"u": upfront, "e": earn, "c": chance, "w": seller_weight, "cash": upfront + earn * cash_share // 100}}
 
 
 piece("ib_earnout", "investment_banker", "Earn-outs", "Is the earn-out bid the better bid?", 58,
@@ -770,25 +772,28 @@ piece("ib_accretion", "investment_banker", "Accretion and dilution", "Does the d
 
 def _ib_swap_rate(ctx, r):
     rates = [(_rate_bps(ctx) + r.int(-300, 300, 25)) / 100 for _ in range(4)]
+    size = r.int(500, 5000, 100)
+    spread = r.pick([25, 50, 75, 100])
     return {"situation": "A client wants to swap a floating rate for a fixed one for four quarters. A fair fixed rate makes the swap worth "
                          "nothing on the day: here, the average of the floating rates the market expects (equal weights, as the quarters are "
                          "close together).",
-            "task": ["Work out the fair fixed rate.", "If the client pays your bank's rate, half a point above, work out the bank's margin on "
-                     "₦1 billion for a quarter."],
-            "given": [("Expected floating rates, quarter by quarter", ", ".join(pc(x) for x in rates)), ("Swap size", "₦1 billion")],
-            "f": {"r": rates}}
+            "task": ["Work out the fair fixed rate.", "If the client pays your bank's fixed rate, above the fair one by the spread given, "
+                     "work out the bank's margin on the swap for a quarter."],
+            "given": [("Expected floating rates, quarter by quarter", ", ".join(pc(x) for x in rates)), ("Swap size", m(size)),
+                      ("Bank's spread above the fair rate", f"{spread / 100:.2f} points")],
+            "f": {"r": rates, "size": size, "spread": spread}}
 
 
 piece("ib_swap_rate", "investment_banker", "Swap pricing", "Set the swap's fixed rate", 70,
       "A swap's fair fixed rate is the one that makes it worth nothing today: the floating rates the market expects, averaged.",
       _ib_swap_rate,
       [Q("fixed", "Fair fixed rate (%)", "percent", lambda f: sum(f["r"]) / len(f["r"]), 0.02),
-       Q("margin", "Bank's margin for a quarter (₦m)", "millions", lambda f: 1000 * 0.005 / 4, 0.01)],
-      plain=lambda f, t: f"The fair fixed rate is {t['fixed']:.2f}%; half a point above earns the bank {m(t['margin'])} a quarter on ₦1 billion.",
+       Q("margin", "Bank's margin for a quarter (₦m)", "millions", lambda f: f["size"] * f["spread"] / 10_000 / 4, 0.01)],
+      plain=lambda f, t: f"The fair fixed rate is {t['fixed']:.2f}%; the spread earns the bank {m(t['margin'])} a quarter.",
       need=2,
       method="List the floating rates the market expects for each period and weight them by how long each runs (and, strictly, by when it "
              "is paid). The fair fixed rate makes both sides worth the same; anything the bank adds is its margin for the risk it takes.",
-      maths=lambda f, t: f"({' + '.join(f'{x:.2f}' for x in f['r'])}) ÷ {len(f['r'])} = {t['fixed']:.3f}%; ₦1,000m × 0.5% ÷ 4 = ₦{t['margin']:.2f}m.")
+      maths=lambda f, t: f"({' + '.join(f'{x:.2f}' for x in f['r'])}) ÷ {len(f['r'])} = {t['fixed']:.3f}%; {f['size']} × {f['spread'] / 100:.2f}% ÷ 4 = {t['margin']:.3f}m.")
 
 
 def _ib_residual(ctx, r):
@@ -845,7 +850,7 @@ def _ib_warrant_offer(ctx, r):
     new = r.int(20, 200, 5)
     price = r.int(20, 150)
     discount = r.int(10, 30)
-    return {"situation": "A company raises money with a rights issue at a discount, with a warrant for every five new shares. What happens to "
+    return {"situation": "A company raises money with a rights issue at a discount. What happens to "
                          "the share price once the new shares are in (the price after the issue)?",
             "task": ["Work out the issue price.", "Work out the money raised.", "Work out the price after the issue (all the shares' value ÷ all the shares)."],
             "given": [("Shares now", f"{shares} million"), ("New shares", f"{new} million"), ("Price now", f"₦{price}"), ("Discount", f"{discount}%")],
@@ -1304,7 +1309,7 @@ piece("jn_property_index", "journalist", "Reporting property prices", "Write up 
       plain=lambda f, t: f"Prices moved {t['change']:+.2f}%.", need=2,
       method="Measure the change against last quarter's figure, not this one's. Keep words like 'boom' and 'slump' for moves of a tenth or "
              "more; a smaller move is news only with context.",
-      maths=lambda f, t: f"({f['a']} − {f['b']}) ÷ {f['b']} = {t['change']:.2f}%.")
+      maths=lambda f, t: f"({f['a'] / 100:.2f} − {f['b'] / 100:.2f}) ÷ {f['b'] / 100:.2f} = {t['change']:.2f}%.")
 
 
 def _jn_infra(ctx, r):
@@ -1434,9 +1439,9 @@ piece("jn_preferred", "journalist", "Reporting fixed income", "Report the prefer
 
 
 def _jn_breadth(ctx, r):
-    up, down = r.int(5, 45), 0
+    up = r.pick([n for n in range(5, 46) if n != 25])
     down = 50 - up
-    index = r.int(-30, 30) / 10
+    index = r.pick([x / 10 for x in range(-30, 31) if x != 0])
     return {"situation": "The BSX 50 moved, but how many of its fifty shares went with it? Breadth tells whether a move is broad or carried by a few.",
             "task": ["Work out the share of members that rose (%).", "Say whether the move was broad (most members moved the index's way)."],
             "given": [("Members up", str(up)), ("Members down", str(down)), ("Index change", f"{index:+.1f}%")],
@@ -1630,8 +1635,8 @@ def _ce_incentive(ctx, r):
     years = r.int(3, 5)
     return {"situation": "The board is setting the chief executive's long-term pay: options on the company's shares, used after some years. "
                          "Its value to the executive depends on the share price then.",
-            "task": ["Work out the options' value if the price is the given one when they can be used.", "Say whether they reward the "
-                     "executive only for a rising share price."],
+            "task": ["Work out the options' value if the price is the given one when they can be used.",
+                     "Say whether they are worth anything at that price."],
             "given": [("Options", f"{options} million"), ("Strike", f"₦{strike}"), ("Share price when they can be used", f"₦{price}"),
                       ("Years until they can be used", str(years))],
             "f": {"n": options, "k": strike, "p": price, "t": years}}
@@ -1640,7 +1645,7 @@ def _ce_incentive(ctx, r):
 piece("ce_incentives", "ceo", "Executive pay", "What is the long-term pay worth?", 99,
       "Options pay the executive only what the share price rises above the strike: pay tied to what owners gain.", _ce_incentive,
       [Q("value", "Value when used (₦m)", "millions", lambda f: f["n"] * max(f["p"] - f["k"], 0)),
-       choice("aligned", "Only for a rising price?", lambda f: "yes", *YES_NO)],
+       choice("worth", "Are they worth anything at that price?", lambda f: yn(f["p"] > f["k"]), *YES_NO)],
       plain=lambda f, t: f"The options would be worth {m(t['value'])}.", need=2,
       method="An option is worth the share price above the strike, times the number, and nothing below it: the executive gains only "
              "when the owners do. Set the strike at today's price or above, and the time long enough to reward lasting results.",

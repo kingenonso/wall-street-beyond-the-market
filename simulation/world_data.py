@@ -1096,9 +1096,9 @@ HOME_DEFAULT_PER_JOBS_FALL_BPS = 50    # ...plus 0.5% for each percent fewer job
 HOME_DEFAULT_BURDEN_BPS = 3000         # ...and more when repayments take over 30% of income
 HOME_RECOVERY_BPS = 6000               # a repossessed home sells for 60% of the loan
 HOME_BUILD_COST_BPS = 5500             # the property companies spend 55% of a new home's price on cement and steel
-HOME_PRICE_FROM_BUYING_BPS = 3000      # home buying lifts the homes districts' prices (by 30% of what was lent, against their worth)
+HOME_PRICE_FROM_BUYING_BPS = 2000      # home buying lifts the homes districts' prices (by a fifth of what was lent, against their worth)
 HOME_SEED_SHARE_BPS = 2000             # at the start, a fifth of what households owe the banks is home loans
-HOME_REPOSSESSION_PRICE_HIT = 3        # repossessions push the homes district's prices down
+HOME_REPOSSESSION_PRICE_HIT = 1        # repossessions push the homes districts' prices down (by what defaulted, against their worth)
 # Property funds.
 PROPERTY_FUND_LEVEL = 20
 PROPERTY_FUND_FEE_MOST_BPS = 200       # a manager's fee: at most 2% of the fund a year
