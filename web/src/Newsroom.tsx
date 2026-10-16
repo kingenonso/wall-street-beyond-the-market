@@ -241,7 +241,7 @@ export function PressQuestions({ onLoggedOut }: { onLoggedOut: () => void }) {
       {data.questions.map((q) => (
         <Panel key={q.id} title={`${q.journalist} asks ${q.empire}`} aside={`answer by ${new Date(q.due_at).toLocaleString("en-NG", { timeZone: "Africa/Lagos", dateStyle: "medium", timeStyle: "short" })}`}>
           <p>“{q.question}”</p>
-          <label className="answer">Your answer, on the record (300 characters)<textarea rows={3} maxLength={300} value={answers[q.id] ?? ""} onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })} /></label>
+          <label className="answer answer-block">Your answer, on the record (300 characters)<textarea rows={3} maxLength={300} value={answers[q.id] ?? ""} onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })} /></label>
           <div className="button-row">
             <button className="button-outline" disabled={act.busy || !(answers[q.id] ?? "").trim()} onClick={() => act.run(() => api.post(`/interviews/${q.id}/answer`, { words: answers[q.id] }), "Answered on the record.")}>Answer</button>
             <button className="button-quiet" disabled={act.busy} onClick={() => act.run(() => api.post(`/interviews/${q.id}/answer`, { words: null }), "Declined to comment.")}>Decline to comment</button>
@@ -259,6 +259,8 @@ const STATS: [keyof NewsroomDesk["profile"], string][] = [["readers", "Readers"]
 export function NewsroomDeskView({ onLoggedOut }: { onLoggedOut: () => void }) {
   const { data, error, loading, reload } = useLoad(api.newsroom, "newsroom", onLoggedOut);
   const [ticker, setTicker] = useState("");
+  const [kind, setKind] = useState("all");
+  const [showAll, setShowAll] = useState(false);
   const facts = useLoad(() => api.newsroomFacts(ticker || undefined), `facts:${ticker}`, onLoggedOut);
   const act = useRun(() => { reload(); facts.reload(); }, onLoggedOut);
   const [angle, setAngle] = useState<string | null>(null);
@@ -349,7 +351,17 @@ export function NewsroomDeskView({ onLoggedOut }: { onLoggedOut: () => void }) {
       <Panel title="Confirmed facts on the record today" aside="only what is public and has already happened">
         <label className="answer small">Only about a company<input type="text" maxLength={5} value={ticker} onChange={(e) => setTicker(e.target.value.toUpperCase())} placeholder="ticker" /></label>
         {facts.loading && !facts.data && <Loading what="the facts" />}
-        {facts.data && facts.data.facts.map((f: Fact) => (
+        {facts.data && (
+          <div className="filter-row" role="group" aria-label="Kind of fact">
+            {[["all", "All"], ["results", "Results"], ["rating", "Ratings"], ["takeover", "Takeovers"], ["stake", "Stakes"], ["rate", "The rate"],
+              ["event", "Events"], ["price", "Share prices"], ["infrastructure", "Public works"], ["homes", "Homes"]]
+              .filter(([k]) => k === "all" || facts.data!.facts.some((f: Fact) => f.kind === k))
+              .map(([k, label]) => (
+                <button key={k} className="filter-chip" aria-pressed={kind === k} onClick={() => { setKind(k); setShowAll(false); }}>{label}</button>
+              ))}
+          </div>
+        )}
+        {facts.data && facts.data.facts.filter((f: Fact) => kind === "all" || f.kind === kind).slice(0, showAll ? undefined : 12).map((f: Fact) => (
           <div key={f.id} className="fact-row">
             <div><div className="strong">{f.title} {f.tone > 0 ? <span className="tag-good small">good news</span> : f.tone < 0 ? <span className="tag-bad small">bad news</span> : null}</div>
               <div className="small muted">{f.line}</div></div>
@@ -357,6 +369,10 @@ export function NewsroomDeskView({ onLoggedOut }: { onLoggedOut: () => void }) {
               {chosen.has(f.id) ? "In your story" : "Use it"}</button>
           </div>
         ))}
+        {facts.data && !showAll && facts.data.facts.filter((f: Fact) => kind === "all" || f.kind === kind).length > 12 && (
+          <button className="button-quiet" onClick={() => setShowAll(true)}>
+            Show all {facts.data.facts.filter((f: Fact) => kind === "all" || f.kind === kind).length} facts</button>
+        )}
       </Panel>
       <Panel title="Your editors" aside="they remember how your work for them went">
         {d.editors.map((e) => (

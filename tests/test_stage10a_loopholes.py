@@ -226,3 +226,20 @@ def test_review_a_story_repeating_the_wire_moves_no_price(db):
         pytest.skip("no results on the wire in this world")
     out = write(db, j, [on_wire[0]])
     assert not out["scoop"] and out["nudges"] == []
+
+
+# Found in the screenshots: a smaller loss was written as "profit up". A loss is never called a profit.
+def test_review_a_loss_is_never_written_as_a_profit(db):
+    from simulation import quarters
+    from tests.conftest import after_quarters
+    quarters.close_due_quarters(db, after_quarters(9))
+    now = after_quarters(9) + timedelta(hours=12)
+    for c in newsroom_facts.facts(db, now):
+        if c["kind"] == "results" and "a loss of" in c["line"]:
+            assert "profit up" not in c["line"] and "profit down" not in c["line"], c["line"]
+    with db.cursor(row_factory=dict_row) as cur:
+        for e in cur.execute("SELECT title, words FROM chronicle_entries WHERE kind = 'turning_point'").fetchall():
+            if " lost " in e["words"]:
+                assert "profit up" not in e["title"] and "profit down" not in e["title"], e
+            if "profit up" in e["title"] or "profit down" in e["title"]:
+                assert " made " in e["words"] and "loss" not in e["words"], e

@@ -73,13 +73,21 @@ def at_close(conn: Connection, period: int, now: datetime) -> None:
         before, profit = r["before"], r["now"]
         if before and (before > 0) == (profit > 0) and abs((profit - before) * 10_000 // abs(before)) >= TURNING_POINT_BPS:
             change = (profit - before) * 10_000 // abs(before)
-            write(conn, "company", f"results:{r['ticker']}:{period}", "turning_point",
-                  f"{r['name']}: profit {'up' if change > 0 else 'down'} {_percent(change)} on the year",
-                  f"In {label} {r['name']} made {newsroom_facts.money(profit)}, against {newsroom_facts.money(before)} a year before.",
-                  period + 1, 1, now, company_id=r["id"])
+            if profit > 0:
+                title = f"{r['name']}: profit {'up' if change > 0 else 'down'} {_percent(change)} on the year"
+                words = f"In {label} {r['name']} made {newsroom_facts.money(profit)}, against {newsroom_facts.money(before)} a year before."
+            else:                         # a loss both years: the loss narrows or widens
+                title = f"{r['name']}: loss {'narrows' if change > 0 else 'widens'} by {_percent(change)} on the year"
+                words = (f"In {label} {r['name']} lost {newsroom_facts.money(-profit)}, against a loss of "
+                         f"{newsroom_facts.money(-before)} a year before.")
+            write(conn, "company", f"results:{r['ticker']}:{period}", "turning_point", title, words, period + 1, 1, now, company_id=r["id"])
         elif before and before > 0 >= profit:
             write(conn, "company", f"results:{r['ticker']}:{period}", "turning_point", f"{r['name']} falls into a loss",
                   f"In {label} {r['name']} lost {newsroom_facts.money(profit)}, after a profit of {newsroom_facts.money(before)} a year before.",
+                  period + 1, 1, now, company_id=r["id"])
+        elif before and before < 0 < profit:
+            write(conn, "company", f"results:{r['ticker']}:{period}", "turning_point", f"{r['name']} is back in profit",
+                  f"In {label} {r['name']} made {newsroom_facts.money(profit)}, after a loss of {newsroom_facts.money(before)} a year before.",
                   period + 1, 1, now, company_id=r["id"])
     for t in _rows(conn, "SELECT t.id, t.outcome, t.status, tc.name AS target, tc.id AS target_id, coalesce(e.name, bc.name) AS bidder"
                          " FROM takeovers t JOIN companies tc ON tc.id = t.target_company_id LEFT JOIN companies bc ON bc.id = t.bidder_company_id"

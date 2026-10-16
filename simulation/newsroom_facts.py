@@ -77,7 +77,10 @@ def _results(conn: Connection, period: int) -> list[dict]:
             if before and (before > 0) == (profit > 0):
                 change = (profit - before) * BPS // abs(before)
                 figures["change"] = percent(change)
-                line += f": profit {'up' if change >= 0 else 'down'} {percent(change)} on {with_what}"
+                if profit > 0:
+                    line += f": profit {'up' if change >= 0 else 'down'} {percent(change)} on {with_what}"
+                else:                      # a loss both times: it narrows or widens
+                    line += f": a loss {percent(change)} {'smaller' if change >= 0 else 'larger'} than in {with_what}"
                 tone = 1 if change > 300 else -1 if change < -300 else 0
             elif before <= 0 < profit:
                 tone, line = 1, line + f", back in profit after a loss in {with_what}"

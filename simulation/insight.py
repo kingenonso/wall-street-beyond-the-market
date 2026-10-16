@@ -237,6 +237,8 @@ def results_report(conn: Connection, ticker: str, period: int | None = None) -> 
         change = _change(now_value, before)
         if change is None or (before < 0) != (now_value < 0):
             return f", against {_big(before) if before >= 0 else 'a loss of ' + _big(before)} in {with_what}"
+        if now_value < 0:                 # a loss both times: say whether it is smaller or larger
+            return f", a {'smaller' if change >= 0 else 'larger'} loss than the {_big(before)} lost in {with_what}"
         return f", {'up' if change >= 0 else 'down'} {_percent(change)} on {with_what} ({_big(before)})"
 
     paragraphs = []
