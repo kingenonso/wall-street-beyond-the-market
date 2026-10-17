@@ -18,7 +18,7 @@ WORDINGS = {
             ("Auction: {title}",
              "Bids open for the {city} title."),
             ("{title} up for grabs",
-             "The Government sells; {city} waits."),
+             "The Government sells. {city} waits."),
         ],
         "ledger": [
             ("Auction House: {title}, {city}",
@@ -50,7 +50,7 @@ WORDINGS = {
             ("Auction: {title} to {buyer} at {price}",
              "The price will be judged against the profit its readers bring each quarter."),
             ("{buyer} acquires {title} for {price}",
-             "A title earns from its audience; its new owner may also print in it."),
+             "A title earns from its audience. Its new owner may also print in it."),
             ("{title} sold for {price}",
              "The buyer is {buyer}."),
         ],

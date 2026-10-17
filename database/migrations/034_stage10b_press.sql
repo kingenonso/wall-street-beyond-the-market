@@ -30,7 +30,8 @@ CREATE TABLE crises (
     kind          text NOT NULL CHECK (kind IN ('theft', 'pact', 'leak', 'report', 'spin')),
     ref           text NOT NULL,                               -- what it is about (book:, pact:, story:, leak:)
     words         text NOT NULL,                               -- what happened, as the public knows it
-    truth         text NOT NULL CHECK (truth IN ('true', 'false', 'worthless')),     -- SECRET: never sent
+    truth         text NOT NULL CHECK (truth IN ('true', 'false', 'worthless', 'unknown')),     -- SECRET: never sent
+    item_id       bigint REFERENCES intel_items (id),          -- a crisis about a report: settled only once the report is (see press.py)
     opened_at     timestamptz NOT NULL,
     due_at        timestamptz NOT NULL,
     status        text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'answered', 'silent')),
@@ -56,6 +57,8 @@ CREATE TABLE leaks (
     at            timestamptz NOT NULL
 );
 CREATE TRIGGER leaks_no_delete BEFORE DELETE ON leaks FOR EACH ROW EXECUTE FUNCTION records_forbid_change();
+
+CREATE INDEX crises_by_item ON crises (item_id) WHERE item_id IS NOT NULL;
 
 CREATE TABLE leak_hunts (
     leak_id       bigint PRIMARY KEY REFERENCES leaks (id),    -- one hunt for each leak

@@ -55,9 +55,9 @@ def _rep(db, empire_id):
     return _one(db, "SELECT reputation FROM empires WHERE id = %s", (empire_id,))["reputation"]
 
 
-def _investigate(db, j, empire, *, days=60, ref=None):
-    f = press.open_file(db, j, empire["name"], ref, NOW9)
-    t = NOW9
+def _investigate(db, j, empire, *, days=60, ref=None, start=NOW9):
+    f = press.open_file(db, j, empire["name"], ref, start)
+    t = start
     for _ in range(days):
         f = press.dig(db, j, f["id"], t)
         if f["documents"] >= 2 and not f["confirmed"]:
@@ -81,7 +81,7 @@ def test_an_investigation_finds_documents_only_where_there_is_something_and_its_
     press.drop_file(db, j, clean["id"])
     # Money taken and dressed up in the books: the documents point at it, one by one.
     book = _theft(db, empire, team["accountant"])
-    f, when = _investigate(db, j, empire)
+    f, when = _investigate(db, j, empire, start=NOW9 + 9 * DAY)
     assert f["can_publish"] and f["documents"] == data.DOCUMENTS_NEEDED
     assert "basis" not in f and not any("Office supplies" in n for n in f["notes"])     # the file never names the entry
     rep_before = _rep(db, empire["id"])
@@ -123,16 +123,28 @@ def test_a_pact_investigation_started_from_a_true_tip_goes_faster_and_the_expose
 def test_a_crisis_answered_honestly_and_quickly_costs_least_denial_of_a_truth_costs_most(db):
     empire, team = firm_of(db)
     cases = {}
+    w = careers.world_now(db, NOW9)
     for n, (truth, stance) in enumerate((("true", "admit"), ("true", "deny"), ("true", None), ("false", "deny"), ("false", "admit"))):
-        c = press.open_crisis(db, empire["id"], "report", f"story:{9000 + n}", "A report says something about the empire.", truth, NOW9)
+        # A report about the empire: what answering it does waits until the report is borne out or proved wrong.
+        item = intel.make(db, kind="rumour", topic="theft", truth=truth, basis="none", period=w["period"], day=w["day"], now=NOW9,
+                          empire_id=empire["id"], words="Someone at the empire may be taking its money.")
+        c = press.open_crisis(db, empire["id"], "report", f"story:{9000 + n}", "A report says something about the empire.", truth, NOW9,
+                              item_id=item["id"])
         before = _rep(db, empire["id"])
         if stance:
             press.answer_crisis(db, team["journalist"], c["id"], stance, "We have looked into this and here is our answer.", NOW9)
         else:
             press.tick(db, NOW9 + timedelta(hours=data.CRISIS_HOURS + 1))
+        assert _rep(db, empire["id"]) == before                                       # nothing yet: the truth is not out
+        intel._settle(db, item, truth, NOW9 + timedelta(hours=30))
         cases[(truth, stance)] = _rep(db, empire["id"]) - before
     for key, change in cases.items():
         assert change == data.CRISIS_OUTCOMES[key], key
+    # A theft that came to light is known to be so: its answer counts at once.
+    c = press.open_crisis(db, empire["id"], "theft", "book:31337", "Money was taken.", "true", NOW9)
+    before = _rep(db, empire["id"])
+    press.answer_crisis(db, team["head"], c["id"], "admit", "We found it and we are putting it right.", NOW9)
+    assert _rep(db, empire["id"]) - before == data.CRISIS_OUTCOMES[("true", "admit")]
     # Only the head or the empire's journalist speaks for it; a closed matter cannot be answered; no figures.
     c = press.open_crisis(db, empire["id"], "report", "story:9999", "Another report.", "true", NOW9)
     with pytest.raises(press.PressError, match="speaks for it"):
@@ -305,7 +317,7 @@ def test_the_fact_checking_desk_checks_a_members_tip_and_rumours_can_be_planted_
                           tone=-1, now=NOW9)
     assert "planted" not in repr(planted) and "truth" not in repr(planted)
     row = _one(db, "SELECT planted_by, truth FROM intel_items WHERE ref = %s", (planted["ref"],))
-    assert row["planted_by"] == team["journalist"] and row["truth"] == "false"
+    assert row["planted_by"] == team["journalist"] and row["truth"] == "unknown"      # nothing hidden was read to start it
     with pytest.raises(press.PressError, match="One rumour a day"):
         press.plant(db, team["journalist"], ticker=_one(db, "SELECT ticker FROM companies WHERE listed LIMIT 1")["ticker"], empire_name=None,
                     tone=1, now=NOW9 + timedelta(hours=2))

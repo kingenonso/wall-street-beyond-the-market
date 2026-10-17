@@ -107,7 +107,7 @@ def test_a_journalists_tips_include_pacts_and_thefts_and_a_lawyers_pacts(db):
     assert topics <= {"company", "pact", "theft"}
 
 
-def test_checking_costs_a_fee_is_mostly_right_and_turns_a_rumour_into_a_lead(db):
+def test_checking_costs_a_fee_is_mostly_right_and_the_verdict_is_the_holders_own(db):
     p = _player(db, "risk_manager", "checker", level=30, cash=50_000_000)
     account = ledger.player_account_id(db, p)
     before = ledger.balance(db, account)
@@ -121,7 +121,7 @@ def test_checking_costs_a_fee_is_mostly_right_and_turns_a_rumour_into_a_lead(db)
     with pytest.raises(intel.IntelError, match="already been checked"):
         intel.check(db, p, items[0]["ref"], NOW9)
     leads = _one(db, "SELECT count(*) AS n FROM intel_items WHERE id = ANY(%s) AND status = 'lead'", ([i["id"] for i in items],))["n"]
-    assert leads > 0
+    assert leads == 0                                                         # one holder's check never changes what others see
     # Nobody checks what they do not hold.
     other = _player(db, "risk_manager", "nosy")
     with pytest.raises(intel.IntelError, match="do not hold"):

@@ -594,8 +594,11 @@ def publish(conn: Connection, player_id, now: datetime) -> dict:
         # Readers: how big the news is, how early, the audience, and the author's name.
         fresh = [c for c in story["facts"] if c["id"] not in mine_before]
         scoop = any(c.get("scoopable") and not _on_wire(conn, c, period, day) and _first_with(conn, c, story["id"]) for c in fresh)
-        late = not lead and all(not c.get("scoopable") or _on_wire(conn, c, period, day) or not _first_with(conn, c, story["id"]) for c in fresh)
         unconfirmed = bool(lead) and lead["status"] != "verified"
+        # A piece the record has already borne out is public by now: printing it is old news, like a fact the wire carried.
+        stale_lead = bool(lead) and lead["item"]["resolved_at"] is not None
+        late = (not lead or stale_lead) and all(not c.get("scoopable") or _on_wire(conn, c, period, day) or not _first_with(conn, c, story["id"])
+                                                for c in fresh)
         importance = max([c["importance"] for c in fresh] + ([data.RUMOUR_IMPORTANCE] if lead else []))
         freshness = data.SCOOP_READERS_BPS if scoop else data.OLD_NEWS_READERS_BPS if late else BPS
         credibility = min(max(prof["credibility"] * BPS // 50, 5000), 15000)
@@ -658,8 +661,12 @@ def publish(conn: Connection, player_id, now: datetime) -> dict:
                          (story["id"], empire["id"], held, bool(story["declared"])))
         # A true, widely read story nudges the investors' view of the companies it is about: only news, never an old fact again.
         nudges = [] if late else _nudge(conn, {**story, "facts": fresh}, readers, session, now)
-        if lead:
+        if lead and not stale_lead:
             nudges += _lead_nudge(conn, story, lead, readers, prof["credibility"], session, now)
+        if lead and stale_lead:
+            conn.execute("UPDATE stories SET lead_outcome = %s WHERE id = %s",
+                         ("confirmed" if lead["item"]["status"] == "verified" else "disproved", story["id"]))
+        if lead:
             if lead.get("source_id") and unconfirmed and _one(conn, "SELECT 1 AS x FROM sources WHERE id = %s AND journalist_id = %s",
                                                               (lead["source_id"], player_id)):
                 from simulation import intel
@@ -739,14 +746,20 @@ def lead_settled(conn: Connection, item: dict, true_: bool, now: datetime) -> No
             conn.execute("UPDATE journalist_profiles SET credibility = least(credibility + %s, 100) WHERE player_id = %s",
                          (data.RUMOUR_CONFIRMED_CREDIBILITY, s["author_id"]))
         else:
-            conn.execute("UPDATE stories SET lead_outcome = 'disproved', correction_due = true, correct_by = coalesce(correct_by, %s)"
-                         " WHERE id = %s", (now + timedelta(hours=data.CORRECTION_HOURS), s["id"]))
+            # (If the story was corrected before, for a fact the record changed, the wrong report needs a correction of its own.)
+            conn.execute("UPDATE stories SET lead_outcome = 'disproved', correction_due = true,"
+                         " correct_by = CASE WHEN correction_id IS NULL AND correct_by IS NOT NULL THEN correct_by ELSE %s END,"
+                         " correction_late = CASE WHEN correction_id IS NULL THEN correction_late ELSE false END,"
+                         " correction_id = NULL WHERE id = %s", (now + timedelta(hours=data.CORRECTION_HOURS), s["id"]))
         for b in _rows(conn, "SELECT * FROM rumour_beliefs WHERE story_id = %s AND outcome IS NULL", (s["id"],)):
             conn.execute("UPDATE rumour_beliefs SET outcome = %s, settled_at = %s WHERE id = %s", ("true" if true_ else "false", now, b["id"]))
             if not true_ and b["bps"] and b["company_id"]:
-                conn.execute("INSERT INTO story_nudges (company_id, story_id, bps, session_date, days, at) VALUES (%s, %s, %s, %s, %s, %s)"
-                             " ON CONFLICT (company_id, session_date) DO UPDATE SET bps = greatest(least(story_nudges.bps + EXCLUDED.bps, %s), %s)",
-                             (b["company_id"], s["id"], -b["bps"], session, data.NUDGE_DAYS, now, data.NUDGE_MOST_BPS, -data.NUDGE_MOST_BPS))
+                # Investors take back what they marked: on the first trading day from now with no other nudge for the company.
+                for ahead in range(data.NUDGE_DAYS):
+                    if _one(conn, "INSERT INTO story_nudges (company_id, story_id, bps, session_date, days, at) VALUES (%s, %s, %s, %s, %s, %s)"
+                                  " ON CONFLICT (company_id, session_date) DO NOTHING RETURNING id",
+                            (b["company_id"], s["id"], -b["bps"], session + timedelta(days=ahead), data.NUDGE_DAYS, now)):
+                        break
         ripple.link(conn, f"settled:{item['ref']}", f"story:{s['id']}",
                     f"The report in “{s['headline']}” was {'borne out' if true_ else 'proved wrong'}.", w["period"], now, {})
 

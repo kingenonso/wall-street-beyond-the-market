@@ -118,7 +118,7 @@ def test_an_empire_bids_for_a_title_without_the_property_checks_and_its_journali
     empire, team = firm_of(db)
     a = _open_title_auction(db)
     when = max(a["opens_at"], NOW9) + timedelta(minutes=1)
-    auctions.empire_bid(db, team["head"], a["id"], a["fair"] * 2, when)
+    auctions.empire_bid(db, team["head"], a["id"], a["fair"] * 3 // 2, when)
     auctions.run(db, a["ends_at"] + timedelta(minutes=1))
     t = media.title(db, a["title_id"])
     assert t["owner_empire"] == empire["id"]
@@ -154,7 +154,7 @@ def test_a_charity_is_founded_given_to_and_grants_to_its_cause_and_giving_builds
 
 
 def test_an_empires_charity_builds_its_reputation_and_grants_to_insiders_are_flagged_and_can_be_exposed(db):
-    empire, team = firm_of(db)
+    empire, team = firm_of(db, n_cash=6_000_000_000)          # (a head may sign for a fiftieth of the empire's cash a quarter)
     c = charity.found(db, team["head"], "Lagoon Relief", "relief", "Port Harcourt", naira(60_000_000), NOW9, for_empire=True)
     assert _one(db, "SELECT 1 AS x FROM empire_books WHERE empire_id = %s AND category = 'Charity'", (empire["id"],))
     rep = _rep(db, empire["id"])

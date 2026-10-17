@@ -160,9 +160,11 @@ def owner_list(conn: Connection, player_id, title_id: int, reserve: int, now: da
             raise PropertyError("You do not own that title.")
         if _one(conn, "SELECT 1 AS x FROM auctions WHERE title_id = %s AND status = 'open'", (title_id,)):
             raise PropertyError("It is already up for auction.")
+        value = fair(t)
         if not isinstance(reserve, int) or reserve < 0:
             raise PropertyError("Name your lowest price.")
-        value = fair(t)
+        if reserve > value * data.MEDIA_RESERVE_MOST_TIMES:
+            raise PropertyError(f"A lowest price is at most twice what the title is worth: {auctions.money(value * data.MEDIA_RESERVE_MOST_TIMES)}.")
         period = careers.world_now(conn, now)["period"]
         return auctions.open_title_auction(conn, title_id, t["owner_account"], "owner", reserve, max(value // 2, 100), value, now, period)
 

@@ -24,6 +24,7 @@ Nothing here is ever sent with its truth, its basis, who planted it, or when it 
 
 from __future__ import annotations
 
+import contextvars
 import secrets
 from datetime import datetime, timedelta
 
@@ -150,7 +151,8 @@ def _about(conn: Connection, item: dict) -> dict:
 def public(conn: Connection, item: dict, now: datetime, *, with_words: bool) -> dict:
     """A piece as a player may see it: never its truth, its basis, who planted it, or when it will be settled."""
     holders = _one(conn, "SELECT count(*) AS n FROM intel_holders WHERE item_id = %s", (item["id"],))["n"]
-    out = {"ref": item["ref"], "kind": item["kind"], "about": _about(conn, item), "status": item["status"],
+    about = _about(conn, item) if with_words or item["topic"] not in ("pact", "theft") else {"topic": item["topic"]}
+    out = {"ref": item["ref"], "kind": item["kind"], "about": about, "status": item["status"],
            "status_words": STATUS_WORDS[item["status"]], "confidential": item["confidential"], "reliability_bps": item["reliability_bps"],
            "found": clock.period_label(item["period"]) + f", day {item['day']}", "useful_until": item["useful_until"],
            "useful": useful(item, now), "holders": holders}
@@ -235,7 +237,7 @@ def draw(conn: Connection, player: dict, period: int, day: int, now: datetime, k
             if pairs:
                 a, b = pairs[pick % len(pairs)]
                 return make(conn, **common, topic="pact", truth="false", basis="none", empire_id=a["id"], other_empire_id=b["id"],
-                            resolves=(period + 1, 90), words=f"{a['name']} and {b['name']} are said to have a private understanding.")
+                            words=f"{a['name']} and {b['name']} are said to have a private understanding.")
         if worth == "worthless":
             old = _one(conn, "SELECT * FROM empire_pacts WHERE exposed_at IS NOT NULL ORDER BY exposed_at DESC LIMIT 1")
             if old:
@@ -255,7 +257,7 @@ def draw(conn: Connection, player: dict, period: int, day: int, now: datetime, k
             clean = [e for e in empires_now if not any(t["empire_id"] == e["id"] for t in thefts)]
             if clean:
                 e = clean[pick % len(clean)]
-                return make(conn, **common, topic="theft", truth="false", basis="none", empire_id=e["id"], resolves=(period + 1, 90),
+                return make(conn, **common, topic="theft", truth="false", basis="none", empire_id=e["id"],
                             words=f"Someone at {e['name']} may be taking the empire's money, dressed up as an ordinary payment.")
         if worth == "worthless":
             case = _one(conn, "SELECT c.empire_id, e.name FROM empire_cases c JOIN empires e ON e.id = c.empire_id ORDER BY c.id DESC LIMIT 1")
@@ -352,20 +354,25 @@ def check(conn: Connection, player_id, ref: str, now: datetime, *, checker=None)
         item = held(conn, player_id, ref, lock=True)
         if _one(conn, "SELECT 1 AS x FROM intel_checks WHERE item_id = %s AND player_id = %s", (item["id"], player_id)):
             raise IntelError("This piece has already been checked for you.")
+        if item["planted_by"] is not None and item["planted_by"] in (player_id, checker):
+            raise IntelError("You started this rumour: there is nothing in it for you to check.")
         who = _player(conn, checker)
         w = _now(conn, now)
         ledger.transfer(conn, payer=ledger.player_account_id(conn, checker), receiver=ledger.account_id(conn, ledger.TREASURY),
                         amount=naira(data.CHECK_FEE_NAIRA), kind="intel_check", memo="Checking a piece of information", period=w["period"])
         right = min(data.CHECK_RIGHT_BPS + data.CHECK_RIGHT_PER_LEVEL_BPS * _level(conn, checker, who["build"]), data.CHECK_RIGHT_MOST_BPS)
-        truth = {"true": "holds", "false": "fails", "worthless": "nothing_new"}[item["truth"]]
-        if item["status"] == "verified" and item["truth"] == "true":
-            truth = "holds"
-        if _roll(conn, "check", item["id"], player_id) >= right:
+        if item["resolved_at"] is not None:
+            truth = "holds" if item["status"] == "verified" and item["truth"] != "worthless" else \
+                "nothing_new" if item["truth"] == "worthless" else "fails"
+        elif item["truth"] == "unknown":
+            # A forecast, or a rumour somebody started: nobody can know yet. The check is a coin toss.
+            truth = "holds" if _roll(conn, "check-unknown", item["id"], player_id) < 5000 else "fails"
+        else:
+            truth = {"true": "holds", "false": "fails", "worthless": "nothing_new"}[item["truth"]]
+        if item["truth"] != "unknown" and item["resolved_at"] is None and _roll(conn, "check", item["id"], player_id) >= right:
             truth = {"holds": "fails", "fails": "holds", "nothing_new": "holds"}[truth]
         conn.execute("INSERT INTO intel_checks (item_id, player_id, verdict, by_player, at) VALUES (%s, %s, %s, %s, %s)",
                      (item["id"], player_id, truth, checker if checker != player_id else None, now))
-        if truth == "holds" and item["status"] == "rumour":
-            conn.execute("UPDATE intel_items SET status = 'lead' WHERE id = %s", (item["id"],))
     return {"verdict": truth, "words": VERDICTS[truth]}
 
 
@@ -577,7 +584,7 @@ def _ministry_hint(conn: Connection, s: dict, honest: bool, common: dict, w: dic
         cities = [g["location"] for g in grown] or list(data.CITY_COST_BPS)
         city = cities[0] if honest else cities[min(1 + s["id"] % max(len(cities) - 1, 1), len(cities) - 1)]
         # Its truth is settled at the close, against where the project is really announced.
-        return make(conn, **common, topic="infrastructure", city=city, truth="true" if honest else "false", basis="infra",
+        return make(conn, **common, topic="infrastructure", city=city, truth="unknown", basis="infra",
                     resolves=(period, 90), words=f"Your source in the ministries: the Government's next big project will be in {city}.")
     econ = _one(conn, "SELECT next_policy_rate_bps, inflation_bps FROM economy_results ORDER BY period DESC LIMIT 1")
     rate_now = econ["next_policy_rate_bps"] if econ else data.OPENING_RATE_BPS
@@ -587,7 +594,7 @@ def _ministry_hint(conn: Connection, s: dict, honest: bool, common: dict, w: dic
     words = {1: "the Central Bank is leaning towards raising its rate at the quarter's close.",
              -1: "the Central Bank is leaning towards cutting its rate at the quarter's close.",
              0: "the Central Bank is minded to hold its rate at the quarter's close."}[said]
-    return make(conn, **common, topic="rate", tone=-said, truth="true" if honest else "false", basis=f"rate:{said}",
+    return make(conn, **common, topic="rate", tone=-said, truth="unknown", basis=f"rate:{said}",
                 resolves=(period, 90), words=f"Your source in the ministries: {words}")
 
 
@@ -607,8 +614,9 @@ def _maybe_burn(conn: Connection, item: dict, how: str, now: datetime) -> bool:
 def _settle(conn: Connection, item: dict, outcome: str, now: datetime) -> None:
     status = "verified" if outcome == "true" else "disproved"
     conn.execute("UPDATE intel_items SET status = %s, resolved_at = %s WHERE id = %s", (status, now, item["id"]))
-    from simulation import newsroom
+    from simulation import newsroom, press
     newsroom.lead_settled(conn, item, outcome == "true", now)
+    press.report_settled(conn, item["id"], now)
 
 
 def tick(conn: Connection, now: datetime) -> None:
@@ -624,6 +632,10 @@ def tick(conn: Connection, now: datetime) -> None:
             _settle(conn, item, "true", now)
         for item in _rows(conn, "SELECT i.* FROM intel_items i JOIN empire_books b ON i.basis = 'book:' || b.id"
                                 " WHERE i.resolved_at IS NULL AND b.found FOR UPDATE OF i SKIP LOCKED"):
+            _settle(conn, item, "true", now)
+        for item in _rows(conn, "SELECT i.* FROM intel_items i WHERE i.resolved_at IS NULL AND i.basis = 'planted' AND i.topic = 'theft'"
+                                " AND EXISTS (SELECT 1 FROM empire_books b WHERE b.empire_id = i.empire_id AND NOT b.genuine AND b.found AND b.at <= i.found_at)"
+                                " FOR UPDATE SKIP LOCKED"):
             _settle(conn, item, "true", now)
         for item in _rows(conn, "SELECT i.* FROM intel_items i JOIN empire_pacts p ON i.basis = 'pact:' || p.id"
                                 " WHERE i.resolved_at IS NULL AND p.exposed_at IS NOT NULL FOR UPDATE OF i SKIP LOCKED"):
@@ -645,6 +657,11 @@ def at_close(conn: Connection, period: int, now: datetime) -> None:
             _settle(conn, item, "true" if said == moved else "false", now)
         elif item["topic"] == "infrastructure":
             _settle(conn, item, "true" if project and project["city"] == item["city"] else "false", now)
+        elif item["basis"] == "planted" and item["topic"] == "company":
+            c = _one(conn, "SELECT id, ticker, name, sector, headquarters FROM companies WHERE id = %s", (item["company_id"],))
+            after = [e for e in events.load(conn, item["period"]) if e["day"] > item["day"] and events.touches(e, c)]
+            _settle(conn, item, "true" if after and _effect_tone(after) == item["tone"] else "false", now)
+
         else:
             _settle(conn, item, "true" if item["truth"] == "true" else "false", now)
     conn.execute("UPDATE sources SET status = 'active' WHERE status = 'cultivating' AND ready_period <= %s", (period + 1,))
@@ -654,19 +671,26 @@ def at_close(conn: Connection, period: int, now: datetime) -> None:
 # Dealing on confidential information (kept for the courts, Stage 11)
 # ---------------------------------------------------------------------------
 
+ACTING: contextvars.ContextVar = contextvars.ContextVar("intel_acting_player", default=None)
+
+
+def acting(player_id):
+    """Say which member is placing an order for an empire (set around an empire's trade, so a trade is laid only at its door)."""
+    return ACTING.set(player_id)
+
+
 def note_trade(conn: Connection, account, company_id, now: datetime) -> None:
-    """Record a trade in a company by a player (or for their empire) who holds a useful piece from someone inside it."""
+    """Record a trade in a company by a player (or by a member for their empire) who holds a useful piece from someone inside it.
+    Only the player who placed the order is recorded."""
     if company_id is None or not ready(conn):
         return
     owner = _one(conn, "SELECT player_id FROM ledger_accounts WHERE id = %s", (account,))
     players = []
     if owner and owner["player_id"]:
         players = [owner["player_id"]]
-    else:
-        empire = _one(conn, "SELECT id FROM empires WHERE account_id = %s", (account,))
-        if empire:
-            players = [r["player_id"] for r in _rows(conn, "SELECT player_id FROM empire_seats WHERE empire_id = %s AND player_id IS NOT NULL",
-                                                       (empire["id"],))]
+    elif ACTING.get() is not None and _one(conn, "SELECT 1 AS x FROM empires e JOIN empire_seats s ON s.empire_id = e.id"
+                                                 " WHERE e.account_id = %s AND s.player_id = %s", (account, ACTING.get())):
+        players = [ACTING.get()]
     for pid in players:
         for item in _rows(conn, "SELECT i.id FROM intel_items i JOIN intel_holders h ON h.item_id = i.id AND h.player_id = %s"
                                 " LEFT JOIN sealed_tips t ON t.item_id = i.id AND t.player_id = %s"
@@ -693,7 +717,7 @@ def desk_feed(conn: Connection, player_id, now: datetime, limit: int = 12) -> di
             items.append({"what": f"{'An unlawful' if not r['legal'] else 'A lawful'} pact between {r['a']} and {r['b']} came to light.",
                           "at": r["exposed_at"]})
         for r in _rows(conn, "SELECT e.name, r.why, r.at FROM empire_reputation r JOIN empires e ON e.id = r.empire_id"
-                             " WHERE r.change < 0 AND NOT r.press ORDER BY r.id DESC LIMIT %s", (limit,)):
+                             " WHERE r.change < 0 AND (r.why LIKE 'Fined:%%' OR r.why LIKE '%%came to light%%') ORDER BY r.id DESC LIMIT %s", (limit,)):
             items.append({"what": f"{r['name']}: {r['why']}", "at": r["at"]})
     elif build == "accountant":
         for r in _rows(conn, "SELECT c.name, r.period, max(r.version) AS v FROM company_reports r JOIN companies c ON c.id = r.company_id"

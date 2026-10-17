@@ -969,11 +969,15 @@ def trade_shares(conn: Connection, player_id, *, ticker: str, side: str, kind: s
         waiting = firm_risk.gate_trade(conn, seat, share, side, kind, quantity, limit_price, counted, state, now) if counted else None
         if waiting is not None:
             return waiting                                                 # it waits for the Risk Manager's desk
+        from simulation import intel
+        token = intel.acting(player_id)          # (a trade on information from inside a company is laid at the door of who placed it)
         try:
             done = exchange.place_order(conn, account=seat["account_id"], ticker=ticker, side=side, kind=kind, quantity=quantity,
                                         limit_price=limit_price, now=now)
         except exchange.ExchangeError as refused:
             raise EmpireError(str(refused)) from None
+        finally:
+            intel.ACTING.reset(token)
         conn.execute("INSERT INTO empire_trades (empire_id, player_id, period, what, value, at) VALUES (%s, %s, %s, %s, %s, %s)",
                      (seat["empire_id"], player_id, state["period"], f"{side} {quantity:,} {ticker}", counted, now))
         return done

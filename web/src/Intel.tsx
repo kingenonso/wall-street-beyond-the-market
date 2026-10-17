@@ -259,7 +259,7 @@ function Investigations({ onLoggedOut }: { onLoggedOut: () => void }) {
         <div className="form-row">
           <label className="answer">On<select value={target} onChange={(e) => setTarget(e.target.value as "empire" | "charity")}><option value="empire">an empire</option><option value="charity">a charity</option></select></label>
           <label className="answer">Its name<input type="text" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} /></label>
-          <button className="button-primary" disabled={act.busy || name.trim().length < 3} onClick={() => act.run(() => target === "empire" ? api.post("/investigations", { empire: name }) : api.post("/investigations/charity", { charity: name }), "File opened.")}>Open</button>
+          <button className="button-primary" disabled={act.busy || name.trim().length < (target === "charity" ? 4 : 3)} onClick={() => act.run(() => target === "empire" ? api.post("/investigations", { empire: name }) : api.post("/investigations/charity", { charity: name }), "File opened.")}>Open</button>
         </div>
         <p className="muted small">Search a day at a time. Documents turn up only if there is something hidden: money taken inside an empire, an unlawful pact, or a charity paying its own. Three documents and a second source, and the exposé can run.</p>
       </Panel>
@@ -292,7 +292,7 @@ export function PressDeskView({ onLoggedOut }: { onLoggedOut: () => void }) {
             <div>
               <div className="strong">{c.words}</div>
               <div className="small muted">{c.status === "open" ? `Answer by ${when(c.due_at)}` : c.status === "silent" ? "Not answered in time" : `Answered: ${c.stance_words}`}
-                {c.change !== null && <> · reputation {c.change > 0 ? "+" : ""}{c.change}</>}</div>
+                {c.change !== null ? <> · reputation {c.change > 0 ? "+" : ""}{c.change}</> : c.status !== "open" ? <> · its effect waits on the report being settled</> : null}</div>
               {c.status === "open" && (
                 <div className="form-row">
                   <label className="answer">Stance<select value={stance[c.id] ?? ""} onChange={(e) => setStance({ ...stance, [c.id]: e.target.value })}>
@@ -373,7 +373,7 @@ export function CharitiesWork({ player, onLoggedOut }: { player: Player; onLogge
   if (loading && !data) return <Loading what="the charities" />;
   if (error && !data) return <Failed message={error} onRetry={reload} />;
   if (!data) return null;
-  const isHead = !!player.empire && !player.empire.forming;
+  const isHead = !!player.empire && !player.empire.forming && player.empire.is_head;
   return (
     <>
       <div className="page-head"><h1>Charities</h1><span className="muted small">Giving builds a name; only what reaches the cause counts</span></div>
@@ -434,7 +434,7 @@ export function TitlesView({ player, onLoggedOut }: { player: Player; onLoggedOu
   if (loading && !data) return <Loading what="the titles" />;
   if (error && !data) return <Failed message={error} onRetry={reload} />;
   if (!data) return null;
-  const isHead = !!player.empire && !player.empire.forming;
+  const isHead = !!player.empire && !player.empire.forming && player.empire.is_head;
   return (
     <>
       <Notices act={act} />

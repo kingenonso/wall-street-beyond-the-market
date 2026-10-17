@@ -241,7 +241,10 @@ def dig(conn: Connection, player_id, file_id: int, now: datetime) -> dict:
         if f["status"] != "open":
             raise PressError("That file is closed.")
         today = intel.lagos_day(now)
-        if f["last_dug"] == today:
+        target = f"charity:{f['charity_id']}" if f["charity_id"] else f"empire:{f['empire_id']}"
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext('dig:' || %s || ':' || %s))", (str(player_id), target))
+        if _one(conn, "SELECT 1 AS x FROM investigations WHERE journalist_id = %s AND last_dug = %s AND"
+                      " (empire_id = %s OR charity_id = %s)", (player_id, today, f["empire_id"], f["charity_id"])):
             raise PressError("You have searched today. Search again tomorrow.")
         conn.execute("UPDATE investigations SET last_dug = %s WHERE id = %s", (today, file_id))
         notes = list(f["notes"])
@@ -260,7 +263,7 @@ def dig(conn: Connection, player_id, file_id: int, now: datetime) -> dict:
             if item["truth"] == "true" and item["basis"] in hidden:
                 hidden = [item["basis"]]
                 chance += data.DIG_TIP_HELPS_BPS
-        if not hidden or _roll(conn, "dig", file_id, today) >= chance or f["documents"] >= data.DOCUMENTS_NEEDED:
+        if not hidden or _roll(conn, "dig", str(player_id), target, today) >= chance or f["documents"] >= data.DOCUMENTS_NEEDED:
             notes.append(f"{clock.to_lagos(now):%d %b}: nothing new today." if f["documents"] < data.DOCUMENTS_NEEDED
                          else f"{clock.to_lagos(now):%d %b}: you have the documents you need.")
             conn.execute("UPDATE investigations SET notes = %s WHERE id = %s", (Jsonb(notes[-30:]), file_id))
@@ -291,13 +294,16 @@ def second_source(conn: Connection, player_id, file_id: int, now: datetime) -> d
         if f["documents"] < 2 or not f["basis"]:
             raise PressError("Find at least two documents before you look for a second source.")
         today = intel.lagos_day(now)
-        if f["last_asked"] == today:
+        target = f"charity:{f['charity_id']}" if f["charity_id"] else f"empire:{f['empire_id']}"
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext('second:' || %s || ':' || %s))", (str(player_id), target))
+        if _one(conn, "SELECT 1 AS x FROM investigations WHERE journalist_id = %s AND last_asked = %s AND"
+                      " (empire_id = %s OR charity_id = %s)", (player_id, today, f["empire_id"], f["charity_id"])):
             raise PressError("You have looked for a second source today. Try again tomorrow.")
         conn.execute("UPDATE investigations SET last_asked = %s WHERE id = %s", (today, file_id))
         backed = _one(conn, "SELECT 1 AS x FROM intel_items i JOIN intel_holders h ON h.item_id = i.id AND h.player_id = %s"
-                            " WHERE i.truth = 'true' AND i.basis = %s LIMIT 1", (player_id, f["basis"]))
+                            " WHERE i.truth = 'true' AND i.basis = %s AND i.planted_by IS NULL LIMIT 1", (player_id, f["basis"]))
         chance = min(data.SECOND_SOURCE_BPS + data.SECOND_SOURCE_PER_LEVEL_BPS * _level(conn, player_id), data.SECOND_SOURCE_MOST_BPS)
-        found = bool(backed) or _roll(conn, "second", file_id, today) < chance
+        found = bool(backed) or _roll(conn, "second", str(player_id), target, today) < chance
         notes = list(f["notes"])
         notes.append(f"{clock.to_lagos(now):%d %b}: " + ("a second source confirms it." if found else "no second source would talk today."))
         conn.execute("UPDATE investigations SET confirmed = %s, notes = %s WHERE id = %s", (found, Jsonb(notes[-30:]), file_id))
@@ -425,35 +431,63 @@ def files(conn: Connection, player_id, now: datetime) -> list[dict]:
 # Crises
 # ---------------------------------------------------------------------------
 
-def open_crisis(conn: Connection, empire_id, kind: str, ref: str, words: str, truth: str, now: datetime) -> dict | None:
-    """Something about the empire has come out: it has a day to answer. A computer-run empire answers at once, plainly."""
+def open_crisis(conn: Connection, empire_id, kind: str, ref: str, words: str, truth: str, now: datetime, *, item_id=None) -> dict | None:
+    """Something about the empire has come out: it has a day to answer. A computer-run empire says only that it does not comment
+    on reports, whatever is so, and its name is not moved: nothing it says can give away what is hidden."""
     if not ready(conn):
         return None
     empire = _one(conn, "SELECT * FROM empires WHERE id = %s", (empire_id,))
     if empire is None or empire["kind"] not in ("player", "computer") or empire["status"] != "active":
         return None
-    row = _one(conn, "INSERT INTO crises (empire_id, kind, ref, words, truth, opened_at, due_at) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+    row = _one(conn, "INSERT INTO crises (empire_id, kind, ref, words, truth, item_id, opened_at, due_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
                      " ON CONFLICT (empire_id, ref) DO NOTHING RETURNING *",
-               (empire_id, kind, ref, words[:400], truth, now, now + timedelta(hours=data.CRISIS_HOURS)))
+               (empire_id, kind, ref, words[:400], truth, item_id, now, now + timedelta(hours=data.CRISIS_HOURS)))
     if row is None:
         return None
     if empire["kind"] == "computer" or empire["head_player_id"] is None:
-        _settle_crisis(conn, row, "admit" if truth == "true" else "deny" if truth == "false" else "regret",
-                       f"{empire['name']} said it is looking into the matter.", None, now)
+        conn.execute("UPDATE crises SET status = 'answered', change = 0, answered_at = %s WHERE id = %s", (now, row["id"]))
     else:
         _log(conn, empire_id, f"Something has come out about the empire: {words} It must answer within a day.", now)
     return row
 
 
-def _settle_crisis(conn: Connection, crisis: dict, stance: str | None, statement: str | None, by, now: datetime) -> int:
+def _public_truth(conn: Connection, crisis: dict) -> str | None:
+    """What is known in public about what came out: for a report, only once the report itself has been settled (borne out or
+    proved wrong); until then, nothing. A theft, a pact, a leak or a charity's misdeeds that came out are known to be so."""
+    if crisis["item_id"] is None:
+        return "true"
+    item = _one(conn, "SELECT status, resolved_at FROM intel_items WHERE id = %s", (crisis["item_id"],))
+    if item["resolved_at"] is None:
+        return None
+    return "true" if item["status"] == "verified" else "false"
+
+
+WHY = {"admit": "Admitted what came out, quickly", "regret": "Said it regretted what came out",
+       "deny": "Denied what came out", None: "Said nothing about what came out"}
+
+
+def _apply(conn: Connection, crisis: dict, stance: str | None, truth: str, now: datetime) -> int:
+    change = data.CRISIS_OUTCOMES[(truth, stance)]
+    conn.execute("UPDATE crises SET change = %s WHERE id = %s", (change, crisis["id"]))
+    standing.change(conn, crisis["empire_id"], change, WHY[stance], _now(conn, now)["period"], now)
+    return change
+
+
+def report_settled(conn: Connection, item_id: int, now: datetime) -> None:
+    """A report has been borne out or proved wrong: what each empire said about it now counts, one way or the other."""
+    if not ready(conn):
+        return
+    for c in _rows(conn, "SELECT * FROM crises WHERE item_id = %s AND status <> 'open' AND change IS NULL FOR UPDATE", (item_id,)):
+        _apply(conn, c, c["stance"], _public_truth(conn, c), now)
+
+
+def _settle_crisis(conn: Connection, crisis: dict, stance: str | None, statement: str | None, by, now: datetime) -> int | None:
     w = _now(conn, now)
-    change = data.CRISIS_OUTCOMES[(crisis["truth"], stance)]
     empire = _one(conn, "SELECT name FROM empires WHERE id = %s", (crisis["empire_id"],))
-    conn.execute("UPDATE crises SET status = %s, stance = %s, statement = %s, answered_by = %s, answered_at = %s, change = %s WHERE id = %s",
-                 ("answered" if stance else "silent", stance, statement, by, now if stance else None, change, crisis["id"]))
-    why = {"admit": "Admitted what came out, quickly", "regret": "Said it regretted what came out",
-           "deny": "Denied what came out", None: "Said nothing about what came out"}[stance]
-    standing.change(conn, crisis["empire_id"], change, why, w["period"], now)
+    conn.execute("UPDATE crises SET status = %s, stance = %s, statement = %s, answered_by = %s, answered_at = %s WHERE id = %s",
+                 ("answered" if stance else "silent", stance, statement, by, now if stance else None, crisis["id"]))
+    truth = _public_truth(conn, crisis)
+    change = _apply(conn, crisis, stance, truth, now) if truth else None
     if stance:
         _news(conn, period=w["period"], day=w["day"], kind="statement", story=f"crisis:{crisis['id']}",
               headline=f"Statement from {empire['name']}", body=f"{empire['name']}: {STANCES[stance]}. {statement or ''}".strip(),
@@ -472,9 +506,10 @@ def answer_crisis(conn: Connection, player_id, crisis_id: int, stance: str, stat
             raise PressError("There is no such matter for your empire to answer.")
         if c["status"] != "open" or c["due_at"] <= now:
             raise PressError("That matter is closed.")
-        _settle_crisis(conn, c, stance, statement, player_id, now)
+        change = _settle_crisis(conn, c, stance, statement, player_id, now)
         _log(conn, empire["id"], f"A statement was made for the empire: {STANCES[stance].lower()}.", now)
-    return {"words": "The statement has gone out."}
+    return {"words": "The statement has gone out." + ("" if change is not None else
+            " What it does for the empire's name will be known when the report is borne out or proved wrong.")}
 
 
 def tick(conn: Connection, now: datetime) -> None:
@@ -535,6 +570,7 @@ def leak(conn: Connection, player_id, kind: str, to_name: str, now: datetime, *,
             raise PressError("Pass it to a Financial Journalist, by name.")
         if _one(conn, "SELECT 1 AS x FROM empire_seats WHERE empire_id = %s AND player_id = %s", (empire["id"], to["id"])):
             raise PressError("That journalist sits in your own empire.")
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext('leak:' || %s))", (str(player_id),))
         if _one(conn, "SELECT count(*) AS n FROM leaks WHERE member_id = %s AND period = %s", (player_id, w["period"]))["n"] >= data.LEAKS_A_QUARTER:
             raise PressError("You have passed something to the press this quarter already.")
         common = {"kind": "leak", "status": "lead", "truth": "true", "period": w["period"], "day": w["day"], "now": now,
@@ -587,7 +623,7 @@ def lead_printed(conn: Connection, story: dict, item: dict, unconfirmed: bool, n
         return
     for empire_id in {item["empire_id"], item["other_empire_id"]} - {None}:
         if item["topic"] in ("theft", "pact", "empire"):
-            open_crisis(conn, empire_id, "report", f"story:{story['id']}", f"A report says: {item['words']}", item["truth"], now)
+            open_crisis(conn, empire_id, "report", f"story:{story['id']}", f"A report says: {item['words']}", item["truth"], now, item_id=item["id"])
 
 
 def leaks_of(conn: Connection, empire_id) -> list[dict]:
@@ -612,6 +648,8 @@ def hunt(conn: Connection, player_id, leak_id: int, now: datetime) -> dict:
             raise PressError("This leak came from outside the empire's seats: there is nobody inside to trace.")
         if _one(conn, "SELECT 1 AS x FROM leak_hunts WHERE leak_id = %s", (leak_id,)):
             raise PressError("This leak has been hunted already.")
+        if lk["member_id"] == player_id:
+            return {"found": False, "words": "The hunt found nothing you could prove."}      # (and the hunt is left for the head)
         low, high = data.LEAK_HUNT_RANGE_BPS
         chance = min(max(data.LEAK_HUNT_BPS + (_level(conn, player_id) - _level(conn, lk["member_id"])) * data.LEAK_HUNT_PER_LEVEL_BPS, low), high)
         found = _roll(conn, "hunt", leak_id) < chance
@@ -712,6 +750,7 @@ def decide_spin(conn: Connection, player_id, request_id: int, comply: bool, word
 
 
 def _one_reply_a_day(conn: Connection, story_id: int, w: dict) -> None:
+    conn.execute("SELECT pg_advisory_xact_lock(hashtext('reply:' || %s))", (str(story_id),))
     if _one(conn, "SELECT 1 AS x FROM news_items WHERE kind = 'reply' AND story = %s AND period = %s AND day = %s",
             (f"story:{story_id}", w["period"], w["day"])):
         raise PressError("A reply to that story has gone out today. Reply tomorrow.")
@@ -855,20 +894,16 @@ def plant(conn: Connection, player_id, *, ticker: str | None, empire_name: str |
             c = _one(conn, "SELECT id, ticker, name, sector, headquarters FROM companies WHERE ticker = %s AND listed", (ticker.upper(),))
             if c is None:
                 raise PressError("There is no listed company with that ticker.")
-            evs = intel.coming(conn, c, w["period"], w["day"])
-            truth = "true" if evs and intel._effect_tone(evs) == tone else "false"
-            item = intel.make(conn, **common, topic="company", company_id=c["id"], tone=tone, truth=truth,
-                              basis=("event:" + ",".join(str(e["id"]) for e in evs)) if truth == "true" else "none",
-                              resolves=(w["period"], min(e["day"] for e in evs) if truth == "true" else 90),
-                              words=intel._company_words(c, tone, int(now.timestamp()), inside=False))
+            # (Whether it turns out true is settled at the close against what really happened after it was started: nothing about
+            # the hidden record is read now, so starting a rumour can never be a way to test one.)
+            item = intel.make(conn, **common, topic="company", company_id=c["id"], tone=tone, truth="unknown", basis="planted",
+                              resolves=(w["period"], 90), words=intel._company_words(c, tone, int(now.timestamp()), inside=False))
         else:
             e = _one(conn, "SELECT * FROM empires WHERE lower(name) = lower(%s) AND status = 'active' AND kind IN ('player', 'computer')",
                      ((empire_name or "").strip(),))
             if e is None or e["id"] == mine["id"]:
                 raise PressError("Name a rival empire.")
-            thefts = [b for b in intel._unfound_thefts(conn) if b["empire_id"] == e["id"]]
-            item = intel.make(conn, **common, topic="theft", empire_id=e["id"], truth="true" if thefts else "false",
-                              basis=f"book:{thefts[0]['id']}" if thefts else "none", resolves=None if thefts else (w["period"] + 1, 90),
+            item = intel.make(conn, **common, topic="theft", empire_id=e["id"], truth="unknown", basis="planted",
                               words=f"Someone at {e['name']} may be taking the empire's money, dressed up as an ordinary payment.")
         intel.hold(conn, item["id"], player_id, "found", now)
     return intel.public(conn, item, now, with_words=True)

@@ -227,10 +227,17 @@ def test_l10_dealing_on_confidential_information_is_recorded_however_it_is_done(
     from tests.test_objectives import give_cash
     give_cash(db, ledger.player_account_id(db, team["head"]), 1_000_000)
     intel.buy(db, team["head"], listing, NOW9)
+    from simulation import empires
     try:
-        exchange.place_order(db, account=empire["account_id"], ticker=company["ticker"], side="buy", kind="market", quantity=10,
-                             limit_price=None, now=NOW9)
-    except exchange.ExchangeError:
+        empires.trade_shares(db, team["head"], ticker=company["ticker"], side="buy", kind="market", quantity=10, limit_price=None, now=NOW9)
+    except empires.EmpireError:
         pass
     dealt = _one(db, "SELECT * FROM confidential_dealings WHERE player_id = %s", (team["head"],))
     assert dealt and dealt["account_id"] == empire["account_id"] and dealt["item_id"] == item["id"]
+    # Laid only at the door of who placed the order: a member who holds the same piece but did not trade is not recorded.
+    intel.hold(db, item["id"], team["accountant"], "given", NOW9, from_player=team["head"])
+    try:
+        empires.trade_shares(db, team["head"], ticker=company["ticker"], side="buy", kind="market", quantity=5, limit_price=None, now=NOW9)
+    except empires.EmpireError:
+        pass
+    assert _one(db, "SELECT 1 AS x FROM confidential_dealings WHERE player_id = %s", (team["accountant"],)) is None

@@ -38,7 +38,7 @@ CREATE TABLE intel_items (
     words          text NOT NULL CHECK (length(words) BETWEEN 5 AND 400),
     status         text NOT NULL DEFAULT 'rumour' CHECK (status IN ('rumour', 'lead', 'verified', 'disproved')),
     -- SECRET: never sent. What it really is, and what it was drawn from.
-    truth          text NOT NULL CHECK (truth IN ('true', 'false', 'worthless')),
+    truth          text NOT NULL CHECK (truth IN ('true', 'false', 'worthless', 'unknown')),   -- unknown: a forecast, settled at the close
     basis          text,
     planted_by     uuid REFERENCES players (id),
     resolves_period integer,

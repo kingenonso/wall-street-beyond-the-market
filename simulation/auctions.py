@@ -309,6 +309,15 @@ def place_bid(conn: Connection, account, auction_id: int, limit: int, now: datet
                 raise PropertyError(f"{bank['name']} has no room to lend that much now.")
         if empire_id is not None and a["property_id"]:
             _checks_allow(conn, empire_id, auction_id, limit, mortgage_bank, mortgage_bps)
+        if empire_id is not None and a["title_id"]:
+            # A title has no desk checks; instead the head bids no more than twice what it is worth, and within what they may sign for.
+            from simulation import empires
+            if limit > a["fair"] * data.MEDIA_RESERVE_MOST_TIMES:
+                raise PropertyError(f"For the empire, bid at most twice what the title is worth: {money(a['fair'] * data.MEDIA_RESERVE_MOST_TIMES)}.")
+            seat = empires.seat_of(conn, player_id)
+            room = empires.signing_limit(conn, seat) - empires._spent(conn, empire_id, player_id, state["period"]) if seat else 0
+            if limit > room:
+                raise PropertyError(f"That is more of the empire's money than you may sign for this quarter ({money(max(room, 0))} left).")
         if empire_id is not None:
             # An empire does not buy from its own members: a price it set could carry its money out to one of them.
             if _seller_is_member(conn, a["seller"], empire_id):

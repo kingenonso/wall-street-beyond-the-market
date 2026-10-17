@@ -1241,3 +1241,5 @@ MEDIA_DRIFT_BPS = 500
 MEDIA_VALUE_TIMES = 5                             # a title is worth about five years' profit
 MEDIA_RESERVE_BPS = (8_000, 10_000)               # the Government's lowest price when it sells one: 80% to 100% of what it is worth
 MEDIA_COMPUTER_BID_BPS = (7_000, 9_500)           # the big media houses bid up to 70%-95% of what a title is worth
+CHARITY_PEOPLE_FLAG_NAIRA = 5_000_000            # the Money Watch also looks at a charity that gives most of its money (₦5m or more) to named people
+MEDIA_RESERVE_MOST_TIMES = 2                      # an owner's lowest price, and an empire's bid, are at most twice what a title is worth
