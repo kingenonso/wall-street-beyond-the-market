@@ -1151,3 +1151,31 @@ FREELANCE_MOST_A_QUARTER_NAIRA = 20_000_000       # an independent is paid at mo
 FREELANCE_HOUSE_MOST_A_QUARTER_NAIRA = 200_000_000  # ...and the paper that picks up independents' stories pays out at most ₦200 million
 FOLLOWING_FADES_BPS = 500              # each quarter a twentieth of a journalist's following drifts away
 ARTICLE_FRESH_DAYS = 3                 # full articles are written for items from the last three game days
+
+# ---------------------------------------------------------------------------
+# Stage 10, Part 2: information, tips, sources and rumours
+# ---------------------------------------------------------------------------
+TIP_USEFUL_HOURS = 4                   # a Sealed Tip stops being useful four real hours after it is opened
+TIP_VALUABLE_BPS = 3_334               # about a third of tips are about something real and still to come...
+TIP_FALSE_BPS = 3_333                  # ...a third are false...                (the rest: true but already public)
+TIP_CONFIDENTIAL_BPS = 3_000           # ...and three in ten of the valuable company tips come from someone inside (about 1 in 10 of all)
+CHECK_FEE_NAIRA = 50_000               # checking a piece of information costs ₦50,000...
+CHECK_RIGHT_BPS = 7_000                # ...and is right 70% of the time...
+CHECK_RIGHT_PER_LEVEL_BPS = 50         # ...plus half a percent a level...
+CHECK_RIGHT_MOST_BPS = 9_500           # ...at most 95%
+SOURCE_QUARTERS = 2                    # a source takes two quarters to build
+SOURCE_RELIABILITY_BPS = 8_000         # its hints are true 80% of the time (a little more for a senior journalist)
+SOURCE_RELIABILITY_PER_LEVEL_BPS = 25
+SOURCE_RELIABILITY_RANGE_BPS = (7_000, 9_000)
+SOURCES_LEAST = 2                      # a journalist may keep two sources, and one more for every ten levels...
+SOURCES_MOST = 5                       # ...at most five
+SOURCE_HINT_USEFUL_HOURS = 48          # a source's hint is useful for two real days
+SOURCE_BURN_STORY_BPS = 3_000          # printing a source's hint as an unconfirmed story burns the source three times in ten...
+SOURCE_BURN_SALE_BPS = 2_000           # ...selling it, twice in ten
+INTEL_PRICE_LEAST_NAIRA = 10_000       # a piece of information sells for ₦10,000...
+INTEL_PRICE_MOST_NAIRA = 50_000_000    # ...to ₦50 million
+INTEL_LISTINGS_MOST = 10               # a player may have at most ten pieces on the market at once
+RUMOUR_IMPORTANCE = 60                 # how big an unconfirmed report counts, for its readers
+RUMOUR_READERS_BPS = 7_000             # an unconfirmed report is read by seven in ten of those who would read a confirmed one
+RUMOUR_NUDGE_SHARE_BPS = 5_000         # investors mark a company on an unconfirmed report half as far, and only as far as they trust the author
+RUMOUR_CONFIRMED_CREDIBILITY = 2       # a rumour borne out adds two points to the author's credibility

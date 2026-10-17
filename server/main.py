@@ -98,6 +98,8 @@ def _close_due_quarters_once() -> None:
         if conn.execute("SELECT to_regclass('stories') IS NOT NULL").fetchone()[0]:
             from simulation import newsroom
             newsroom.tick(conn, now)
+            from simulation import intel
+            intel.tick(conn, now)
         # The Auction House settles every auction whose countdown has ended.
         if conn.execute("SELECT to_regclass('auctions') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
             auctions.run(conn, now)
@@ -1636,3 +1638,4 @@ from server import property_routes  # noqa: E402,F401
 from server import lending_routes  # noqa: E402,F401
 from server import property2_routes  # noqa: E402,F401
 from server import news_routes  # noqa: E402,F401
+from server import intel_routes  # noqa: E402,F401
