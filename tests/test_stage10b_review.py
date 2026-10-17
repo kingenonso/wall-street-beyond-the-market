@@ -207,3 +207,26 @@ def test_minor_a_pact_or_theft_piece_shows_no_names_until_bought(db):
     intel.offer(db, seller, item["ref"], naira(20_000), NOW9)
     seen = next(m for m in intel.market(db, buyer, NOW9) if m["ref"] == item["ref"])
     assert seen["about"] == {"topic": "pact"} and a[0] not in repr(seen)
+
+
+# Found by the ten-year run: a check or a purchase without the cash is refused plainly, not a crash.
+def test_run_a_check_or_a_purchase_without_the_cash_is_refused(db):
+    poor = pro(db, "risk_manager", "pennyless", level=10, cash_naira=0)[0]
+    account = ledger.player_account_id(db, poor)
+    left = ledger.balance(db, account)
+    if left:
+        ledger.transfer(db, payer=account, receiver=ledger.account_id(db, ledger.TREASURY), amount=left, kind="test_cash", memo="Test: empty")
+    w = careers.world_now(db, NOW9)
+    company = _company(db)
+    item = intel.make(db, kind="tip", topic="company", truth="true", basis="none", period=w["period"], day=w["day"], now=NOW9,
+                      company_id=company["id"], tone=1, useful_until=NOW9 + timedelta(hours=4), words=f"Word around {company['name']}: good news.")
+    intel.hold(db, item["id"], poor, "found", NOW9)
+    with pytest.raises(intel.IntelError, match="not the cash"):
+        intel.check(db, poor, item["ref"], NOW9)
+    seller = pro(db, "accountant", "richseller", level=10, cash_naira=1_000_000)[0]
+    other = intel.make(db, kind="tip", topic="company", truth="true", basis="none", period=w["period"], day=w["day"], now=NOW9,
+                       company_id=company["id"], tone=1, useful_until=NOW9 + timedelta(hours=4), words=f"Word around {company['name']}: more.")
+    intel.hold(db, other["id"], seller, "found", NOW9)
+    listing = intel.offer(db, seller, other["ref"], naira(20_000), NOW9)["listing_id"]
+    with pytest.raises(intel.IntelError, match="not the cash"):
+        intel.buy(db, poor, listing, NOW9)

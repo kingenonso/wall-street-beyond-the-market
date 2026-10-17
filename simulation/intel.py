@@ -358,8 +358,11 @@ def check(conn: Connection, player_id, ref: str, now: datetime, *, checker=None)
             raise IntelError("You started this rumour: there is nothing in it for you to check.")
         who = _player(conn, checker)
         w = _now(conn, now)
-        ledger.transfer(conn, payer=ledger.player_account_id(conn, checker), receiver=ledger.account_id(conn, ledger.TREASURY),
-                        amount=naira(data.CHECK_FEE_NAIRA), kind="intel_check", memo="Checking a piece of information", period=w["period"])
+        try:
+            ledger.transfer(conn, payer=ledger.player_account_id(conn, checker), receiver=ledger.account_id(conn, ledger.TREASURY),
+                            amount=naira(data.CHECK_FEE_NAIRA), kind="intel_check", memo="Checking a piece of information", period=w["period"])
+        except ledger.InsufficientFunds:
+            raise IntelError(f"A check costs ₦{data.CHECK_FEE_NAIRA:,}, and there is not the cash for it.") from None
         right = min(data.CHECK_RIGHT_BPS + data.CHECK_RIGHT_PER_LEVEL_BPS * _level(conn, checker, who["build"]), data.CHECK_RIGHT_MOST_BPS)
         if item["resolved_at"] is not None:
             truth = "holds" if item["status"] == "verified" and item["truth"] != "worthless" else \
@@ -451,9 +454,12 @@ def buy(conn: Connection, player_id, listing_id: int, now: datetime) -> dict:
         if _one(conn, "SELECT 1 AS x FROM intel_holders WHERE item_id = %s AND player_id = %s", (item["id"], player_id)):
             raise IntelError("You already hold it.")
         w = _now(conn, now)
-        ledger.transfer(conn, payer=ledger.player_account_id(conn, player_id), receiver=ledger.player_account_id(conn, row["seller"]),
-                        amount=row["price"], kind="intel_sale", memo="A piece of information bought on the Intelligence Market",
-                        period=w["period"], reference=f"intel_listing:{listing_id}")
+        try:
+            ledger.transfer(conn, payer=ledger.player_account_id(conn, player_id), receiver=ledger.player_account_id(conn, row["seller"]),
+                            amount=row["price"], kind="intel_sale", memo="A piece of information bought on the Intelligence Market",
+                            period=w["period"], reference=f"intel_listing:{listing_id}")
+        except ledger.InsufficientFunds:
+            raise IntelError("You have not the cash for it.") from None
         conn.execute("INSERT INTO intel_sales (listing_id, buyer, price, at) VALUES (%s, %s, %s, %s)", (listing_id, player_id, row["price"], now))
         conn.execute("UPDATE intel_listings SET sold = sold + 1 WHERE id = %s", (listing_id,))
         hold(conn, item["id"], player_id, "bought", now, from_player=row["seller"])
