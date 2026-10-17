@@ -401,8 +401,10 @@ def to_answer(conn: Connection, player_id, now: datetime) -> list[dict]:
     """Questions from journalists waiting on this player, as the head of an empire."""
     return _rows(conn, "SELECT i.id, i.question, i.due_at, e.name AS empire, p.display_name AS journalist FROM interviews i"
                        " JOIN empires e ON e.id = i.empire_id JOIN players p ON p.id = i.journalist_id"
-                       " WHERE e.head_player_id = %s AND i.status = 'asked' AND i.due_at > %s ORDER BY i.due_at",
-                 (player_id, now))
+                       " WHERE (e.head_player_id = %s OR EXISTS (SELECT 1 FROM empire_seats s WHERE s.empire_id = e.id AND s.player_id = %s"
+                       "        AND s.build = 'journalist'))"
+                       " AND i.journalist_id <> %s AND i.status = 'asked' AND i.due_at > %s ORDER BY i.due_at",
+                 (player_id, player_id, player_id, now))
 
 
 def answer(conn: Connection, player_id, interview_id: int, words: str | None, now: datetime) -> None:
@@ -415,7 +417,9 @@ def answer(conn: Connection, player_id, interview_id: int, words: str | None, no
     with conn.transaction():
         row = _one(conn, "SELECT i.*, e.head_player_id, e.name AS empire FROM interviews i JOIN empires e ON e.id = i.empire_id"
                          " WHERE i.id = %s FOR UPDATE OF i", (interview_id,))
-        if row is None or row["head_player_id"] != player_id:
+        from simulation import press
+        if row is None or not (row["head_player_id"] == player_id or press.speaks_for(conn, player_id, row["empire_id"])) \
+                or row["journalist_id"] == player_id:
             raise NewsroomError("That question is not yours to answer.")
         if row["status"] != "asked" or row["due_at"] <= now:
             raise NewsroomError("That question is closed.")
@@ -635,9 +639,18 @@ def publish(conn: Connection, player_id, now: datetime) -> dict:
                                                               (lead["source_id"], player_id)):
                 from simulation import intel
                 intel._maybe_burn(conn, lead["item"], "story", now)
+            from simulation import press
+            press.lead_printed(conn, story, lead["item"], unconfirmed, now)
             ripple.link(conn, f"story:{story['id']}", f"intel:{lead['ref']}",
                         f"{author['display_name']}'s story “{headline}” reported, {'unconfirmed' if unconfirmed else 'confirmed'}: {lead['words']}",
                         period, now, {})
+        # Empires named by a confirmed fact in a widely read story: their reputation moves a point the story's way.
+        if readers >= data.WIDELY_READ:
+            for empire_id in sorted({c["empire_id"] for c in fresh if c.get("empire_id") and c["tone"]}):
+                tone = sum(c["tone"] for c in fresh if c.get("empire_id") == empire_id)
+                if tone:
+                    standing.change(conn, empire_id, data.PRESS_TONE_REPUTATION * (1 if tone > 0 else -1),
+                                    f"A widely read story: {headline}", period, now, press=True)
         # Empires: an answer on the record that went to print is worth a point; a question left to lapse costs one.
         for i in interviews:
             if i["empire_id"] and i["status"] == "answered":

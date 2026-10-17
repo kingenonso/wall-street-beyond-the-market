@@ -139,7 +139,7 @@ def test_l6_drafts_and_holdings_stay_private(db, client):
 
 
 # 7. Can a question be answered by someone else, or after the deadline?
-def test_l7_only_the_head_answers_in_time(db):
+def test_l7_only_the_head_or_the_press_office_answers_in_time(db):
     empire, team = firm_of(db)
     j, _ = pro(db, "journalist", "asker", level=10)
     card = results_card(db)
@@ -150,7 +150,7 @@ def test_l7_only_the_head_answers_in_time(db):
     newsroom.ask(db, j, ticker=None, empire_name=empire["name"], question="Is the empire buying more?", now=NOW9)
     q = newsroom.to_answer(db, team["head"], NOW9)[0]
     with pytest.raises(newsroom.NewsroomError, match="not yours"):
-        newsroom.answer(db, team["journalist"], q["id"], "Yes.", NOW9)
+        newsroom.answer(db, team["accountant"], q["id"], "Yes.", NOW9)        # (Part 2: the empire's journalist is its press office)
     with pytest.raises(newsroom.NewsroomError, match="closed"):
         newsroom.answer(db, team["head"], q["id"], "Yes.", NOW9 + timedelta(hours=data.INTERVIEW_HOURS + 1))
     with pytest.raises(newsroom.NewsroomError, match="own empire"):

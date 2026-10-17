@@ -1179,3 +1179,37 @@ RUMOUR_IMPORTANCE = 60                 # how big an unconfirmed report counts, f
 RUMOUR_READERS_BPS = 7_000             # an unconfirmed report is read by seven in ten of those who would read a confirmed one
 RUMOUR_NUDGE_SHARE_BPS = 5_000         # investors mark a company on an unconfirmed report half as far, and only as far as they trust the author
 RUMOUR_CONFIRMED_CREDIBILITY = 2       # a rumour borne out adds two points to the author's credibility
+INVESTIGATIONS_OPEN_MOST = 2           # a journalist works at most two investigation files at once
+DIG_FINDS_BPS = 2_500                  # a day's search finds a document a quarter of the time (when there is something to find)...
+DIG_FINDS_PER_LEVEL_BPS = 50           # ...more for a senior journalist...
+DIG_FINDS_MOST_BPS = 5_500             # ...at most 55%; a true tip that started the file helps
+DIG_TIP_HELPS_BPS = 1_500
+DOCUMENTS_NEEDED = 3                   # an exposé needs three documents...
+SECOND_SOURCE_BPS = 3_500              # ...and a second source, found a third of the time each day once two documents are in hand
+SECOND_SOURCE_PER_LEVEL_BPS = 50
+SECOND_SOURCE_MOST_BPS = 7_000
+EXPOSE_BONUS_NAIRA = 2_000_000         # an exposé of a real theft or unlawful pact: a ₦2 million prize from the paper...
+EXPOSE_REPUTATION = 5                  # ...five points of reputation...
+EXPOSE_CREDIBILITY = 5                 # ...and five of credibility
+EXPOSE_IMPORTANCE = 90
+CRISIS_HOURS = 24                      # an empire has 24 real hours to answer a crisis
+# What answering a crisis does to the empire's reputation, by what was really so and what it said (None: it said nothing).
+CRISIS_OUTCOMES = {
+    ("true", "admit"): -1, ("true", "regret"): -2, ("true", "deny"): -6, ("true", None): -4,
+    ("false", "admit"): -3, ("false", "regret"): -1, ("false", "deny"): 1, ("false", None): -2,
+    ("worthless", "admit"): 0, ("worthless", "regret"): 0, ("worthless", "deny"): -1, ("worthless", None): 0,
+}
+LEAKS_A_QUARTER = 1                    # a member may pass one thing a quarter to the press
+LEAK_USEFUL_HOURS = 48
+LEAK_HUNT_BPS = 5_000                  # a leak hunt names the leaker half the time...
+LEAK_HUNT_PER_LEVEL_BPS = 100          # ...more when the hunter is more senior than the leaker, less when less...
+LEAK_HUNT_RANGE_BPS = (2_000, 9_000)
+RANDOM_LEAK_BPS = 500                  # each hidden pact has a one-in-twenty chance a quarter of leaking to the press on its own
+SPIN_REPUTATION = 2                    # a reply that spins a story helps the empire for now...
+SPIN_COMES_OUT_BPS = 2_500             # ...but each quarter one in four comes out...
+SPIN_EXPOSED_EMPIRE_REPUTATION = 4     # ...costing the empire four points,
+SPIN_EXPOSED_REPUTATION = 5            # ...the journalist five of reputation...
+SPIN_EXPOSED_CREDIBILITY = 10          # ...and ten of credibility
+SPIN_REFUSED_REPUTATION = 1            # refusing keeps a clean name
+PRESS_TONE_REPUTATION = 1              # a widely read story moves the reputation of the empires it names by a point, its way
+TRACES_QUARTERS = 2                    # the counter-investigation looks at the last two quarters of public traces

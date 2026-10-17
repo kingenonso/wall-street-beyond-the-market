@@ -100,6 +100,8 @@ def _close_due_quarters_once() -> None:
             newsroom.tick(conn, now)
             from simulation import intel
             intel.tick(conn, now)
+            from simulation import press
+            press.tick(conn, now)
         # The Auction House settles every auction whose countdown has ended.
         if conn.execute("SELECT to_regclass('auctions') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
             auctions.run(conn, now)
@@ -202,11 +204,17 @@ def _press(conn: Connection, player_id) -> tuple[int, int]:
     """Stage 10: journalists' questions waiting for this player (as a head), and their own stories to correct."""
     if conn.execute("SELECT to_regclass('interviews') IS NOT NULL AS ok").fetchone()["ok"] is not True:
         return 0, 0
-    row = conn.execute("SELECT (SELECT count(*) FROM interviews i JOIN empires e ON e.id = i.empire_id WHERE e.head_player_id = %s"
-                       " AND i.status = 'asked' AND i.due_at > now()) AS q,"
+    row = conn.execute("SELECT (SELECT count(*) FROM interviews i JOIN empires e ON e.id = i.empire_id WHERE (e.head_player_id = %s"
+                       " OR EXISTS (SELECT 1 FROM empire_seats s WHERE s.empire_id = e.id AND s.player_id = %s AND s.build = 'journalist'))"
+                       " AND i.journalist_id <> %s AND i.status = 'asked' AND i.due_at > now()) AS q,"
                        " (SELECT count(*) FROM stories WHERE author_id = %s AND correction_due AND correction_id IS NULL) AS c",
-                       (player_id, player_id)).fetchone()
-    return row["q"], row["c"]
+                       (player_id, player_id, player_id, player_id)).fetchone()
+    q = row["q"]
+    if conn.execute("SELECT to_regclass('crises') IS NOT NULL AS ok").fetchone()["ok"]:
+        q += conn.execute("SELECT count(*) AS n FROM crises c JOIN empires e ON e.id = c.empire_id WHERE c.status = 'open' AND c.due_at > now()"
+                          " AND (e.head_player_id = %s OR EXISTS (SELECT 1 FROM empire_seats s WHERE s.empire_id = e.id AND s.player_id = %s"
+                          " AND s.build = 'journalist'))", (player_id, player_id)).fetchone()["n"]
+    return q, row["c"]
 
 
 def _margin_calls(conn: Connection, player_id) -> int:
@@ -1639,3 +1647,4 @@ from server import lending_routes  # noqa: E402,F401
 from server import property2_routes  # noqa: E402,F401
 from server import news_routes  # noqa: E402,F401
 from server import intel_routes  # noqa: E402,F401
+from server import press_routes  # noqa: E402,F401

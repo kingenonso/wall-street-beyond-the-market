@@ -1872,23 +1872,34 @@ def investigate(conn: Connection, player_id, empire_id: int, now: datetime) -> d
         if not hidden or _roll(conn, "expose", player_id, state["period"], empire_id) >= chance:
             return {"found": False, "words": f"You found nothing on {target['name']} this quarter."}
         pact = hidden[0]
-        conn.execute("UPDATE empire_pacts SET exposed_at = %s, exposed_by = %s WHERE id = %s", (now, player_id, pact["id"]))
         conn.execute("UPDATE empire_investigations SET found_pact = %s WHERE journalist_id = %s AND period = %s", (pact["id"], player_id, state["period"]))
-        if not pact["legal"]:
-            _trust(conn, pact["from_empire"], -data.PACT_EXPOSED_TRUST)
-            _trust(conn, pact["to_empire"], -data.PACT_EXPOSED_TRUST)
-            for side in (pact["from_empire"], pact["to_empire"]):
-                leagues.award(conn, side, data.LEAGUE_POINTS["theft"], "An unlawful pact came to light", state["period"], now,
-                              reference=f"pact:{pact['id']}")
-                from simulation import standing            # Stage 10: and in its public reputation
-                standing.change(conn, side, -6, "An unlawful pact it signed came to light", state["period"], now)
-        if not pact["legal"]:
+        expose_pact(conn, pact, player_id, state["period"], now)
+        return {"found": True, "words": f"You uncovered a hidden pact: {data.PACT_KINDS[pact['kind']][0].lower()}."}
+
+
+def expose_pact(conn: Connection, pact: dict, player_id, period: int, now: datetime, *, how: str = "A journalist uncovered") -> None:
+    """A hidden pact comes to light (a journalist's search or investigation, or a leak). An unlawful one costs both empires trust,
+    league points and reputation, and each must answer for it publicly (a crisis statement, Stage 10)."""
+    conn.execute("UPDATE empire_pacts SET exposed_at = %s, exposed_by = %s WHERE id = %s", (now, player_id, pact["id"]))
+    from simulation import standing            # Stage 10: and in its public reputation
+    if not pact["legal"]:
+        _trust(conn, pact["from_empire"], -data.PACT_EXPOSED_TRUST)
+        _trust(conn, pact["to_empire"], -data.PACT_EXPOSED_TRUST)
+        for side in (pact["from_empire"], pact["to_empire"]):
+            leagues.award(conn, side, data.LEAGUE_POINTS["theft"], "An unlawful pact came to light", period, now,
+                          reference=f"pact:{pact['id']}")
+            standing.change(conn, side, -6, "An unlawful pact it signed came to light", period, now)
+        if player_id:
             # Uncovering an offence is a story. A lawful agreement coming to light is only news.
             careers.add_experience(conn, player_id, "journalist", 100, now)
             conn.execute("UPDATE players SET reputation = least(reputation + 2, 100) WHERE id = %s", (player_id,))
-        for side in (pact["from_empire"], pact["to_empire"]):
-            _log(conn, side, "A journalist uncovered one of the empire's pacts. It is now public.", now)
-        return {"found": True, "words": f"You uncovered a hidden pact: {data.PACT_KINDS[pact['kind']][0].lower()}."}
+    names = {e: _one(conn, "SELECT name FROM empires WHERE id = %s", (e,))["name"] for e in (pact["from_empire"], pact["to_empire"])}
+    for side in (pact["from_empire"], pact["to_empire"]):
+        _log(conn, side, f"{how} one of the empire's pacts. It is now public.", now)
+        if not pact["legal"]:
+            from simulation import press
+            press.open_crisis(conn, side, "pact", f"pact:{pact['id']}",
+                              f"An unlawful pact between {names[pact['from_empire']]} and {names[pact['to_empire']]} came to light.", "true", now)
 
 
 # ---------------------------------------------------------------------------
