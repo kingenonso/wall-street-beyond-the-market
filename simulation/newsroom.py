@@ -319,6 +319,19 @@ def set_words(conn: Connection, player_id, angle: str, comment: str, declared: b
     return view(conn, player_id, now)
 
 
+def set_title(conn: Connection, player_id, title_id: int | None, now: datetime) -> dict:
+    """Print the story in a media title the journalist (or their empire) owns, rather than for their employer or as an independent."""
+    from simulation import media
+    with conn.transaction():
+        story = _draft(conn, player_id, lock=True)
+        if story is None:
+            raise NewsroomError("You have no story in hand.")
+        if title_id is not None and media.title_for(conn, player_id, title_id) is None:
+            raise NewsroomError("You can print only in a title you own, or your empire owns.")
+        conn.execute("UPDATE stories SET title_id = %s WHERE id = %s", (title_id, story["id"]))
+    return view(conn, player_id, now)
+
+
 def drop(conn: Connection, player_id, now: datetime) -> None:
     with conn.transaction():
         story = _draft(conn, player_id, lock=True)
@@ -556,6 +569,12 @@ def publish(conn: Connection, player_id, now: datetime) -> dict:
         # The author's empire and paper as they are now.
         story = _refresh_empire(conn, story)
         outlet = _outlet(conn, player_id)
+        from simulation import media
+        titled = media.title_for(conn, player_id, story["title_id"]) if story["title_id"] else None
+        if story["title_id"] and titled is None:
+            raise NewsroomError("You can no longer print in that title. Choose where it runs again.")
+        if titled:
+            outlet = None
         conn.execute("UPDATE stories SET outlet_company = %s WHERE id = %s", (outlet["id"] if outlet else None, story["id"]))
         _block(conn, story, story["tickers"], now)
         # Lapse any interview whose deadline has passed.
@@ -569,7 +588,7 @@ def publish(conn: Connection, player_id, now: datetime) -> dict:
             declaration = (f"Declared interest: {author['display_name']} sits in {empire['name']}, which "
                            f"{'has a position in' if held else 'holds no position in'} the companies named.")
         prof = profile(conn, player_id)
-        outlet_name = outlet["name"] if outlet else "an independent journalist"
+        outlet_name = titled["name"] if titled else outlet["name"] if outlet else "an independent journalist"
         headline, body = _write(story, author["display_name"], outlet_name, interviews, declaration, lead)
 
         # Readers: how big the news is, how early, the audience, and the author's name.
@@ -581,7 +600,8 @@ def publish(conn: Connection, player_id, now: datetime) -> dict:
         freshness = data.SCOOP_READERS_BPS if scoop else data.OLD_NEWS_READERS_BPS if late else BPS
         credibility = min(max(prof["credibility"] * BPS // 50, 5000), 15000)
         answered = min(sum(1 for i in interviews if i["status"] == "answered"), data.INTERVIEWS_COUNTED)
-        readers = (_audience(conn, outlet, 0) * importance // 100 * freshness // BPS * credibility // BPS
+        audience = titled["audience"] if titled else _audience(conn, outlet, 0)
+        readers = (audience * importance // 100 * freshness // BPS * credibility // BPS
                    + prof["following"] * data.FOLLOWERS_READ_BPS // BPS)
         readers = readers * (BPS + answered * data.INTERVIEW_READERS_BPS) // BPS
         if unconfirmed:
@@ -598,7 +618,12 @@ def publish(conn: Connection, player_id, now: datetime) -> dict:
                             "facts": [c["id"] for c in story["facts"]], "unconfirmed": unconfirmed}), player_id))
         # Pay: a scoop bonus from the employer; an independent is paid by the paper that picks the story up, within limits.
         paid = 0
-        if outlet is None:
+        if titled:
+            if paid_scoop:
+                paid = ledger.pay_up_to(conn, payer=titled["account_id"], receiver=ledger.player_account_id(conn, player_id),
+                                        wanted=naira(data.SCOOP_BONUS_NAIRA), kind="professional_fee",
+                                        memo=f"{titled['name']}: scoop bonus to {author['display_name']}", period=period)
+        elif outlet is None:
             buyer = _one(conn, "SELECT c.* FROM companies c JOIN company_results r ON r.company_id = c.id AND r.period ="
                                " (SELECT max(period) FROM company_results WHERE company_id = c.id)"
                                " WHERE c.sector = 'media' AND c.listed AND c.status = 'trading' ORDER BY r.staff DESC LIMIT 1")
@@ -884,6 +909,8 @@ def view(conn: Connection, player_id, now: datetime) -> dict:
     from simulation import clients
     out["editors"] = clients.view(conn, player_id)
     out["empire"] = empire["name"] if empire else None
+    from simulation import media
+    out["titles"] = [{"id": t["id"], "name": t["name"], "audience": t["audience"]} for t in media.mine(conn, player_id)] if media.ready(conn) else []
     if story:
         interviews = _rows(conn, "SELECT i.id, i.question, i.answer, i.status, i.due_at, coalesce(c.name, e.name) AS who FROM interviews i"
                                  " LEFT JOIN companies c ON c.id = i.company_id LEFT JOIN empires e ON e.id = i.empire_id"
@@ -894,6 +921,7 @@ def view(conn: Connection, player_id, now: datetime) -> dict:
             "angle": story["angle"], "comment": story["comment"], "declared": story["declared"], "tickers": story["tickers"],
             "interviews": interviews,
             "lead": {"ref": story["lead"]["ref"], "words": story["lead"]["words"]} if story["lead"] else None,
+            "title_id": story["title_id"],
         }
     else:
         out["draft"] = None
@@ -912,6 +940,7 @@ def public_stories(conn: Connection, period_now: int, day_now: int, *, author_id
     params.append(limit)
     return _rows(conn, f"""
         SELECT s.id, s.headline, s.body, s.readers, s.scoop, s.period, s.day, s.tickers, p.display_name AS author,
-               coalesce(c.name, 'Independent') AS outlet, s.correction_id IS NOT NULL AS corrected
+               coalesce(t.name, c.name, 'Independent') AS outlet, s.correction_id IS NOT NULL AS corrected
         FROM stories s JOIN players p ON p.id = s.author_id LEFT JOIN companies c ON c.id = s.outlet_company
+        LEFT JOIN media_titles t ON t.id = s.title_id
         WHERE {cond} ORDER BY s.period DESC, s.day DESC, s.id DESC LIMIT %s""", params)

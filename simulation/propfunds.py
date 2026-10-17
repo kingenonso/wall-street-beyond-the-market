@@ -215,8 +215,8 @@ def bid(conn: Connection, manager_id, auction_id: int, limit: int, now: datetime
         _state(conn, now)
         fund = _managed(conn, manager_id)
         a = _one(conn, "SELECT * FROM auctions WHERE id = %s", (auction_id,))
-        if a is None:
-            raise FundError("There is no such auction.")
+        if a is None or a["property_id"] is None:
+            raise FundError("There is no such auction of a property.")
         owners = {h["account_id"] for h in prop.holdings(conn, a["property_id"])} | {a["seller"]}
         if owners & _manager_sides(conn, manager_id):
             raise FundError("A fund never buys from its manager or the manager's empire.")

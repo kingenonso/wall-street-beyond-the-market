@@ -38,9 +38,11 @@ from simulation.news_wordings import economy as _economy
 from simulation.news_wordings import happenings as _happenings
 from simulation.news_wordings import places as _places
 from simulation.news_wordings import results as _results
+from simulation.news_wordings import media as _media
 
 WORDINGS: dict[str, dict[str, list[tuple[str, str]]]] = {
     **_abroad.WORDINGS, **_property.WORDINGS, **_property2.WORDINGS, **_places.WORDINGS, **_happenings.WORDINGS, **_economy.WORDINGS, **_results.WORDINGS, **_capital.WORDINGS, **_deals.WORDINGS, **_dealmaking.WORDINGS,
+    **_media.WORDINGS,
 }
 
 # How a kind of business reads in the middle of a sentence.

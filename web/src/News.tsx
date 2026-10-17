@@ -3,6 +3,7 @@ import { api, type NewsItem, type Player } from "./api";
 import { useLoad } from "./hooks";
 import { Archive, ArticleBelow, Chronicle, NewsroomDeskView, PlayersStories, PressQuestions } from "./Newsroom";
 import { Change, Failed, Loading, Panel } from "./Shell";
+import { TitlesView } from "./Intel";
 
 /** "Year 2 Q3, day 14": when an item came out, on the game's calendar. */
 export const newsDate = (item: NewsItem) => `${item.period_label}, day ${item.day}`;
@@ -64,13 +65,13 @@ export function Story({ item, lead = false }: { item: NewsItem; lead?: boolean }
 
 type NewsFilter = "" | "mine" | "moved";
 
-type NewsTab = "wire" | "stories" | "archive" | "chronicle" | "newsroom" | "questions";
+type NewsTab = "wire" | "stories" | "archive" | "chronicle" | "titles" | "newsroom" | "questions";
 
 export function NewsWork({ player, tab: start, onLoggedOut }: { player: Player; tab?: string; onLoggedOut: () => void }) {
-  const known: NewsTab[] = ["wire", "stories", "archive", "chronicle", "newsroom", "questions"];
+  const known: NewsTab[] = ["wire", "stories", "archive", "chronicle", "titles", "newsroom", "questions"];
   const [tab, setTab] = useState<NewsTab>(known.includes(start as NewsTab) ? (start as NewsTab) : "wire");
   const choose = (next: NewsTab) => { setTab(next); window.history.replaceState(null, "", `#/news/${next}`); };
-  const tabs: [NewsTab, string][] = [["wire", "The wire"], ["stories", "Players' stories"], ["archive", "Archive"], ["chronicle", "The Chronicle"],
+  const tabs: [NewsTab, string][] = [["wire", "The wire"], ["stories", "Players' stories"], ["archive", "Archive"], ["chronicle", "The Chronicle"], ["titles", "Titles for sale"],
     ...(player.build === "journalist" ? [["newsroom", "My newsroom"] as [NewsTab, string]] : []),
     ...((player.press_questions ?? 0) > 0 || tab === "questions" ? [["questions", "Questions for you"] as [NewsTab, string]] : [])];
   return (
@@ -88,6 +89,7 @@ export function NewsWork({ player, tab: start, onLoggedOut }: { player: Player; 
       {tab === "chronicle" && <Chronicle player={player} onLoggedOut={onLoggedOut} />}
       {tab === "newsroom" && player.build === "journalist" && <NewsroomDeskView onLoggedOut={onLoggedOut} />}
       {tab === "questions" && <PressQuestions onLoggedOut={onLoggedOut} />}
+      {tab === "titles" && <TitlesView player={player} onLoggedOut={onLoggedOut} />}
     </>
   );
 }

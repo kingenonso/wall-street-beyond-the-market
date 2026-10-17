@@ -109,7 +109,7 @@ def test_a_new_world_has_districts_in_all_five_cities_owned_by_the_property_comp
 
 
 def test_the_eight_quarter_world_has_its_listings_open_at_the_auction_house_staggered_over_the_week(db):
-    open_ = _dicts(db, "SELECT * FROM auctions WHERE status = 'open' ORDER BY opens_at")
+    open_ = _dicts(db, "SELECT * FROM auctions WHERE status = 'open' AND property_id IS NOT NULL ORDER BY opens_at")
     assert len(open_) == data.AUCTION_LISTINGS_A_QUARTER
     assert open_[-1]["opens_at"] - open_[0]["opens_at"] > timedelta(days=5)
     assert all(a["ends_at"] < after_quarters(9) - timedelta(hours=1) for a in open_)
@@ -135,7 +135,7 @@ def test_a_property_company_that_still_owns_everything_earns_its_rent_inside_its
 
 def test_a_player_buys_a_listed_unit_with_a_mortgage_and_owns_it_after_the_countdown(db):
     player, account = pro(db, "accountant", "buyer", level=10, cash_naira=200_000_000)
-    a = _one(db, "SELECT a.* FROM auctions a WHERE a.status = 'open' AND a.opens_at <= %s ORDER BY a.fair LIMIT 1", (NOW9,))
+    a = _one(db, "SELECT a.* FROM auctions a WHERE a.status = 'open' AND a.property_id IS NOT NULL AND a.opens_at <= %s ORDER BY a.fair LIMIT 1", (NOW9,))
     company_before = ledger.balance(db, a["seller"])
     bank = a_bank(db)
     limit = a["fair"]
@@ -161,7 +161,7 @@ def test_a_player_buys_a_listed_unit_with_a_mortgage_and_owns_it_after_the_count
 
 def test_a_lone_bid_below_the_sellers_lowest_price_does_not_buy(db):
     player, account = pro(db, "accountant", "buyer", level=10, cash_naira=200_000_000)
-    a = _one(db, "SELECT a.* FROM auctions a WHERE a.status = 'open' AND a.opens_at <= %s ORDER BY a.fair LIMIT 1", (NOW9,))
+    a = _one(db, "SELECT a.* FROM auctions a WHERE a.status = 'open' AND a.property_id IS NOT NULL AND a.opens_at <= %s ORDER BY a.fair LIMIT 1", (NOW9,))
     before = ledger.balance(db, account)
     auctions.place_bid(db, account, a["id"], a["reserve"] - 1, LATER, player_id=player)
     end(db, a)
@@ -174,7 +174,7 @@ def test_a_lone_bid_below_the_sellers_lowest_price_does_not_buy(db):
 def test_a_bid_at_or_above_the_reserve_buys_it_and_the_company_books_the_sale(db):
     player, account = pro(db, "accountant", "buyer", level=10, cash_naira=200_000_000)
     rival, rival_account = pro(db, "lawyer", "rival", level=10, cash_naira=200_000_000)
-    a = _one(db, "SELECT a.* FROM auctions a WHERE a.status = 'open' AND a.opens_at <= %s ORDER BY a.fair LIMIT 1", (NOW9,))
+    a = _one(db, "SELECT a.* FROM auctions a WHERE a.status = 'open' AND a.property_id IS NOT NULL AND a.opens_at <= %s ORDER BY a.fair LIMIT 1", (NOW9,))
     seller_before = ledger.balance(db, a["seller"])
     bank = a_bank(db)
     auctions.place_bid(db, rival_account, a["id"], a["reserve"], LATER, player_id=rival)
@@ -396,7 +396,7 @@ def test_a_world_made_before_stage_8_gets_its_property_at_its_next_close(db):
     db.execute("SET session_replication_role = DEFAULT")
     quarters.close_due_quarters(db, after_quarters(9))
     assert db.execute("SELECT count(*) FROM properties").fetchone()[0] == 300
-    assert db.execute("SELECT count(*) FROM auctions WHERE status = 'open'").fetchone()[0] == data.AUCTION_LISTINGS_A_QUARTER
+    assert db.execute("SELECT count(*) FROM auctions WHERE status = 'open' AND property_id IS NOT NULL").fetchone()[0] == data.AUCTION_LISTINGS_A_QUARTER
     sound(db)
 
 

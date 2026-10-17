@@ -141,16 +141,27 @@ def _wrongdoing(conn: Connection, empire_id) -> list[str]:
     return out
 
 
+def _charity_wrongdoing(conn: Connection, charity_id) -> list[str]:
+    """Grants from a charity to people connected to those behind it, while it has not been exposed."""
+    return [f"grant:{g['id']}" for g in _rows(conn, "SELECT g.id FROM charity_grants g JOIN charities c ON c.id = g.charity_id"
+                                                      " WHERE g.charity_id = %s AND g.connected AND NOT c.exposed ORDER BY g.id", (charity_id,))]
+
+
 def _still_hidden(conn: Connection, basis: str) -> bool:
     kind, key = basis.split(":")
+    if kind == "grant":
+        return bool(_one(conn, "SELECT 1 AS x FROM charity_grants g JOIN charities c ON c.id = g.charity_id WHERE g.id = %s AND NOT c.exposed",
+                         (int(key),)))
     if kind == "book":
         return bool(_one(conn, "SELECT 1 AS x FROM empire_books WHERE id = %s AND NOT found", (int(key),)))
     return bool(_one(conn, "SELECT 1 AS x FROM empire_pacts WHERE id = %s AND exposed_at IS NULL AND status = 'signed'", (int(key),)))
 
 
-def open_file(conn: Connection, player_id, empire_name: str, ref: str | None, now: datetime) -> dict:
+def open_file(conn: Connection, player_id, empire_name: str | None, ref: str | None, now: datetime, *, charity_name: str | None = None) -> dict:
     _journalist(conn, player_id)
     w = _now(conn, now)
+    if charity_name:
+        return _open_charity_file(conn, player_id, charity_name, w, now)
     with conn.transaction():
         empire = _one(conn, "SELECT * FROM empires WHERE lower(name) = lower(%s) AND status = 'active' AND kind IN ('player', 'computer')",
                       ((empire_name or "").strip(),))
@@ -181,6 +192,27 @@ def open_file(conn: Connection, player_id, empire_name: str, ref: str | None, no
     return file_view(conn, player_id, row["id"], now)
 
 
+def _open_charity_file(conn: Connection, player_id, charity_name: str, w: dict, now: datetime) -> dict:
+    with conn.transaction():
+        c = _one(conn, "SELECT * FROM charities WHERE lower(name) = lower(%s) AND status = 'open'", ((charity_name or "").strip(),))
+        if c is None:
+            raise PressError("There is no charity of that name.")
+        mine = empire_of(conn, player_id)
+        if c["trustee_id"] == player_id or c["founder_player"] == player_id or (mine and c["founder_empire"] == mine["id"]):
+            raise PressError("A journalist does not investigate their own charity.")
+        if _one(conn, "SELECT count(*) AS n FROM investigations WHERE journalist_id = %s AND status = 'open'", (player_id,))["n"] \
+                >= data.INVESTIGATIONS_OPEN_MOST:
+            raise PressError(f"At most {data.INVESTIGATIONS_OPEN_MOST} investigations at once. Publish or drop one first.")
+        try:
+            with conn.transaction():
+                row = _one(conn, "INSERT INTO investigations (journalist_id, target_kind, charity_id, opened_period, at, notes)"
+                                 " VALUES (%s, 'charity', %s, %s, %s, %s) RETURNING id",
+                           (player_id, c["id"], w["period"], now, Jsonb([f"File opened on the charity {c['name']}."])))
+        except errors.UniqueViolation:
+            raise PressError("You already have a file open on that charity.") from None
+    return file_view(conn, player_id, row["id"], now)
+
+
 def _file(conn: Connection, player_id, file_id: int, *, lock: bool = False) -> dict:
     f = _one(conn, "SELECT * FROM investigations WHERE id = %s AND journalist_id = %s" + (" FOR UPDATE" if lock else ""), (file_id, player_id))
     if f is None:
@@ -192,6 +224,9 @@ DOCS = {
     "book": ("A payment in the books that matches nothing the empire received.",
              "The payee named for it cannot be found at any address.",
              "The same kind of payment, made again, in round sums."),
+    "grant": ("A grant paid out to a named person rather than to the cause.",
+              "The person who received it is close to those behind the charity.",
+              "The same thing has happened more than once."),
     "pact": ("A meeting between people from {a} and {b}, kept off both diaries.",
              "{a} and {b} moved together in a way neither explained to its members.",
              "A draft of terms between {a} and {b}."),
@@ -217,7 +252,8 @@ def dig(conn: Connection, player_id, file_id: int, now: datetime) -> dict:
             conn.execute("UPDATE investigations SET basis = NULL, documents = 0, confirmed = false, notes = %s WHERE id = %s",
                          (Jsonb(notes), file_id))
             return file_view(conn, player_id, file_id, now)
-        hidden = [basis] if basis else _wrongdoing(conn, f["empire_id"])
+        hidden = [basis] if basis else (_charity_wrongdoing(conn, f["charity_id"]) if f["target_kind"] == "charity"
+                                         else _wrongdoing(conn, f["empire_id"]))
         chance = min(data.DIG_FINDS_BPS + data.DIG_FINDS_PER_LEVEL_BPS * _level(conn, player_id), data.DIG_FINDS_MOST_BPS)
         if f["from_item"]:
             item = _one(conn, "SELECT truth, basis FROM intel_items WHERE id = %s", (f["from_item"],))
@@ -292,11 +328,16 @@ def publish_expose(conn: Connection, player_id, file_id: int, now: datetime) -> 
         if not _still_hidden(conn, f["basis"]):
             conn.execute("UPDATE investigations SET status = 'dropped' WHERE id = %s", (file_id,))
             raise PressError("What your documents show has already come out. Someone got there first.")
-        empire = _one(conn, "SELECT * FROM empires WHERE id = %s", (f["empire_id"],))
+        empire = _one(conn, "SELECT * FROM empires WHERE id = %s", (f["empire_id"],)) if f["empire_id"] else None
         kind, key = f["basis"].split(":")
         outlet = newsroom._outlet(conn, player_id)
         outlet_name = outlet["name"] if outlet else "an independent journalist"
-        if kind == "book":
+        if kind == "grant":
+            c = _one(conn, "SELECT * FROM charities WHERE id = %s FOR UPDATE", (f["charity_id"],))
+            headline = f"Investigation: the charity {c['name']} paid its own"
+            line = (f"An investigation by {author['display_name']} has found that the charity {c['name']} paid grants to people close to "
+                    "those behind it, rather than to its cause. The documents, and a second source, confirm it.")
+        elif kind == "book":
             headline = f"Investigation: money taken inside {empire['name']}"
             line = (f"An investigation by {author['display_name']} has found that money was taken from {empire['name']} by one of its own and "
                     "dressed up in the empire's books as an ordinary payment. The documents, and a second source, confirm it.")
@@ -320,7 +361,18 @@ def publish_expose(conn: Connection, player_id, file_id: int, now: datetime) -> 
         conn.execute("UPDATE stories SET news_item_id = %s WHERE id = %s", (item_id, story["id"]))
         conn.execute("UPDATE investigations SET status = 'published', story_id = %s WHERE id = %s", (story["id"], file_id))
         # What it shows comes to light.
-        if kind == "book":
+        if kind == "grant":
+            conn.execute("UPDATE charities SET exposed = true WHERE id = %s", (c["id"],))
+            conn.execute("INSERT INTO money_watch_flags (period, account_id, reason) VALUES (%s, %s, %s)",
+                         (period, c["account_id"], f"Charity {c['name']}: exposed for paying grants to insiders"))
+            if c["founder_empire"]:
+                standing.change(conn, c["founder_empire"], -data.CHARITY_EXPOSED_REPUTATION, "Its charity was shown to pay its own", period, now)
+                open_crisis(conn, c["founder_empire"], "report", f"charity:{c['id']}",
+                            f"An investigation found that the charity {c['name']} paid grants to insiders.", "true", now)
+            if c["founder_player"]:
+                conn.execute("UPDATE players SET reputation = greatest(reputation - %s, 0) WHERE id = %s",
+                             (data.CHARITY_EXPOSED_REPUTATION, c["founder_player"]))
+        elif kind == "book":
             book = _one(conn, "SELECT * FROM empire_books WHERE id = %s FOR UPDATE", (int(key),))
             audit = _one(conn, "INSERT INTO empire_audits (empire_id, kind, hired_by, period, from_period, to_period, examined, findings, reported, at)"
                                " VALUES (%s, 'report', %s, %s, %s, %s, 1, %s, %s, %s) RETURNING id",
@@ -348,15 +400,17 @@ def publish_expose(conn: Connection, player_id, file_id: int, now: datetime) -> 
                         f"{author['display_name']} published “{headline}” for {outlet_name}: {readers:,} readers.", period, day, now,
                         player_id=player_id)
         chronicle.write(conn, "world", f"expose:{story['id']}", "scandal", headline, line, period, day, now)
-        ripple.link(conn, f"story:{story['id']}", f"investigation:{file_id}", f"{author['display_name']}'s investigation of {empire['name']}.",
-                    period, now, {})
+        ripple.link(conn, f"story:{story['id']}", f"investigation:{file_id}",
+                    f"{author['display_name']}'s investigation of {empire['name'] if empire else c['name']}.", period, now, {})
     return {"story_id": story["id"], "headline": headline, "readers": readers, "paid": paid}
 
 
 def file_view(conn: Connection, player_id, file_id: int, now: datetime) -> dict:
     f = _file(conn, player_id, file_id)
-    empire = _one(conn, "SELECT name FROM empires WHERE id = %s", (f["empire_id"],))
-    return {"id": f["id"], "empire": empire["name"], "status": f["status"], "documents": f["documents"], "needed": data.DOCUMENTS_NEEDED,
+    target = (_one(conn, "SELECT name FROM empires WHERE id = %s", (f["empire_id"],)) if f["empire_id"] else
+              _one(conn, "SELECT name FROM charities WHERE id = %s", (f["charity_id"],)))
+    return {"id": f["id"], "empire": target["name"] if f["empire_id"] else None, "target": target["name"], "kind": f["target_kind"],
+            "status": f["status"], "documents": f["documents"], "needed": data.DOCUMENTS_NEEDED,
             "confirmed": f["confirmed"], "notes": f["notes"], "opened": clock.period_label(f["opened_period"]),
             "dug_today": f["last_dug"] == intel.lagos_day(now), "asked_today": f["last_asked"] == intel.lagos_day(now),
             "can_publish": f["documents"] >= data.DOCUMENTS_NEEDED and f["confirmed"]}

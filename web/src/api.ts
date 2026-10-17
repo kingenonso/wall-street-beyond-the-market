@@ -29,6 +29,7 @@ export type Player = {
   /** Stage 10: journalists' questions waiting on the head of an empire; the player's own stories to correct. */
   press_questions?: number;
   corrections_due?: number;
+  crises_due?: number;
   /** The redesign: the player's own look and sound, and whether the first-time tour has been seen. */
   theme: "dark" | "light";
   sound_on: boolean;
@@ -411,7 +412,9 @@ export type NewsroomDesk = {
   empire: string | null;
   editors: Editor[];
   to_correct: { id: number; headline: string; correct_by: string; late: boolean }[];
-  draft: null | { id: number; facts: DraftFact[]; angle: string; comment: string; declared: boolean; tickers: string[]; interviews: Interview[] };
+  draft: null | { id: number; facts: DraftFact[]; angle: string; comment: string; declared: boolean; tickers: string[]; interviews: Interview[];
+    lead: { ref: string; words: string } | null; title_id: number | null };
+  titles: { id: number; name: string; audience: number }[];
   published: { id: number; headline: string; readers: number; scoop: boolean; period: number; day: number; correction_due: boolean; corrected: boolean }[];
 };
 export type PlayerStory = {
@@ -426,6 +429,41 @@ export type Article = { article: { body: string; writer: string } | null; thread
 export type ChronicleEntry = { id: number; layer: string; kind: string; ref: string; title: string; words: string; period: number; day: number;
   label: string; accounts: { words: string; credibility: number; evidence: number[]; author: string }[] };
 export type PressQuestion = { id: number; question: string; due_at: string; empire: string; journalist: string };
+
+/** Stage 10, Part 2: information, tips, sources, investigations, the press desk, charities and media titles. */
+export type IntelAbout = { topic: string; company?: string; ticker?: string; empire?: string; other_empire?: string; city?: string };
+export type IntelPiece = {
+  ref: string; kind: string; about: IntelAbout; status: string; status_words: string; confidential: boolean; reliability_bps: number | null;
+  found: string; useful_until: string | null; useful: boolean; holders: number; words?: string; tone?: number; check?: string | null;
+  how?: string; since?: string;
+};
+export type SealedTip = ({ opened: false; for: string; words: string }) | ({ opened: true } & IntelPiece);
+export type IntelListing = IntelPiece & { listing_id: number; price: Kobo; seller: string; sold: number; yours: boolean; held: boolean };
+export type IntelSource = { id: number; kind: string; where: string; ticker: string | null; status: string; ready: string; reliability_bps: number;
+  asked_today: boolean };
+export type IntelDesk = { tip: SealedTip; mine: IntelPiece[]; market: IntelListing[]; feed: { build: string; items: { what: string; at: string | null }[] };
+  sources?: IntelSource[]; sources_allowed?: number };
+export type Rumour = { story_id: number; headline: string; readers: number; author: string; when: string; marked_bps: number; outcome: string };
+export type InvestigationFile = { id: number; empire: string | null; target: string; kind: string; status: string; documents: number; needed: number;
+  confirmed: boolean; notes: string[]; opened: string; dug_today: boolean; asked_today: boolean; can_publish: boolean };
+export type Crisis = { id: number; kind: string; words: string; opened_at: string; due_at: string; status: string; stance: string | null;
+  statement: string | null; change: number | null; stance_words: string | null };
+export type PressDesk = {
+  empire: string; head: boolean; crises: Crisis[]; stances: Record<string, string>;
+  looking: { journalist: string; traces: string[]; count: number }[];
+  leaks: { id: number; words: string; at: string; hunted: boolean; found: boolean | null }[];
+  stories: { id: number; headline: string; readers: number; when: string; asked: boolean }[];
+  requests: { id: number; headline: string; status: string; at: string }[];
+};
+export type Charity = { id: number; name: string; cause: string; city: string; founder: string; since: string; status: string; under_a_cloud: boolean;
+  given: Kobo; to_cause: Kobo; to_people: Kobo; holds: Kobo; yours: boolean;
+  grants?: { amount: Kobo; words: string; period: number; to_whom: string | null }[] };
+export type MediaTitle = { id: number; name: string; kind: string; city: string; audience: number; owner: string; since: string; worth: Kobo;
+  last: { quarter: string; audience: number; revenue: Kobo; profit: Kobo }[]; yours: boolean; for_sale: boolean };
+export type TitleAuction = { id: number; title: { id: number; name: string; city: string; kind: string; audience: number }; opens_at: string;
+  ends_at: string; status: string; start_price: Kobo; price: Kobo | null; minimum: Kobo; fair: Kobo; lowest_price_met: boolean; bidders: number;
+  you_lead: boolean; your_limit: Kobo | null; your_status: string | null; your_bid_id: number | null;
+  events: { at: string; price: Kobo | null; words: string }[] };
 
 export type PriceLevel = { price_kobo: Kobo; quantity: number; orders: number };
 export type PublicTrade = { price_kobo: Kobo; quantity: number; in_auction: boolean; traded_at: string };
@@ -1067,6 +1105,12 @@ export const api = {
   whyChain: (key: string) => request<WhyChain>(`/why?key=${encodeURIComponent(key)}`),
   chronicle: (layer: string, ticker?: string) => request<{ entries: ChronicleEntry[] }>(`/chronicle?layer=${layer}${ticker ? `&ticker=${ticker}` : ""}`),
   pressQuestions: () => request<{ questions: PressQuestion[] }>("/interviews"),
+  intel: () => request<IntelDesk>("/intel"),
+  rumours: () => request<{ rumours: Rumour[] }>("/rumours"),
+  investigations: () => request<{ files: InvestigationFile[] }>("/investigations"),
+  pressDesk: () => request<PressDesk>("/press"),
+  charities: () => request<{ charities: Charity[] }>("/charities"),
+  media: () => request<{ titles: MediaTitle[]; auctions: TitleAuction[] }>("/media"),
   news: (filter: { outlet?: string; ticker?: string; limit?: number } = {}) => {
     const query = new URLSearchParams();
     if (filter.outlet) query.set("outlet", filter.outlet);

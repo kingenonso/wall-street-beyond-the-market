@@ -152,6 +152,9 @@ KINDS: tuple[NewsKind, ...] = (
     NewsKind("property_claim", 54, {"property": "Ikoyi Court", "claim": "an old loan secured on it"}),
     NewsKind("development_done", 48, {"property": "Plot 1, Maitama", "city": "Abuja", "kind": "homes"}),
     NewsKind("home_repossessions", 70, {"city": "Lagos", "homes": "about 1,200", "rate": "26.5%"}),
+    # --- Stage 10, Part 2: media titles at the Auction House ---
+    NewsKind("title_for_sale", 52, {"title": "The Evening Drum", "city": "Lagos"}),
+    NewsKind("title_sold", 56, {"title": "The Evening Drum", "buyer": "Harbour House", "price": "₦24.5 million"}),
     # --- The economy upgrade: the rest of the world ---
     NewsKind("oil_up", 70, {"price": "$82.40", "previous": "$75.00", "change": "9.9%"}),
     NewsKind("oil_down", 72, {"price": "$64.10", "previous": "$75.00", "change": "14.5%"}),

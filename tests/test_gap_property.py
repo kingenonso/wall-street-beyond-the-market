@@ -289,7 +289,7 @@ def test_property_funds_the_trust_and_a_managers_own_fund_under_its_rules(db):
         propfunds.open_fund(db, manager, "Second Property", 150, later)
     fund = _one(db, "SELECT * FROM property_funds WHERE id = %s", (opened["fund_id"],))
     propfunds.buy_units(db, i_acct, fund["id"], naira(50_000_000), later)
-    a = _one(db, "SELECT * FROM auctions WHERE status = 'open' AND opens_at <= %s AND ends_at > %s ORDER BY fair LIMIT 1", (later, later))
+    a = _one(db, "SELECT * FROM auctions WHERE status = 'open' AND property_id IS NOT NULL AND opens_at <= %s AND ends_at > %s ORDER BY fair LIMIT 1", (later, later))
     if a:
         with pytest.raises(propfunds.FundError, match="tenth above|more than|in cash"):
             propfunds.bid(db, manager, a["id"], a["fair"] * 2, later)

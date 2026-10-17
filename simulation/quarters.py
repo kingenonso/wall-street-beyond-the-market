@@ -234,6 +234,10 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     intel.at_close(conn, period, now)
     from simulation import press
     press.at_close(conn, period, now)
+    # Charities' giving and the Money Watch's look at them; the media titles' quarter, and the Government's next one for sale.
+    from simulation import charity, media
+    charity.at_close(conn, period, now)
+    media.close(conn, period, now)
     news.for_events(conn, events.generate(conn, period + 1, fortune_seed))
     # Private companies after the close: wear, morale, secrets, rivals' prices, failures, sales and start-ups.
     private.after_close(conn, period, results, measured["wage_index_bps"], fortune_seed, now)

@@ -1213,3 +1213,31 @@ SPIN_EXPOSED_CREDIBILITY = 10          # ...and ten of credibility
 SPIN_REFUSED_REPUTATION = 1            # refusing keeps a clean name
 PRESS_TONE_REPUTATION = 1              # a widely read story moves the reputation of the empires it names by a point, its way
 TRACES_QUARTERS = 2                    # the counter-investigation looks at the last two quarters of public traces
+# Charities (owner's suggestion 10)
+CHARITY_CAUSES = {"education": "Education", "health": "Health", "water": "Clean water", "arts": "The arts", "relief": "Disaster relief"}
+CHARITY_LEAST_FOUNDING_NAIRA = 1_000_000          # founding a charity takes at least ₦1 million of the founder's own money
+CHARITY_LEAST_GIFT_NAIRA = 10_000
+CHARITY_LEAST_GRANT_NAIRA = 10_000
+CHARITY_REPUTATION_PER_NAIRA = 25_000_000         # an empire gains a point of reputation for each ₦25 million its charity grants to its cause...
+CHARITY_REPUTATION_MOST = 3                       # ...at most three points a quarter
+CHARITY_PLAYER_REPUTATION_PER_NAIRA = 5_000_000   # a player, a point for each ₦5 million given away to a cause...
+CHARITY_PLAYER_REPUTATION_MOST = 2                # ...at most two a quarter
+CHARITY_CONNECTED_FLAG_BPS = 2_500                # the Money Watch looks at a charity whose grants to connected people pass a quarter of its grants
+CHARITY_EXPOSED_REPUTATION = 6
+# Media titles sold at the Auction House (owner's suggestion 1)
+MEDIA_TITLES = (                                  # name, kind, city, audience
+    ("The Garden City Courier", "paper", PORT_HARCOURT, 60_000),
+    ("The Harmattan Post", "paper", KANO, 50_000),
+    ("Capital Bulletin", "paper", ABUJA, 45_000),
+    ("The Evening Drum", "paper", LAGOS, 80_000),
+    ("Aba Market Voice", "radio", ABA, 35_000),
+)
+MEDIA_KOBO_PER_READER = 4_000                     # each regular reader brings in ₦40 a quarter (sales and advertising), from the city's households
+MEDIA_STORY_KOBO_PER_READER = 200                 # each reader of a story printed in it, ₦2 more
+MEDIA_COST_BPS = 6_000                            # its staff, paper and print take three-fifths of what it brings in
+MEDIA_GROWTH_BPS = 100                            # its audience grows by a hundredth of the readers of the stories printed in it...
+MEDIA_AUDIENCE_MOST_TIMES = 3                     # ...up to three times where it began; with nothing printed in it, it drifts back
+MEDIA_DRIFT_BPS = 500
+MEDIA_VALUE_TIMES = 5                             # a title is worth about five years' profit
+MEDIA_RESERVE_BPS = (8_000, 10_000)               # the Government's lowest price when it sells one: 80% to 100% of what it is worth
+MEDIA_COMPUTER_BID_BPS = (7_000, 9_500)           # the big media houses bid up to 70%-95% of what a title is worth

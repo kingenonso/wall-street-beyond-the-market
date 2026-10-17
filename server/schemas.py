@@ -122,7 +122,8 @@ class PlayerResponse(BaseModel):
     news_alerts: bool = True
     unread_messages: int = 0
     margin_calls: int = 0              # Stage 9: margin calls (and recalled shares) waiting on the player
-    press_questions: int = 0           # Stage 10: journalists' questions waiting on the player, as the head of an empire
+    press_questions: int = 0           # Stage 10: journalists' questions waiting on the player, as the head of an empire (or its journalist)
+    crises_due: int = 0                # Stage 10, Part 2: matters that came out about the empire, waiting for its statement
     corrections_due: int = 0           # Stage 10: the player's stories that must be corrected
     # The redesign: the player's own look and sound, and whether they have seen the first-time tour.
     theme: str = "dark"

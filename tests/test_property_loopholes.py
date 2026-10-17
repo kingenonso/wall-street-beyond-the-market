@@ -52,8 +52,8 @@ def test_2_no_secret_ever_leaves_the_server(client, db):
     assert join(client, {"email": "peek@example.com", "display_name": "Peek", "password": "correct horse battery",
                          "date_of_birth": "1990-01-01", "profile_icon": "male"}).status_code == 201
     rival, rival_account = pro(db, "lawyer", "rival", cash_naira=900_000_000)
-    a = _one(db, "SELECT * FROM auctions WHERE status = 'open' AND opens_at <= now() ORDER BY id LIMIT 1") or \
-        _one(db, "SELECT * FROM auctions WHERE status = 'open' ORDER BY opens_at LIMIT 1")
+    a = _one(db, "SELECT * FROM auctions WHERE status = 'open' AND property_id IS NOT NULL AND opens_at <= now() ORDER BY id LIMIT 1") or \
+        _one(db, "SELECT * FROM auctions WHERE status = 'open' AND property_id IS NOT NULL ORDER BY opens_at LIMIT 1")
     db.execute("UPDATE auctions SET opens_at = now() - interval '1 hour', ends_at = now() + interval '20 hours' WHERE id = %s", (a["id"],))
     auctions.place_bid(db, rival_account, a["id"], a["fair"] * 2, db.execute("SELECT now()").fetchone()[0], player_id=rival)
     text = client.get("/api/property").text
