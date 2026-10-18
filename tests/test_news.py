@@ -37,7 +37,7 @@ def test_every_kind_of_news_has_three_wordings_in_each_papers_voice_and_each_fil
     assert sorted(covered) == sorted(kind.name for kind in KINDS) and len(covered) == len(set(covered)) == 108
     assert set(news.WORDINGS) == set(BY_NAME)
     total = sum(len(options) for kind in news.WORDINGS.values() for options in kind.values())
-    assert total == 106 * 3 * PER_OUTLET == 954
+    assert total == 108 * 3 * PER_OUTLET == 972
     # Every kind of event the world can produce has news to go with it.
     assert {kind.name for kind in events.KINDS} <= set(BY_NAME)
 

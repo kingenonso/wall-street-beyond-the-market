@@ -384,7 +384,7 @@ export function CharitiesWork({ player, onLoggedOut }: { player: Player; onLogge
           <label className="answer">Cause<select value={form.cause} onChange={(e) => setForm({ ...form, cause: e.target.value })}>{Object.entries(CAUSES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
           <label className="answer">City<select value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })}>{CITIES.map((c) => <option key={c}>{c}</option>)}</select></label>
           <label className="answer">₦<input type="number" min={1000000} step={100000} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></label>
-          {isHead && <label className="answer small"><input type="checkbox" checked={form.for_empire} onChange={(e) => setForm({ ...form, for_empire: e.target.checked })} /> For my empire</label>}
+          {isHead && <label className="check-line"><input type="checkbox" checked={form.for_empire} onChange={(e) => setForm({ ...form, for_empire: e.target.checked })} /> For my empire</label>}
           <button className="button-primary" disabled={act.busy || form.name.trim().length < 4}
             onClick={() => act.run(() => api.post("/charities", { name: form.name, cause: form.cause, city: form.city, amount_naira: Math.round(Number(form.amount)), for_empire: form.for_empire }), "Founded.")}>Found it</button>
         </div>
