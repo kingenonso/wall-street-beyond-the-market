@@ -38,6 +38,7 @@ HOLDERS = (
     ("Players", "a.kind = 'player'"),
     ("Empires and funds", "a.kind IN ('empire', 'fund')"),
     ("Abroad", "a.code IN ('abroad', 'investors:foreign')"),           # the rest of the world and its investors
+    ("Charities and media titles", "a.kind IN ('charity', 'media')"),  # Stage 10, Part 2
 )
 # What each reading asks for.
 RATE_EXTRA_BPS = {"green": 0, "amber": 50, "red": 100}

@@ -14,6 +14,7 @@ import { FirmRail, FirmWork } from "./Firm";
 import { EconomyRail, EconomyWork } from "./Economy";
 import { MarketRail, MarketWork } from "./Market";
 import { NewsRail, NewsWork } from "./News";
+import { CharitiesRail, CharitiesWork, IntelRail, IntelWork } from "./Intel";
 import { PortfolioRail, PortfolioWork } from "./Portfolio";
 import { PropertyRail, PropertyWork } from "./Property";
 import { BorrowRail, BorrowWork } from "./Borrow";
@@ -102,6 +103,14 @@ export function App() {
     current = "news";
     work = <NewsWork key={item ?? ""} player={player} tab={item} onLoggedOut={loggedOut} />;
     rail = <NewsRail />;
+  } else if (section === "intel") {
+    current = "intel";
+    work = <IntelWork key={item ?? ""} player={player} tab={item} onLoggedOut={loggedOut} />;
+    rail = <IntelRail />;
+  } else if (section === "charities") {
+    current = "charities";
+    work = <CharitiesWork player={player} onLoggedOut={loggedOut} />;
+    rail = <CharitiesRail />;
   } else if (section === "borrow") {
     current = "borrow";
     work = <BorrowWork key={item ?? ""} player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;

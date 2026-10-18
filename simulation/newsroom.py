@@ -129,6 +129,8 @@ def check_trade(conn: Connection, account, company_id, now: datetime) -> None:
         raise exchange.ExchangeError(
             f"No trading in this company {when}: a story about it is being written or has just been published by you or your empire's "
             "journalist. (A journalist and their empire may not trade around their own story.)")
+    from simulation import intel
+    intel.note_trade(conn, account, company_id, now)
 
 
 def _block(conn: Connection, story: dict, tickers: list[str], now: datetime) -> None:
@@ -203,10 +205,50 @@ def add_fact(conn: Connection, player_id, fact_id: str, now: datetime) -> dict:
             raise NewsroomError(f"A story may use at most {data.STORY_MOST_FACTS} facts: keep it to the point.")
         chosen.append({k: card[k] for k in ("id", "kind", "title", "line", "figures", "tone", "tickers", "empire_id",
                                             "importance", "wire_kinds", "source", "ripple", "scoopable", "record", "period", "day")})
-        tickers = sorted({t for c in chosen for t in c["tickers"]})
+        tickers = sorted({t for c in chosen for t in c["tickers"]} | set((story["lead"] or {}).get("tickers") or []))
         story = _refresh_empire(conn, story)
         conn.execute("UPDATE stories SET facts = %s, tickers = %s WHERE id = %s", (Jsonb(chosen), tickers, story["id"]))
         _block(conn, story, tickers, now)
+    return view(conn, player_id, now)
+
+
+def add_lead(conn: Connection, player_id, ref: str, now: datetime) -> dict:
+    """Put one piece of information the journalist holds into the story as an unconfirmed report (M32). It is printed as
+    unconfirmed unless the record has already borne it out; what readers believed is kept against what turns out to be true."""
+    from simulation import intel
+    with conn.transaction():
+        story = _draft(conn, player_id, lock=True)
+        if story is None:
+            raise NewsroomError("Start a story first.")
+        try:
+            item = intel.held(conn, player_id, ref)
+        except intel.IntelError as e:
+            raise NewsroomError(str(e)) from None
+        if not intel.useful(item, now):
+            raise NewsroomError("That piece is no longer useful: it has run out of time, or been proved wrong.")
+        if item["topic"] not in ("company", "pact", "theft", "rate", "infrastructure"):
+            raise NewsroomError("That piece cannot be printed.")
+        if story["lead"]:
+            raise NewsroomError("A story carries at most one unconfirmed report. Take the other out first.")
+        tickers = []
+        if item["company_id"]:
+            tickers = [_one(conn, "SELECT ticker FROM companies WHERE id = %s", (item["company_id"],))["ticker"]]
+        lead = {"item_id": item["id"], "ref": item["ref"], "words": item["words"], "tickers": tickers, "empire_id": item["empire_id"],
+                "other_empire_id": item["other_empire_id"], "tone": item["tone"], "source_id": item["source_id"]}
+        all_tickers = sorted({t for c in story["facts"] for t in c["tickers"]} | set(tickers))
+        story = _refresh_empire(conn, story)
+        conn.execute("UPDATE stories SET lead = %s, tickers = %s WHERE id = %s", (Jsonb(lead), all_tickers, story["id"]))
+        _block(conn, story, all_tickers, now)
+    return view(conn, player_id, now)
+
+
+def remove_lead(conn: Connection, player_id, now: datetime) -> dict:
+    with conn.transaction():
+        story = _draft(conn, player_id, lock=True)
+        if story is None or not story["lead"]:
+            raise NewsroomError("Your story carries no unconfirmed report.")
+        conn.execute("UPDATE stories SET lead = NULL, tickers = %s WHERE id = %s",
+                     (sorted({t for c in story["facts"] for t in c["tickers"]}), story["id"]))
     return view(conn, player_id, now)
 
 
@@ -230,8 +272,9 @@ def remove_fact(conn: Connection, player_id, fact_id: str, now: datetime) -> dic
             raise NewsroomError("You have no story in hand.")
         chosen = [c for c in story["facts"] if c["id"] != fact_id]
         checked = [c for c in story["checked"] if c != fact_id]
+        lead_tickers = set((story["lead"] or {}).get("tickers") or [])
         conn.execute("UPDATE stories SET facts = %s, checked = %s, tickers = %s WHERE id = %s",
-                     (Jsonb(chosen), Jsonb(checked), sorted({t for c in chosen for t in c["tickers"]}), story["id"]))
+                     (Jsonb(chosen), Jsonb(checked), sorted({t for c in chosen for t in c["tickers"]} | lead_tickers), story["id"]))
     return view(conn, player_id, now)
 
 
@@ -273,6 +316,19 @@ def set_words(conn: Connection, player_id, angle: str, comment: str, declared: b
             raise NewsroomError("You have no story in hand.")
         conn.execute("UPDATE stories SET angle = %s, comment = %s, declared = %s WHERE id = %s",
                      (angle, comment, bool(declared), story["id"]))
+    return view(conn, player_id, now)
+
+
+def set_title(conn: Connection, player_id, title_id: int | None, now: datetime) -> dict:
+    """Print the story in a media title the journalist (or their empire) owns, rather than for their employer or as an independent."""
+    from simulation import media
+    with conn.transaction():
+        story = _draft(conn, player_id, lock=True)
+        if story is None:
+            raise NewsroomError("You have no story in hand.")
+        if title_id is not None and media.title_for(conn, player_id, title_id) is None:
+            raise NewsroomError("You can print only in a title you own, or your empire owns.")
+        conn.execute("UPDATE stories SET title_id = %s WHERE id = %s", (title_id, story["id"]))
     return view(conn, player_id, now)
 
 
@@ -336,7 +392,8 @@ def ask(conn: Connection, player_id, *, ticker: str | None, empire_name: str | N
                 raise NewsroomError("There is no empire of that name.")
             if empire["id"] == story["empire_id"]:
                 raise NewsroomError("You cannot interview your own empire for your own story.")
-            named = any(c.get("empire_id") == empire["id"] for c in story["facts"]) or _one(
+            lead = story["lead"] or {}
+            named = any(c.get("empire_id") == empire["id"] for c in story["facts"]) or empire["id"] in (lead.get("empire_id"), lead.get("other_empire_id")) or _one(
                 conn, "SELECT 1 AS x FROM stake_disclosures s JOIN companies c ON c.id = s.company_id WHERE s.empire_id = %s AND s.bps > 0"
                       " AND c.ticker = ANY(%s)", (empire["id"], story["tickers"]))
             if not named:
@@ -357,8 +414,10 @@ def to_answer(conn: Connection, player_id, now: datetime) -> list[dict]:
     """Questions from journalists waiting on this player, as the head of an empire."""
     return _rows(conn, "SELECT i.id, i.question, i.due_at, e.name AS empire, p.display_name AS journalist FROM interviews i"
                        " JOIN empires e ON e.id = i.empire_id JOIN players p ON p.id = i.journalist_id"
-                       " WHERE e.head_player_id = %s AND i.status = 'asked' AND i.due_at > %s ORDER BY i.due_at",
-                 (player_id, now))
+                       " WHERE (e.head_player_id = %s OR EXISTS (SELECT 1 FROM empire_seats s WHERE s.empire_id = e.id AND s.player_id = %s"
+                       "        AND s.build = 'journalist'))"
+                       " AND i.journalist_id <> %s AND i.status = 'asked' AND i.due_at > %s ORDER BY i.due_at",
+                 (player_id, player_id, player_id, now))
 
 
 def answer(conn: Connection, player_id, interview_id: int, words: str | None, now: datetime) -> None:
@@ -371,7 +430,9 @@ def answer(conn: Connection, player_id, interview_id: int, words: str | None, no
     with conn.transaction():
         row = _one(conn, "SELECT i.*, e.head_player_id, e.name AS empire FROM interviews i JOIN empires e ON e.id = i.empire_id"
                          " WHERE i.id = %s FOR UPDATE OF i", (interview_id,))
-        if row is None or row["head_player_id"] != player_id:
+        from simulation import press
+        if row is None or not (row["head_player_id"] == player_id or press.speaks_for(conn, player_id, row["empire_id"])) \
+                or row["journalist_id"] == player_id:
             raise NewsroomError("That question is not yours to answer.")
         if row["status"] != "asked" or row["due_at"] <= now:
             raise NewsroomError("That question is closed.")
@@ -387,17 +448,26 @@ def answer(conn: Connection, player_id, interview_id: int, words: str | None, no
 # Publishing
 # ---------------------------------------------------------------------------
 
-def _write(story: dict, author: str, outlet_name: str, interviews: list[dict], declaration: str | None) -> tuple[str, str]:
+def _write(story: dict, author: str, outlet_name: str, interviews: list[dict], declaration: str | None,
+           lead: dict | None = None) -> tuple[str, str]:
     facts = story["facts"]
-    main = max(facts, key=lambda c: c["importance"])
-    others = [c for c in facts if c is not main]
-    if story["angle"] == "what_it_means":
-        headline = f"{main['title']}: what it means"
-    elif story["angle"] == "who_wins":
-        headline = f"{main['title']}: who wins, who loses"
+    parts = []
+    if lead:
+        confirmed = lead.get("status") == "verified"
+        said = lead["words"].split(": ", 1)[-1]
+        headline = ("" if confirmed else "Unconfirmed: ") + said[0].upper() + said[1:]
+        parts.append(lead["words"] + ("" if confirmed else " This report has not been confirmed."))
+        others = facts
     else:
-        headline = main["title"]
-    parts = [main["line"]]
+        main = max(facts, key=lambda c: c["importance"])
+        others = [c for c in facts if c is not main]
+        if story["angle"] == "what_it_means":
+            headline = f"{main['title']}: what it means"
+        elif story["angle"] == "who_wins":
+            headline = f"{main['title']}: who wins, who loses"
+        else:
+            headline = main["title"]
+        parts.append(main["line"])
     parts += [c["line"] for c in others]
     for i in interviews:
         if i["status"] in ("answered", "declined"):
@@ -465,7 +535,15 @@ def publish(conn: Connection, player_id, now: datetime) -> dict:
         story = _draft(conn, player_id, lock=True)
         if story is None:
             raise NewsroomError("You have no story in hand.")
-        if not story["facts"]:
+        lead = None
+        if story["lead"]:
+            from simulation import intel
+            item = _one(conn, "SELECT * FROM intel_items WHERE id = %s", (story["lead"]["item_id"],))
+            if not _one(conn, "SELECT 1 AS x FROM intel_holders WHERE item_id = %s AND player_id = %s", (item["id"], player_id)) \
+                    or not intel.useful(item, now):
+                raise NewsroomError("The unconfirmed report in your story is no longer useful. Take it out.")
+            lead = {**story["lead"], "status": item["status"], "item": item}
+        if not story["facts"] and not lead:
             raise NewsroomError("A story needs at least one confirmed fact.")
         unchecked = [c["title"] for c in story["facts"] if c["id"] not in story["checked"]]
         if unchecked:
@@ -480,14 +558,23 @@ def publish(conn: Connection, player_id, now: datetime) -> dict:
         # Every fact already printed by this author before: nothing new to tell the readers.
         mine_before = {f["id"] for s in _rows(conn, "SELECT facts FROM stories WHERE author_id = %s AND status = 'published'", (player_id,))
                        for f in s["facts"]}
-        if all(c["id"] in mine_before for c in story["facts"]):
+        if not lead and all(c["id"] in mine_before for c in story["facts"]):
             raise NewsroomError("You have already published every one of these facts. Add something new.")
+        if lead and _one(conn, "SELECT 1 AS x FROM stories WHERE author_id = %s AND status = 'published' AND (lead->>'item_id')::bigint = %s",
+                         (player_id, lead["item_id"])):
+            raise NewsroomError("You have already printed that report.")
         # One at a time for each fact, so two journalists cannot both be first with it.
         for c in sorted(story["facts"], key=lambda c: c["id"]):
             conn.execute("SELECT pg_advisory_xact_lock(hashtext('fact:' || %s))", (c["id"],))
         # The author's empire and paper as they are now.
         story = _refresh_empire(conn, story)
         outlet = _outlet(conn, player_id)
+        from simulation import media
+        titled = media.title_for(conn, player_id, story["title_id"]) if story["title_id"] else None
+        if story["title_id"] and titled is None:
+            raise NewsroomError("You can no longer print in that title. Choose where it runs again.")
+        if titled:
+            outlet = None
         conn.execute("UPDATE stories SET outlet_company = %s WHERE id = %s", (outlet["id"] if outlet else None, story["id"]))
         _block(conn, story, story["tickers"], now)
         # Lapse any interview whose deadline has passed.
@@ -501,20 +588,27 @@ def publish(conn: Connection, player_id, now: datetime) -> dict:
             declaration = (f"Declared interest: {author['display_name']} sits in {empire['name']}, which "
                            f"{'has a position in' if held else 'holds no position in'} the companies named.")
         prof = profile(conn, player_id)
-        outlet_name = outlet["name"] if outlet else "an independent journalist"
-        headline, body = _write(story, author["display_name"], outlet_name, interviews, declaration)
+        outlet_name = titled["name"] if titled else outlet["name"] if outlet else "an independent journalist"
+        headline, body = _write(story, author["display_name"], outlet_name, interviews, declaration, lead)
 
         # Readers: how big the news is, how early, the audience, and the author's name.
         fresh = [c for c in story["facts"] if c["id"] not in mine_before]
         scoop = any(c.get("scoopable") and not _on_wire(conn, c, period, day) and _first_with(conn, c, story["id"]) for c in fresh)
-        late = all(not c.get("scoopable") or _on_wire(conn, c, period, day) or not _first_with(conn, c, story["id"]) for c in fresh)
-        importance = max(c["importance"] for c in fresh)
+        unconfirmed = bool(lead) and lead["status"] != "verified"
+        # A piece the record has already borne out is public by now: printing it is old news, like a fact the wire carried.
+        stale_lead = bool(lead) and lead["item"]["resolved_at"] is not None
+        late = (not lead or stale_lead) and all(not c.get("scoopable") or _on_wire(conn, c, period, day) or not _first_with(conn, c, story["id"])
+                                                for c in fresh)
+        importance = max([c["importance"] for c in fresh] + ([data.RUMOUR_IMPORTANCE] if lead else []))
         freshness = data.SCOOP_READERS_BPS if scoop else data.OLD_NEWS_READERS_BPS if late else BPS
         credibility = min(max(prof["credibility"] * BPS // 50, 5000), 15000)
         answered = min(sum(1 for i in interviews if i["status"] == "answered"), data.INTERVIEWS_COUNTED)
-        readers = (_audience(conn, outlet, 0) * importance // 100 * freshness // BPS * credibility // BPS
+        audience = titled["audience"] if titled else _audience(conn, outlet, 0)
+        readers = (audience * importance // 100 * freshness // BPS * credibility // BPS
                    + prof["following"] * data.FOLLOWERS_READ_BPS // BPS)
         readers = readers * (BPS + answered * data.INTERVIEW_READERS_BPS) // BPS
+        if unconfirmed:
+            readers = readers * data.RUMOUR_READERS_BPS // BPS
         readers = max(readers, 1)
         # A scoop is paid (bonus and reputation) once a game day.
         paid_scoop = scoop and not _one(conn, "SELECT 1 AS x FROM stories WHERE author_id = %s AND status = 'published' AND scoop"
@@ -524,10 +618,15 @@ def publish(conn: Connection, player_id, now: datetime) -> dict:
                           " VALUES (%s, %s, %s, 'player_story', %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                     (period, day, PRESS, f"story:{story['id']}", min(40 + readers // 5000, 95), headline, body, story["tickers"],
                      Jsonb({"story_id": story["id"], "author": author["display_name"], "outlet": outlet_name,
-                            "facts": [c["id"] for c in story["facts"]]}), player_id))
+                            "facts": [c["id"] for c in story["facts"]], "unconfirmed": unconfirmed}), player_id))
         # Pay: a scoop bonus from the employer; an independent is paid by the paper that picks the story up, within limits.
         paid = 0
-        if outlet is None:
+        if titled:
+            if paid_scoop:
+                paid = ledger.pay_up_to(conn, payer=titled["account_id"], receiver=ledger.player_account_id(conn, player_id),
+                                        wanted=naira(data.SCOOP_BONUS_NAIRA), kind="professional_fee",
+                                        memo=f"{titled['name']}: scoop bonus to {author['display_name']}", period=period)
+        elif outlet is None:
             buyer = _one(conn, "SELECT c.* FROM companies c JOIN company_results r ON r.company_id = c.id AND r.period ="
                                " (SELECT max(period) FROM company_results WHERE company_id = c.id)"
                                " WHERE c.sector = 'media' AND c.listed AND c.status = 'trading' ORDER BY r.staff DESC LIMIT 1")
@@ -546,7 +645,7 @@ def publish(conn: Connection, player_id, now: datetime) -> dict:
                      " news_item_id = %s, period = %s, day = %s, published_at = %s,"
                      " tone = %s WHERE id = %s",
                      (headline, body, readers, scoop, paid, item["id"], period, day, now,
-                      max(min(sum(c["tone"] for c in story["facts"]), 1), -1), story["id"]))
+                      max(min(sum(c["tone"] for c in story["facts"]) + (lead["tone"] if lead else 0), 1), -1), story["id"]))
         conn.execute("UPDATE journalist_profiles SET readers = readers + %s, stories = stories + 1, scoops = scoops + %s,"
                      " following = following + %s WHERE player_id = %s",
                      (readers, 1 if scoop else 0, readers * data.FOLLOW_SHARE_BPS // BPS, player_id))
@@ -562,6 +661,28 @@ def publish(conn: Connection, player_id, now: datetime) -> dict:
                          (story["id"], empire["id"], held, bool(story["declared"])))
         # A true, widely read story nudges the investors' view of the companies it is about: only news, never an old fact again.
         nudges = [] if late else _nudge(conn, {**story, "facts": fresh}, readers, session, now)
+        if lead and not stale_lead:
+            nudges += _lead_nudge(conn, story, lead, readers, prof["credibility"], session, now)
+        if lead and stale_lead:
+            conn.execute("UPDATE stories SET lead_outcome = %s WHERE id = %s",
+                         ("confirmed" if lead["item"]["status"] == "verified" else "disproved", story["id"]))
+        if lead:
+            if lead.get("source_id") and unconfirmed and _one(conn, "SELECT 1 AS x FROM sources WHERE id = %s AND journalist_id = %s",
+                                                              (lead["source_id"], player_id)):
+                from simulation import intel
+                intel._maybe_burn(conn, lead["item"], "story", now)
+            from simulation import press
+            press.lead_printed(conn, story, lead["item"], unconfirmed, now)
+            ripple.link(conn, f"story:{story['id']}", f"intel:{lead['ref']}",
+                        f"{author['display_name']}'s story “{headline}” reported, {'unconfirmed' if unconfirmed else 'confirmed'}: {lead['words']}",
+                        period, now, {})
+        # Empires named by a confirmed fact in a widely read story: their reputation moves a point the story's way.
+        if readers >= data.WIDELY_READ:
+            for empire_id in sorted({c["empire_id"] for c in fresh if c.get("empire_id") and c["tone"]}):
+                tone = sum(c["tone"] for c in fresh if c.get("empire_id") == empire_id)
+                if tone:
+                    standing.change(conn, empire_id, data.PRESS_TONE_REPUTATION * (1 if tone > 0 else -1),
+                                    f"A widely read story: {headline}", period, now, press=True)
         # Empires: an answer on the record that went to print is worth a point; a question left to lapse costs one.
         for i in interviews:
             if i["empire_id"] and i["status"] == "answered":
@@ -583,7 +704,64 @@ def publish(conn: Connection, player_id, now: datetime) -> dict:
                             f"{author['display_name']} published “{headline}” for {outlet_name}: {readers:,} readers.",
                             period, day, now, player_id=player_id)
     return {"story_id": story["id"], "news_item_id": item["id"], "headline": headline, "readers": readers, "scoop": scoop,
-            "paid": paid, "nudges": nudges}
+            "paid": paid, "nudges": nudges, "unconfirmed": unconfirmed}
+
+
+def _lead_nudge(conn: Connection, story: dict, lead: dict, readers: int, credibility: int, session, now: datetime) -> list[dict]:
+    """Investors mark a company on a report they believe: on an unconfirmed one half as far, and only as far as they trust its
+    author. What they believed is kept against what turns out to be true."""
+    out = []
+    for ticker in lead.get("tickers") or []:
+        company = _one(conn, "SELECT id FROM companies WHERE ticker = %s", (ticker,))
+        bps = 0
+        if readers >= data.WIDELY_READ and lead["tone"]:
+            most = data.NUDGE_MOST_BPS if lead["status"] == "verified" else data.NUDGE_MOST_BPS * data.RUMOUR_NUDGE_SHARE_BPS // BPS
+            trust = 100 if lead["status"] == "verified" else min(max(credibility, 0), 100)
+            bps = lead["tone"] * min(most, readers // data.READERS_PER_NUDGE_BPS) * trust // 100
+        if bps:
+            made = _one(conn, "INSERT INTO story_nudges (company_id, story_id, bps, session_date, days, at) VALUES (%s, %s, %s, %s, %s, %s)"
+                              " ON CONFLICT (company_id, session_date) DO NOTHING RETURNING id",
+                        (company["id"], story["id"], bps, session, data.NUDGE_DAYS, now))
+            if made:
+                out.append({"ticker": ticker, "bps": bps})
+            else:
+                bps = 0
+        conn.execute("INSERT INTO rumour_beliefs (item_id, story_id, company_id, bps, readers, at) VALUES (%s, %s, %s, %s, %s, %s)",
+                     (lead["item_id"], story["id"], company["id"], bps, readers, now))
+    if not lead.get("tickers"):
+        conn.execute("INSERT INTO rumour_beliefs (item_id, story_id, readers, at) VALUES (%s, %s, %s, %s)",
+                     (lead["item_id"], story["id"], readers, now))
+    return out
+
+
+def lead_settled(conn: Connection, item: dict, true_: bool, now: datetime) -> None:
+    """A report that was printed unconfirmed is borne out, or proved wrong. Borne out: the author's credibility rises. Wrong: the
+    story must be corrected within a day (as any story whose facts changed), and investors take back what they marked."""
+    w = _now(conn, now)
+    session, _ = exchange.session_of(now)
+    for s in _rows(conn, "SELECT * FROM stories WHERE status = 'published' AND lead IS NOT NULL AND (lead->>'item_id')::bigint = %s"
+                         " AND lead_outcome IS NULL FOR UPDATE", (item["id"],)):
+        if true_:
+            conn.execute("UPDATE stories SET lead_outcome = 'confirmed' WHERE id = %s", (s["id"],))
+            conn.execute("UPDATE journalist_profiles SET credibility = least(credibility + %s, 100) WHERE player_id = %s",
+                         (data.RUMOUR_CONFIRMED_CREDIBILITY, s["author_id"]))
+        else:
+            # (If the story was corrected before, for a fact the record changed, the wrong report needs a correction of its own.)
+            conn.execute("UPDATE stories SET lead_outcome = 'disproved', correction_due = true,"
+                         " correct_by = CASE WHEN correction_id IS NULL AND correct_by IS NOT NULL THEN correct_by ELSE %s END,"
+                         " correction_late = CASE WHEN correction_id IS NULL THEN correction_late ELSE false END,"
+                         " correction_id = NULL WHERE id = %s", (now + timedelta(hours=data.CORRECTION_HOURS), s["id"]))
+        for b in _rows(conn, "SELECT * FROM rumour_beliefs WHERE story_id = %s AND outcome IS NULL", (s["id"],)):
+            conn.execute("UPDATE rumour_beliefs SET outcome = %s, settled_at = %s WHERE id = %s", ("true" if true_ else "false", now, b["id"]))
+            if not true_ and b["bps"] and b["company_id"]:
+                # Investors take back what they marked: on the first trading day from now with no other nudge for the company.
+                for ahead in range(data.NUDGE_DAYS):
+                    if _one(conn, "INSERT INTO story_nudges (company_id, story_id, bps, session_date, days, at) VALUES (%s, %s, %s, %s, %s, %s)"
+                                  " ON CONFLICT (company_id, session_date) DO NOTHING RETURNING id",
+                            (b["company_id"], s["id"], -b["bps"], session + timedelta(days=ahead), data.NUDGE_DAYS, now)):
+                        break
+        ripple.link(conn, f"settled:{item['ref']}", f"story:{s['id']}",
+                    f"The report in “{s['headline']}” was {'borne out' if true_ else 'proved wrong'}.", w["period"], now, {})
 
 
 def _nudge(conn: Connection, story: dict, readers: int, session, now: datetime) -> list[dict]:
@@ -678,12 +856,14 @@ def correct(conn: Connection, player_id, story_id: int, now: datetime) -> dict:
         if s is None or not s["correction_due"] or s["correction_id"]:
             raise NewsroomError("That story has nothing to correct.")
         fixed = []
+        if s["lead_outcome"] == "disproved":
+            fixed.append(f"The report that “{s['lead']['words']}” has not been borne out: it was wrong.")
         for c in s["facts"]:
             if not newsroom_facts.still_true(conn, c):
                 now_card = newsroom_facts.find(conn, c["id"], now)
                 fixed.append(now_card["line"] if now_card else f"“{c['title']}” no longer stands in the record.")
-        body = (f"Correction to “{s['headline']}”: the record has changed since it was published. It now says: " + " ".join(fixed)
-                + " The story has been corrected.")
+        body = (f"Correction to “{s['headline']}”: " + ("" if s["lead_outcome"] == "disproved" else
+                "the record has changed since it was published. It now says: ") + " ".join(fixed) + " The story has been corrected.")
         item = _one(conn, "INSERT INTO news_items (period, day, outlet, kind, story, importance, headline, body, tickers, facts, author_id, follows)"
                           " VALUES (%s, %s, %s, 'correction', %s, 30, %s, %s, %s, %s, %s, %s) RETURNING id",
                     (w["period"], w["day"], PRESS, f"story:{s['id']}", f"Correction: {s['headline']}"[:160], body, s["tickers"],
@@ -742,6 +922,8 @@ def view(conn: Connection, player_id, now: datetime) -> dict:
     from simulation import clients
     out["editors"] = clients.view(conn, player_id)
     out["empire"] = empire["name"] if empire else None
+    from simulation import media
+    out["titles"] = [{"id": t["id"], "name": t["name"], "audience": t["audience"]} for t in media.mine(conn, player_id)] if media.ready(conn) else []
     if story:
         interviews = _rows(conn, "SELECT i.id, i.question, i.answer, i.status, i.due_at, coalesce(c.name, e.name) AS who FROM interviews i"
                                  " LEFT JOIN companies c ON c.id = i.company_id LEFT JOIN empires e ON e.id = i.empire_id"
@@ -751,6 +933,8 @@ def view(conn: Connection, player_id, now: datetime) -> dict:
                                          for c in story["facts"]],
             "angle": story["angle"], "comment": story["comment"], "declared": story["declared"], "tickers": story["tickers"],
             "interviews": interviews,
+            "lead": {"ref": story["lead"]["ref"], "words": story["lead"]["words"]} if story["lead"] else None,
+            "title_id": story["title_id"],
         }
     else:
         out["draft"] = None
@@ -769,6 +953,7 @@ def public_stories(conn: Connection, period_now: int, day_now: int, *, author_id
     params.append(limit)
     return _rows(conn, f"""
         SELECT s.id, s.headline, s.body, s.readers, s.scoop, s.period, s.day, s.tickers, p.display_name AS author,
-               coalesce(c.name, 'Independent') AS outlet, s.correction_id IS NOT NULL AS corrected
+               coalesce(t.name, c.name, 'Independent') AS outlet, s.correction_id IS NOT NULL AS corrected
         FROM stories s JOIN players p ON p.id = s.author_id LEFT JOIN companies c ON c.id = s.outlet_company
+        LEFT JOIN media_titles t ON t.id = s.title_id
         WHERE {cond} ORDER BY s.period DESC, s.day DESC, s.id DESC LIMIT %s""", params)

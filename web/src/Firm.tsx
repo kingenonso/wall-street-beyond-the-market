@@ -5,6 +5,7 @@
 // the Accountant closes the books, the Risk Manager sets limits, the Financial Journalist briefs the head.
 // The website only asks: the server knows the player's seat, and marks everything.
 
+import { PressDeskView } from "./Intel";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError, type Player } from "./api";
 import { CompaniesTab, DealsTab } from "./Deals";
@@ -28,7 +29,7 @@ export const pct = (bps: number | null | undefined) => (bps === null || bps === 
 const TABS = [
   ["overview", "Overview"], ["desks", "Desks"], ["requests", "Requests and votes"], ["deals", "Deals"], ["companies", "Companies"],
   ["takeovers", "Takeovers"], ["firms", "Firms"],
-  ["money", "Money"], ["people", "People"], ["work", "Work and events"], ["risk", "Risk"], ["headquarters", "Headquarters"], ["board", "Board"], ["warroom", "War Room"],
+  ["money", "Money"], ["people", "People"], ["work", "Work and events"], ["risk", "Risk"], ["headquarters", "Headquarters"], ["board", "Board"], ["press", "Press"], ["warroom", "War Room"],
 ] as const;
 export type Tab = (typeof TABS)[number][0];
 export const EMPIRE_TABS: readonly string[] = TABS.map(([key]) => key);
@@ -978,6 +979,7 @@ export function FirmWork({ player, onLoggedOut, onChanged, initialTab }: Props &
       {tab === "overview" && <Seats roster={f.roster} seats={f.seats} />}
       {tab === "overview" && <HeadWork player={player} onLoggedOut={onLoggedOut} onChanged={onChanged} />}
       {tab === "warroom" && <EmpireWork player={player} onLoggedOut={onLoggedOut} onChanged={onChanged} />}
+      {tab === "press" && <PressDeskView onLoggedOut={onLoggedOut} />}
       {tab === "deals" && <DealsTab f={f} act={act} />}
       {tab === "companies" && <CompaniesTab f={f} act={act} />}
       {tab === "takeovers" && <TakeoversTab f={f} act={act} />}

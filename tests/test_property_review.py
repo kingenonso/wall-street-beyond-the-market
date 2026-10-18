@@ -105,7 +105,7 @@ def test_3_an_empire_shares_a_bid_only_after_its_checks_within_its_top_price_and
 
 
 def test_4_a_lone_top_price_at_or_above_the_reserve_buys_at_the_reserve(db):
-    a = _one(db, "SELECT * FROM auctions WHERE status = 'open' AND opens_at <= %s ORDER BY fair LIMIT 1", (NOW9,))
+    a = _one(db, "SELECT * FROM auctions WHERE status = 'open' AND property_id IS NOT NULL AND opens_at <= %s ORDER BY fair LIMIT 1", (NOW9,))
     player, account = pro(db, "accountant", "lone", cash_naira=900_000_000)
     seller_before = ledger.balance(db, a["seller"])
     done = auctions.place_bid(db, account, a["id"], a["fair"], LATER, player_id=player)

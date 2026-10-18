@@ -43,6 +43,14 @@ function cardsFor(player: Player, latestQuarter: string | null, live: LiveClock 
       action: "Answer the press", href: "#/news/questions",
     });
   }
+  if ((player.crises_due ?? 0) > 0) {
+    cards.unshift({
+      tag: "■ STATEMENT", when: "Within a day",
+      title: "Something has come out about your empire",
+      text: "Make a statement for the empire: admitting what is true, quickly, costs least; saying nothing costs a lot.",
+      action: "Open the press desk", href: "#/empire/press",
+    });
+  }
   if ((player.corrections_due ?? 0) > 0) {
     cards.unshift({
       tag: "■ CORRECTION", when: "Within a day",

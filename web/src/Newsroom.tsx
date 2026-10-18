@@ -5,7 +5,7 @@ import { Failed, Loading, Panel } from "./Shell";
 import { Term } from "./Term";
 
 /** Stage 10: one action on the newsroom's server routes, with its message. */
-function useRun(reload: () => void, onLoggedOut: () => void) {
+export function useRun(reload: () => void, onLoggedOut: () => void) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -25,9 +25,9 @@ function useRun(reload: () => void, onLoggedOut: () => void) {
   }
   return { busy, error, notice, run };
 }
-type Run = ReturnType<typeof useRun>;
+export type Run = ReturnType<typeof useRun>;
 
-function Notices({ act }: { act: Run }) {
+export function Notices({ act }: { act: Run }) {
   return (
     <>
       {act.notice && <p className="notice" role="status">{act.notice}</p>}
@@ -275,7 +275,7 @@ export function NewsroomDeskView({ onLoggedOut }: { onLoggedOut: () => void }) {
   const d = data.desk;
   const draft = d.draft;
   const chosen = new Set((draft?.facts ?? []).map((f) => f.id));
-  const allChecked = !!draft && draft.facts.length > 0 && draft.facts.every((f) => f.checked);
+  const allChecked = !!draft && (draft.facts.length > 0 || !!draft.lead) && draft.facts.every((f) => f.checked);
   return (
     <>
       <Panel title="Your newsroom" aside={`writing for ${d.writing_for}${d.empire ? ` · you sit in ${d.empire}` : ""}`}>
@@ -306,7 +306,23 @@ export function NewsroomDeskView({ onLoggedOut }: { onLoggedOut: () => void }) {
         </Panel>
       ) : (
         <Panel title="Your story in hand" aside={draft.tickers.length ? `No trading ${draft.tickers.join(", ")} by you or your empire until two trading days after it runs` : undefined}>
-          {draft.facts.length === 0 && <p className="muted">Choose one to five facts from the list below.</p>}
+          {draft.facts.length === 0 && !draft.lead && <p className="muted">Choose one to five facts from the list below, or put in a piece you hold (Intelligence).</p>}
+          {draft.lead && (
+            <div className="fact-row">
+              <div>
+                <div className="strong">Unconfirmed report</div>
+                <div className="small">{draft.lead.words}</div>
+                <div className="small muted">Printed as unconfirmed unless the record has borne it out. What readers believe is kept against what turns out to be true.</div>
+              </div>
+              <button className="button-quiet" disabled={act.busy} onClick={() => act.run(() => api.post("/newsroom/lead/remove"), "Taken out.")}>Take out</button>
+            </div>
+          )}
+          {d.titles.length > 0 && (
+            <label className="answer">Where it runs<select value={draft.title_id ?? ""} onChange={(e) => act.run(() => api.post("/newsroom/title", { title_id: e.target.value ? Number(e.target.value) : null }), "Saved.")}>
+              <option value="">{d.writing_for === "Independent" ? "as an independent" : d.writing_for}</option>
+              {d.titles.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.audience.toLocaleString("en-NG")} readers)</option>)}
+            </select></label>
+          )}
           {draft.facts.map((f) => (
             <div key={f.id} className="fact-row">
               <div>

@@ -282,9 +282,11 @@ export function sectionsFor(player: Player) {
     { path: "portfolio", label: "Portfolio" },
     { path: "borrow", label: "Borrow", ...((player.margin_calls ?? 0) > 0 ? { count: player.margin_calls, countWords: "margin calls" } : {}) },
     { path: "news", label: "News" },
+    { path: "intel", label: "Intelligence" },
     { path: "companies", label: "Companies" },
     { path: "economy", label: "Economy" },
     { path: "career", label: "Career" },
+    { path: "charities", label: "Charities" },
   ] as { path: string; label: string; count?: number; countWords?: string }[];
 }
 
