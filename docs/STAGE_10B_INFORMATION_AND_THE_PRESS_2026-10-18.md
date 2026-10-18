@@ -9,7 +9,7 @@ Part 2 had ten loophole tests and an independent review. The review found thirte
 one; every one was fixed, each with its own test. The ten-year run found one more, also fixed and tested. Nothing on the
 checklist was dropped or put off.
 
-Tests at the end: __TESTS__.
+Tests at the end: 1,290 server tests passed, none failed (76 files, split across two runners); the matching engine's 13 and the website's 23 passed too.
 
 ## Things worth knowing, said plainly
 
@@ -92,7 +92,7 @@ Tests at the end: __TESTS__.
       false report of a theft does not get its point back unless something settles it.
     - In the ten-year run, the player empire neglected its filings and duties, so the existing regulator fines (a Stage 7
       rule) took most of its reputation; a theft exposed and its charity shown up took the rest. Its name hit zero by the
-      sixth year. That is the rules working, but it shows how hard a neglected empire falls.
+      end of the sixth year. That is the rules working, but it shows how hard a neglected empire falls.
     - Planted rumours and dealing on confidential information are recorded but not yet prosecuted: the courts come with
       Stage 11.
 
@@ -157,7 +157,26 @@ Found by the ten-year run: checking or buying without the cash crashed instead o
 
 ## The ten-year run
 
-__RUN__
+Forty quarters (ten game years), run in 63 minutes with computer players doing every kind of work.
+
+| What | After ten years |
+|---|---|
+| Stories | 493 printed, 305 of them scoops, 19.7 million readers, 30 corrections |
+| Price nudges from stories | 384 |
+| Sealed Tips opened | 1,886; 596 checked |
+| Pieces sold on the market | 32 |
+| Sources | 14 still working, 18 burned |
+| Unconfirmed reports printed | 152: 122 borne out, 30 wrong |
+| Investigations | 15 files opened, 3 exposés run |
+| Crises | 3, all answered (regret on a true theft −2, a denied true report −6, an admitted theft −1) |
+| Dealing on confidential information | 10 recorded |
+| Media titles | all 5 sold by the Government; 4 to media companies, 1 to a player; each earned its owner ₦22 to ₦51 million |
+| The player empire's charity | given ₦17.2m, ₦13.5m to its cause, ₦1.8m to people; shown up for paying its own and flagged by the Money Watch |
+| The player empire's name | fell from 44 to 0: regulator fines −38 (19 of them), charity shown up −6, a denial −6 |
+| Books | audit clean, no stray money, every book balanced |
+
+What the computer players were refused most: keeping more sources than their level allows (616), putting more than
+10 pieces on the market (164). Both are the rules holding.
 
 ## Screenshots
 

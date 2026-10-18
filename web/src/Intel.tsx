@@ -70,6 +70,19 @@ export function IntelRail() {
   );
 }
 
+export function CharitiesRail() {
+  return (
+    <Panel title="How charities work">
+      <ul className="reasons small">
+        <li>Found a charity with at least ₦1,000,000 of your own, or for your empire within the head's signing limit.</li>
+        <li>Giving builds a name, but only what is granted to the cause counts.</li>
+        <li>Grants to people close to the trustee or the donors are looked at by the Money Watch, and journalists can investigate them.</li>
+        <li>A charity found paying its own loses its donors' good name along with its own.</li>
+      </ul>
+    </Panel>
+  );
+}
+
 function Today({ player, onLoggedOut }: { player: Player; onLoggedOut: () => void }) {
   const { data, error, loading, reload } = useLoad(api.intel, "intel", onLoggedOut);
   const act = useRun(reload, onLoggedOut);
