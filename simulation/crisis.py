@@ -835,7 +835,7 @@ def _weakness(conn: Connection, banks: list[dict]) -> str:
     if name == "capital":
         return f"{b['name']} had owners' funds of only {f['capital_bps'] / 100:.1f}% of its loans."
     if name == "bad_loans":
-        return f"{b['name']} was losing about {f['bad_bps'] / 100:.1f}% of its loans a year to borrowers who did not repay."
+        return f"{b['name']} wrote off {f['bad_bps'] / 400:.1f}% of its loans in its last quarter: borrowers who did not repay."
     if name == "cash":
         return f"{b['name']} held cash of only {f['cash_bps'] / 100:.1f}% of what its savers had with it."
     return f"{b['name']} was rated {f['rating']}."
