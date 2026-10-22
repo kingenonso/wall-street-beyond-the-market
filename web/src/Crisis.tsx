@@ -154,6 +154,9 @@ function Savings({ onLoggedOut }: { onLoggedOut: () => void }) {
                 <label className="answer small">₦<input type="number" min={10000} value={amount[b.ticker] ?? ""} onChange={(e) => setAmount({ ...amount, [b.ticker]: e.target.value })} aria-label={`Amount for ${b.name}`} /></label>
                 <button className="button-outline" disabled={act.busy || !Number(amount[b.ticker])} onClick={() => move(b, "in")}>Put in</button>
                 <button className="button-quiet" disabled={act.busy || !Number(amount[b.ticker])} onClick={() => move(b, "out")}>Take out</button>
+                {(BigInt(b.mine) > 0n || (head && forEmpire && BigInt(b.empire ?? "0") > 0n)) && (
+                  <button className="button-quiet" disabled={act.busy} onClick={() => act.run(() => api.post(`/savings/${b.ticker}/out`, { amount_naira: 0, everything: true, for_empire: head && forEmpire }), `Took everything out of ${b.name}.`)}>Take it all out</button>
+                )}
               </div>
             )}
           </div>

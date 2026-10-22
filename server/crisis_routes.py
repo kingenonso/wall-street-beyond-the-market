@@ -1,8 +1,9 @@
 """The crises stage, Part 1, on the website: savings at the banks, trust in each bank, the Crisis Watch and the record of
 every crisis. (Bids for a closed bank use the Auction House's own routes.)
 
-Never sent: anybody else's savings, a crisis's hidden weakness while it is open, a bank auction's lowest price, or
-anyone's bid limit but the viewer's own.
+Never sent: anybody else's savings, a crisis's hidden weakness while it is open, the lowest price the Deposit Guarantee
+Fund will take when it sells a bank again, or anyone's bid limit but the viewer's own. (For a closed bank the lowest bid is
+public: it is the new money the bank needs.)
 """
 
 from __future__ import annotations
@@ -34,8 +35,9 @@ def _money(value, key: str | None = None):
 
 
 class SavingsRequest(Request):
-    amount_naira: int = Field(ge=10_000, le=100_000_000_000, strict=True)
+    amount_naira: int = Field(ge=0, le=100_000_000_000, strict=True)
     for_empire: bool = False
+    everything: bool = False             # take it all out, to the last kobo
 
 
 def _act(conn: Connection, player: dict, action) -> dict:
@@ -63,7 +65,8 @@ def savings_in(body: SavingsRequest, ticker: str = FastPath(pattern="^[A-Z]{3}$"
 @app.post("/api/savings/{ticker}/out")
 def savings_out(body: SavingsRequest, ticker: str = FastPath(pattern="^[A-Z]{3}$"), player: dict = Depends(current_player),
                 conn: Connection = Depends(get_connection)):
-    return _act(conn, player, lambda now: deposits.take_out(conn, player["id"], ticker, naira(body.amount_naira), now, for_empire=body.for_empire))
+    return _act(conn, player, lambda now: deposits.take_out(conn, player["id"], ticker, naira(body.amount_naira), now, for_empire=body.for_empire,
+                                                         everything=body.everything))
 
 
 @app.get("/api/crisis")
@@ -75,9 +78,12 @@ def crisis_page(player: dict = Depends(current_player), conn: Connection = Depen
     empire = conn.execute("SELECT account_id FROM empires WHERE id = %s AND status = 'active'", (seat["empire_id"],)).fetchone() if seat else None
     own = auctions.bank_view(conn, now, viewer=viewer)
     ours = auctions.bank_view(conn, now, viewer=empire[0] if empire else None) if empire else []
-    for a, b in zip(own, ours):
-        a["empire_limit"] = b["your_limit"]
-        a["empire_leads"] = b["you_lead"]
+    by_id = {b["id"]: b for b in ours}
+    for a in own:
+        b = by_id.get(a["id"])
+        if b:
+            a["empire_limit"] = b["your_limit"]
+            a["empire_leads"] = b["you_lead"]
     return wire(_money({"watch": crisiswatch.view(conn, now), "banks": crisis.bank_view(conn, now), "crises": crisis.crises_view(conn, now),
                         "auctions": own, "blanket": deposits.blanket(conn), "national": crisis.national(conn),
                         "guarantee": deposits.guarantee()}))

@@ -30,13 +30,13 @@ def _one(db, sql, params=()):
 def test_l1_savings_put_in_for_a_moment_before_the_close_earn_nothing(db):
     """'I'll move my cash into savings just before the quarter closes, and take it out after.'"""
     p, account = pro(db, "accountant", "kiter", cash_naira=50_000_000)
-    deposits.put_in(db, p, "IKB", naira(40_000_000), after_quarters(9) - timedelta(minutes=30))
+    deposits.put_in(db, p, "IKB", naira(40_000_000), after_quarters(9) - timedelta(minutes=90))
     quarters.close_due_quarters(db, after_quarters(9))
     paid = _one(db, "SELECT amount FROM savings_interest WHERE account_id = %s AND period = %s", (account, P))
     assert paid["amount"] == 0
     # Moving the money from bank to bank does not help either: each bank pays on the least kept with it all quarter.
     deposits.take_out(db, p, "IKB", naira(40_000_000), after_quarters(9) + timedelta(hours=2))
-    deposits.put_in(db, p, "HMB", naira(40_000_000), after_quarters(10) - timedelta(minutes=30))
+    deposits.put_in(db, p, "HMB", naira(40_000_000), after_quarters(10) - timedelta(minutes=90))
     quarters.close_due_quarters(db, after_quarters(10))
     assert _one(db, "SELECT coalesce(sum(amount), 0)::bigint AS t FROM savings_interest WHERE account_id = %s", (account,))["t"] == 0
 

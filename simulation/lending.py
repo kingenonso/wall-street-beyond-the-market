@@ -175,7 +175,7 @@ def prices(conn: Connection) -> dict:
     """Each listed company's price now (the last trade, or its reference price)."""
     return {r["company_id"]: r for r in _rows(conn, """
         SELECT m.company_id, c.ticker, c.name, c.share_asset, coalesce(m.last_price, m.reference_price) AS price
-        FROM market_instruments m JOIN companies c ON c.id = m.company_id WHERE c.status = 'trading'""")}
+        FROM market_instruments m JOIN companies c ON c.id = m.company_id WHERE c.status = 'trading' AND m.halted_reason IS NULL""")}
 
 
 def _share_value(conn: Connection, account, quotes: dict) -> tuple[int, list[dict]]:
@@ -477,8 +477,8 @@ def open_short(conn: Connection, account, ticker: str, shares: int, now: datetim
         if not isinstance(shares, int) or isinstance(shares, bool) or shares <= 0:
             raise LendingError("Name how many shares to borrow.")
         q = _one(conn, "SELECT c.id, c.ticker, c.name, c.share_asset, coalesce(m.last_price, m.reference_price) AS price"
-                       " FROM companies c JOIN market_instruments m ON m.company_id = c.id WHERE c.ticker = %s AND c.status = 'trading'",
-                 (ticker,))
+                       " FROM companies c JOIN market_instruments m ON m.company_id = c.id WHERE c.ticker = %s AND c.status = 'trading'"
+                       " AND m.halted_reason IS NULL", (ticker,))
         if q is None:
             raise LendingError("Only shares listed on the exchange can be borrowed.")
         _unlocked(conn, account, player_id)

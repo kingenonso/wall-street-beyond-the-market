@@ -273,8 +273,12 @@ def _company_bank(conn: Connection, company: dict) -> dict | None:
         mine = next((b for b in open_banks if b["id"] == lender["id"]), None)
         if mine and calm(mine):
             return mine
-    choice = [b for b in open_banks if calm(b)] or open_banks
-    return max(choice, key=lambda b: (trust.get(b["id"], {}).get("score", data.CONFIDENCE_START), owed(conn, b["id"]) or 0, b["ticker"]))
+    choice = [b for b in open_banks if calm(b) and trust.get(b["id"], {}).get("score", data.CONFIDENCE_START) >= data.CONFIDENCE_WARNING] \
+        or [b for b in open_banks if calm(b)] or open_banks
+    # Spread over the trusted banks, each company with its own (so the risk is not all at one bank).
+    import hashlib
+    pick = int(hashlib.sha256(str(company["id"]).encode()).hexdigest()[:8], 16) % len(choice)
+    return sorted(choice, key=lambda b: b["ticker"])[pick]
 
 
 def company_savings(conn: Connection, account) -> int:
@@ -370,6 +374,7 @@ def put_in(conn: Connection, player_id, ticker: str, amount, now: datetime, *, f
     """Move cash into savings at a bank."""
     amount = _amount(amount)
     with conn.transaction():
+        _books_open(conn, now)
         setup(conn, _state(conn, now)["period"] - 1, now)
         b = _player_bank(conn, ticker)
         account, holder, empire = _saver(conn, player_id, for_empire, now)
@@ -398,11 +403,15 @@ def put_in(conn: Connection, player_id, ticker: str, amount, now: datetime, *, f
         return {"bank": b["name"], "saved": saved(conn, account, b["asset"])}
 
 
-def take_out(conn: Connection, player_id, ticker: str, amount, now: datetime, *, for_empire: bool = False) -> dict:
-    """Draw savings out of a bank. The bank pays if it can: if it cannot, the Central Bank closes it."""
-    amount = _amount(amount)
+def take_out(conn: Connection, player_id, ticker: str, amount, now: datetime, *, for_empire: bool = False, everything: bool = False) -> dict:
+    """Draw savings out of a bank (`everything`: all of it, to the last kobo). The bank pays if it can: if it cannot,
+    the Central Bank closes it, and that closing stands (it is not undone by the refusal)."""
+    if not everything:
+        amount = _amount(amount)
     from simulation import crisis
+    shut = None
     with conn.transaction():
+        _books_open(conn, now)
         setup(conn, _state(conn, now)["period"] - 1, now)
         b = _player_bank(conn, ticker)
         account, holder, empire = _saver(conn, player_id, for_empire, now)
@@ -411,22 +420,38 @@ def take_out(conn: Connection, player_id, ticker: str, amount, now: datetime, *,
         if closed(conn, b["id"]):
             raise SavingsError(f"{b['name']} has been closed by the Central Bank. Savings there are frozen until it is resolved.")
         held = saved(conn, account, b["asset"])
+        if everything:
+            amount = held
+            if amount <= 0:
+                raise SavingsError(f"You have no savings at {b['name']}.")
         if amount > held:
             raise SavingsError(f"You have {money(held)} in savings at {b['name']}.")
         w = _state(conn, now)
         paid = crisis.secure_cash(conn, b, amount, w["period"], w["day"], now)
         if paid < amount:
-            # It cannot pay what it owes on demand: the Central Bank closes it. (Nothing is paid out today.)
+            # It cannot pay what it owes on demand: the Central Bank closes it, and the closing is kept. Nothing is paid out.
             crisis.cannot_pay(conn, b, w["period"], w["day"], now)
-            raise SavingsError(f"{b['name']} could not pay. The Central Bank has closed it: savings there are frozen until it is resolved.")
-        _repay(conn, account, b, amount, "savings_withdrawn",
-               f"{'The empire' if empire else 'Savings'}: {money(amount)} taken out of savings at {b['name']}", w["period"])
-        _flow(conn, b["id"], account, holder, None, "withdrawn", amount, w["period"], w["day"], now)
-        crisis.note_withdrawal(conn, b["id"], amount, w["period"], w["day"])
-        if empire is not None:
-            from simulation.empires import _log
-            _log(conn, empire["id"], f"The head took {money(amount)} of the empire's savings out of {b['name']}.", now)
-        return {"bank": b["name"], "saved": saved(conn, account, b["asset"])}
+            shut = b
+        else:
+            _repay(conn, account, b, amount, "savings_withdrawn",
+                   f"{'The empire' if empire else 'Savings'}: {money(amount)} taken out of savings at {b['name']}", w["period"])
+            _flow(conn, b["id"], account, holder, None, "withdrawn", amount, w["period"], w["day"], now)
+            if empire is not None:
+                from simulation.empires import _log
+                _log(conn, empire["id"], f"The head took {money(amount)} of the empire's savings out of {b['name']}.", now)
+            done = {"bank": b["name"], "saved": saved(conn, account, b["asset"])}
+    if shut is not None:
+        raise SavingsError(f"{shut['name']} could not pay. The Central Bank has closed it: savings there are frozen until it is resolved.")
+    return done
+
+
+def _books_open(conn: Connection, now: datetime) -> None:
+    """No moving savings between a quarter's end and its close (closures at the close are decided on what stood then)."""
+    from simulation import careers
+    try:
+        careers.books_open(conn, now)
+    except careers.CareerError as e:
+        raise SavingsError(str(e)) from None
 
 
 def draw_for_debt(conn: Connection, account, wanted: int, period: int, now: datetime) -> int:
@@ -479,7 +504,7 @@ def pay_interest(conn: Connection, company: dict, period: int, policy_rate_bps: 
     """At its close, a bank pays interest on players' and empires' savings: on the least kept through the whole quarter,
     so money put in for a moment before pay day earns nothing. Returns what it paid."""
     asset = asset_of(conn, company["id"])
-    if asset is None:
+    if asset is None or closed(conn, company["id"]):
         return 0
     rate = savings_rate_bps(policy_rate_bps, rating)
     total = 0
@@ -507,7 +532,7 @@ def _interest_one(conn: Connection, b: dict, account, period: int, rate: int) ->
 def pay_premium(conn: Connection, company: dict, period: int) -> int:
     """At its close, a bank pays the Deposit Guarantee Fund its premium on what it owes its savers."""
     owes = owed(conn, company["id"])
-    if not owes:
+    if not owes or closed(conn, company["id"]):
         return 0
     fund = ledger.account_id(conn, GUARANTEE_FUND)
     wanted = apply_bps(owes, data.GUARANTEE_PREMIUM_BPS)
@@ -529,7 +554,7 @@ def repay_fund_loans(conn: Connection, period: int) -> None:
         conn.execute("UPDATE guarantee_fund_loans SET outstanding = outstanding - %s WHERE id = %s", (paid, loan["id"]))
 
 
-def fund_pays(conn: Connection, receiver, amount: int, period: int, now: datetime, memo: str) -> int:
+def fund_pays(conn: Connection, receiver, amount: int, period: int, now: datetime, memo: str, *, kind: str = "guarantee_cover") -> int:
     """The Deposit Guarantee Fund pays out; what it has not got, it borrows from the Treasury. Returns what was paid."""
     fund = ledger.account_id(conn, GUARANTEE_FUND)
     short = amount - max(ledger.balance(conn, fund), 0)
@@ -539,7 +564,7 @@ def fund_pays(conn: Connection, receiver, amount: int, period: int, now: datetim
                                 memo="The Treasury lends to the Deposit Guarantee Fund")
         if lent > 0:
             conn.execute("INSERT INTO guarantee_fund_loans (amount, outstanding, period, at) VALUES (%s, %s, %s, %s)", (lent, lent, period, now))
-    return ledger.pay_up_to(conn, payer=fund, receiver=receiver, wanted=amount, kind="guarantee_cover", period=period, memo=memo)
+    return ledger.pay_up_to(conn, payer=fund, receiver=receiver, wanted=amount, kind=kind, period=period, memo=memo)
 
 
 # ---------------------------------------------------------------------------

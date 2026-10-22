@@ -531,6 +531,12 @@ def run(conn: Connection, now: datetime) -> int:
                 row = _auction(conn, a["id"], lock=True)
                 if row["status"] == "open":
                     _unsold(conn, row, now, _state(conn, now)["period"], "It could not be settled, and is not sold. Every bid's cash is handed back.")
+                    if row.get("bank_id") and row["reason"] == "rescue":
+                        # A closed bank must not be left frozen: with no sale, it goes into public hands.
+                        from simulation import crisis
+                        r = _one(conn, "SELECT id FROM bank_resolutions WHERE company_id = %s AND status = 'open'", (row["bank_id"],))
+                        if r:
+                            crisis.public_hands(conn, r["id"], _state(conn, now)["period"], now)
     return done
 
 
@@ -811,12 +817,14 @@ def open_bank_resale(conn: Connection, resolution_id: int, now: datetime, period
     held = ledger.balance(conn, fund, asset)
     total = ledger.amount_in_existence(conn, asset)
     book = max((filed["total_equity"] if filed else 0) * held // max(total, 1), 100)
-    reserve = book * 7 // 10
+    seed = _one(conn, "SELECT fortune_seed FROM world_state")["fortune_seed"]
+    reserve = book * (6_000 + int(2_000 * _uniform(seed, f"resale-reserve:{resolution_id}", period))) // BPS
+    start = max(book * (3_000 + int(2_000 * _uniform(seed, f"resale-start:{resolution_id}", period))) // BPS, 100)
     ends = now + timedelta(hours=data.AUCTION_HOURS)
     row = _one(conn, "INSERT INTO auctions (bank_id, seller, reason, opens_at, ends_at, reserve, start_price, fair, period)"
                      " VALUES (%s, %s, 'public_sale', %s, %s, %s, %s, %s, %s) RETURNING id",
-               (r["company_id"], fund, now, ends, reserve, max(reserve // 2, 100), book, period))
-    _event(conn, row["id"], now, None, f"The Deposit Guarantee Fund sells its shares in a bank it rescued. Bids open at {money(max(reserve // 2, 100))}.")
+               (r["company_id"], fund, now, ends, reserve, start, book, period))
+    _event(conn, row["id"], now, None, f"The Deposit Guarantee Fund sells its shares in a bank it rescued. Bids open at {money(start)}.")
     _computer_bank_bids(conn, row["id"], now)
     return row["id"]
 

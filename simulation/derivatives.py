@@ -400,6 +400,8 @@ def trade(conn: Connection, account, series_id: int, side: str, contracts: int, 
         s = _series(conn, series_id, lock=True)
         if s["status"] != "open" or s["expiry_period"] < state["period"]:
             raise DerivativesError("That contract has settled.")
+        if s.get("company_id") and _one(conn, "SELECT halted_reason FROM market_instruments WHERE company_id = %s", (s["company_id"],))["halted_reason"]:
+            raise DerivativesError("Trading in this company's shares is stopped: the Central Bank closed the bank.")
         if not forced and not company and s.get("company_id"):
             from simulation import exchange as _exchange, newsroom
             try:

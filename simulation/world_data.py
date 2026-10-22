@@ -1286,3 +1286,5 @@ CRISIS_RATE_RELIEF_BPS = 100                     # past a banking crisis's tippi
 CRISIS_LENDING_BPS = {"calm": 10_000, "worried": 7_000, "run": 3_000, "panic": 0, "closed": 0}   # new lending, by its savers' mood
 COMPANY_SAVINGS_BPS = 5_000                      # a company keeps half its cash above what it likes to hold in savings at its bank
 CONTAGION_MOST = 25                              # trouble at other banks costs a bank at most this much trust
+REOPEN_GRACE_DAYS = 15                           # a bank opened again under a new owner: its savers give it this many game days...
+REOPEN_SUPPORT_POINTS = 15                       # ...and this much trust for the fresh money behind it

@@ -394,6 +394,8 @@ def _seize(conn: Connection, empire: dict, debt: dict, wanted: int, period: int,
 def _default(conn: Connection, empire: dict, debt: dict, owed: int, period: int, now: datetime, *, interest: bool) -> None:
     """The empire cannot pay what is due: the lender takes what cash there is, then shares; the head who
     signed pays under a personal guarantee. What was due as interest is not taken off what is owed."""
+    from simulation import deposits
+    deposits.draw_for_debt(conn, empire["account_id"], owed - max(ledger.balance(conn, empire["account_id"]), 0), period, now)
     took = ledger.pay_up_to(conn, payer=empire["account_id"], receiver=debt["lender_account"], wanted=owed, kind="empire_default",
                             memo=f"{empire['name']}: what could be paid of a debt in default", period=period)
     if took < owed and debt.get("kind") == "buyout" and not interest:

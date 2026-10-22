@@ -125,11 +125,27 @@ def loans_of(filed: dict | None) -> int:
     return (filed["customer_loans"] + filed["loans_to_companies"]) if filed else 0
 
 
+def capital_moved(conn: Connection, company_id, filed_period: int | None) -> int:
+    """What has been added to a bank's owners' funds since its last filed accounts (a hole filled, new money put in)."""
+    if filed_period is None:
+        return 0
+    return _one(conn, "SELECT coalesce(sum(amount), 0)::bigint AS t FROM bank_capital_moves WHERE company_id = %s AND filed_period = %s",
+                (company_id, filed_period))["t"]
+
+
+def _capital_move(conn: Connection, company_id, amount: int, why: str, now: datetime) -> None:
+    filed = _filed(conn, company_id)
+    if amount and filed:
+        conn.execute("INSERT INTO bank_capital_moves (company_id, filed_period, amount, why, at) VALUES (%s, %s, %s, %s, %s)",
+                     (company_id, filed["period"], amount, why, now))
+
+
 def figures(conn: Connection, b: dict) -> dict:
-    """The public figures behind a bank's trust: from its last filed accounts, and its cash and savers' money today."""
+    """The public figures behind a bank's trust: from its last filed accounts (with what has since filled a hole or added
+    new money), and its cash and savers' money today."""
     filed = _filed(conn, b["id"])
     loans = loans_of(filed)
-    equity = filed["total_equity"] if filed else 0
+    equity = (filed["total_equity"] + capital_moved(conn, b["id"], filed["period"])) if filed else 0
     owes = deposits.owed(conn, b["id"]) or 0
     cash = max(ledger.balance(conn, b["account_id"]), 0)
     losses = filed["loan_losses"] if filed else 0
@@ -161,12 +177,13 @@ def _capital_points(capital_bps: int, equity: int) -> int:
 
 def _withdrawn_recently(conn: Connection, company_id, period: int, day: int) -> int:
     """What savers drew out of a bank over the last three game days (today included)."""
+    # (A company drawing its savings back as it closes its quarter, and putting them back after, is routine, not fear.)
     row = _one(conn, "SELECT coalesce(sum(amount), 0)::bigint AS t FROM deposit_flows WHERE company_id = %s"
-                     " AND kind IN ('run', 'withdrawn') AND (period * 100 + day) BETWEEN %s AND %s",
+                     " AND (kind = 'run' OR (kind = 'withdrawn' AND holder <> 'company')) AND (period * 100 + day) BETWEEN %s AND %s",
                (company_id, period * 100 + day - 2, period * 100 + day))
     if day <= 2 and period > 1:      # the last days of the quarter before count too
         row2 = _one(conn, "SELECT coalesce(sum(amount), 0)::bigint AS t FROM deposit_flows WHERE company_id = %s"
-                          " AND kind IN ('run', 'withdrawn') AND period = %s AND day > %s",
+                          " AND (kind = 'run' OR (kind = 'withdrawn' AND holder <> 'company')) AND period = %s AND day > %s",
                     (company_id, period - 1, clock.GAME_DAYS_PER_QUARTER - (3 - day)))
         return row["t"] + row2["t"]
     return row["t"]
@@ -218,6 +235,13 @@ def target(conn: Connection, b: dict, period: int, day: int, others: dict, close
                   (b["id"], period * 100 + day - 10))
     if placed:
         parts["support"] += 5
+    # A bank just opened again under a new owner, with fresh money: its savers give it time, and the price its shares
+    # were set at is not read as a fall.
+    if _one(conn, "SELECT 1 AS x FROM bank_resolutions WHERE company_id = %s AND reopened_period IS NOT NULL"
+                  " AND (reopened_period * 100 + reopened_day) >= %s", (b["id"], period * 100 + day - data.REOPEN_GRACE_DAYS)):
+        parts["share_price"] = 0
+        parts["withdrawals"] = max(parts["withdrawals"], -5)
+        parts["support"] += data.REOPEN_SUPPORT_POINTS
     score = data.CONFIDENCE_BASE + sum(parts.values())
     return max(min(score, 100), 0), parts
 
@@ -461,6 +485,7 @@ def _savers_run(conn: Connection, b: dict, state: str, today: dict, period: int,
     need = sum(w[2] for w in wanted)
     if need <= 0:
         return 0
+    conn.execute("SELECT pg_advisory_xact_lock(hashtext('bank-cash:' || %s::text))", (str(b["id"]),))   # one payer at a time
     can = secure_cash(conn, b, need, period, day, now)
     share_bps = can * BPS // need if need else 0
     left = 0
@@ -533,6 +558,7 @@ def _maybe_placement(conn: Connection, b: dict, period: int, day: int, now: date
     _owners_changed(conn, b["id"], buyer)
     conn.execute("INSERT INTO emergency_placements (company_id, period, day, shares, price, amount, at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
                  (b["id"], period, day, shares, price, amount, now))
+    _capital_move(conn, b["id"], amount, "new shares sold in a run", now)
     _news(conn, period, day, "bank_new_shares", f"placement:{b['ticker']}:{period}",
           {"company": b["name"], "ticker": b["ticker"], "amount": money(amount)}, tickers=(b["ticker"],))
     _link(conn, f"placement:{b['ticker']}:{period}", f"run:{b['ticker']}:{period}",
@@ -636,6 +662,7 @@ def cannot_pay(conn: Connection, b: dict, period: int, day: int, now: datetime, 
     if hole - bail > 0:
         covered = deposits.fund_pays(conn, b["account_id"], hole - bail, period, now,
                                      f"Deposit Guarantee Fund: fills what is left of {b['name']}'s hole, so every guaranteed saving is safe")
+    _capital_move(conn, b["id"], bail + covered, "its hole filled when it was closed", now)
     owes = deposits.owed(conn, b["id"]) or 0
     needed = max(apply_bps(f["loans"], data.BANK_MINIMUM_CAPITAL_BPS) - max(equity, 0), apply_bps(owes, data.BANK_RESERVE_BPS), 1)
     words = (f"The Central Bank closed {b['name']}: {reason}. Its owners' funds were {money(equity)}. "
@@ -706,7 +733,12 @@ def resolved(conn: Connection, resolution_id: int, *, buyer, paid: int, how: str
     r = _one(conn, "SELECT * FROM bank_resolutions WHERE id = %s FOR UPDATE", (resolution_id,))
     company = _one(conn, "SELECT * FROM companies WHERE id = %s", (r["company_id"],))
     old = ledger.amount_in_existence(conn, company["share_asset"])
-    new = max(old * (BPS - data.RESCUE_OLD_OWNERS_BPS) // data.RESCUE_OLD_OWNERS_BPS, 1)
+    # The old owners keep 5%; more if the bank still had owners' funds of its own when it was closed (a buyer pays for
+    # what is put in, not for what was already there).
+    kept_bps = data.RESCUE_OLD_OWNERS_BPS
+    if r["equity"] > 0 and paid > 0:
+        kept_bps = max(kept_bps, min(r["equity"] * BPS // (r["equity"] + paid), BPS - data.RESCUE_OLD_OWNERS_BPS))
+    new = max(old * (BPS - kept_bps) // kept_bps, 1)
     price = max(paid // max(new, 1), 1)
     from simulation import exchange
     exchange.allow_index_for(conn, new * price)
@@ -718,13 +750,18 @@ def resolved(conn: Connection, resolution_id: int, *, buyer, paid: int, how: str
                      f" priced at what the new owner paid for each new share")
     status = "sold" if how == "sold" else "public"
     resale = period + data.PUBLIC_RESALE_QUARTERS if how == "public" else None
-    conn.execute("UPDATE bank_resolutions SET status = %s, new_owner = %s, price = %s, resale_period = %s, ended_at = %s WHERE id = %s",
-                 (status, buyer, paid, resale, now, resolution_id))
     w = _now(conn, now)
-    # Its savers trust it again, a little: a sound owner and fresh money behind it.
-    conn.execute("INSERT INTO bank_confidence (company_id, period, day, score, state, parts, withdrawn, at) VALUES (%s, %s, %s, %s, 'calm', %s, 0, %s)"
-                 " ON CONFLICT (company_id, period, day) DO UPDATE SET score = EXCLUDED.score, state = 'calm'",
-                 (company["id"], w["period"], w["day"], data.CONFIDENCE_REOPEN, Jsonb({"guarantee": 0}), now))
+    last_p, last_d = _last_day(conn)
+    conn.execute("UPDATE bank_resolutions SET status = %s, new_owner = %s, price = %s, resale_period = %s, ended_at = %s,"
+                 " reopened_period = %s, reopened_day = %s WHERE id = %s",
+                 (status, buyer, paid, resale, now, last_p or w["period"], last_d, resolution_id))
+    _capital_move(conn, company["id"], paid, "new money from its new owner", now)
+    # Its savers trust it again, a little: a sound owner and fresh money behind it (on the last day worked through, so the
+    # day-by-day record carries on from it).
+    if last_p:
+        conn.execute("INSERT INTO bank_confidence (company_id, period, day, score, state, parts, withdrawn, at) VALUES (%s, %s, %s, %s, 'calm', %s, 0, %s)"
+                     " ON CONFLICT (company_id, period, day) DO UPDATE SET score = EXCLUDED.score, state = 'calm'",
+                     (company["id"], last_p, last_d, data.CONFIDENCE_REOPEN, Jsonb({"support": 0}), now))
     name = _owner_name(conn, buyer)
     kind = "bank_rescued" if how == "sold" else "bank_public"
     _news(conn, w["period"], w["day"], kind, f"{kind}:{resolution_id}",
@@ -751,7 +788,7 @@ def public_hands(conn: Connection, resolution_id: int, period: int, now: datetim
     r = _one(conn, "SELECT r.*, c.account_id, c.name FROM bank_resolutions r JOIN companies c ON c.id = r.company_id WHERE r.id = %s", (resolution_id,))
     fund = ledger.account_id(conn, deposits.GUARANTEE_FUND)
     paid = deposits.fund_pays(conn, r["account_id"], r["capital_needed"], period, now,
-                              f"Deposit Guarantee Fund: new money into {r['name']}, taken into public hands")
+                              f"Deposit Guarantee Fund: new money into {r['name']}, for new shares, taken into public hands", kind="share_issue")
     resolved(conn, resolution_id, buyer=fund, paid=paid, how="public", period=period, now=now)
 
 
@@ -974,8 +1011,9 @@ def at_close(conn: Connection, period: int, now: datetime) -> None:
         return
     for b in deposits.banks(conn):
         filed = _one(conn, "SELECT total_equity FROM company_results WHERE company_id = %s AND period = %s", (b["id"], period))
-        if filed and filed["total_equity"] < 0 and not deposits.closed(conn, b["id"]):
-            cannot_pay(conn, b, period, clock.GAME_DAYS_PER_QUARTER, now, reason="its losses had eaten all its owners' funds")
+        if filed and filed["total_equity"] + capital_moved(conn, b["id"], period) < 0 and not deposits.closed(conn, b["id"]):
+            # (Recorded in the next quarter: this one's accounts are already filed.)
+            cannot_pay(conn, b, period + 1, 1, now, reason="its losses had eaten all its owners' funds")
     blanket_lift(conn, period, now)
     resell_public(conn, period, now)
     from simulation import crisiswatch

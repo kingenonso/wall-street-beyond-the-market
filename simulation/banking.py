@@ -101,7 +101,7 @@ def ensure_cash(conn: Connection, world: economy.World, bank: dict, needed: int,
     updated = conn.execute(
         "UPDATE company_debts SET principal_outstanding = principal_outstanding + %s,"
         " original_principal = original_principal + %s, annual_rate_bps = %s"
-        " WHERE company_id = %s AND kind = 'central_bank_loan'",
+        " WHERE company_id = %s AND kind = 'central_bank_loan' AND name NOT LIKE 'emergency%%'",
         (short, short, policy_rate_bps, bank["id"]),
     ).rowcount
     if not updated:
@@ -117,7 +117,8 @@ def repay_central_bank(conn: Connection, world: economy.World, bank: dict, perio
     """A bank holding far more cash than it needs pays back what it borrowed from the
     Central Bank. The money repaid goes out of existence."""
     owed = _rows(conn, "SELECT id, principal_outstanding FROM company_debts WHERE company_id = %s"
-                       " AND kind = 'central_bank_loan' AND principal_outstanding > 0", (bank["id"],))
+                       " AND kind = 'central_bank_loan' AND principal_outstanding > 0"
+                       " ORDER BY name LIKE 'emergency%%' DESC, id", (bank["id"],))    # the dearer emergency lending first
     if not owed:
         return 0
     spare = ledger.balance(conn, bank["account_id"]) - 3 * reserve(bank)

@@ -460,9 +460,8 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     rescued = received("guarantee_cover") if keeps_savers else 0
     if bailed_in or rescued:
         notes.append(f"When it was closed, {in_words(bailed_in)} of savings above the guarantee and {in_words(rescued)} from the"
-                     " Deposit Guarantee Fund filled the hole in its books. It is shown as other income.")
-        revenue += bailed_in + rescued
-        sales_business += bailed_in + rescued
+                     " Deposit Guarantee Fund filled the hole in its books. It goes straight to its owners' funds: it is not profit,"
+                     " and pays no tax and no dividend.")
     # Fees paid to register property, and losses it could not pay at the time (hedges, swaps) paid late.
     registration = paid_so_far("land_registration") + paid_so_far("shortfall_repayment")
     cost_of_sales += registration
@@ -702,12 +701,13 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     if keeps_savers:
         # Savers' money paid in, less what was drawn out (what was written down in a closure was never paid out in cash).
         cash_from_financing += customer_funds - prev["customer_funds"] + bailed_in
+        cash_from_financing += rescued                 # (the Deposit Guarantee Fund's money that filled its hole)
     cash_from_investing -= home_losses             # (what households did not repay never came back as cash)
     trading_cash = (
         revenue + interest_income
         - supplies_bought - paid("cost_of_sales") - paid("wages") - paid("debt_interest") - paid("company_tax")
         - paid("insurance_claim") - paid("salary") - paid("professional_fee") - paid("deposit_interest") - registration
-        - paid("savings_interest") - paid("guarantee_premium") - savings_lost - bailed_in              # (what savers bore in a closure was never cash)
+        - paid("savings_interest") - paid("guarantee_premium") - savings_lost
         + min(hedging, 0)                       # (a hedging gain is in revenue already; a loss is cash gone)
     )
     # Anything else that moved its cash did not come from the company's own quarter:
@@ -736,7 +736,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         cost_of_sales -= asset_sales - sold_book
 
     fixed_assets = prev["fixed_assets"] + capital_spending - depreciation - sold_book
-    retained_earnings = prev["retained_earnings"] + net_profit - dividends_paid - preferred_paid
+    retained_earnings = prev["retained_earnings"] + net_profit - dividends_paid - preferred_paid + bailed_in + rescued
     total_assets = cash_closing + customer_loans + loans_to_companies + fixed_assets + investments
     total_liabilities = borrowings + payables + customer_funds
     share_capital = prev["share_capital"] + share_proceeds + converted

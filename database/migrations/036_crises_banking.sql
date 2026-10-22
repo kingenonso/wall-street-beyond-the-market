@@ -268,3 +268,17 @@ CREATE TABLE run_stories (
     UNIQUE (company_id, story_id)
 );
 CREATE TRIGGER run_stories_permanent BEFORE UPDATE OR DELETE ON run_stories FOR EACH ROW EXECUTE FUNCTION records_forbid_change();
+
+-- What has changed a bank's owners' funds since its last filed accounts (a closure's hole filled, new money put in), so
+-- that its trust, the Central Bank's lending and a second closure are judged on where it stands now, not on stale figures.
+CREATE TABLE bank_capital_moves (
+    id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    company_id    uuid NOT NULL REFERENCES companies (id),
+    filed_period  integer NOT NULL,                  -- the filed accounts it comes on top of
+    amount        bigint NOT NULL,
+    why           text NOT NULL,
+    at            timestamptz NOT NULL
+);
+CREATE INDEX bank_capital_moves_bank ON bank_capital_moves (company_id, filed_period);
+ALTER TABLE bank_resolutions ADD COLUMN reopened_period integer;
+ALTER TABLE bank_resolutions ADD COLUMN reopened_day integer;

@@ -314,4 +314,4 @@ def test_the_website_shows_trust_and_the_players_own_savings_only(db, client):
     crisis_page = client.get("/api/crisis").json()
     assert {"watch", "banks", "crises", "auctions", "blanket", "national"} <= set(crisis_page)
     assert "weakness" not in repr([c for c in crisis_page["crises"] if c["status"] == "open"])
-    assert client.post("/api/savings/IKB/in", json={"amount_naira": 5}).status_code == 422
+    assert client.post("/api/savings/IKB/in", json={"amount_naira": 5}).status_code == 409
