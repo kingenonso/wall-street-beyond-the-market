@@ -30,6 +30,7 @@ export type Player = {
   press_questions?: number;
   corrections_due?: number;
   crises_due?: number;
+  banks_uneasy?: number;
   /** The redesign: the player's own look and sound, and whether the first-time tour has been seen. */
   theme: "dark" | "light";
   sound_on: boolean;
@@ -1110,6 +1111,8 @@ export const api = {
   investigations: () => request<{ files: InvestigationFile[] }>("/investigations"),
   pressDesk: () => request<PressDesk>("/press"),
   charities: () => request<{ charities: Charity[] }>("/charities"),
+  savings: () => request<SavingsView>("/savings"),
+  crisis: () => request<CrisisPage>("/crisis"),
   media: () => request<{ titles: MediaTitle[]; auctions: TitleAuction[] }>("/media"),
   news: (filter: { outlet?: string; ticker?: string; limit?: number } = {}) => {
     const query = new URLSearchParams();
@@ -1209,3 +1212,44 @@ export const api = {
   confirmEmail: (email: string, code: string) =>
     request<Player>("/auth/confirm-email", { method: "POST", body: JSON.stringify({ email, code }) }),
 };
+
+
+/** The crises stage, Part 1: savings at the banks, trust in each bank, the Crisis Watch and the record of every crisis. */
+export interface SavingsBank {
+  ticker: string; name: string; headquarters: string; takes_savings: boolean; rating: string | null; savings_rate_bps: number;
+  trust: number | null; state: "calm" | "worried" | "run" | "panic" | "closed"; trust_change: number | null; closed: boolean;
+  mine: Kobo; mine_guaranteed: Kobo; empire: Kobo | null; empire_guaranteed: Kobo | null;
+}
+export interface SavingsView {
+  banks: SavingsBank[]; guarantee: Kobo; blanket: boolean; least: Kobo; cash: Kobo;
+  empire: { name: string; head: boolean; cash: Kobo } | null;
+  interest: { period: number; bank: string; lowest: Kobo; rate_bps: number; amount: Kobo }[];
+}
+export interface BankTrust {
+  ticker: string; name: string; headquarters: string; trust: number | null; state: SavingsBank["state"]; change: number | null;
+  parts: { part: string; name: string; points: number }[];
+  days: { period: number; day: number; score: number; state: string }[];
+  closed: boolean; resolution: { words: string; status: string } | null;
+}
+export interface CrisisStep { step: number; name: string; phase: string; period: number; day: number; words: string }
+export interface CrisisRecord {
+  id: number; kind: string; title: string; status: "open" | "faded" | "ended"; step: number; step_name: string; phase: string;
+  started: { period: number; day: number; label: string }; ended: { period: number; day: number; label: string } | null;
+  banks: string[]; steps: CrisisStep[]; why: { words: string }[];
+  report: null | {
+    summary: string; weakness: string; lesson: string; stopped_by: string[]; closures: string[]; long_weakness: boolean; how: string;
+    hit: { bank: string; lowest_trust: number | null; closed: boolean; drawn_out: Kobo }[];
+    came_through: { bank: string; lowest_trust: number | null }[];
+  };
+}
+export interface WatchSign { sign: string; name: string; value: number | null; level: "green" | "amber" | "red"; words: string;
+  history: { period: number; level: string }[] }
+export interface BankAuction {
+  id: number; bank: { name: string; ticker: string }; kind: "rescue" | "public_sale"; opens_at: string; ends_at: string; status: string;
+  start_price: Kobo; price: Kobo | null; minimum: Kobo; lowest_price_met: boolean; bidders: number; you_lead: boolean;
+  your_limit: Kobo | null; your_status: string | null; empire_limit?: Kobo | null; empire_leads?: boolean;
+}
+export interface CrisisPage {
+  watch: { period: number | null; label?: string | null; signs: WatchSign[] }; banks: BankTrust[]; crises: CrisisRecord[];
+  auctions: BankAuction[]; blanket: boolean; national: number; guarantee: Kobo;
+}

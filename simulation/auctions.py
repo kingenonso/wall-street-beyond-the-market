@@ -278,6 +278,10 @@ def place_bid(conn: Connection, account, auction_id: int, limit: int, now: datet
             raise PropertyError("You cannot bid for your own property.")
         if a["title_id"] and (partner is not None or mortgage_bps):
             raise PropertyError("A media title is bought outright: no partner, and no mortgage.")
+        if a.get("bank_id") and (partner is not None or mortgage_bps):
+            raise PropertyError("A bank is bought with your own money: no partner, and no mortgage.")
+        if a.get("bank_id") and _one(conn, "SELECT 1 FROM companies WHERE id = %s AND account_id = %s", (a["bank_id"], account)):
+            raise PropertyError("A bank does not bid for itself.")
         if limit < minimum(a):
             raise PropertyError(f"The lowest bid now is {money(minimum(a))}.")
         mine = _one(conn, "SELECT * FROM auction_bids WHERE auction_id = %s AND bidder = %s AND status = 'live'", (auction_id, account))
@@ -309,11 +313,11 @@ def place_bid(conn: Connection, account, auction_id: int, limit: int, now: datet
                 raise PropertyError(f"{bank['name']} has no room to lend that much now.")
         if empire_id is not None and a["property_id"]:
             _checks_allow(conn, empire_id, auction_id, limit, mortgage_bank, mortgage_bps)
-        if empire_id is not None and a["title_id"]:
+        if empire_id is not None and (a["title_id"] or a.get("bank_id")):
             # A title has no desk checks; instead the head bids no more than twice what it is worth, and within what they may sign for.
             from simulation import empires
             if limit > a["fair"] * data.MEDIA_RESERVE_MOST_TIMES:
-                raise PropertyError(f"For the empire, bid at most twice what the title is worth: {money(a['fair'] * data.MEDIA_RESERVE_MOST_TIMES)}.")
+                raise PropertyError(f"For the empire, bid at most twice what the lot is worth: {money(a['fair'] * data.MEDIA_RESERVE_MOST_TIMES)}.")
             seat = empires.seat_of(conn, player_id)
             room = empires.signing_limit(conn, seat) - empires._spent(conn, empire_id, player_id, state["period"]) if seat else 0
             if limit > room:
@@ -364,8 +368,8 @@ def ask_partner(conn: Connection, account, auction_id: int, partner_account, par
         a = _auction(conn, auction_id)
         if a["status"] != "open":
             raise PropertyError("This auction is not taking bids now.")
-        if a["title_id"]:
-            raise PropertyError("A media title is bought outright: no partner, and no mortgage.")
+        if a["title_id"] or a.get("bank_id"):
+            raise PropertyError("This lot is bought outright: no partner, and no mortgage.")
         if not isinstance(partner_bps, int) or not 500 <= partner_bps <= 9000:
             raise PropertyError("A partner takes between 5% and 90% of the property.")
         if partner_account == account:
@@ -446,8 +450,8 @@ def check(conn: Connection, player_id, auction_id: int, step: str, answer: dict,
         a = _auction(conn, auction_id)
         if a["status"] != "open":
             raise PropertyError("This auction is not taking bids now.")
-        if a["title_id"]:
-            raise PropertyError("A media title needs no checks at the lands registry: the head decides the bid.")
+        if a["title_id"] or a.get("bank_id"):
+            raise PropertyError("This lot needs no checks at the lands registry: the head decides the bid.")
         if step == "title":
             before = checks_of(conn, empire["id"], auction_id).get("title")
             if before is not None:
@@ -554,6 +558,8 @@ def _unsold(conn: Connection, a: dict, now: datetime, period: int, words: str) -
 def _settle(conn: Connection, a: dict, now: datetime) -> None:
     if a["title_id"]:
         return _settle_title(conn, a, now)
+    if a.get("bank_id"):
+        return _settle_bank(conn, a, now)
     state = _state(conn, now)
     period = state["period"]
     held = ledger.account_id(conn, _held())
@@ -771,3 +777,146 @@ def view(conn: Connection, now: datetime, viewer=None, empire_id=None) -> dict:
             "checks": ({s: (s in checks_of(conn, empire_id, a["id"])) for s in STEPS} if empire_id else None),
         })
     return {"auctions": out, "now": now}
+
+
+# ---------------------------------------------------------------------------
+# Banks (the crises stage): a closed bank sold to whoever puts in the most new money; a bank in public hands sold again
+# ---------------------------------------------------------------------------
+
+def open_bank_auction(conn: Connection, resolution_id: int, now: datetime, period: int) -> int:
+    """A bank the Central Bank closed goes to the Auction House. The price is the new money the buyer puts INTO the bank
+    (never to anybody else); the buyer owns 95% of it afterwards. The lowest bid is the new money it needs."""
+    from simulation import deposits
+    r = _one(conn, "SELECT * FROM bank_resolutions WHERE id = %s", (resolution_id,))
+    fund = ledger.account_id(conn, deposits.GUARANTEE_FUND)
+    need = max(r["capital_needed"], 100)
+    ends = now + timedelta(hours=data.AUCTION_HOURS)
+    row = _one(conn, "INSERT INTO auctions (bank_id, seller, reason, opens_at, ends_at, reserve, start_price, fair, period)"
+                     " VALUES (%s, %s, 'rescue', %s, %s, %s, %s, %s, %s) RETURNING id",
+               (r["company_id"], fund, now, ends, need, need, need, period))
+    conn.execute("UPDATE bank_resolutions SET auction_id = %s WHERE id = %s", (row["id"], resolution_id))
+    _event(conn, row["id"], now, None, f"A closed bank for sale. The lowest bid is {money(need)} of new money, paid into the bank."
+                                       f" It ends {clock.to_lagos(ends):%a %d %b, %H:%M} Lagos time, later if bids come in its last five minutes.")
+    _computer_bank_bids(conn, row["id"], now)
+    return row["id"]
+
+
+def open_bank_resale(conn: Connection, resolution_id: int, now: datetime, period: int) -> int:
+    """A bank a year in public hands: the Deposit Guarantee Fund sells its shares. Whatever it fetches repays the Treasury."""
+    from simulation import deposits
+    r = _one(conn, "SELECT * FROM bank_resolutions WHERE id = %s", (resolution_id,))
+    fund = ledger.account_id(conn, deposits.GUARANTEE_FUND)
+    filed = _one(conn, "SELECT total_equity FROM company_results WHERE company_id = %s ORDER BY period DESC LIMIT 1", (r["company_id"],))
+    asset = _one(conn, "SELECT share_asset FROM companies WHERE id = %s", (r["company_id"],))["share_asset"]
+    held = ledger.balance(conn, fund, asset)
+    total = ledger.amount_in_existence(conn, asset)
+    book = max((filed["total_equity"] if filed else 0) * held // max(total, 1), 100)
+    reserve = book * 7 // 10
+    ends = now + timedelta(hours=data.AUCTION_HOURS)
+    row = _one(conn, "INSERT INTO auctions (bank_id, seller, reason, opens_at, ends_at, reserve, start_price, fair, period)"
+                     " VALUES (%s, %s, 'public_sale', %s, %s, %s, %s, %s, %s) RETURNING id",
+               (r["company_id"], fund, now, ends, reserve, max(reserve // 2, 100), book, period))
+    _event(conn, row["id"], now, None, f"The Deposit Guarantee Fund sells its shares in a bank it rescued. Bids open at {money(max(reserve // 2, 100))}.")
+    _computer_bank_bids(conn, row["id"], now)
+    return row["id"]
+
+
+def _computer_bank_bids(conn: Connection, auction_id: int, now: datetime) -> None:
+    """Sound banks bid for a closed one: up to 100%-130% of the new money it needs (of its worth, when the fund sells)."""
+    from simulation import crisis
+    a = _auction(conn, auction_id)
+    seed = _one(conn, "SELECT fortune_seed FROM world_state")["fortune_seed"]
+    trust = crisis.trust_now(conn)
+    low, high = data.RESCUE_COMPUTER_BID_BPS
+    base = a["reserve"] if a["reason"] == "rescue" else a["fair"]
+    bidders = []
+    for b in _rows(conn, "SELECT c.id, c.account_id, c.ticker, r.total_equity FROM companies c JOIN bank_deposits d ON d.company_id = c.id"
+                         " JOIN LATERAL (SELECT total_equity FROM company_results WHERE company_id = c.id ORDER BY period DESC LIMIT 1) r ON true"
+                         " WHERE c.id <> %s AND c.status = 'trading' ORDER BY r.total_equity DESC", (a["bank_id"],)):
+        t = trust.get(b["id"], {})
+        if t.get("state", "calm") != "calm" or (t.get("score") or 0) < data.CONFIDENCE_WARNING:
+            continue
+        limit = base * int(low + (high - low) * _uniform(seed, f"bank-limit:{auction_id}:{b['id']}", 0)) // BPS
+        if b["total_equity"] < limit * 2 or ledger.balance(conn, b["account_id"]) < limit * 2:
+            continue
+        bidders.append((b, limit))
+    for b, limit in bidders[:2]:
+        conn.execute("INSERT INTO auction_bids (auction_id, bidder, limit_price, computer, at) VALUES (%s, %s, %s, true, %s)",
+                     (auction_id, b["account_id"], limit, a["opens_at"]))
+    _resolve(conn, _auction(conn, auction_id), now, _state(conn, now)["period"])
+
+
+def _settle_bank(conn: Connection, a: dict, now: datetime) -> None:
+    from simulation import crisis, deposits
+    period = _state(conn, now)["period"]
+    held = ledger.account_id(conn, _held())
+    r = _one(conn, "SELECT * FROM bank_resolutions WHERE company_id = %s AND status IN ('open', 'public') ORDER BY id DESC LIMIT 1",
+             (a["bank_id"],))
+    win = _one(conn, "SELECT * FROM auction_bids WHERE id = %s", (a["leader"],)) if a["leader"] else None
+    if win is not None and a["price"] is not None and a["price"] < a["reserve"] <= win["limit_price"]:
+        a = {**a, "price": a["reserve"]}
+    sold = win is not None and a["price"] is not None and a["price"] >= a["reserve"] and r is not None
+    paid = False
+    if sold:
+        price, buyer = a["price"], win["bidder"]
+        try:
+            if win["computer"]:
+                # A bank buying another pays from its cash: it is an investment in another company's shares.
+                ledger.transfer(conn, payer=buyer, receiver=held, amount=price, kind="takeover_reserve", period=period,
+                                memo=f"Bought at auction: a bank (auction {a['id']})")
+            elif win["held"] < price:
+                ledger.transfer(conn, payer=buyer, receiver=held, amount=price - win["held"], kind="auction_hold", period=period,
+                                memo=f"The last of the price: a bank (auction {a['id']})")
+            elif win["held"] > price:
+                ledger.transfer(conn, payer=held, receiver=buyer, amount=win["held"] - price, kind="auction_release", period=period,
+                                memo=f"What was held above the winning price: a bank (auction {a['id']})")
+            paid = True
+        except ledger.InsufficientFunds:
+            paid = False
+    if not (sold and paid):
+        _unsold(conn, a, now, period, "It did not reach the lowest price, and is not sold.")
+        if r is not None and a["reason"] == "rescue" and r["status"] == "open":
+            crisis.public_hands(conn, r["id"], period, now)
+        elif r is not None and a["reason"] == "public_sale":
+            conn.execute("UPDATE bank_resolutions SET resale_period = %s WHERE id = %s", (period + data.PUBLIC_RESALE_QUARTERS, r["id"]))
+        return
+    conn.execute("UPDATE auction_bids SET status = 'won', held = 0 WHERE id = %s", (win["id"],))
+    for b in _rows(conn, "SELECT * FROM auction_bids WHERE auction_id = %s AND status = 'live'", (a["id"],)):
+        conn.execute("UPDATE auction_bids SET status = 'lost' WHERE id = %s", (b["id"],))
+        _release(conn, b, period, "The auction ended: the bid's cash is handed back")
+    bank = _one(conn, "SELECT * FROM companies WHERE id = %s", (a["bank_id"],))
+    if a["reason"] == "rescue":
+        # The new money goes into the bank itself, for new shares.
+        ledger.transfer(conn, payer=held, receiver=bank["account_id"], amount=price, kind="share_issue", period=period,
+                        memo=f"{bank['name']}: new money from its new owner, for new shares")
+        crisis.resolved(conn, r["id"], buyer=buyer, paid=price, how="sold", period=period, now=now)
+    else:
+        fund = ledger.account_id(conn, deposits.GUARANTEE_FUND)
+        shares = ledger.balance(conn, fund, bank["share_asset"])
+        ledger.post(conn, kind="share_sale", period=period, memo=f"{bank['name']}: the Deposit Guarantee Fund's shares, sold at auction",
+                    legs=[ledger.Leg(held, -price), ledger.Leg(fund, price),
+                          ledger.Leg(fund, -shares, bank["share_asset"]), ledger.Leg(buyer, shares, bank["share_asset"])])
+        crisis.resold(conn, r["id"], buyer, price, period, now)
+    conn.execute("UPDATE auctions SET status = 'sold', settled_at = %s, period = %s, price = %s WHERE id = %s", (now, period, price, a["id"]))
+    _event(conn, a["id"], now, price, f"Sold for {money(price)}.")
+
+
+def bank_view(conn: Connection, now: datetime, viewer=None) -> list[dict]:
+    """Open and recent auctions of banks. Never a reserve, a limit (except the viewer's own), or a bidder's name."""
+    if not _one(conn, "SELECT to_regclass('bank_resolutions') IS NOT NULL AS ok")["ok"]:
+        return []
+    out = []
+    for a in _rows(conn, "SELECT a.*, c.name, c.ticker FROM auctions a JOIN companies c ON c.id = a.bank_id WHERE a.bank_id IS NOT NULL"
+                         " AND (a.status = 'open' OR a.settled_at > %s) ORDER BY a.status = 'open' DESC, a.ends_at", (now - timedelta(days=2),)):
+        mine = _one(conn, "SELECT id, limit_price, status FROM auction_bids WHERE auction_id = %s AND bidder = %s ORDER BY id DESC LIMIT 1",
+                    (a["id"], viewer)) if viewer else None
+        events = _rows(conn, "SELECT at, price, words FROM auction_events WHERE auction_id = %s AND at <= %s ORDER BY id DESC LIMIT 8", (a["id"], now))
+        out.append({"id": a["id"], "bank": {"name": a["name"], "ticker": a["ticker"]}, "kind": a["reason"],
+                    "opens_at": a["opens_at"], "ends_at": a["ends_at"], "status": a["status"],
+                    "start_price": a["start_price"], "price": a["price"], "minimum": minimum(a),
+                    "lowest_price_met": _reserve_met(conn, a),
+                    "bidders": _one(conn, "SELECT count(DISTINCT bidder) AS n FROM auction_bids WHERE auction_id = %s", (a["id"],))["n"],
+                    "you_lead": bool(mine and a["leader"] == mine["id"]), "your_limit": mine["limit_price"] if mine else None,
+                    "your_status": mine["status"] if mine else None, "your_bid_id": mine["id"] if mine else None,
+                    "events": [{"at": e["at"], "price": e["price"], "words": e["words"]} for e in events]})
+    return out

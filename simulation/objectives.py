@@ -42,7 +42,7 @@ log = logging.getLogger("wsbm.objectives")
 STRICT = os.environ.get("OBJECTIVES_STRICT") == "true"       # in tests, a fault in judging is raised, not logged
 FAILED_STATES = ("failed", "not_done", "withdrawn")
 # What counts as money coming to a player from outside their own investing.
-OUTSIDE_INCOME = ("salary", "starting_grant", "professional_fee", "deposit_interest")       # as the Money Watch counts it
+OUTSIDE_INCOME = ("salary", "starting_grant", "professional_fee", "deposit_interest", "savings_interest")       # as the Money Watch counts it
 
 
 class ObjectiveError(Exception):
@@ -190,6 +190,9 @@ def wealth(conn: Connection, account, now: datetime) -> dict:
                       "price": share["price"], "value": row["shares"] * share["price"]})
     held = bonds.holdings_of(conn, account, now)
     cash = ledger.balance(conn, account)
+    # Savings at the banks (the crises stage) are cash kept with a bank: still the owner's.
+    from simulation import deposits
+    cash += deposits.savings_of(conn, account)
     # Cash held in escrow while a bid for a company stands, or pledged as a partner, is still its owner's.
     cash += _one(conn, "SELECT ((SELECT coalesce(sum(b.held), 0) FROM deal_bids b JOIN empires e ON e.id = b.empire_id"
                        " WHERE e.account_id = %s AND b.status IN ('pending', 'live'))"

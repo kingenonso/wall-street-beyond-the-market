@@ -131,7 +131,7 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
     who = accounts(conn)  # noqa
     worth = valuation.latest(conn)
     shares = _rows(conn, "SELECT c.id, c.ticker, c.sector, c.headquarters FROM market_instruments m"
-                         " JOIN companies c ON c.id = m.company_id ORDER BY c.ticker")
+                         " JOIN companies c ON c.id = m.company_id WHERE m.halted_reason IS NULL ORDER BY c.ticker")
     today = clock.game_date(now, clock.effective_start(world["world_start"], world["weeks_ahead"]))
     # Stage 10: each kind of investor reads the news at its own pace (some at once, some a day or two late, the founders
     # not at all), and players' widely read stories nudge how they value a company for a few days.

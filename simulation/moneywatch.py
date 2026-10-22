@@ -164,7 +164,7 @@ def lending_factor_bps(conn: Connection, period: int) -> int:
 
 
 # What counts as money paid to a player for their work or by the game's rules (not from their own investing).
-PLAYER_INCOME = ("salary", "starting_grant", "professional_fee", "deposit_interest")
+PLAYER_INCOME = ("salary", "starting_grant", "professional_fee", "deposit_interest", "savings_interest")
 
 
 def paid_to_players(conn: Connection, period: int) -> dict:

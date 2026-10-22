@@ -155,6 +155,21 @@ KINDS: tuple[NewsKind, ...] = (
     # --- Stage 10, Part 2: media titles at the Auction House ---
     NewsKind("title_for_sale", 52, {"title": "The Evening Drum", "city": "Lagos"}),
     NewsKind("title_sold", 56, {"title": "The Evening Drum", "buyer": "Harbour House", "price": "₦24.5 million"}),
+    # --- The crises stage, Part 1: trust in the banks, runs, rescues ---
+    NewsKind("bank_run", 82, {"company": "Kainji Commercial Bank", "ticker": "KCB", "location": "Kano", "cause": "its loans gone bad"}),
+    NewsKind("bank_panic", 88, {"company": "Kainji Commercial Bank", "ticker": "KCB", "location": "Kano", "cause": "savers leaving"}),
+    NewsKind("central_bank_support", 72, {"company": "Kainji Commercial Bank", "ticker": "KCB", "amount": "₦42 billion"}),
+    NewsKind("bank_new_shares", 62, {"company": "Kainji Commercial Bank", "ticker": "KCB", "amount": "₦18 billion"}),
+    NewsKind("savings_guarantee", 90, {"reason": "2 banks had runs at once"}),
+    NewsKind("guarantee_lifted", 60, {"guarantee": "₦5 million"}),
+    NewsKind("bank_closed", 92, {"company": "Kainji Commercial Bank", "ticker": "KCB", "location": "Kano", "needed": "₦120 billion"}),
+    NewsKind("bank_rescued", 80, {"company": "Kainji Commercial Bank", "ticker": "KCB", "buyer": "Ikenga Bank", "amount": "₦130 billion"}),
+    NewsKind("bank_public", 78, {"company": "Kainji Commercial Bank", "ticker": "KCB", "buyer": "the Deposit Guarantee Fund (public hands)",
+                                 "amount": "₦120 billion"}),
+    NewsKind("bank_resold", 60, {"company": "Kainji Commercial Bank", "ticker": "KCB", "buyer": "Ikenga Bank", "price": "₦95 billion"}),
+    NewsKind("banks_calm", 64, {"title": "Banking crisis, Year 3 Q2: Kainji Commercial Bank",
+                                "lesson": "A bank that keeps strong owners' funds and plenty of cash can let fear pass."}),
+    NewsKind("crisis_watch_red", 66, {"sign": "bad loans", "words": "Banks wrote off loans at 6.4% a year."}),
     # --- The economy upgrade: the rest of the world ---
     NewsKind("oil_up", 70, {"price": "$82.40", "previous": "$75.00", "change": "9.9%"}),
     NewsKind("oil_down", 72, {"price": "$64.10", "previous": "$75.00", "change": "14.5%"}),

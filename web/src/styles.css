@@ -1032,3 +1032,22 @@ label.check { display: inline-flex; gap: 6px; align-items: center; }
 }
 .answer-block { display: flex; flex-direction: column; gap: 6px; width: 100%; }
 .answer-block textarea { width: 100%; min-height: 72px; padding: 8px 10px; background: var(--raised); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; font: inherit; }
+
+/* The crises stage: trust in the banks, the Crisis Watch, a crisis's phases. */
+.trust-bar { display: inline-block; width: 120px; height: 8px; border-radius: 4px; background: var(--border); vertical-align: middle; overflow: hidden; }
+.trust-fill { display: block; height: 100%; border-radius: 4px; }
+.trust-calm { background: var(--up); }
+.trust-worried { background: #c99a2e; }
+.trust-run, .trust-panic, .trust-closed { background: var(--down); }
+.trust-days { display: inline-flex; align-items: flex-end; gap: 1px; height: 26px; margin-left: 10px; vertical-align: middle; }
+.trust-day { display: inline-block; width: 3px; border-radius: 1px; opacity: 0.85; }
+.watch-history { display: inline-flex; gap: 4px; align-items: center; }
+.watch-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 1px solid var(--border); }
+.watch-green { background: var(--up); }
+.watch-amber { background: #c99a2e; }
+.watch-red { background: var(--down); }
+.phases { list-style: none; padding: 0; margin: 8px 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.phases li { border-top: 3px solid var(--border); padding-top: 6px; }
+.phases li.phase-on { border-top-color: var(--accent, var(--up)); }
+.crisis-report { border-left: 3px solid var(--border); padding-left: 12px; margin: 8px 0; }
+@media (max-width: 720px) { .phases { grid-template-columns: 1fr; } .trust-bar { width: 80px; } }

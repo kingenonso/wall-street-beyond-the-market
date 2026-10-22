@@ -43,6 +43,8 @@ export const GLOSSARY: Record<string, { means: string; example?: string }> = {
   "Declared interest": { means: "Telling readers that your empire holds a position in a company you write about. Hiding it is an offence anyone can expose." },
   "Credibility": { means: "How far readers trust a journalist's name, from 0 to 100. Corrections lower it; a late one lowers it more." },
   "The Ripple": { means: "The chain of causes behind an event: what led to what, kept for good. \u201cWhy?\u201d shows it in one line, in full, or with the numbers." },
+  "Deposit guarantee": { means: "Money kept as savings is a claim on the bank. If the bank fails, the Deposit Guarantee Fund makes sure the first ₦5 million each saver has at each bank is safe. Above that, savers bear their share of the bank's losses." },
+  "Bank run": { means: "When savers stop trusting a bank they draw their money out. A bank lends most of what it holds, so it cannot pay everyone at once: it must find cash, borrow from the Central Bank, or be closed." },
   "Confidential information": { means: "Information from someone inside a company that the market does not have. Trading on it while it is useful is dealing on confidential information: it is kept for the courts." },
   "Sealed Tip": { means: "One sealed piece of information each real day, matched to your build. It may be valuable, false or worthless; once opened it is useful for four hours." },
   "Intelligence Market": { means: "Where players sell copies of what they know. A buyer sees what a piece is about and how good it looks, and reads it only once bought." },

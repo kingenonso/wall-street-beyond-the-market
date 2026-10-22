@@ -285,6 +285,7 @@ export function sectionsFor(player: Player) {
     { path: "intel", label: "Intelligence" },
     { path: "companies", label: "Companies" },
     { path: "economy", label: "Economy" },
+    { path: "crisis", label: "Banks & crises", ...((player.banks_uneasy ?? 0) > 0 ? { count: player.banks_uneasy, countWords: "banks uneasy" } : {}) },
     { path: "career", label: "Career" },
     { path: "charities", label: "Charities" },
   ] as { path: string; label: string; count?: number; countWords?: string }[];

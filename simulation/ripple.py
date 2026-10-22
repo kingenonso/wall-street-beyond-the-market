@@ -32,6 +32,9 @@ NAMES = {
     "event": "an event", "results": "the company's results", "rating": "a credit rating", "rate": "the Central Bank's rate",
     "prices": "prices", "watch": "the Money Watch", "homes": "home loans", "story": "a news story", "nudge": "investors' view",
     "takeover": "a takeover offer", "stake": "a disclosed stake", "infra": "public works", "price": "the share price",
+    "trust": "trust in a bank", "run": "a run on a bank", "support": "the Central Bank's emergency lending",
+    "placement": "new shares sold in a run", "guarantee": "the Government's guarantee", "closure": "a bank closed",
+    "rescue": "a bank rescued", "crisis": "a crisis", "crisiswatch": "the Crisis Watch",
 }
 
 

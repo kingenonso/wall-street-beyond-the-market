@@ -23,7 +23,7 @@ from simulation import empires
 from simulation import conveyancing, crashfund, derivatives, development, instruments, lending, propfunds, stochastic, swaps
 from simulation import property as property_market
 from simulation import ranks
-from simulation.money import BPS
+from simulation.money import BPS, apply_bps
 from simulation.ledger import NGN
 
 log = logging.getLogger("wsbm.quarters")
@@ -51,7 +51,8 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
             problems = (ledger.audit(conn) + exchange.check_books(conn) + corporate.check_books(conn) + firm_deals.check_books(conn)
                         + lending.check_books(conn) + derivatives.check_books(conn)
                         + crashfund.check_books(conn) + instruments.check_books(conn)
-                        + conveyancing.check_books(conn) + development.check_books(conn) + propfunds.check_books(conn))
+                        + conveyancing.check_books(conn) + development.check_books(conn) + propfunds.check_books(conn)
+                        + _crisis().check_books(conn))
             if problems:
                 raise ledger.LedgerError("The ledger failed its end-of-quarter check: " + " ".join(problems))
             conn.execute("UPDATE world_state SET last_closed_period = %s", (period,))
@@ -102,6 +103,9 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     moods, severe = events.location_moods(happening)
     lending_factor = moneywatch.lending_factor_bps(conn, period)
 
+    # The crises stage: the quarter's last game days are worked through (trust, runs, the Central Bank) before anybody closes.
+    from simulation import crisis
+    crisis.before_close(conn, period, now)
     banking.reprice_loans(conn, period, policy_rate)
     # Private companies: their owners' dials, their managers, assets, routes and staff shape their quarter.
     private.before_close(conn, all_companies, period, before["wage_index_bps"])
@@ -139,7 +143,8 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     }
     lenders = {}
     for bank in banking.banks(conn, period):
-        lenders[bank["account_id"]] = {**bank, "room": banking.lending_room(bank), "rating": ratings.get(bank["id"])}
+        lenders[bank["account_id"]] = {**bank, "room": apply_bps(banking.lending_room(bank), crisis.lending_bps(conn, bank["id"])),
+                                       "rating": ratings.get(bank["id"])}
     ctx = companies.Context(
         world=world, tax_bps=tax_bps, fortune_seed=fortune_seed,
         lasting_pull=lasting_pull, sector_fortune=sector_fortune,
@@ -188,7 +193,7 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
         conn, period, fortune_seed, company_sales=company_sales, household_spending=household_spending,
         money=money, commodity_events=commodity_events,
         premium_index_bps=economy.premium_index_bps(conn, period, claims_paid),
-        confidence_bps=confidence, rate_extra_bps=watch["rate_extra_bps"],
+        confidence_bps=confidence, rate_extra_bps=watch["rate_extra_bps"] + crisis.rate_relief_bps(conn),
         energy_bps=abroad.energy_index_bps(oil_next, abroad.state(conn, period - 1)["fx"]),
         import_push_bps=abroad.import_push_bps(conn, period),
     )
@@ -238,6 +243,9 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     from simulation import charity, media
     charity.at_close(conn, period, now)
     media.close(conn, period, now)
+    # The crises stage: a bank whose losses ate its owners' funds is closed; the Government's promise is lifted once trust
+    # is back; a bank a year in public hands goes on sale again; the Crisis Watch takes its reading.
+    crisis.at_close(conn, period, now)
     news.for_events(conn, events.generate(conn, period + 1, fortune_seed))
     # Private companies after the close: wear, morale, secrets, rivals' prices, failures, sales and start-ups.
     private.after_close(conn, period, results, measured["wage_index_bps"], fortune_seed, now)
@@ -256,6 +264,11 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     day, _ = exchange.session_of(now)
     careers.close_retirement(conn, period, marketview.index_level(marketview._shares(conn, day), marketview.index_base(conn)),
                              measured["next_policy_rate_bps"])
+
+
+def _crisis():
+    from simulation import crisis
+    return crisis
 
 
 def _dicts(conn: Connection, sql: str, params=()) -> list[dict]:

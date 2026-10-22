@@ -15,6 +15,7 @@ import { EconomyRail, EconomyWork } from "./Economy";
 import { MarketRail, MarketWork } from "./Market";
 import { NewsRail, NewsWork } from "./News";
 import { CharitiesRail, CharitiesWork, IntelRail, IntelWork } from "./Intel";
+import { CrisisRail, CrisisWork } from "./Crisis";
 import { PortfolioRail, PortfolioWork } from "./Portfolio";
 import { PropertyRail, PropertyWork } from "./Property";
 import { BorrowRail, BorrowWork } from "./Borrow";
@@ -107,6 +108,10 @@ export function App() {
     current = "intel";
     work = <IntelWork key={item ?? ""} player={player} tab={item} onLoggedOut={loggedOut} />;
     rail = <IntelRail />;
+  } else if (section === "crisis") {
+    current = "crisis";
+    work = <CrisisWork key={item ?? ""} player={player} tab={item} onLoggedOut={loggedOut} />;
+    rail = <CrisisRail />;
   } else if (section === "charities") {
     current = "charities";
     work = <CharitiesWork player={player} onLoggedOut={loggedOut} />;
