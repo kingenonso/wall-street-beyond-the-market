@@ -56,7 +56,7 @@ PHASES = (("Warning", (1, 2)), ("Trigger", (3, 4)), ("Spread", (5, 6)), ("Crisis
 PART_NAMES = {
     "capital": "its owners' funds against its loans", "bad_loans": "its loans gone bad", "cash": "its cash against its savers' money",
     "rating": "its credit rating", "withdrawals": "savers leaving", "news": "what the papers say", "share_price": "its share price",
-    "other_banks": "trouble at other banks", "guarantee": "the Government's guarantee", "support": "help it has had",
+    "other_banks": "trouble at other banks", "guarantee": "the Government's guarantee", "support": "emergency help (borrowed, or new money)",
 }
 FUNDAMENTAL = ("capital", "bad_loans", "cash", "rating")
 

@@ -183,7 +183,7 @@ function Sign({ s }: { s: WatchSign }) {
         <div className="strong">{s.name} <span className={s.level === "green" ? "tag-good" : s.level === "amber" ? "tag" : "tag-bad"}>{s.level}</span></div>
         <div className="small muted">{s.words}</div>
       </div>
-      <span className="watch-history" aria-label={`The last readings: ${s.history.map((h) => h.level).join(", ")}`}>
+      <span className="watch-history" role="img" aria-label={`The last readings: ${s.history.map((h) => h.level).join(", ")}`}>
         {s.history.map((h) => <span key={h.period} className={`watch-dot watch-${h.level}`} />)}
       </span>
     </div>
