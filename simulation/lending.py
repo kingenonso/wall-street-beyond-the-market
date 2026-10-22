@@ -195,7 +195,8 @@ def holdings_value(conn: Connection, account, now: datetime) -> dict:
     quotes = prices(conn)
     shares, lines = _share_value(conn, account, quotes)
     bond_value = sum(b["value"] for b in bonds.holdings_of(conn, account, now))
-    cash = ledger.balance(conn, account)
+    from simulation import deposits
+    cash = ledger.balance(conn, account) + deposits.savings_of(conn, account)        # savings at the banks are cash kept with a bank
     # Shares borrowed to sell short are not the holder's to pledge: what they are worth is taken off.
     borrowed = short_liability(conn, account)
     return {"shares": shares, "bonds": bond_value, "cash": cash, "lines": lines, "security": max(shares + bond_value - borrowed, 0),
@@ -775,8 +776,10 @@ def _sell_bonds_by_force(conn: Connection, account, wanted: int, period: int, no
 
 
 def _raise_cash(conn: Connection, account, wanted: int, period: int, now: datetime, why: str) -> int:
-    """Raise cash by force: shares sold to the computer investors, then bonds to the desk, each at 5% below the price."""
-    raised = 0
+    """Raise cash by force: savings at the banks drawn first (the crises stage), then shares sold to the computer investors,
+    then bonds to the desk, each at 5% below the price."""
+    from simulation import deposits
+    raised = deposits.draw_for_debt(conn, account, wanted, period, now)
     quotes = prices(conn)
     _, lines = _share_value(conn, account, quotes)
     for line in sorted(lines, key=lambda x: -x["value"]):

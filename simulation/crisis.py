@@ -568,10 +568,25 @@ def _on_change(conn: Connection, b: dict, was: str, t: dict, period: int, day: i
         _link(conn, f"run:{b['ticker']}:{period}", f"trust:{b['ticker']}:{period}:{day}",
               f"Trust in {b['name']} fell to {t['score']} of 100, mostly from {cause}: savers began to queue.", period, now,
               {"trust": t["score"], **{k: v for k, v in t["parts"].items() if v}})
+        _note_run_stories(conn, b, period, day, now)
         from simulation import chronicle
         chronicle.write(conn, "company", f"run:{b['ticker']}:{period}:{day}", "bank_run", f"A run on {b['name']}",
                         f"Trust in {b['name']} fell to {t['score']} of 100, mostly from {cause}. Savers queued to draw their money out.",
                         period, day, now, company_id=b["id"])
+
+
+def _note_run_stories(conn: Connection, b: dict, period: int, day: int, now: datetime) -> None:
+    """Keep, for the courts, the bad stories about a bank printed in the five game days before its run, and whether the
+    rumour each carried was planted (and by whom). Never shown to players."""
+    for s in _rows(conn, "SELECT id, author_id, lead FROM stories WHERE status = 'published' AND tone < 0 AND %s = ANY(tickers)"
+                         " AND (period * 100 + day) BETWEEN %s AND %s", (b["ticker"], period * 100 + day - 5, period * 100 + day)):
+        planted = None
+        item_id = (s["lead"] or {}).get("item_id")
+        if item_id:
+            row = _one(conn, "SELECT planted_by FROM intel_items WHERE id = %s", (item_id,))
+            planted = row["planted_by"] if row else None
+        conn.execute("INSERT INTO run_stories (company_id, period, day, story_id, author_id, planted_by, at) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+                     " ON CONFLICT DO NOTHING", (b["id"], period, day, s["id"], s["author_id"], planted, now))
 
 
 def _main_cause(parts: dict) -> str:

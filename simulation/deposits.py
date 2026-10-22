@@ -378,8 +378,15 @@ def put_in(conn: Connection, player_id, ticker: str, amount, now: datetime, *, f
             raise SavingsError(f"{b['name']} has been closed by the Central Bank. It takes no money until it is resolved.")
         w = _state(conn, now)
         if empire is not None:
-            from simulation import charity
-            charity._empire_spend(conn, empire, player_id, amount, w["period"])
+            # Moving the empire's cash into savings puts it at the bank's risk: the head may move, in a quarter, no more than
+            # what they may sign for (less what they have signed for already). Taking it out is never limited.
+            from simulation import empires
+            seat = empires.seat_of(conn, player_id)
+            moved = _one(conn, "SELECT coalesce(sum(amount), 0)::bigint AS t FROM deposit_flows WHERE account_id = %s AND holder = 'empire'"
+                               " AND kind = 'placed' AND period = %s", (account, w["period"]))["t"]
+            room = empires.signing_limit(conn, seat) - empires._spent(conn, empire["id"], player_id, w["period"]) - moved
+            if amount > room:
+                raise SavingsError(f"That is more of the empire's money than you may sign for this quarter ({money(max(room, 0))} left).")
         if ledger.balance(conn, account) < amount:
             raise SavingsError(f"You have {money(max(ledger.balance(conn, account), 0))} in cash.")
         _place(conn, account, b, amount, "savings_placed",
@@ -420,6 +427,31 @@ def take_out(conn: Connection, player_id, ticker: str, amount, now: datetime, *,
             from simulation.empires import _log
             _log(conn, empire["id"], f"The head took {money(amount)} of the empire's savings out of {b['name']}.", now)
         return {"bank": b["name"], "saved": saved(conn, account, b["asset"])}
+
+
+def draw_for_debt(conn: Connection, account, wanted: int, period: int, now: datetime) -> int:
+    """Savings are cash kept with a bank: when an account must raise cash by force (a margin call, a debt in default),
+    its savings at open banks are drawn first, before anything is sold. Returns what was drawn."""
+    if not ready(conn) or wanted <= 0:
+        return 0
+    from simulation import careers, crisis
+    day = careers.world_now(conn, now)["day"]
+    drawn = 0
+    for b in banks(conn):
+        if drawn >= wanted:
+            break
+        held = saved(conn, account, b["asset"])
+        if held <= 0 or closed(conn, b["id"]):
+            continue
+        amount = crisis.secure_cash(conn, b, min(held, wanted - drawn), period, day, now)
+        if amount <= 0:
+            continue
+        _repay(conn, account, b, amount, "savings_withdrawn", f"Savings drawn out of {b['name']} to pay what is owed", period)
+        holder = _one(conn, "SELECT kind FROM ledger_accounts WHERE id = %s", (account,))["kind"]
+        _flow(conn, b["id"], account, holder if holder in ("player", "empire", "company") else "player", None, "withdrawn", amount,
+              period, day, now)
+        drawn += amount
+    return drawn
 
 
 def savings_rate_bps(policy_rate_bps: int, rating: str | None) -> int:

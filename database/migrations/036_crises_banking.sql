@@ -48,7 +48,11 @@ BEGIN
             OR (reason = 'preferred_issue' AND asset_kind = 'preferred')
             OR (reason = 'warrant_issue' AND asset_kind = 'warrant')
             OR (reason = 'central_bank_lending' AND asset_kind = 'currency')
-            OR (reason IN ('deposit_record', 'savings_placed', 'deposit_placed', 'company_savings') AND asset_kind = 'deposit')
+            -- A bank's savers are written into the ledger once, when its deposit asset is first used; after that a claim
+            -- comes into existence only when money is paid in.
+            OR (reason = 'deposit_record' AND asset_kind = 'deposit'
+                AND NOT EXISTS (SELECT 1 FROM ledger_entries e WHERE e.asset = NEW.asset AND e.transaction_id <> NEW.transaction_id))
+            OR (reason IN ('savings_placed', 'deposit_placed', 'company_savings') AND asset_kind = 'deposit')
         ) THEN
             RAISE EXCEPTION 'New % cannot be brought into existence for the reason "%".', NEW.asset, reason
                 USING ERRCODE = 'restrict_violation', CONSTRAINT = 'ledger_issuance_reason';
@@ -249,3 +253,18 @@ CREATE TABLE economic_crises (
 CREATE UNIQUE INDEX economic_crises_one_open_kind ON economic_crises (kind) WHERE status = 'open';
 
 -- Ledger accounts for the deposit guarantee fund are of the Government kind (no new kind is needed).
+
+-- Stories that came just before a run on a bank, and whether they carried a rumour somebody planted: kept for the courts
+-- (Stage 11). Spreading a false story to start a run is a crime; pulling one's own money out is not. Never sent to players.
+CREATE TABLE run_stories (
+    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    company_id  uuid NOT NULL REFERENCES companies (id),
+    period      integer NOT NULL,
+    day         integer NOT NULL,
+    story_id    bigint NOT NULL REFERENCES stories (id),
+    author_id   uuid REFERENCES players (id),
+    planted_by  uuid REFERENCES players (id),
+    at          timestamptz NOT NULL,
+    UNIQUE (company_id, story_id)
+);
+CREATE TRIGGER run_stories_permanent BEFORE UPDATE OR DELETE ON run_stories FOR EACH ROW EXECUTE FUNCTION records_forbid_change();
