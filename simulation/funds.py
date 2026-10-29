@@ -1588,7 +1588,7 @@ def track_record(conn: Connection, player_id) -> dict:
         return {"funds": [], "best_stars": None, "five_star_quarters": 0, "runs_survived": 0}
     funds = []
     for f in _rows(conn, "SELECT * FROM investment_funds WHERE founder_id = %s ORDER BY id", (player_id,)):
-        days = _rows(conn, "SELECT unit_price, benchmark FROM fund_days WHERE fund_id = %s ORDER BY session_date", (f["id"],))
+        days = _rows(conn, "SELECT unit_price, benchmark FROM fund_days WHERE fund_id = %s AND benchmark IS NOT NULL ORDER BY session_date", (f["id"],))
         quarters = _rows(conn, "SELECT stars FROM fund_quarters WHERE fund_id = %s AND stars IS NOT NULL", (f["id"],))
         ret = (days[-1]["unit_price"] - FIRST_PRICE) * BPS // FIRST_PRICE if days else None
         bench = ((days[-1]["benchmark"] - days[0]["benchmark"]) * BPS // days[0]["benchmark"]) if days and days[0]["benchmark"] and days[-1]["benchmark"] else None
