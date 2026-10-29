@@ -273,6 +273,18 @@ def net_worth_of_players(conn: Connection) -> dict:
 _OTHER_HOLDINGS: list = []
 
 
+def _savings_held(conn: Connection) -> dict:
+    """The crises stage: money a player keeps in savings at the banks is theirs, counted with their cash."""
+    if not _rows(conn, "SELECT to_regclass('bank_deposits') IS NOT NULL AS ok")[0]["ok"]:
+        return {}
+    return {r["account_id"]: (int(r["total"]), 0) for r in _rows(conn, "SELECT b.account_id, sum(b.balance) AS total FROM ledger_balances b"
+                                                                         " JOIN bank_deposits d ON d.asset = b.asset JOIN ledger_accounts a ON a.id = b.account_id"
+                                                                         " WHERE a.kind = 'player' AND b.balance > 0 GROUP BY b.account_id")}
+
+
+_OTHER_HOLDINGS.append(_savings_held)
+
+
 # ---------------------------------------------------------------------------
 # The investor's page on one company
 # ---------------------------------------------------------------------------

@@ -100,6 +100,8 @@ def decide_rate(rate_now_bps: int, inflation_bps: int, extra_bps: int = 0, deman
         seen += ", and spending is running short of what the economy can supply"
     if extra_bps > 0:
         seen += ", and the Money Watch has raised a warning"
+    elif extra_bps < 0:
+        seen += ", and with the banks in a crisis it leans towards a lower rate"
     if step > 0:
         reason = f"{seen}, so the Central Bank raised its rate from {_percent(rate_now_bps)} to {_percent(new_rate)}."
     elif step < 0:

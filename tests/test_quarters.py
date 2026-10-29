@@ -67,7 +67,9 @@ class TestStageTwo:
                                     " WHERE e.account_id = %s AND e.amount < 0 AND ((t.period = 8 AND t.kind = 'household_loan'"
                                     " AND t.memo LIKE %s) OR (t.period >= 8 AND t.kind IN ('variation_margin', 'future_trade', 'derivative_fee', 'swap_payment')))",
                                     (r["account_id"], "%home loans to households%")).fetchone()[0]
-            assert ledger.balance(db, r["account_id"]) + lent_after >= r["cash"], r["name"]
+            # (The crises stage: after its close a company keeps part of its cash as savings at its bank; still its own.)
+            from simulation import deposits
+            assert ledger.balance(db, r["account_id"]) + deposits.savings_of(db, r["account_id"]) + lent_after >= r["cash"], r["name"]
             owed = db.execute("SELECT coalesce(sum(principal_outstanding), 0) FROM company_debts WHERE company_id = %s", (r["id"],)).fetchone()[0]
             # A lender shows its loans at what it still expects to be repaid: less what it has written off.
             lent = db.execute("SELECT coalesce(sum(principal_outstanding - provision), 0) FROM company_debts WHERE lender_account_id = %s", (r["account_id"],)).fetchone()[0]
@@ -124,6 +126,8 @@ class TestStageTwo:
             "government_purchase", "government_wages", "pension_payment",
             "loan_interest", "household_loan", "household_loan_repayment", "insurance_claim", "new_loan",
             "central_bank_lending",
+            # The crises stage: savers' money at the banks, its interest and the banks' premium to the guarantee fund.
+            "deposit_record", "company_savings", "company_savings_back", "savings_interest", "guarantee_premium",
         }
 
 

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CrisesPanel } from "./Crisis";
 import { api, type NewsItem, type Player } from "./api";
 import { useLoad } from "./hooks";
 import { Archive, ArticleBelow, Chronicle, NewsroomDeskView, PlayersStories, PressQuestions } from "./Newsroom";
@@ -86,7 +87,7 @@ export function NewsWork({ player, tab: start, onLoggedOut }: { player: Player; 
       {tab === "wire" && <Wire onLoggedOut={onLoggedOut} />}
       {tab === "stories" && <PlayersStories onLoggedOut={onLoggedOut} />}
       {tab === "archive" && <Archive onLoggedOut={onLoggedOut} />}
-      {tab === "chronicle" && <Chronicle player={player} onLoggedOut={onLoggedOut} />}
+      {tab === "chronicle" && <><Chronicle player={player} onLoggedOut={onLoggedOut} /><CrisesPanel onLoggedOut={onLoggedOut} /></>}
       {tab === "newsroom" && player.build === "journalist" && <NewsroomDeskView onLoggedOut={onLoggedOut} />}
       {tab === "questions" && <PressQuestions onLoggedOut={onLoggedOut} />}
       {tab === "titles" && <TitlesView player={player} onLoggedOut={onLoggedOut} />}

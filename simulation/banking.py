@@ -72,7 +72,8 @@ def reprice_loans(conn: Connection, period: int, policy_rate_bps: int) -> None:
     )
     for loan in loans:
         if loan["kind"] == "central_bank_loan":
-            rate = policy_rate_bps
+            # Emergency lending in a run (the crises stage) costs a penalty above the Central Bank's rate.
+            rate = policy_rate_bps + (data.EMERGENCY_PENALTY_BPS if loan["name"].startswith("emergency") else 0)
         else:
             rate = macro.loan_rate_bps(policy_rate_bps, loan["rating"], loan["name"].startswith("overdue"))
         conn.execute("UPDATE company_debts SET annual_rate_bps = %s WHERE id = %s", (rate, loan["id"]))
@@ -100,7 +101,7 @@ def ensure_cash(conn: Connection, world: economy.World, bank: dict, needed: int,
     updated = conn.execute(
         "UPDATE company_debts SET principal_outstanding = principal_outstanding + %s,"
         " original_principal = original_principal + %s, annual_rate_bps = %s"
-        " WHERE company_id = %s AND kind = 'central_bank_loan'",
+        " WHERE company_id = %s AND kind = 'central_bank_loan' AND name NOT LIKE 'emergency%%'",
         (short, short, policy_rate_bps, bank["id"]),
     ).rowcount
     if not updated:
@@ -116,7 +117,8 @@ def repay_central_bank(conn: Connection, world: economy.World, bank: dict, perio
     """A bank holding far more cash than it needs pays back what it borrowed from the
     Central Bank. The money repaid goes out of existence."""
     owed = _rows(conn, "SELECT id, principal_outstanding FROM company_debts WHERE company_id = %s"
-                       " AND kind = 'central_bank_loan' AND principal_outstanding > 0", (bank["id"],))
+                       " AND kind = 'central_bank_loan' AND principal_outstanding > 0"
+                       " ORDER BY name LIKE 'emergency%%' DESC, id", (bank["id"],))    # the dearer emergency lending first
     if not owed:
         return 0
     spare = ledger.balance(conn, bank["account_id"]) - 3 * reserve(bank)
@@ -209,7 +211,9 @@ def household_credit(conn: Connection, world: economy.World, period: int, policy
             amount = apply_bps(apply_bps(apply_bps(usual, appetite), borrow_bps.get(d["location"], BPS)), lending_factor_bps)
             wanted[world.households[d["location"]]["account_id"]] = amount
         total = sum(wanted.values())
-        room = lending_room(bank)
+        # The crises stage: a bank whose savers are leaving lends less, and a closed one not at all.
+        from simulation import crisis
+        room = apply_bps(lending_room(bank), crisis.lending_bps(conn, bank["id"]))
         if total > room:                                     # the bank's own funds limit what it may lend
             wanted = economy.split(room, wanted)
             total = sum(wanted.values())

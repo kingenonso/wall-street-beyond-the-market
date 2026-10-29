@@ -506,6 +506,8 @@ def _wind_up(conn: Connection, c: dict, last: dict, period: int, now: datetime) 
         conn.execute("UPDATE sale_processes SET status = 'withdrawn', outcome = 'The company went into administration.' WHERE id = %s", (sale["id"],))
         conn.execute("UPDATE deal_files SET status = 'lost' WHERE process_id = %s AND status = 'open'", (sale["id"],))
     raised = 0
+    from simulation import deposits
+    deposits.draw_for_debt(conn, c["account_id"], deposits.savings_of(conn, c["account_id"]), period, now)   # its savings come home first
     books = book_values(conn, c["id"])
     buyer = ledger.account_id(conn, ledger.INVESTORS_FOUNDERS)
     for asset in private.assets(conn, c["id"]):

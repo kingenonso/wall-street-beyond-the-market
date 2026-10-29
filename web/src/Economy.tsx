@@ -1,4 +1,5 @@
 import { api, type AbroadSummary, type ConsumersSummary, type Economy, type MoneyWatch, type PropertySummary } from "./api";
+import { WatchPanel } from "./Crisis";
 import { changeBps, formatCompact, formatPercent } from "./format";
 import { useLoad } from "./hooks";
 import { Change, Failed, Loading, Panel } from "./Shell";
@@ -460,6 +461,7 @@ export function EconomyWork({ onLoggedOut }: { onLoggedOut: () => void }) {
       {loading && !data && <Loading what="the economy" />}
       {error && <Failed message={error} onRetry={reload} />}
       {data && <Body economy={data} />}
+      <WatchPanel onLoggedOut={onLoggedOut} />
     </>
   );
 }

@@ -1,4 +1,5 @@
 import { WhatCouldHappenPanel } from "./WhatIf";
+import { BankPanel } from "./Crisis";
 import { useState } from "react";
 import { api, type Company, type FiledReport, type Kobo } from "./api";
 import { AreaChart } from "./Charts";
@@ -293,6 +294,7 @@ function CompanyBody({ company, onLoggedOut, trade }: { company: Company; onLogg
           <PriceChartPanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
           <PlainFacts ticker={company.ticker} onLoggedOut={onLoggedOut} />
           <WhyPricePanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
+          <BankPanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
           {trading.length === 0 ? (
             <Panel>
               <p className="muted">

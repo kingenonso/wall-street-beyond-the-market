@@ -6,6 +6,7 @@ import { ProfilePicture } from "./icons";
 import { PriceTicker } from "./Ticker";
 import { play } from "./sound";
 import type { LiveClock } from "./useClock";
+import { BankAlerts } from "./Crisis";
 
 export function Wordmark() {
   return (
@@ -440,6 +441,7 @@ export function Shell({ player, live, current, onLogout, onPlayer, work, rail, a
       </div>
       <BottomBar player={player} current={current} />
       <NewsToasts player={player} onPlayer={onPlayer} />
+      <BankAlerts onLoggedOut={onLogout} />
     </div>
   );
 }

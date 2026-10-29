@@ -175,7 +175,7 @@ def prices(conn: Connection) -> dict:
     """Each listed company's price now (the last trade, or its reference price)."""
     return {r["company_id"]: r for r in _rows(conn, """
         SELECT m.company_id, c.ticker, c.name, c.share_asset, coalesce(m.last_price, m.reference_price) AS price
-        FROM market_instruments m JOIN companies c ON c.id = m.company_id WHERE c.status = 'trading'""")}
+        FROM market_instruments m JOIN companies c ON c.id = m.company_id WHERE c.status = 'trading' AND m.halted_reason IS NULL""")}
 
 
 def _share_value(conn: Connection, account, quotes: dict) -> tuple[int, list[dict]]:
@@ -195,7 +195,8 @@ def holdings_value(conn: Connection, account, now: datetime) -> dict:
     quotes = prices(conn)
     shares, lines = _share_value(conn, account, quotes)
     bond_value = sum(b["value"] for b in bonds.holdings_of(conn, account, now))
-    cash = ledger.balance(conn, account)
+    from simulation import deposits
+    cash = ledger.balance(conn, account) + deposits.savings_of(conn, account)        # savings at the banks are cash kept with a bank
     # Shares borrowed to sell short are not the holder's to pledge: what they are worth is taken off.
     borrowed = short_liability(conn, account)
     return {"shares": shares, "bonds": bond_value, "cash": cash, "lines": lines, "security": max(shares + bond_value - borrowed, 0),
@@ -476,8 +477,8 @@ def open_short(conn: Connection, account, ticker: str, shares: int, now: datetim
         if not isinstance(shares, int) or isinstance(shares, bool) or shares <= 0:
             raise LendingError("Name how many shares to borrow.")
         q = _one(conn, "SELECT c.id, c.ticker, c.name, c.share_asset, coalesce(m.last_price, m.reference_price) AS price"
-                       " FROM companies c JOIN market_instruments m ON m.company_id = c.id WHERE c.ticker = %s AND c.status = 'trading'",
-                 (ticker,))
+                       " FROM companies c JOIN market_instruments m ON m.company_id = c.id WHERE c.ticker = %s AND c.status = 'trading'"
+                       " AND m.halted_reason IS NULL", (ticker,))
         if q is None:
             raise LendingError("Only shares listed on the exchange can be borrowed.")
         _unlocked(conn, account, player_id)
@@ -775,8 +776,10 @@ def _sell_bonds_by_force(conn: Connection, account, wanted: int, period: int, no
 
 
 def _raise_cash(conn: Connection, account, wanted: int, period: int, now: datetime, why: str) -> int:
-    """Raise cash by force: shares sold to the computer investors, then bonds to the desk, each at 5% below the price."""
-    raised = 0
+    """Raise cash by force: savings at the banks drawn first (the crises stage), then shares sold to the computer investors,
+    then bonds to the desk, each at 5% below the price."""
+    from simulation import deposits
+    raised = deposits.draw_for_debt(conn, account, wanted, period, now)
     quotes = prices(conn)
     _, lines = _share_value(conn, account, quotes)
     for line in sorted(lines, key=lambda x: -x["value"]):

@@ -102,6 +102,10 @@ def _close_due_quarters_once() -> None:
             intel.tick(conn, now)
             from simulation import press
             press.tick(conn, now)
+        # The crises stage: each game day that has ended, trust in the banks moves and frightened savers act.
+        if conn.execute("SELECT to_regclass('bank_confidence') IS NOT NULL").fetchone()[0]:
+            from simulation import crisis
+            crisis.tick(conn, now)
         # The Auction House settles every auction whose countdown has ended.
         if conn.execute("SELECT to_regclass('auctions') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
             auctions.run(conn, now)
@@ -193,6 +197,7 @@ def _player_response(conn: Connection, row: dict) -> PlayerResponse:
         unread_messages=messages.unread_count(conn, row["id"]),
         margin_calls=_margin_calls(conn, row["id"]),
         **dict(zip(("press_questions", "corrections_due", "crises_due"), _press(conn, row["id"]))),
+        banks_uneasy=_banks_uneasy(conn, row["id"]),
         theme=row.get("theme", "dark"), sound_on=row.get("sound_on", True),
         sound_volume=row.get("sound_volume", 30), tour_done=row.get("tour_done", False),
         work_in_hand=conn.execute("SELECT count(*) AS n FROM objectives WHERE player_id = %s AND state = 'active'", (row["id"],)).fetchone()["n"]
@@ -215,6 +220,19 @@ def _press(conn: Connection, player_id) -> tuple[int, int, int]:
                           " AND (e.head_player_id = %s OR EXISTS (SELECT 1 FROM empire_seats s WHERE s.empire_id = e.id AND s.player_id = %s"
                           " AND s.build = 'journalist'))", (player_id, player_id)).fetchone()["n"]
     return q, row["c"], crises
+
+
+def _banks_uneasy(conn: Connection, player_id) -> int:
+    """The crises stage: how many banks where this player (or, for its head, their empire) keeps savings have savers
+    leaving, or are closed. Only the player's own savings are looked at."""
+    if conn.execute("SELECT to_regclass('bank_confidence') IS NOT NULL AS ok").fetchone()["ok"] is not True:
+        return 0
+    return conn.execute("""
+        SELECT count(DISTINCT d.company_id) AS n FROM ledger_balances b JOIN bank_deposits d ON d.asset = b.asset
+        JOIN ledger_accounts a ON a.id = b.account_id
+        WHERE b.balance > 0 AND (a.player_id = %s OR a.id IN (SELECT account_id FROM empires WHERE head_player_id = %s AND status = 'active'))
+          AND (SELECT c.state FROM bank_confidence c WHERE c.company_id = d.company_id ORDER BY c.period DESC, c.day DESC LIMIT 1)
+              IN ('worried', 'run', 'panic', 'closed')""", (player_id, player_id)).fetchone()["n"]
 
 
 def _margin_calls(conn: Connection, player_id) -> int:
@@ -1649,3 +1667,4 @@ from server import news_routes  # noqa: E402,F401
 from server import intel_routes  # noqa: E402,F401
 from server import press_routes  # noqa: E402,F401
 from server import society_routes  # noqa: E402,F401
+from server import crisis_routes  # noqa: E402,F401

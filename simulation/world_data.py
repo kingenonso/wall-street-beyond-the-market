@@ -1243,3 +1243,48 @@ MEDIA_RESERVE_BPS = (8_000, 10_000)               # the Government's lowest pric
 MEDIA_COMPUTER_BID_BPS = (7_000, 9_500)           # the big media houses bid up to 70%-95% of what a title is worth
 CHARITY_PEOPLE_FLAG_NAIRA = 5_000_000            # the Money Watch also looks at a charity that gives most of its money (₦5m or more) to named people
 MEDIA_RESERVE_MOST_TIMES = 2                      # an owner's lowest price, and an empire's bid, are at most twice what a title is worth
+
+# ---------------------------------------------------------------------------
+# The crises stage, Part 1: deposits, trust, bank runs and their cures (owner's suggestions 2 and 4; design section 14)
+# ---------------------------------------------------------------------------
+DEPOSIT_GUARANTEE_NAIRA = 5_000_000              # each saver's money at each bank is guaranteed up to ₦5 million
+HOUSEHOLD_COVERED_BPS = 6_500                    # about two-thirds of what households keep at the banks belongs to savers below that line
+GUARANTEE_PREMIUM_BPS = 5                        # each bank pays the guarantee fund 0.05% of its savers' money every quarter
+TERM_SAVINGS_RATE_SHARE_BPS = {"AAA": 5_200, "AA": 5_600, "A": 6_000, "BBB": 6_500, "BB": 7_200, "B": 8_000, "CCC": 9_000, "D": 0}
+SAVINGS_LEAST_NAIRA = 10_000                     # the smallest sum put into or taken out of savings
+CONFIDENCE_START = 70
+CONFIDENCE_WORRIED = 45                          # below this, savers start to draw their money out
+CONFIDENCE_RUN = 35                              # below this, a run: queues at the branches
+CONFIDENCE_PANIC = 20
+CONFIDENCE_WARNING = 55                          # a bank below this is a warning sign on the Crisis Watch
+CONFIDENCE_DAILY_MOVE_BPS = 4_000                # each game day trust moves two-fifths of the way to where its signals put it
+# What savers draw out each game day, in hundredths of a percent of their savings: (above the guarantee, below it)
+RUN_WITHDRAWAL_BPS = {"calm": (0, 0), "worried": (30, 5), "run": (400, 40), "panic": (1_000, 150)}
+REDEPOSIT_SAME_DAY_BPS = 7_000                   # of what is drawn out in a run, seven-tenths goes the same day to the banks most trusted...
+HOME_RETURN_BPS = 500                            # ...the rest is kept at home, and a twentieth of it goes back each calm day
+CALM_NATIONAL = 55                               # trust in the banks taken together at which savers think it calm again
+EMERGENCY_PENALTY_BPS = 300                      # the Central Bank's emergency lending costs three points above its rate...
+EMERGENCY_COLLATERAL_BPS = 6_000                 # ...and goes no further than three-fifths of the loans the bank holds, less what it owes already
+BLANKET_NATIONAL = 35                            # the Government guarantees every saving when trust in the banks falls this low...
+BLANKET_RUNS = 2                                 # ...or when this many banks have runs at once...
+BLANKET_LIFT_NATIONAL = 60                       # ...and lifts it at a close when trust is back above this
+PLACEMENT_DAYS = 3                               # a bank below the run line this many days running raises new money from its institutional owners
+PLACEMENT_EQUITY_BPS = 1_000                     # a tenth of its owners' funds...
+PLACEMENT_DISCOUNT_BPS = 3_000                   # ...in new shares at 30% below the market price
+BANK_MINIMUM_CAPITAL_BPS = 1_000                 # to open again after it is closed, a bank needs owners' funds of a tenth of its loans
+RESCUE_OLD_OWNERS_BPS = 500                      # after a rescue, the old owners keep 5% of the bank; the rescuer has the rest
+PUBLIC_RESALE_QUARTERS = 4                       # a bank in public hands is sold again after a year
+RESCUE_COMPUTER_BID_BPS = (10_000, 13_000)       # a sound bank bids up to 100%-130% of the new money needed
+CRISIS_FADE_DAYS = 3                             # a warning fades when every bank has been back above the warning line this many days
+CRISIS_RECOVERY_DAYS = 5                         # recovery begins when every bank has been above the worried line this many days
+CRISIS_END_DAYS = 10                             # and it ends, and goes into history, when trust in the banks is calm this many days
+CRISIS_LONG_WEAKNESS_QUARTERS = 2                # a recovery not done in two quarters is a long weakness
+CONFIDENCE_BASE = 76                             # where a sound bank's trust sits with nothing for or against it
+CONFIDENCE_REOPEN = 55                           # a closed bank that opens again under new owners starts here
+BLANKET_TRUST_POINTS = 12                        # the Government's promise that every saving is safe calms savers this much
+CRISIS_RATE_RELIEF_BPS = 100                     # past a banking crisis's tipping point the Central Bank leans a point lower
+CRISIS_LENDING_BPS = {"calm": 10_000, "worried": 7_000, "run": 3_000, "panic": 0, "closed": 0}   # new lending, by its savers' mood
+COMPANY_SAVINGS_BPS = 5_000                      # a company keeps half its cash above what it likes to hold in savings at its bank
+CONTAGION_MOST = 25                              # trouble at other banks costs a bank at most this much trust
+REOPEN_GRACE_DAYS = 15                           # a bank opened again under a new owner: its savers give it this many game days...
+REOPEN_SUPPORT_POINTS = 15                       # ...and this much trust for the fresh money behind it

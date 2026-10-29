@@ -254,6 +254,10 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     # Hold the company's cash still while its quarter is closed: any other payment
     # touching this account waits until the close is saved.
     conn.execute("SELECT 1 FROM ledger_balances WHERE account_id = %s AND asset = %s FOR UPDATE", (account, NGN))
+    # The crises stage: a company draws its savings back into cash to pay what it must (its bank pays the interest on them).
+    from simulation import deposits
+    deposits.company_before_close(conn, company, period, ctx.policy_rate_bps, ctx.ratings)
+    keeps_savers = company["sector"] == "banking" and deposits.asset_of(conn, company["id"]) is not None
 
     # A bank must be able to meet the quarter's bills and still hold its reserve.
     # If it cannot, it borrows the difference from the Central Bank first.
@@ -400,13 +404,19 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     # A bank pays interest to the players who keep their cash with it.
     if company["ticker"] in data.PLAYER_BANKS:
         interest_expense += _careers().pay_deposit_interest(conn, company, period, ctx.policy_rate_bps, ctx.ratings.get(company["id"]))
+    # The crises stage: interest on players' and empires' savings, and the bank's premium to the Deposit Guarantee Fund.
+    # (Companies' savings were paid their interest as each company closed.)
+    if keeps_savers:
+        interest_expense += deposits.pay_interest(conn, company, period, ctx.policy_rate_bps, ctx.ratings.get(company["id"]))
+        interest_expense += moves.get("savings_interest", {}).get("paid", 0)      # (paid to companies' savings as they closed)
+        interest_expense += deposits.pay_premium(conn, company, period)
 
     # Interest it has received as a lender this quarter, read from the ledger.
     # (Its borrowers close their quarters before it does, so all of it has arrived.)
     # Dividends from a company it owns shares in (after a takeover) are counted with it.
     dividends_received = received("dividend")
     interest_income = (received("debt_interest") + dividends_received + received("empire_interest") + received("mortgage_interest")
-                       + received("player_loan_interest"))
+                       + received("player_loan_interest") + received("savings_interest"))
     if dividends_received:
         notes.append(f"It received {in_words(dividends_received)} in dividends from the company it owns shares in.")
 
@@ -440,6 +450,18 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         home_losses = homes.losses_to_count(conn, company["id"], period)
     if home_losses:
         notes.append(f"It lost {in_words(home_losses)} on home loans households could not repay.")
+    # The crises stage: savings lost when a bank was closed and savers above the guarantee bore its hole; and, for a bank
+    # that was closed, what its savers above the guarantee and the Deposit Guarantee Fund put back into it.
+    savings_lost = deposits.lost_in_failures(conn, account, period)
+    if savings_lost:
+        notes.append(f"It lost {in_words(savings_lost)} of its savings when a bank it kept them at was closed.")
+        cost_of_sales += savings_lost
+    bailed_in = deposits.bailed_in(conn, company["id"], period) if keeps_savers else 0
+    rescued = received("guarantee_cover") if keeps_savers else 0
+    if bailed_in or rescued:
+        notes.append(f"When it was closed, {in_words(bailed_in)} of savings above the guarantee and {in_words(rescued)} from the"
+                     " Deposit Guarantee Fund filled the hole in its books. It goes straight to its owners' funds: it is not profit,"
+                     " and pays no tax and no dividend.")
     # Fees paid to register property, and losses it could not pay at the time (hedges, swaps) paid late.
     registration = paid_so_far("land_registration") + paid_so_far("shortfall_repayment")
     cost_of_sales += registration
@@ -609,7 +631,11 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         return moves.get(kind, {}).get("paid", 0)
 
     cash_opening = prev["cash"]
-    cash_closing = ledger.balance(conn, account)
+    # A company's cash includes its savings at the banks (the crises stage): moving money between them changes nothing.
+    cash_closing = ledger.balance(conn, account) + (0 if company["sector"] == "banking" else deposits.savings_of(conn, account))
+    customer_funds = prev["customer_funds"]
+    if keeps_savers:
+        customer_funds = deposits.owed(conn, company["id"])          # what it owes its savers, from the ledger
 
     # 8. The balance sheet, each figure taken from where it is truly kept.
     borrowings = _row(
@@ -672,11 +698,16 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         (lent_before - lent["gross"]) + (prev["customer_loans"] - customer_loans) - paid("capital_spending") - invested + asset_sales
     )
     cash_from_financing = -paid("dividend") - paid("preferred_dividend") - (prev["borrowings"] - borrowings - converted) + share_proceeds
+    if keeps_savers:
+        # Savers' money paid in, less what was drawn out (what was written down in a closure was never paid out in cash).
+        cash_from_financing += customer_funds - prev["customer_funds"] + bailed_in
+        cash_from_financing += rescued                 # (the Deposit Guarantee Fund's money that filled its hole)
     cash_from_investing -= home_losses             # (what households did not repay never came back as cash)
     trading_cash = (
         revenue + interest_income
         - supplies_bought - paid("cost_of_sales") - paid("wages") - paid("debt_interest") - paid("company_tax")
         - paid("insurance_claim") - paid("salary") - paid("professional_fee") - paid("deposit_interest") - registration
+        - paid("savings_interest") - paid("guarantee_premium") - savings_lost
         + min(hedging, 0)                       # (a hedging gain is in revenue already; a loss is cash gone)
     )
     # Anything else that moved its cash did not come from the company's own quarter:
@@ -705,9 +736,9 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         cost_of_sales -= asset_sales - sold_book
 
     fixed_assets = prev["fixed_assets"] + capital_spending - depreciation - sold_book
-    retained_earnings = prev["retained_earnings"] + net_profit - dividends_paid - preferred_paid
+    retained_earnings = prev["retained_earnings"] + net_profit - dividends_paid - preferred_paid + bailed_in + rescued
     total_assets = cash_closing + customer_loans + loans_to_companies + fixed_assets + investments
-    total_liabilities = borrowings + payables + prev["customer_funds"]
+    total_liabilities = borrowings + payables + customer_funds
     share_capital = prev["share_capital"] + share_proceeds + converted
     total_equity = share_capital + retained_earnings
 
@@ -749,7 +780,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         "cash": cash_closing, "customer_loans": customer_loans, "loan_losses": loan_losses + home_losses,
         "loans_to_companies": loans_to_companies, "fixed_assets": fixed_assets, "investments": investments,
         "total_assets": total_assets, "borrowings": borrowings, "payables": payables,
-        "customer_funds": prev["customer_funds"], "total_liabilities": total_liabilities,
+        "customer_funds": customer_funds, "total_liabilities": total_liabilities,
         "share_capital": share_capital, "retained_earnings": retained_earnings,
         "total_equity": total_equity, "principal_overdue": principal_overdue,
         "shares_in_issue": shares_in_issue, "base_revenue": lasting_pull,
@@ -758,6 +789,8 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         "sales_business": sales_business, "sales_government": sales_government,
     }
     insert_result(conn, result)
+    # The crises stage: half its cash above what it likes to hold goes into savings at its bank.
+    deposits.company_after_close(conn, company, result, period)
     return result
 
 

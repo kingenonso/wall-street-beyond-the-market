@@ -51,6 +51,14 @@ function cardsFor(player: Player, latestQuarter: string | null, live: LiveClock 
       action: "Open the press desk", href: "#/empire/press",
     });
   }
+  if ((player.banks_uneasy ?? 0) > 0) {
+    cards.unshift({
+      tag: "■ YOUR SAVINGS", when: "Today",
+      title: "Savers are leaving a bank that holds your money",
+      text: "Only the first ₦5 million at each bank is guaranteed. Look at how far each bank is trusted, and decide whether to move your savings.",
+      action: "Open your savings", href: "#/portfolio",
+    });
+  }
   if ((player.corrections_due ?? 0) > 0) {
     cards.unshift({
       tag: "■ CORRECTION", when: "Within a day",
