@@ -379,7 +379,7 @@ function ChallengeCard({ c, act }: { c: ChallengeItem; act: Act; player: Player 
           <span className="tag-good">✓ Joined</span>{" "}
           <label className="check-line small"><input type="checkbox" checked={mine.seen_by_sponsor} disabled={act.busy}
             onChange={(e) => act.run(`/challenges/${c.id}/sponsor`, { on: e.target.checked }, e.target.checked ? `${c.firm.name} may see your result.` : `${c.firm.name} will not see your result.`)} /> {c.firm.name} may see my result</label>
-          {mine.answered_at && <span className="muted"> · your answer: {c.kind === "weak_bank" ? mine.answer_ticker : formatNaira(mine.answer ?? "0")}{c.kind === "valuation" ? " a share" : ""}</span>}
+          {mine.answered_at && <div className="muted">Your answer: {c.kind === "weak_bank" ? mine.answer_ticker : formatNaira(mine.answer ?? "0")}{c.kind === "valuation" ? " a share" : ""}</div>}
           {mine.score_words && <div className="strong">{mine.place ? `Place ${mine.place}. ` : ""}{mine.score_words}</div>}
         </div>
       )}

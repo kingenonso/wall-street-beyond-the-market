@@ -68,18 +68,23 @@ export function LineChart({ names, data, format = (value) => formatCompact(asKob
       </div>
       <div className="chart-frame">
         <svg viewBox={`0 0 ${W} ${H}`} role="group"
-             aria-label={`${names[0]} and ${names[1]} by quarter, from ${data[0].label} to ${data[data.length - 1].label}. The same figures are in the table on this page.`}>
+             aria-label={`${names[0]} and ${names[1]}, from ${data[0].label} to ${data[data.length - 1].label}. The same figures are in the table on this page.`}>
           {ticks.map((tick) => (
             <g key={tick}>
               <line x1={PAD.left} x2={W - PAD.right} y1={y(tick)} y2={y(tick)} className={tick === 0 ? "axis-zero" : "grid-line"} />
               <text x={PAD.left - 8} y={y(tick) + 4} textAnchor="end" className="tick-label">{format(tick)}</text>
             </g>
           ))}
-          {data.map((d, i) => (
-            <text key={d.label} x={x(i)} y={H - 8} textAnchor="middle" className="tick-label">
-              {d.label.replace("Year ", "Y")}
-            </text>
-          ))}
+          {data.map((d, i) => {
+            // Many points (a daily record): label about eight of them, always the last.
+            const step = Math.max(1, Math.ceil(data.length / 8));
+            const shown = (i % step === 0 && data.length - 1 - i >= Math.max(step, 2)) || i === data.length - 1;
+            return shown && (
+              <text key={i} x={x(i)} y={H - 8} textAnchor="middle" className="tick-label">
+                {d.label.replace("Year ", "Y")}
+              </text>
+            );
+          })}
           {hover !== null && <line x1={x(hover)} x2={x(hover)} y1={PAD.top} y2={H - PAD.bottom} className="crosshair" />}
           {SERIES.map((s) => (
             <g key={s.key}>
