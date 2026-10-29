@@ -810,7 +810,9 @@ def at_bell(conn: Connection, now: datetime, ended) -> dict:
             _settle_series(conn, s, fair(conn, s, now), period, now, "tonight's settlement")
             done["settled"] += 1
     for p in _rows(conn, "SELECT p.id FROM derivative_positions p JOIN derivative_series s ON s.id = p.series_id"
-                         " WHERE p.status = 'open' AND NOT p.cash_settled AND (s.kind = 'future' OR p.side = 'short') ORDER BY p.id"):
+                         " WHERE p.status = 'open' AND NOT p.cash_settled AND (s.kind = 'future' OR p.side = 'short')"
+                         # A contract whose quarter has ended is settled at the quarter's close, not closed by force before it.
+                         " AND s.expiry_period >= %s ORDER BY p.id", (period,)):
         with conn.transaction():
             p = _one(conn, "SELECT p.*, s.kind, s.underlying, s.company_id, s.strike, s.expiry_period FROM derivative_positions p"
                            " JOIN derivative_series s ON s.id = p.series_id WHERE p.id = %s AND p.status = 'open' FOR UPDATE OF p", (p["id"],))
