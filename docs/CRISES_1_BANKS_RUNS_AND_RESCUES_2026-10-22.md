@@ -16,7 +16,7 @@ Part 1 had ten loophole tests and an independent review. The review found six se
 minor points. Every one was fixed and tested, apart from the few minor points listed at the end of the review section.
 Nothing on Part 1's list was dropped or put off.
 
-Tests at the end: __TESTS__.
+Tests at the end: 1,325 server tests passed, none failed (81 files, split across two runners); the matching engine's 13 and the website's 23 passed too.
 
 ## Things worth knowing, said plainly
 
@@ -93,17 +93,21 @@ Tests at the end: __TESTS__.
    money out is lawful.
 9. **The admin crisis test.** `python -m simulation.crisis_test KCB --loss 12 --days 20` gives a bank a shock in a sealed
    copy of the world and prints what happens day by day. Then it throws the copy away: nothing is kept.
-10. **Screens.**
-    - A new "Banks & crises" section with four tabs:
-      - **The banks:** trust, what moves it, the last days, and banks at the Auction House.
-      - **Your savings:** put in, take out, take it all out, for yourself or the empire.
-      - **Crisis Watch.**
-      - **Crises on the record:** phases, report and "Why?".
-    - Elsewhere:
-      - a Crisis Watch panel on the Economy page;
-      - a desk card when a bank holding your savings has savers leaving;
-      - a count on the menu;
-      - twelve new kinds of news, each in three papers' voices.
+10. **Screens: no crisis section; a crisis pops up.** The owner decided (29 October) that bank crises are not a page to
+    visit but events that are not visible until they happen, and then pop up:
+    - **The pop-up.** When a bank has a run, panics, is closed, rescued or taken into public hands, when the Government
+      promises every saving, lifts that promise, or a crisis ends, a "Breaking" pop-up appears in the middle of every
+      player's screen. It stays until closed. If the player's own savings (or their empire's) are at that bank, it says so
+      and offers "Your savings". A player who opens the game during a crisis sees its latest news. Once closed, it does not
+      come back.
+    - **Everything else lives where it belongs:**
+      - savings (put in, take out, take it all out, for yourself or the empire) are in **Portfolio**;
+      - the **Crisis Watch** is on the **Economy** page;
+      - a bank's trust, what moves it, its last days, and its sale at the Auction House when it is closed, are on that bank's
+        own **company page**;
+      - past crises, with their phases, Crisis Reports and "Why?", are in **News > The Chronicle**.
+    - **Also:** a desk card when a bank holding your savings has savers leaving, and twelve new kinds of news, each in three
+      papers' voices.
 11. **Honest limits.**
     - **Banks rarely get into trouble on their own.** Healthy banks stay calm. In the ten-year run, the only crises that
       went beyond a warning came from two shocks staged on purpose (as the admin test does). Shocks that arrive on their own
@@ -199,13 +203,13 @@ Commercial Bank found losses that left its owners' funds at 3% of its loans, and
 ## Screenshots
 
 `docs/screenshots/crises-1/`:
-- trust in the banks during a run, with one bank closed and the Government's guarantee (01);
-- the closed bank at the Auction House (02);
-- your savings (03);
-- the Crisis Watch (04);
-- a crisis's phases on the record (05);
-- the desk warning that your savings are at risk (06);
-- the Crisis Watch on the Economy page (07);
+- a bank in trouble pops up (01: the Government's promise);
+- the desk warning that your savings are at risk (02);
+- a closed bank on its own page, with its sale at the Auction House (03);
+- a worried bank on its own page (04);
+- savings in the Portfolio (05);
+- the Crisis Watch on the Economy page (06);
+- a crisis's phases in the Chronicle (07);
 - the phone (08 to 10);
 - the light theme (11, 12).
 

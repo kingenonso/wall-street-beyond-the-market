@@ -1,4 +1,5 @@
 import { WhatCouldHappenPanel } from "./WhatIf";
+import { SavingsPanel } from "./Crisis";
 import { useState } from "react";
 import { api, ApiError, type Order } from "./api";
 import { formatCompact, formatNaira } from "./format";
@@ -125,6 +126,8 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
           {BigInt(p.held_for_bids_kobo ?? "0") > 0n && <> Held for your <a href="#/property/auctions">bids at the Auction House</a>: {formatNaira(p.held_for_bids_kobo ?? "0")}.</>}
         </p>
       </Panel>
+
+      <SavingsPanel onLoggedOut={onLoggedOut} />
 
       <Panel title="What you own against the BSX 50" aside={<Term word="BSX 50">both started at 100</Term>}>
         {compare

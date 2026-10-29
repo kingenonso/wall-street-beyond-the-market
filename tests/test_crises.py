@@ -263,7 +263,7 @@ def test_most_warnings_fade_and_an_ended_crisis_leaves_a_permanent_report(db):
     filed = crisis._filed(db, b["id"])
     unlocked(db, "UPDATE company_results SET loan_losses = 0 WHERE company_id = %s AND period = %s", (b["id"], filed["period"]))
     days(db, 60)
-    c = _one(db, "SELECT * FROM economic_crises ORDER BY id DESC LIMIT 1")
+    c = _one(db, "SELECT * FROM economic_crises WHERE %s = ANY(banks) ORDER BY id LIMIT 1", (b["id"],))     # (another may open later)
     if c is not None:
         assert c["status"] in ("faded", "ended")
         assert c["report"]["summary"] and c["report"]["weakness"] and c["report"]["stopped_by"]
@@ -315,3 +315,23 @@ def test_the_website_shows_trust_and_the_players_own_savings_only(db, client):
     assert {"watch", "banks", "crises", "auctions", "blanket", "national"} <= set(crisis_page)
     assert "weakness" not in repr([c for c in crisis_page["crises"] if c["status"] == "open"])
     assert client.post("/api/savings/IKB/in", json={"amount_naira": 5}).status_code == 409
+
+
+def test_a_bank_in_trouble_pops_up_on_every_screen_and_says_so_when_your_savings_are_there(db, client):
+    assert join(client, ADULT).status_code == 201
+    me = _one(db, "SELECT a.id AS account, a.player_id FROM ledger_accounts a WHERE a.kind = 'player' ORDER BY a.id DESC LIMIT 1")
+    from tests.test_objectives import give_cash
+    give_cash(db, me["account"], 20_000_000)
+    b = deposits.bank(db, "KCB")
+    deposits._place(db, me["account"], b, naira(15_000_000), "savings_placed", "Test: savings at KCB", P)
+    first = client.get("/api/crisis/alerts").json()
+    weaken(db, "KCB", 300)
+    days(db, 30)
+    found = client.get(f"/api/crisis/alerts?after={first['mark']}").json()
+    kinds = {i["kind"] for i in found["items"]}
+    assert kinds & {"bank_run", "bank_panic", "bank_closed"}
+    mine = [i for i in found["items"] if i["ticker"] == "KCB"]
+    assert mine and all(i["yours"] == "you" for i in mine)
+    # Once seen, it does not pop up again.
+    again = client.get(f"/api/crisis/alerts?after={found['mark']}").json()
+    assert again["items"] == []

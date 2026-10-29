@@ -1113,6 +1113,7 @@ export const api = {
   charities: () => request<{ charities: Charity[] }>("/charities"),
   savings: () => request<SavingsView>("/savings"),
   crisis: () => request<CrisisPage>("/crisis"),
+  bankAlerts: (mark: number | null) => request<{ mark: number; items: BankAlert[] }>(`/crisis/alerts${mark === null ? "" : `?after=${mark}`}`),
   media: () => request<{ titles: MediaTitle[]; auctions: TitleAuction[] }>("/media"),
   news: (filter: { outlet?: string; ticker?: string; limit?: number } = {}) => {
     const query = new URLSearchParams();
@@ -1252,4 +1253,7 @@ export interface BankAuction {
 export interface CrisisPage {
   watch: { period: number | null; label?: string | null; signs: WatchSign[] }; banks: BankTrust[]; crises: CrisisRecord[];
   auctions: BankAuction[]; blanket: boolean; national: number; guarantee: Kobo;
+}
+export interface BankAlert {
+  id: number; kind: string; headline: string; body: string; ticker: string | null; company: string | null; yours: "you" | "empire" | null;
 }

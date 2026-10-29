@@ -8,7 +8,7 @@ public: it is the new money the bank needs.)
 
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, Path as FastPath, status
+from fastapi import Depends, HTTPException, Path as FastPath, Query, status
 from psycopg import Connection
 from psycopg.errors import DeadlockDetected
 from pydantic import Field
@@ -77,7 +77,7 @@ def crisis_page(player: dict = Depends(current_player), conn: Connection = Depen
     seat = empires.seat_of(conn, player["id"])
     empire = conn.execute("SELECT account_id FROM empires WHERE id = %s AND status = 'active'", (seat["empire_id"],)).fetchone() if seat else None
     own = auctions.bank_view(conn, now, viewer=viewer)
-    ours = auctions.bank_view(conn, now, viewer=empire[0] if empire else None) if empire else []
+    ours = auctions.bank_view(conn, now, viewer=empire["account_id"] if empire else None) if empire else []
     by_id = {b["id"]: b for b in ours}
     for a in own:
         b = by_id.get(a["id"])
@@ -87,3 +87,49 @@ def crisis_page(player: dict = Depends(current_player), conn: Connection = Depen
     return wire(_money({"watch": crisiswatch.view(conn, now), "banks": crisis.bank_view(conn, now), "crises": crisis.crises_view(conn, now),
                         "auctions": own, "blanket": deposits.blanket(conn), "national": crisis.national(conn),
                         "guarantee": deposits.guarantee()}))
+
+
+# A bank in trouble pops up on every player's screen; these are the kinds of news that do.
+ALERT_KINDS = ("bank_run", "bank_panic", "bank_closed", "bank_rescued", "bank_public", "savings_guarantee", "guarantee_lifted", "banks_calm")
+
+
+@app.get("/api/crisis/alerts")
+def crisis_alerts(after: int | None = Query(default=None, ge=0), player: dict = Depends(current_player),
+                  conn: Connection = Depends(get_connection)):
+    """What has happened at the banks since the player last looked (one item for each affair, in the paper that gave it most
+    weight), and whether the player's own savings, or their empire's, are at that bank. Only what is dated today or before."""
+    from simulation import careers
+    w = careers.world_now(conn, _exchange_time(conn))
+    seen = "(period < %s OR (period = %s AND day <= %s))"
+    top = conn.execute(f"SELECT coalesce(max(id), 0) AS m FROM news_items WHERE kind = ANY(%s) AND {seen}",
+                       (list(ALERT_KINDS), w["period"], w["period"], w["day"])).fetchone()["m"]
+    if after is None:
+        # Opening the game: what happened in the last five game days, so nobody misses a crisis in progress.
+        rows = conn.execute(f"SELECT DISTINCT ON (story) * FROM news_items WHERE kind = ANY(%s) AND {seen} AND (period * 100 + day) >= %s"
+                            " ORDER BY story, importance DESC, id", (list(ALERT_KINDS), w["period"], w["period"], w["day"],
+                                                                     w["period"] * 100 + w["day"] - 5)).fetchall()
+        if not rows and conn.execute("SELECT 1 FROM economic_crises WHERE status = 'open' AND step >= 3").fetchone():
+            # A crisis still going on: its latest news, however many days ago it was printed.
+            rows = conn.execute(f"SELECT * FROM news_items WHERE kind = ANY(%s) AND {seen} ORDER BY id DESC LIMIT 1",
+                                (list(ALERT_KINDS), w["period"], w["period"], w["day"])).fetchall()
+    else:
+        rows = conn.execute(f"SELECT DISTINCT ON (story) * FROM news_items WHERE kind = ANY(%s) AND {seen} AND id > %s"
+                            " ORDER BY story, importance DESC, id", (list(ALERT_KINDS), w["period"], w["period"], w["day"], after)).fetchall()
+    rows = sorted(rows, key=lambda r: r["id"])[-5:]
+    mine = ledger.player_account_id(conn, player["id"])
+    empire = conn.execute("SELECT e.account_id FROM empires e JOIN empire_seats s ON s.empire_id = e.id WHERE s.player_id = %s"
+                          " AND e.status = 'active'", (player["id"],)).fetchone()
+    items = []
+    for r in rows:
+        ticker = (r["tickers"] or [None])[0]
+        yours = None
+        if ticker:
+            b = deposits.bank(conn, ticker)
+            if b and mine and deposits.saved(conn, mine, b["asset"]) > 0:
+                yours = "you"
+            elif b and empire and deposits.saved(conn, empire["account_id"], b["asset"]) > 0:
+                yours = "empire"
+        company = conn.execute("SELECT name FROM companies WHERE ticker = %s", (ticker,)).fetchone() if ticker else None
+        items.append({"id": r["id"], "kind": r["kind"], "headline": r["headline"], "body": r["body"], "ticker": ticker,
+                      "company": company["name"] if company else None, "yours": yours})
+    return wire({"mark": top, "items": items})

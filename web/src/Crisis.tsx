@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { api, type BankAuction, type BankTrust, type CrisisRecord, type Player, type SavingsBank, type WatchSign } from "./api";
+import { useEffect, useRef, useState } from "react";
+import { api, ApiError, type BankAlert, type BankAuction, type BankTrust, type CrisisRecord, type SavingsBank, type WatchSign } from "./api";
 import { formatNaira } from "./format";
 import { useLoad } from "./hooks";
 import { Notices, useRun, Why } from "./Newsroom";
@@ -31,94 +31,56 @@ function Days({ days }: { days: BankTrust["days"] }) {
   );
 }
 
-type CrisisTab = "banks" | "savings" | "watch" | "crises";
-
-export function CrisisWork({ player, tab: start, onLoggedOut }: { player: Player; tab?: string; onLoggedOut: () => void }) {
-  const known: CrisisTab[] = ["banks", "savings", "watch", "crises"];
-  const [tab, setTab] = useState<CrisisTab>(known.includes(start as CrisisTab) ? (start as CrisisTab) : "banks");
-  const tabs: [CrisisTab, string][] = [["banks", "The banks"], ["savings", "Your savings"], ["watch", "Crisis Watch"], ["crises", "Crises on the record"]];
-  function choose(next: CrisisTab) {
-    setTab(next);
-    window.history.replaceState(null, "", `#/crisis/${next}`);
-  }
-  return (
-    <>
-      <div className="page-head"><h1>Banks and crises</h1><span className="muted small">Every crisis grows out of real conditions, and can be explained</span></div>
-      <div className="underline-tabs" role="tablist" aria-label="Banks and crises">
-        {tabs.map(([key, label]) => <button key={key} role="tab" aria-selected={tab === key} className={tab === key ? "active" : undefined} onClick={() => choose(key)}>{label}</button>)}
-      </div>
-      {tab === "banks" && <Banks player={player} onLoggedOut={onLoggedOut} />}
-      {tab === "savings" && <Savings onLoggedOut={onLoggedOut} />}
-      {tab === "watch" && <Watch onLoggedOut={onLoggedOut} />}
-      {tab === "crises" && <Crises onLoggedOut={onLoggedOut} />}
-    </>
-  );
-}
-
-function Banks({ player, onLoggedOut }: { player: Player; onLoggedOut: () => void }) {
-  const { data, error, loading, reload } = useLoad(api.crisis, "crisis", onLoggedOut);
+/** On a bank's own company page: how far it is trusted, what moves it, its last days, and, when it is closed, its sale at the
+ * Auction House (bid for yourself, or for your empire as its head). */
+export function BankPanel({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: () => void }) {
+  const { data, reload } = useLoad(api.crisis, "crisis", onLoggedOut);
+  const me = useLoad(api.me, "me", onLoggedOut);
   const act = useRun(reload, onLoggedOut);
   const [limit, setLimit] = useState<Record<number, string>>({});
-  if (loading && !data) return <Loading what="the banks" />;
-  if (error && !data) return <Failed message={error} onRetry={reload} />;
-  if (!data) return null;
-  const isHead = !!player.empire && !player.empire.forming && player.empire.is_head;
+  const b = data?.banks.find((x) => x.ticker === ticker);
+  if (!data || !b) return null;
+  const player = me.data;
+  const isHead = !!player?.empire && !player.empire.forming && player.empire.is_head;
+  const auctions = data.auctions.filter((a) => a.bank.ticker === ticker);
   return (
-    <>
+    <Panel title="Trust in this bank" aside={`all banks together: ${data.national} of 100`}>
       <Notices act={act} />
-      {data.blanket && (
-        <p className="notice" role="status">The Government has promised that every saving at every bank is safe, whatever its size, until calm returns.</p>
-      )}
-      <Panel title="Trust in the banks" aside={`all banks together: ${data.national} of 100`}>
-        {data.banks.length === 0 && <p className="muted">Trust is measured from the first game day of the quarter.</p>}
-        {data.banks.map((b) => (
-          <div key={b.ticker} className="fact-row bank-row">
-            <div>
-              <div className="strong">{b.name} <span className="muted small">· {b.ticker} · {b.headquarters}</span></div>
-              <div className="small">
-                <TrustBar score={b.trust} state={b.state} />{" "}
-                <span className={stateTag(b.state)}>{STATE_WORDS[b.state] ?? b.state}</span>
-                {b.trust !== null && <span className="muted"> · {b.trust} of 100{b.change ? ` (${b.change > 0 ? "+" : ""}${b.change} on its last day)` : ""}</span>}
-                <Days days={b.days} />
-              </div>
-              {b.parts.length > 0 && (
-                <div className="small muted">What moves it: {b.parts.map((p) => `${p.name} ${p.points > 0 ? "+" : ""}${p.points}`).join(" · ")}</div>
-              )}
-              {b.resolution && <div className="small">{b.resolution.words}</div>}
-            </div>
+      {data.blanket && <p className="small">The Government has promised that every saving at every bank is safe, whatever its size, until calm returns.</p>}
+      <div className="small">
+        <TrustBar score={b.trust} state={b.state} />{" "}
+        <span className={stateTag(b.state)}>{STATE_WORDS[b.state] ?? b.state}</span>
+        {b.trust !== null && <span className="muted"> · {b.trust} of 100{b.change ? ` (${b.change > 0 ? "+" : ""}${b.change} on its last day)` : ""}</span>}
+        <Days days={b.days} />
+      </div>
+      {b.parts.length > 0 && <p className="small muted">What moves it: {b.parts.map((p) => `${p.name} ${p.points > 0 ? "+" : ""}${p.points}`).join(" · ")}</p>}
+      {b.resolution && <p className="small">{b.resolution.words}</p>}
+      {auctions.map((a: BankAuction) => (
+        <div key={a.id} className="fact-row">
+          <div>
+            <div className="strong">At the Auction House <span className="muted small">· {a.kind === "rescue" ? "closed: new money wanted" : "public stake for sale"}</span></div>
+            <div className="small muted">{a.status === "open" ? `Ends ${new Date(a.ends_at).toLocaleString("en-NG", { timeZone: "Africa/Lagos" })}` : a.status}
+              {" · "}{a.price ? `leading bid ${formatNaira(a.price)}` : `lowest bid ${formatNaira(a.start_price)}`}
+              {a.lowest_price_met ? " · lowest price met" : ""} · {a.bidders} bidder{a.bidders === 1 ? "" : "s"}
+              {a.you_lead ? " · you lead" : a.your_status ? ` · your bid: ${a.your_status}` : ""}{a.empire_leads ? " · your empire leads" : ""}</div>
+            {a.kind === "rescue" && <div className="small muted">The price is new money paid into the bank itself. The winner owns most of it; its old owners keep a share.</div>}
           </div>
-        ))}
-        <p className="muted small">Trust moves each game day part of the way towards where its public signals put it. Below 45, the biggest savers
-          start to leave; below 35, a run; below 20, panic. Banks still trusted take in what frightened savers draw out.</p>
-      </Panel>
-      {data.auctions.length > 0 && (
-        <Panel title="Banks at the Auction House" aside="your top price stays secret">
-          {data.auctions.map((a: BankAuction) => (
-            <div key={a.id} className="fact-row">
-              <div>
-                <div className="strong">{a.bank.name} <span className="muted small">· {a.kind === "rescue" ? "closed: new money wanted" : "public stake for sale"}</span></div>
-                <div className="small muted">{a.status === "open" ? `Ends ${new Date(a.ends_at).toLocaleString("en-NG", { timeZone: "Africa/Lagos" })}` : a.status}
-                  {" · "}{a.price ? `leading bid ${formatNaira(a.price)}` : `lowest bid ${formatNaira(a.start_price)}`}
-                  {a.lowest_price_met ? " · lowest price met" : ""} · {a.bidders} bidder{a.bidders === 1 ? "" : "s"}
-                  {a.you_lead ? " · you lead" : a.your_status ? ` · your bid: ${a.your_status}` : ""}{a.empire_leads ? " · your empire leads" : ""}</div>
-                {a.kind === "rescue" && <div className="small muted">The price is new money paid into the bank itself. The winner owns 95% of it; its old owners keep 5%.</div>}
-              </div>
-              {a.status === "open" && (
-                <div className="intel-actions">
-                  <label className="answer small">Your top price ₦<input type="number" min={1} value={limit[a.id] ?? ""} onChange={(e) => setLimit({ ...limit, [a.id]: e.target.value })} /></label>
-                  <button className="button-outline" disabled={act.busy || !Number(limit[a.id])} onClick={() => act.run(() => api.post(`/auctions/${a.id}/bid`, { limit_kobo: Math.round(Number(limit[a.id]) * 100) }), "Your bid stands.")}>Bid</button>
-                  {isHead && <button className="button-quiet" disabled={act.busy || !Number(limit[a.id])} onClick={() => act.run(() => api.post(`/empire/auctions/${a.id}/bid`, { limit_kobo: Math.round(Number(limit[a.id]) * 100) }), "The empire's bid stands.")}>Bid for my empire</button>}
-                </div>
-              )}
+          {a.status === "open" && (
+            <div className="intel-actions">
+              <label className="answer small">Your top price ₦<input type="number" min={1} value={limit[a.id] ?? ""} onChange={(e) => setLimit({ ...limit, [a.id]: e.target.value })} /></label>
+              <button className="button-outline" disabled={act.busy || !Number(limit[a.id])} onClick={() => act.run(() => api.post(`/auctions/${a.id}/bid`, { limit_kobo: Math.round(Number(limit[a.id]) * 100) }), "Your bid stands.")}>Bid</button>
+              {isHead && <button className="button-quiet" disabled={act.busy || !Number(limit[a.id])} onClick={() => act.run(() => api.post(`/empire/auctions/${a.id}/bid`, { limit_kobo: Math.round(Number(limit[a.id]) * 100) }), "The empire's bid stands.")}>Bid for my empire</button>}
             </div>
-          ))}
-        </Panel>
-      )}
-    </>
+          )}
+        </div>
+      ))}
+      <p className="muted small">Trust moves each game day part of the way towards where its public signals put it. Below 45, the biggest savers
+        start to leave; below 35, a run; below 20, panic. Only the first ₦5 million each saver has at a bank is guaranteed.</p>
+    </Panel>
   );
 }
 
-function Savings({ onLoggedOut }: { onLoggedOut: () => void }) {
+export function SavingsPanel({ onLoggedOut }: { onLoggedOut: () => void }) {
   const { data, error, loading, reload } = useLoad(api.savings, "savings", onLoggedOut);
   const act = useRun(reload, onLoggedOut);
   const [amount, setAmount] = useState<Record<string, string>>({});
@@ -190,7 +152,7 @@ function Sign({ s }: { s: WatchSign }) {
   );
 }
 
-function Watch({ onLoggedOut }: { onLoggedOut: () => void }) {
+export function WatchPanel({ onLoggedOut }: { onLoggedOut: () => void }) {
   const { data, error, loading, reload } = useLoad(api.crisis, "crisis", onLoggedOut);
   if (loading && !data) return <Loading what="the Crisis Watch" />;
   if (error && !data) return <Failed message={error} onRetry={reload} />;
@@ -223,14 +185,19 @@ function Timeline({ c }: { c: CrisisRecord }) {
   );
 }
 
-function Crises({ onLoggedOut }: { onLoggedOut: () => void }) {
+export function CrisesPanel({ onLoggedOut }: { onLoggedOut: () => void }) {
   const { data, error, loading, reload } = useLoad(api.crisis, "crisis", onLoggedOut);
   if (loading && !data) return <Loading what="the record" />;
   if (error && !data) return <Failed message={error} onRetry={reload} />;
   if (!data) return null;
   return (
     <>
-      {data.crises.length === 0 && <Panel title="Crises on the record"><p className="muted">None yet. Most warning signs fade away.</p></Panel>}
+      <Panel title="Crises on the record" aside="banking and confidence">
+        <p className="small muted">A crisis is never dropped on players. It grows from a hidden weakness, through warning signs, a local event, the
+          response of the banks and the Government, spread and a tipping point; most warnings fade away. Each one that runs its course leaves a
+          permanent Crisis Report: what made it possible, what stopped it, who was hit and who came through.</p>
+        {data.crises.length === 0 && <p className="muted">None yet.</p>}
+      </Panel>
       {data.crises.map((c) => (
         <Panel key={c.id} title={c.title} aside={c.status === "open" ? `now: ${c.phase}, ${c.step_name.toLowerCase()}` : c.status === "faded" ? "faded away" : "in the history books"}>
           {c.banks.length > 0 && <p className="small muted">Banks touched: {c.banks.join(", ")}</p>}
@@ -253,15 +220,63 @@ function Crises({ onLoggedOut }: { onLoggedOut: () => void }) {
   );
 }
 
-export function CrisisRail() {
+const KIND_WORDS: Record<string, string> = {
+  bank_run: "A run on a bank", bank_panic: "Panic at a bank", bank_closed: "A bank is closed", bank_rescued: "A bank is rescued",
+  bank_public: "A bank is taken into public hands", savings_guarantee: "Every saving is guaranteed", guarantee_lifted: "The full guarantee ends",
+  banks_calm: "The crisis is over",
+};
+
+function remembered(): number | null {
+  try {
+    const v = window.localStorage.getItem("wsbm-bank-alerts");
+    return v === null ? null : Number(v);
+  } catch {
+    return null;
+  }
+}
+
+/** A bank in trouble is not a page to visit: it pops up, on everybody's screen, the moment it happens (a run, a closure, a
+ * rescue, the Government's promise). It stays until closed. If the player's own savings, or their empire's, are at that bank,
+ * it says so and offers the way to them. */
+export function BankAlerts({ onLoggedOut }: { onLoggedOut: () => void }) {
+  const [shown, setShown] = useState<BankAlert[]>([]);
+  const mark = useRef<number | null>(remembered());
+  useEffect(() => {
+    let stopped = false;
+    function look() {
+      api.bankAlerts(mark.current).then((found) => {
+        if (stopped) return;
+        mark.current = found.mark;
+        if (found.items.length) setShown((now) => [...now, ...found.items.filter((i) => !now.some((x) => x.id === i.id))].slice(-3));
+      }).catch((problem) => { if (problem instanceof ApiError && problem.status === 401) onLoggedOut(); });
+    }
+    look();
+    const timer = window.setInterval(look, 60_000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [onLoggedOut]);
+  if (shown.length === 0) return null;
+  const a = shown[shown.length - 1];
+  // Remembered (in this browser) only once closed, so a pop-up not yet read comes back after a reload.
+  const close = () => {
+    try {
+      const before = Number(window.localStorage.getItem("wsbm-bank-alerts") ?? "0");
+      window.localStorage.setItem("wsbm-bank-alerts", String(Math.max(before, ...shown.map((x) => x.id))));
+    } catch { /* not remembered: fine */ }
+    setShown((now) => now.slice(0, -1));
+  };
   return (
-    <Panel title="How a crisis grows">
-      <ul className="reasons small">
-        <li>A crisis is never dropped on players. It grows from a <strong>hidden weakness</strong>, through warning signs, a local event, the response of the banks and the Government, spread and a tipping point.</li>
-        <li>Each bank's <strong>trust</strong> is made of public signals: its owners' funds, bad loans, cash, rating, savers leaving, the news, its share price and trouble at other banks.</li>
-        <li>The Central Bank lends to a sound bank in a run. A bank that cannot pay is closed: savers above the guarantee bear their share, and the Auction House finds it new money.</li>
-        <li>Pulling your own money out is allowed, even if it starts a run. Spreading a false story to start one is a crime, kept for the courts.</li>
-      </ul>
-    </Panel>
+    <div className="bank-alert-region">
+      <div className={`bank-alert${a.yours ? " bank-alert-yours" : ""}`} role="alertdialog" aria-labelledby={`bank-alert-${a.id}`}>
+        <div className="bank-alert-tag">● BREAKING · {KIND_WORDS[a.kind] ?? "The banks"}</div>
+        <div className="bank-alert-headline" id={`bank-alert-${a.id}`}>{a.headline}</div>
+        <p className="small">{a.body}</p>
+        {a.yours && <p className="small strong">You keep savings at {a.company}{a.yours === "empire" ? " (your empire does)" : ""}. Only the first ₦5 million at each bank is guaranteed.</p>}
+        <div className="bank-alert-actions">
+          {a.ticker && <a className="button-outline" href={`#/companies/${a.ticker}`} onClick={close}>See the bank</a>}
+          {a.yours && <a className="button-outline" href="#/portfolio" onClick={close}>Your savings</a>}
+          <button className="button-quiet" onClick={close}>Close{shown.length > 1 ? ` (${shown.length - 1} more)` : ""}</button>
+        </div>
+      </div>
+    </div>
   );
 }

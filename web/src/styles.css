@@ -1051,3 +1051,11 @@ label.check { display: inline-flex; gap: 6px; align-items: center; }
 .phases li.phase-on { border-top-color: var(--accent, var(--up)); }
 .crisis-report { border-left: 3px solid var(--border); padding-left: 12px; margin: 8px 0; }
 @media (max-width: 720px) { .phases { grid-template-columns: 1fr; } .trust-bar { width: 80px; } }
+
+/* A bank in trouble pops up: in the middle of the screen, until closed. */
+.bank-alert-region { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.45); z-index: 60; padding: 16px; }
+.bank-alert { background: var(--panel); border: 1px solid var(--down); border-radius: 12px; max-width: 520px; width: 100%; padding: 20px 22px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35); }
+.bank-alert-yours { border-width: 2px; }
+.bank-alert-tag { color: var(--down); font-weight: 700; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.bank-alert-headline { font-size: 20px; font-weight: 700; margin: 8px 0 6px; }
+.bank-alert-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }

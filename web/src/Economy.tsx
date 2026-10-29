@@ -1,4 +1,5 @@
 import { api, type AbroadSummary, type ConsumersSummary, type Economy, type MoneyWatch, type PropertySummary } from "./api";
+import { WatchPanel } from "./Crisis";
 import { changeBps, formatCompact, formatPercent } from "./format";
 import { useLoad } from "./hooks";
 import { Change, Failed, Loading, Panel } from "./Shell";
@@ -460,24 +461,8 @@ export function EconomyWork({ onLoggedOut }: { onLoggedOut: () => void }) {
       {loading && !data && <Loading what="the economy" />}
       {error && <Failed message={error} onRetry={reload} />}
       {data && <Body economy={data} />}
-      <CrisisWatchSummary onLoggedOut={onLoggedOut} />
+      <WatchPanel onLoggedOut={onLoggedOut} />
     </>
-  );
-}
-
-/** The crises stage: the Crisis Watch's latest reading on the Economy page, with the way to the full page. */
-function CrisisWatchSummary({ onLoggedOut }: { onLoggedOut: () => void }) {
-  const { data } = useLoad(api.crisis, "crisis", onLoggedOut);
-  if (!data || data.watch.signs.length === 0) return null;
-  const counts = { green: 0, amber: 0, red: 0 } as Record<string, number>;
-  data.watch.signs.forEach((s) => { counts[s.level] += 1; });
-  const flagged = data.watch.signs.filter((s) => s.level !== "green");
-  return (
-    <Panel title="The Crisis Watch" aside={data.watch.label ?? undefined}>
-      <p className="small">{counts.green} signs green, {counts.amber} amber, {counts.red} red. Trust in the banks together: {data.national} of 100.</p>
-      {flagged.map((s) => <p key={s.sign} className="small"><span className={s.level === "red" ? "tag-bad" : "tag"}>{s.level}</span> {s.name}: {s.words}</p>)}
-      <p className="small"><a href="#/crisis/watch">The full Crisis Watch, the banks and every crisis on the record</a></p>
-    </Panel>
   );
 }
 
