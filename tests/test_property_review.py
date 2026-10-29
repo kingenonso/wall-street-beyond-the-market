@@ -129,7 +129,10 @@ def test_5_property_and_bid_cash_count_in_the_closing_bells_net_worth():
     assert {swaps._players_swaps, instruments._players_instruments, propfunds._players_units} <= set(marketview._OTHER_HOLDINGS)
     # (The crises stage adds savings at the banks.)
     assert marketview._savings_held in marketview._OTHER_HOLDINGS
-    assert len(marketview._OTHER_HOLDINGS) == len(set(marketview._OTHER_HOLDINGS)) == 9
+    # (The talent and funds stage, Part 2, adds units in investment funds.)
+    from simulation import funds
+    assert funds._players_holdings in marketview._OTHER_HOLDINGS
+    assert len(marketview._OTHER_HOLDINGS) == len(set(marketview._OTHER_HOLDINGS)) == 10
 
 
 def test_6_a_lot_is_searched_once_for_an_empire_and_the_fee_is_in_its_books(db):

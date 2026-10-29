@@ -597,6 +597,7 @@ class PortfolioResponse(BaseModel):
     offered_to_bidders_kobo: Kobo = 0  # shares offered to a bidder in a takeover, at the market price
     property_kobo: Kobo = 0            # property at today's prices, less mortgages and unpaid tax on it (Stage 8; may be negative)
     held_for_bids_kobo: Kobo = 0       # cash held for bids at the Auction House (Stage 8)
+    funds_kobo: Kobo = 0               # units in investment funds at their selling price, and money waiting to buy them
     advice: list[str] = []             # the personal advisory summary: observations, never tips
     net_worth: list["NetWorthDay"] = []  # the end of each trading day, oldest first, then today so far
 

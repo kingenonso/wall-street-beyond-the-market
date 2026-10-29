@@ -120,6 +120,8 @@ class TestStageTwo:
                    "future_trade", "derivative_fee", "preferred_issue", "preferred_dividend", "warrant_issue"}
         # Stage 10, Part 2: the media titles' readers and the sale of a title at the Auction House.
         market |= {"title_revenue", "title_sale", "auction_hold", "auction_release"}
+        # The crises stage: households moving savings into or out of a bank, as trust in it moves (only when it does).
+        market |= {"deposit_placed", "deposit_withdrawn"}
         assert kinds - market == {
             "opening_balance", "share_issue", "customer_revenue", "business_purchase", "cost_of_sales", "wages",
             "debt_interest", "company_tax", "debt_repayment", "capital_spending", "dividend",

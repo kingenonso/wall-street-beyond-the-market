@@ -106,6 +106,13 @@ def _close_due_quarters_once() -> None:
         if conn.execute("SELECT to_regclass('bank_confidence') IS NOT NULL").fetchone()[0]:
             from simulation import crisis
             crisis.tick(conn, now)
+        # Run Your Own Fund: after each closing bell, every fund deals the money waiting to come in and go out at that bell's price.
+        if conn.execute("SELECT to_regclass('investment_funds') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
+            from simulation import funds
+            try:
+                funds.tick(conn, now)
+            except Exception:                       # a fault here must never hold up the rest of the loop
+                log.exception("The funds' dealing at the bell failed; it will be tried again.")
         # Proven Talent: after each closing bell, the day's trades are checked and every record is worked out afresh;
         # challenges that have ended are scored.
         if conn.execute("SELECT to_regclass('talent_records') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
@@ -887,6 +894,10 @@ def my_portfolio(player: dict = Depends(current_player), conn: Connection = Depe
     from simulation import property as _property
     property_parts = _property._players_property(conn).get(account, (0, 0))
     mine["total"] += property_parts[0] + property_parts[1]
+    # Units in investment funds, and money waiting at the next bell to buy them (the talent and funds stage, Part 2).
+    from simulation import funds as _funds
+    in_funds = _funds.held_value(conn, account, now)
+    mine["total"] += in_funds
     bill = next((b for b in bonds.curve(conn)["points"] if b["quarters"] == 1), None)
     days = [NetWorthDay(session_date=d["session_date"], total_kobo=d["total"]) for d in mine["net_worth_days"]
             if d["session_date"] < mine["today"]]
@@ -894,7 +905,7 @@ def my_portfolio(player: dict = Depends(current_player), conn: Connection = Depe
     return PortfolioResponse(
         advice=insight.personal_advice(conn, mine, bill_yield_bps=bill["yield_bps"] if bill else None), net_worth=days,
         bonds_value_kobo=mine["bonds_value"], held_for_offers_kobo=held_cash, offered_to_bidders_kobo=offered,
-        property_kobo=property_parts[1], held_for_bids_kobo=property_parts[0],
+        property_kobo=property_parts[1], held_for_bids_kobo=property_parts[0], funds_kobo=in_funds,
         cash_kobo=mine["cash"], held_for_orders_kobo=mine["held_for_orders"], shares_value_kobo=mine["shares_value"],
         total_kobo=mine["total"], dividends_kobo=mine["dividends"], realised_kobo=mine["realised"],
         holdings=[PortfolioHolding(
@@ -1700,3 +1711,4 @@ from server import press_routes  # noqa: E402,F401
 from server import society_routes  # noqa: E402,F401
 from server import crisis_routes  # noqa: E402,F401
 from server import talent_routes  # noqa: E402,F401
+from server import fund_routes  # noqa: E402,F401

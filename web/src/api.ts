@@ -588,6 +588,7 @@ export type Portfolio = {
   offered_to_bidders_kobo: Kobo;
   property_kobo?: Kobo;
   held_for_bids_kobo?: Kobo;
+  funds_kobo?: Kobo;
   advice: string[];
   net_worth: { session_date: string; total_kobo: Kobo }[];
 };
@@ -1204,6 +1205,10 @@ export const api = {
   empire: (method: "POST" | "PUT" | "DELETE", path: string, body?: unknown) =>
     request<EmpireView>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) }),
   pensionFunds: () => request<PensionFunds>("/pension-funds"),
+  funds: () => request<FundsPage>("/funds"),
+  fund: (id: number) => request<FundSheet>(`/funds/${id}`),
+  fundAct: (path: string, body?: unknown) => request<{ result: unknown }>(`/funds${path}`, { method: "POST", body: JSON.stringify(body ?? {}) }),
+  fundAlerts: (mark: number | null) => request<{ mark: number; alerts: FundAlert[] }>(`/funds/alerts${mark === null ? "" : `?after=${mark}`}`),
   pensionFund: (method: "POST" | "PUT" | "DELETE", path: string, body?: unknown) =>
     request<PensionFunds>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) }),
   bankerDesk: (ticker?: string) => request<BankerDesk>(`/desk/investment-banker${ticker ? `?ticker=${encodeURIComponent(ticker)}` : ""}`),
@@ -1304,6 +1309,11 @@ export type TalentRecord = {
   crisis: { banks_closed_with_savings: number; pulled_out_in_time: number; lost_savings: boolean; rescues_won: number; crises_lived_through: number };
   conduct: { proved: number; entries: { kind: string; words: string; at: string }[] };
   challenges: { entered: number; wins: number; top_tenth: number; results: { id: number; title: string; firm: string; place: number | null; entrants: number }[] };
+  funds: { funds: TalentFund[]; best_stars: number | null; five_star_quarters: number; runs_survived: number };
+};
+export type TalentFund = {
+  name: string; strategy: string; since: string; status: string; return_bps: number | null; bench_bps: number | null;
+  stars_now: number | null; best_stars: number | null; five_star_quarters: number; quarters_rated: number; run_survived: boolean;
 };
 export type TalentView = {
   who: { name: string; icon: ProfileIcon | null; since: string; build: string | null };
@@ -1341,3 +1351,39 @@ export type BoardPlayer = { player_id: string; name: string; icon: ProfileIcon |
   calls_right_bps: number | null; proved: number; wins: number | null; badges: number; worked_at: string };
 export type FirmInvitation = { id: number; status: string; sent_at: string; answered_at: string | null; contact: string | null; message: string; name?: string; player_id?: string };
 export type FirmChallenges = { challenges: ChallengeItem[]; kinds: Record<string, string>; kind_words: Record<string, string> };
+
+/** The talent and funds stage, Part 2: investment funds run by players (and four run by the computer). Unit prices are in
+ * millionths of a kobo: a unit at ₦1 is "100000000". */
+export type FundStrategy = "shares" | "banks" | "bonds" | "balanced" | "anything";
+export type FundSummary = {
+  id: number; name: string; strategy: FundStrategy; strategy_name: string; manager: string; computer: boolean; regulator_run: boolean;
+  status: "open" | "closing" | "closed" | "merged"; gated: boolean; run: boolean; fee_bps: number; perf_fee_bps: number; least_in: Kobo;
+  unit_price: Kobo; worth: Kobo; stars: number | null; day_bps: number | null; quarter_bps: number | null; year_bps: number | null;
+  since_bps: number; shown_bps: number | null; bench_bps: number | null; worst_fall_bps: number; holders: number; launched_period: string;
+};
+export type FundOrder = { id: number; side: "in" | "out"; amount: Kobo; units: number; status: string; placed_at: string; dealt_at: string | null;
+  units_done: number; paid: Kobo; words: string | null };
+export type FundLine = FundSummary & { whose: "you" | "empire"; units: number; leaving: number; value: Kobo };
+export type FundManaging = FundSummary & {
+  cash: Kobo; shares_value: Kobo; bonds_value: Kobo; owed: Kobo; worth_now: Kobo; cash_bps: number; largest_bps: number; shares_bps: number;
+  bonds_bps: number; lines: { ticker: string; shares: number; value: Kobo }[]; bond_lines: { code: string; name: string; units: number; value: Kobo }[];
+  orders: { id: number; ticker: string; side: "buy" | "sell"; remaining: number; status: string; limit_price: Kobo | null }[];
+  leavers_waiting: boolean; waiting_in: Kobo; waiting_out_units: number; costs_limit: Kobo; costs_used: Kobo;
+  merges_waiting: { id: number; from_fund: string }[]; merge_out: null | { status: string; into: string }; high_water: Kobo;
+};
+export type FundsPage = {
+  funds: FundSummary[]; tables: Record<FundStrategy, number[]>; strategies: Record<FundStrategy, string>; strategy_words: Record<FundStrategy, string>;
+  can_launch: boolean; launch: { level: number; registration: Kobo; seed: Kobo; fee_most_bps: number; perf_most_bps: number; least_in_limits: Kobo[] };
+  mine: { lines: FundLine[]; waiting: { id: number; side: "in" | "out"; amount: Kobo; units: number; placed_at: string; fund: string; fund_id: number }[]; value: Kobo };
+  managing: FundManaging | null;
+};
+export type FundSheet = FundSummary & {
+  words: string; strategy_words: string; benchmark: string; rules: string[];
+  chart: { day: string; fund_bps: number; bench_bps: number | null }[];
+  quarters: { period: number; label: string; stars: number | null; quarter_bps: number | null; year_bps: number | null; bench_bps: number | null; risk_ratio: number | null; holders: number }[];
+  holdings: null | { label: string; lines: { ticker: string; name?: string; weight_bps: number }[]; cash_bps: number };
+  mine: { units: number; leaving: number; value: Kobo }; empire?: { units: number; leaving: number; value: Kobo; head: boolean };
+  orders: FundOrder[]; following: boolean; merging: null | { status: string; takes_effect: string; into: string };
+  recent: { headline: string; words: string; at: string }[];
+};
+export type FundAlert = { id: number; kind: string; headline: string; words: string; at: string; fund_id: number; fund: string };
