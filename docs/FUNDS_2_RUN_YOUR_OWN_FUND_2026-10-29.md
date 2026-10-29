@@ -15,7 +15,7 @@ Nothing on Part 2's list was dropped or put off. Following the owner's standing 
 - **A fund's news** comes as a pop-up.
 - **A manager's track record** is a section in Proven Talent.
 
-Tests at the end: __TESTS__
+Tests at the end: 1,406 server tests in 85 files pass on both runners (each file run once, split between them; the three files fixed at the end were run again in full), with cargo test (13) and vitest (23). Two older tests needed updating for this part (the news count and the list of things that count in net worth), and one older test now allows households moving their savings between banks, which happens only when trust in a bank moves.
 
 ## Things worth knowing, said plainly
 
