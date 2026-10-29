@@ -21,9 +21,9 @@ export function MarketPill({ live }: { live: LiveClock | null }) {
   if (!live) return <span className="pill pill-closed">Connecting…</span>;
   const state = live.clock.market_state;
   return (
-    <span className={`pill pill-${live.clock.closing_rush ? "opening_auction" : state}`}>
+    <span className={`pill pill-${live.clock.closing_rush ? "opening_auction" : state}`} title={live.clock.closing_rush ? "Closing Rush" : MARKET_LABEL[state]}>
       <span className="pill-dot" aria-hidden="true" />
-      {live.clock.closing_rush ? "Closing Rush" : MARKET_LABEL[state]}
+      <span className="pill-label">{live.clock.closing_rush ? "Closing Rush" : MARKET_LABEL[state]}</span>
     </span>
   );
 }
@@ -249,37 +249,56 @@ function NewsToasts({ player, onPlayer }: { player: Player; onPlayer?: (player: 
   );
 }
 
-/** The sections of the player's screen. The build's own screen comes straight after the desk. */
-export function sectionsFor(player: Player) {
+export type Section = { path: string; label: string; count?: number; countWords?: string; tabs?: { path: string; label: string }[] };
+
+/** The sections of the player's screen: seven, each a group of pages shown as tabs along the top of the page (owner, 29
+ * October 2026: the sidebar stays short; a new feature goes inside a section, under the picture's menu, or pops up). */
+export function sectionsFor(player: Player): Section[] {
   return [
     { path: "", label: "My desk" },
-    ...(player.build_name ? [{ path: "build", label: player.build_name }] : []),
-    { path: "work", label: "Work", count: player.work_in_hand, countWords: "in hand" },
+    { path: "work", label: "Work", count: player.work_in_hand, countWords: "in hand",
+      tabs: [...(player.build_name ? [{ path: "build", label: `${player.build_name} desk` }] : []), { path: "work", label: "Work in hand" },
+             { path: "career", label: "Career and levels" }] },
     // One section for the empire: its overview, desks, requests, deals, companies and War Room are tabs inside it.
     { path: "empire", label: player.empire ? "Empire" : "Empires", ...(player.empire && !player.empire.forming ? { count: player.empire.waiting, countWords: "waiting" } : {}) },
-    { path: "market", label: "Market" },
-    { path: "property", label: "Property" },
-    { path: "portfolio", label: "Portfolio" },
-    { path: "borrow", label: "Borrow", ...((player.margin_calls ?? 0) > 0 ? { count: player.margin_calls, countWords: "margin calls" } : {}) },
-    { path: "news", label: "News" },
-    { path: "intel", label: "Intelligence" },
-    { path: "companies", label: "Companies" },
-    { path: "economy", label: "Economy" },
-    { path: "career", label: "Career" },
-    { path: "charities", label: "Charities" },
-  ] as { path: string; label: string; count?: number; countWords?: string }[];
+    { path: "market", label: "Markets", tabs: [{ path: "market", label: "Trade shares" }, { path: "companies", label: "Companies" }, { path: "property", label: "Property" }] },
+    { path: "portfolio", label: "Money", ...((player.margin_calls ?? 0) > 0 ? { count: player.margin_calls, countWords: "margin calls" } : {}),
+      tabs: [{ path: "portfolio", label: "Portfolio and savings" }, { path: "borrow", label: "Borrow" }] },
+    { path: "news", label: "News", tabs: [{ path: "news", label: "News" }, { path: "intel", label: "Intelligence" }] },
+    { path: "economy", label: "Economy", tabs: [{ path: "economy", label: "The economy" }, { path: "charities", label: "Charities" }] },
+  ];
+}
+
+/** The section a page belongs to. */
+export function sectionOf(player: Player, current: string): Section | undefined {
+  return sectionsFor(player).find((s) => s.path === current || (s.tabs ?? []).some((t) => t.path === current));
+}
+
+/** Along the top of a page that shares its section with others: the section's pages, as links. */
+function SectionTabs({ player, current }: { player: Player; current: string }) {
+  const section = sectionOf(player, current);
+  if (!section?.tabs || section.tabs.length < 2) return null;
+  return (
+    <nav className="section-tabs" aria-label={`${section.label}: its pages`}>
+      {section.tabs.map((t) => (
+        <a key={t.path} href={`#/${t.path}`} className={t.path === current ? "section-tab current" : "section-tab"}
+           aria-current={t.path === current ? "page" : undefined}>{t.label}</a>
+      ))}
+    </nav>
+  );
 }
 
 /** Zone 2: the sections menu. Only sections that exist are listed. On a phone it becomes the bar at the bottom. */
 function SectionsMenu({ player, current }: { player: Player; current: string }) {
+  const here = sectionOf(player, current)?.path;
   return (
     <nav className="sections" aria-label="Sections">
       {sectionsFor(player).map((section) => (
         <a
           key={section.path}
           href={`#/${section.path}`}
-          className={section.path === current ? "section current" : "section"}
-          aria-current={section.path === current ? "page" : undefined}
+          className={section.path === here ? "section current" : "section"}
+          aria-current={section.path === here ? (section.path === current ? "page" : "true") : undefined}
         >
           {section.label}
           {(section.count ?? 0) > 0 && <span className="count" aria-label={`${section.count} ${section.countWords}`}>{section.count}</span>}
@@ -308,11 +327,12 @@ function BottomBar({ player, current }: { player: Player; current: string }) {
   const all = sectionsFor(player);
   const pick = (path: string) => all.find((s) => s.path === path)!;
   const items = [pick(""), pick("market"), pick("work"), pick("empire")].map((s) => ({ ...s, label: s.path === "" ? "Desk" : s.label }));
-  const inMore = !["", "market", "work", "empire"].includes(current);
+  const here = sectionOf(player, current)?.path ?? current;
+  const inMore = !["", "market", "work", "empire"].includes(here);
   return (
     <nav className="bottom-bar" aria-label="Sections">
       {items.map((s) => (
-        <a key={s.path} href={`#/${s.path}`} className={s.path === current ? "bar-item current" : "bar-item"} aria-current={s.path === current ? "page" : undefined}>
+        <a key={s.path} href={`#/${s.path}`} className={s.path === here ? "bar-item current" : "bar-item"} aria-current={s.path === here ? "page" : undefined}>
           <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">{BAR_ICONS[s.path]}</svg>
           <span>{s.label}</span>
           {(s.count ?? 0) > 0 && <span className="bar-count" aria-label={`${s.count} ${s.countWords}`}>{s.count}</span>}
@@ -416,7 +436,7 @@ export function Shell({ player, live, current, onLogout, onPlayer, work, rail, a
       <PriceTicker />
       <div className={wide ? "shell shell-wide" : "shell"}>
         <SectionsMenu player={player} current={current} />
-        <main className="work" id="main" tabIndex={-1}>{work}</main>
+        <main className="work" id="main" tabIndex={-1}><SectionTabs player={player} current={current} />{work}</main>
         {!wide && <aside className="rail" aria-label="Context">{rail}</aside>}
       </div>
       <BottomBar player={player} current={current} />
