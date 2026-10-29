@@ -28,25 +28,6 @@ export function MarketPill({ live }: { live: LiveClock | null }) {
   );
 }
 
-/** The sound switch in the top bar: one tap turns every sound off or on. */
-function SoundButton({ player, onPlayer }: { player: Player; onPlayer?: (player: Player) => void }) {
-  const on = player.sound_on && player.sound_volume > 0;
-  return (
-    <button
-      className="icon-button" aria-pressed={on}
-      aria-label={on ? `Sound on, volume ${player.sound_volume}. Turn sound off` : "Sound off. Turn sound on"}
-      title={on ? "Sound on" : "Sound off"}
-      onClick={() => api.setSettings({ sound_on: !on, ...(!on && player.sound_volume === 0 ? { sound_volume: 30 } : {}) })
-        .then((p) => onPlayer?.(p)).catch(() => undefined)}
-    >
-      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
-        <path d="M4 9h4l5-4v14l-5-4H4z" />
-        {on ? <path d="M16.5 9.5a4 4 0 0 1 0 5" /> : <path d="M17 9l5 6M22 9l-5 6" />}
-      </svg>
-    </button>
-  );
-}
-
 /** The volume: it follows the finger at once, and is saved once the player stops moving it. A late answer never undoes a newer choice. */
 function VolumeSlider({ player, onPlayer }: { player: Player; onPlayer?: (player: Player) => void }) {
   const [value, setValue] = useState(player.sound_volume);
@@ -79,32 +60,26 @@ function TopBar({ player, live, onLogout, onPlayer }: {
     <header className="topbar">
       <a href="#/" className="plain-link topbar-mark"><Wordmark /></a>
       <CommandBar player={player} />
+      {/* One row: the game's date and the Lagos time, the market's state. The full date is in the tooltip. */}
       <div className="topbar-clock">
         {live && (
-          <>
-            <span className="mono topbar-date">{shortGameDate(live)}</span>
-            <span className="mono muted topbar-time">{formatLagosDate(live.now)} · {formatLagosTime(live.now)} Lagos</span>
-          </>
+          <span className="mono topbar-date" title={`${formatLagosDate(live.now)} · ${formatLagosTime(live.now)} Lagos`}>
+            {shortGameDate(live)}<span className="muted topbar-time"> · {formatLagosTime(live.now).slice(0, 5)} Lagos</span>
+          </span>
         )}
         <MarketPill live={live} />
         {live && live.clock.test_weeks_ahead > 0 && (
-          <span className="pill pill-test" title="This world has been fast-forwarded for testing">
-            Test world · {live.clock.test_weeks_ahead} {live.clock.test_weeks_ahead === 1 ? "week" : "weeks"} ahead
+          <span className="pill pill-test" title={`A test world, fast-forwarded ${live.clock.test_weeks_ahead} ${live.clock.test_weeks_ahead === 1 ? "week" : "weeks"}`}>
+            Test +{live.clock.test_weeks_ahead}w
           </span>
         )}
       </div>
+      {/* The player: cash, and the picture that opens their menu (their name, build, sound and settings are inside it). */}
       <div className="topbar-player">
-        <div className="align-right topbar-who">
-          <div className="mono cash" title="Your cash">{formatNaira(player.cash.amount_kobo)}</div>
-          <div className="muted small">
-            {player.display_name}
-            {player.build_name && <> · <a href="#/career" className="build-badge">{player.build_name} · Level {player.level}</a></>}
-          </div>
-        </div>
+        <div className="mono cash" title="Your cash">{formatNaira(player.cash.amount_kobo)}</div>
         <a href="#/search" className="icon-button phone-only" aria-label="Search or jump to">
           <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
         </a>
-        <span className="desktop-only"><SoundButton player={player} onPlayer={onPlayer} /></span>
         <ProfileMenu player={player} onLogout={onLogout} onPlayer={onPlayer} />
       </div>
     </header>

@@ -87,14 +87,16 @@ a:focus-visible, button:focus-visible, input:focus-visible, rect:focus-visible {
 .app { min-height: 100vh; display: flex; flex-direction: column; }
 
 .topbar {
-  display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 16px; flex-wrap: nowrap; min-height: 60px;
   padding: 10px 20px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   position: relative; z-index: 30;
 }
-.topbar-clock { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 13px; }
-.topbar-player { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.topbar-clock { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; font-size: 13px; white-space: nowrap; flex: none; }
+.topbar-player { display: flex; align-items: center; gap: 12px; margin-left: auto; flex: none; white-space: nowrap; }
+.topbar .command { flex: 1 1 200px; min-width: 160px; max-width: 440px; }
+@media (max-width: 1250px) { .topbar-time { display: none; } }
 .cash { font-size: 15px; font-weight: 600; }
 
 .wordmark { display: flex; flex-direction: column; line-height: 1.1; }
@@ -1043,9 +1045,9 @@ label.check { display: inline-flex; gap: 6px; align-items: center; }
 .trust-day { display: inline-block; width: 3px; border-radius: 1px; opacity: 0.85; }
 .watch-history { display: inline-flex; gap: 4px; align-items: center; }
 .watch-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 1px solid var(--border); }
-.watch-green { background: var(--up); }
-.watch-amber { background: #c99a2e; }
-.watch-red { background: var(--down); }
+.watch-dot.watch-green { background: var(--up); }
+.watch-dot.watch-amber { background: #c99a2e; }
+.watch-dot.watch-red { background: var(--down); }
 .phases { list-style: none; padding: 0; margin: 8px 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .phases li { border-top: 3px solid var(--border); padding-top: 6px; }
 .phases li.phase-on { border-top-color: var(--accent, var(--up)); }
