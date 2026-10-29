@@ -1096,3 +1096,5 @@ fieldset.check-list .check-line { display: flex; gap: 6px; align-items: center; 
   .topbar-player { gap: 8px; }
   .topbar-player .cash { font-size: 13px; }
 }
+.stack-label { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.stack-label textarea { width: 100%; background: var(--input, var(--bg)); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 8px 10px; font: inherit; }

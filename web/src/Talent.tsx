@@ -642,13 +642,20 @@ function FirmRecord({ playerId, onLoggedOut }: { playerId: string; onLoggedOut: 
           <RecordView view={loaded.data} />
           <Panel title="Invite to talk">
             {loaded.data.invitations.map((i) => (
-              <p key={i.id} className="small">Sent {when(i.sent_at)}: {i.status === "accepted" ? <>accepted · <span className="strong">{i.contact}</span></> : i.status}</p>
+              <p key={i.id} className="small">Sent {when(i.sent_at)}: {i.status === "accepted" ? <>accepted · <span className="strong">{i.contact}</span></>
+                : i.status === "sent" ? "waiting for their answer" : "declined"}</p>
             ))}
-            <label className="answer small">A short message (10 to 800 characters)
-              <textarea rows={4} maxLength={800} value={message} onChange={(e) => setMessage(e.target.value)} /></label>
-            {state.error && <p className="error" role="alert">{state.error}</p>}
-            {state.done && <p className="notice" role="status">{state.done}</p>}
-            <button className="button-primary" disabled={state.busy || message.trim().length < 10} onClick={invite}>Send the invitation</button>
+            {loaded.data.invitations.some((i) => i.status === "sent") ? (
+              <p className="muted small">You can send another once they have answered this one.</p>
+            ) : (
+              <>
+                <label className="answer stack-label">A short message (10 to 800 characters)
+                  <textarea rows={4} maxLength={800} value={message} onChange={(e) => setMessage(e.target.value)} /></label>
+                {state.error && <p className="error" role="alert">{state.error}</p>}
+                {state.done && <p className="notice" role="status">{state.done}</p>}
+                <button className="button-primary" disabled={state.busy || message.trim().length < 10} onClick={invite}>Send the invitation</button>
+              </>
+            )}
             <p className="muted small">The player's contact details reach you only if they accept and type them in.</p>
           </Panel>
         </>
