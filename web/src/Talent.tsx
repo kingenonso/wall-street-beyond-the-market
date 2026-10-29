@@ -474,7 +474,7 @@ export function FirmPortal({ route }: { route: string[] }) {
     <div className="public-page">
       <header className="public-head">
         <Wordmark />
-        <span className="muted small">Proven Talent · for firms</span>
+        <h1 className="public-title muted small">Proven Talent · for firms</h1>
         {firm && <span className="small"><span className="swatch" style={{ background: firm.colour }} aria-hidden="true" /> {firm.name} <button className="button-quiet" onClick={logout}>Log out</button></span>}
       </header>
       <main id="main" className="public-main">

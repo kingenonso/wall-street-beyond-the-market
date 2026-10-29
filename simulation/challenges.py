@@ -41,8 +41,8 @@ from simulation.money import naira
 KINDS = {"paper": "Paper portfolio", "valuation": "Value a company", "weak_bank": "Find the weakest bank",
          "forecast": "Forecast a profit", "live": "Real record"}
 KIND_WORDS = {
-    "paper": "Every entrant starts with the same paper cash and deals in listed shares at the live prices while the market is open."
-             " Nothing touches the real market. Scored on the return at the end.",
+    "paper": "Every entrant starts with the same paper cash and deals in listed shares while the market is open, at the average"
+             " price paid across the day so far. Nothing touches the real market. Scored on the return at the end.",
     "valuation": "Give a price for each share of the company, with your reasons. Scored on how close it comes to the game's own"
                  " valuation of the company, worked out from the accounts it files at the end of this quarter.",
     "weak_bank": "Choose the bank you think is weakest. Scored on how little trust its savers have in it when the challenge ends.",

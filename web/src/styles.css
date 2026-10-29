@@ -1076,3 +1076,4 @@ fieldset.check-list { border: 1px solid var(--line); border-radius: 8px; padding
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 4px 16px; }
 fieldset.check-list > legend { padding: 0 4px; }
 fieldset.check-list .check-line { display: flex; gap: 6px; align-items: center; min-height: 28px; }
+.public-title { font-size: 13px; font-weight: 500; margin: 0; }
