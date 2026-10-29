@@ -108,7 +108,9 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     head, or the empire's journalist, for their empire); checking a piece, buying one, giving to or granting from a charity
     and buying a title move money only through the ledger, and an empire's spending stays within its head's limit. The crises
     stage, Part 1 added savings at the banks (test_crises*.py): a player moves their own money, or the head their empire's
-    within what they may sign for, between cash and savings, only through the ledger."""
+    within what they may sign for, between cash and savings, only through the ledger. The talent and funds stage, Part 1
+    added Proven Talent (test_talent*.py): a player shares their own record and answers invitations and challenges; a firm
+    signs up, confirms by email, and invites or sets challenges; challenge trades are on paper and move no money."""
     from server.main import app
 
     writes = sorted(
@@ -158,6 +160,10 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/borrowing/margin"),
         ("POST", "/api/borrowing/personal"),
         ("POST", "/api/career/retirement/pension"),
+        ("POST", "/api/challenges/{challenge_id}/answer"),
+        ("POST", "/api/challenges/{challenge_id}/join"),
+        ("POST", "/api/challenges/{challenge_id}/sponsor"),
+        ("POST", "/api/challenges/{challenge_id}/trade"),
         ("POST", "/api/charities"),
         ("POST", "/api/charities/{charity_id}/give"),
         ("POST", "/api/charities/{charity_id}/grant"),
@@ -221,13 +227,21 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/firm/training"),
         ("POST", "/api/firm/votes"),
         ("POST", "/api/firms"),
+        ("POST", "/api/firms/challenges"),
+        ("POST", "/api/firms/challenges/{challenge_id}/cancel"),
+        ("POST", "/api/firms/confirm"),
         ("POST", "/api/firms/holdings/{company_id}/sell"),
+        ("POST", "/api/firms/invitations"),
         ("POST", "/api/firms/jobs/{job_id}/accept"),
         ("POST", "/api/firms/jobs/{job_id}/hand-in"),
         ("POST", "/api/firms/jobs/{job_id}/open"),
         ("POST", "/api/firms/loans"),
+        ("POST", "/api/firms/login"),
+        ("POST", "/api/firms/logout"),
+        ("POST", "/api/firms/new-code"),
         ("POST", "/api/firms/pay-out"),
         ("POST", "/api/firms/restructurings"),
+        ("POST", "/api/firms/signup"),
         ("POST", "/api/instruments/exercises/{exercise_id}/cancel"),
         ("POST", "/api/instruments/{code}/exercise"),
         ("POST", "/api/instruments/{code}/trade"),
@@ -332,6 +346,12 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/takeovers"),
         ("POST", "/api/takeovers/{takeover_id}/defence/hand-in"),
         ("POST", "/api/takeovers/{takeover_id}/defence/open"),
+        ("POST", "/api/talent/board"),
+        ("POST", "/api/talent/firms/{firm_id}/block"),
+        ("POST", "/api/talent/invitations/{invitation_id}"),
+        ("POST", "/api/talent/new-link"),
+        ("POST", "/api/talent/sections"),
+        ("POST", "/api/talent/share"),
         ("POST", "/api/what-could-happen"),
         ("PUT", "/api/blocks/{block_id}"),
         ("PUT", "/api/bookkeeping/{engagement_id}/rating"),

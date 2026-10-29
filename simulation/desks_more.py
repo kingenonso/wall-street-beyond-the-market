@@ -14,7 +14,15 @@ from statistics import median
 from psycopg import Connection
 from psycopg.rows import dict_row
 
-from simulation import careers, clock, corporate, empires, exchange, marketview, objectives
+from simulation import (
+    careers,
+    clock,
+    corporate,
+    empires,
+    exchange,
+    marketview,
+    objectives,
+)
 from simulation.money import BPS
 
 STRONG = ("AAA", "AA", "A")

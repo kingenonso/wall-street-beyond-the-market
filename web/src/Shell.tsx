@@ -21,29 +21,10 @@ export function MarketPill({ live }: { live: LiveClock | null }) {
   if (!live) return <span className="pill pill-closed">Connecting…</span>;
   const state = live.clock.market_state;
   return (
-    <span className={`pill pill-${live.clock.closing_rush ? "opening_auction" : state}`}>
+    <span className={`pill pill-${live.clock.closing_rush ? "opening_auction" : state}`} title={live.clock.closing_rush ? "Closing Rush" : MARKET_LABEL[state]}>
       <span className="pill-dot" aria-hidden="true" />
-      {live.clock.closing_rush ? "Closing Rush" : MARKET_LABEL[state]}
+      <span className="pill-label">{live.clock.closing_rush ? "Closing Rush" : MARKET_LABEL[state]}</span>
     </span>
-  );
-}
-
-/** The sound switch in the top bar: one tap turns every sound off or on. */
-function SoundButton({ player, onPlayer }: { player: Player; onPlayer?: (player: Player) => void }) {
-  const on = player.sound_on && player.sound_volume > 0;
-  return (
-    <button
-      className="icon-button" aria-pressed={on}
-      aria-label={on ? `Sound on, volume ${player.sound_volume}. Turn sound off` : "Sound off. Turn sound on"}
-      title={on ? "Sound on" : "Sound off"}
-      onClick={() => api.setSettings({ sound_on: !on, ...(!on && player.sound_volume === 0 ? { sound_volume: 30 } : {}) })
-        .then((p) => onPlayer?.(p)).catch(() => undefined)}
-    >
-      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
-        <path d="M4 9h4l5-4v14l-5-4H4z" />
-        {on ? <path d="M16.5 9.5a4 4 0 0 1 0 5" /> : <path d="M17 9l5 6M22 9l-5 6" />}
-      </svg>
-    </button>
   );
 }
 
@@ -79,32 +60,26 @@ function TopBar({ player, live, onLogout, onPlayer }: {
     <header className="topbar">
       <a href="#/" className="plain-link topbar-mark"><Wordmark /></a>
       <CommandBar player={player} />
+      {/* One row: the game's date and the Lagos time, the market's state. The full date is in the tooltip. */}
       <div className="topbar-clock">
         {live && (
-          <>
-            <span className="mono topbar-date">{shortGameDate(live)}</span>
-            <span className="mono muted topbar-time">{formatLagosDate(live.now)} · {formatLagosTime(live.now)} Lagos</span>
-          </>
+          <span className="mono topbar-date" title={`${formatLagosDate(live.now)} · ${formatLagosTime(live.now)} Lagos`}>
+            {shortGameDate(live)}<span className="muted topbar-time"> · {formatLagosTime(live.now).slice(0, 5)} Lagos</span>
+          </span>
         )}
         <MarketPill live={live} />
         {live && live.clock.test_weeks_ahead > 0 && (
-          <span className="pill pill-test" title="This world has been fast-forwarded for testing">
-            Test world · {live.clock.test_weeks_ahead} {live.clock.test_weeks_ahead === 1 ? "week" : "weeks"} ahead
+          <span className="pill pill-test" title={`A test world, fast-forwarded ${live.clock.test_weeks_ahead} ${live.clock.test_weeks_ahead === 1 ? "week" : "weeks"}`}>
+            Test +{live.clock.test_weeks_ahead}w
           </span>
         )}
       </div>
+      {/* The player: cash, and the picture that opens their menu (their name, build, sound and settings are inside it). */}
       <div className="topbar-player">
-        <div className="align-right topbar-who">
-          <div className="mono cash" title="Your cash">{formatNaira(player.cash.amount_kobo)}</div>
-          <div className="muted small">
-            {player.display_name}
-            {player.build_name && <> · <a href="#/career" className="build-badge">{player.build_name} · Level {player.level}</a></>}
-          </div>
-        </div>
+        <div className="mono cash" title="Your cash">{formatNaira(player.cash.amount_kobo)}</div>
         <a href="#/search" className="icon-button phone-only" aria-label="Search or jump to">
           <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
         </a>
-        <span className="desktop-only"><SoundButton player={player} onPlayer={onPlayer} /></span>
         <ProfileMenu player={player} onLogout={onLogout} onPlayer={onPlayer} />
       </div>
     </header>
@@ -126,7 +101,7 @@ function ProfileMenu({ player, onLogout, onPlayer }: { player: Player; onLogout:
   const box = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const first = useRef<HTMLAnchorElement>(null);
-  const waiting = player.rank_waiting || player.unread_messages > 0;
+  const waiting = player.rank_waiting || player.unread_messages > 0 || (player.talent_waiting ?? 0) > 0;
   useEffect(() => {
     if (!open) return;
     first.current?.focus();
@@ -175,6 +150,10 @@ function ProfileMenu({ player, onLogout, onPlayer }: { player: Player; onLogout:
               {player.rank_waiting && <span className="menu-flag">◆ a case is waiting</span>}
             </a>
           )}
+          <a href="#/talent" onClick={close}>
+            Proven Talent
+            {(player.talent_waiting ?? 0) > 0 && <span className="menu-flag">◆ {player.talent_waiting === 1 ? "an invitation" : `${player.talent_waiting} invitations`} waiting</span>}
+          </a>
           <a href="#/messages" onClick={close}>
             Messages
             {player.unread_messages > 0 && <span className="count" aria-label={`${player.unread_messages} unread`}>{player.unread_messages}</span>}
@@ -270,37 +249,56 @@ function NewsToasts({ player, onPlayer }: { player: Player; onPlayer?: (player: 
   );
 }
 
-/** The sections of the player's screen. The build's own screen comes straight after the desk. */
-export function sectionsFor(player: Player) {
+export type Section = { path: string; label: string; count?: number; countWords?: string; tabs?: { path: string; label: string }[] };
+
+/** The sections of the player's screen: seven, each a group of pages shown as tabs along the top of the page (owner, 29
+ * October 2026: the sidebar stays short; a new feature goes inside a section, under the picture's menu, or pops up). */
+export function sectionsFor(player: Player): Section[] {
   return [
     { path: "", label: "My desk" },
-    ...(player.build_name ? [{ path: "build", label: player.build_name }] : []),
-    { path: "work", label: "Work", count: player.work_in_hand, countWords: "in hand" },
+    { path: "work", label: "Work", count: player.work_in_hand, countWords: "in hand",
+      tabs: [...(player.build_name ? [{ path: "build", label: `${player.build_name} desk` }] : []), { path: "work", label: "Work in hand" },
+             { path: "career", label: "Career and levels" }] },
     // One section for the empire: its overview, desks, requests, deals, companies and War Room are tabs inside it.
     { path: "empire", label: player.empire ? "Empire" : "Empires", ...(player.empire && !player.empire.forming ? { count: player.empire.waiting, countWords: "waiting" } : {}) },
-    { path: "market", label: "Market" },
-    { path: "property", label: "Property" },
-    { path: "portfolio", label: "Portfolio" },
-    { path: "borrow", label: "Borrow", ...((player.margin_calls ?? 0) > 0 ? { count: player.margin_calls, countWords: "margin calls" } : {}) },
-    { path: "news", label: "News" },
-    { path: "intel", label: "Intelligence" },
-    { path: "companies", label: "Companies" },
-    { path: "economy", label: "Economy" },
-    { path: "career", label: "Career" },
-    { path: "charities", label: "Charities" },
-  ] as { path: string; label: string; count?: number; countWords?: string }[];
+    { path: "market", label: "Markets", tabs: [{ path: "market", label: "Trade shares" }, { path: "companies", label: "Companies" }, { path: "property", label: "Property" }] },
+    { path: "portfolio", label: "Money", ...((player.margin_calls ?? 0) > 0 ? { count: player.margin_calls, countWords: "margin calls" } : {}),
+      tabs: [{ path: "portfolio", label: "Portfolio and savings" }, { path: "borrow", label: "Borrow" }] },
+    { path: "news", label: "News", tabs: [{ path: "news", label: "News" }, { path: "intel", label: "Intelligence" }] },
+    { path: "economy", label: "Economy", tabs: [{ path: "economy", label: "The economy" }, { path: "charities", label: "Charities" }] },
+  ];
+}
+
+/** The section a page belongs to. */
+export function sectionOf(player: Player, current: string): Section | undefined {
+  return sectionsFor(player).find((s) => s.path === current || (s.tabs ?? []).some((t) => t.path === current));
+}
+
+/** Along the top of a page that shares its section with others: the section's pages, as links. */
+function SectionTabs({ player, current }: { player: Player; current: string }) {
+  const section = sectionOf(player, current);
+  if (!section?.tabs || section.tabs.length < 2) return null;
+  return (
+    <nav className="section-tabs" aria-label={`${section.label}: its pages`}>
+      {section.tabs.map((t) => (
+        <a key={t.path} href={`#/${t.path}`} className={t.path === current ? "section-tab current" : "section-tab"}
+           aria-current={t.path === current ? "page" : undefined}>{t.label}</a>
+      ))}
+    </nav>
+  );
 }
 
 /** Zone 2: the sections menu. Only sections that exist are listed. On a phone it becomes the bar at the bottom. */
 function SectionsMenu({ player, current }: { player: Player; current: string }) {
+  const here = sectionOf(player, current)?.path;
   return (
     <nav className="sections" aria-label="Sections">
       {sectionsFor(player).map((section) => (
         <a
           key={section.path}
           href={`#/${section.path}`}
-          className={section.path === current ? "section current" : "section"}
-          aria-current={section.path === current ? "page" : undefined}
+          className={section.path === here ? "section current" : "section"}
+          aria-current={section.path === here ? (section.path === current ? "page" : "true") : undefined}
         >
           {section.label}
           {(section.count ?? 0) > 0 && <span className="count" aria-label={`${section.count} ${section.countWords}`}>{section.count}</span>}
@@ -329,11 +327,12 @@ function BottomBar({ player, current }: { player: Player; current: string }) {
   const all = sectionsFor(player);
   const pick = (path: string) => all.find((s) => s.path === path)!;
   const items = [pick(""), pick("market"), pick("work"), pick("empire")].map((s) => ({ ...s, label: s.path === "" ? "Desk" : s.label }));
-  const inMore = !["", "market", "work", "empire"].includes(current);
+  const here = sectionOf(player, current)?.path ?? current;
+  const inMore = !["", "market", "work", "empire"].includes(here);
   return (
     <nav className="bottom-bar" aria-label="Sections">
       {items.map((s) => (
-        <a key={s.path} href={`#/${s.path}`} className={s.path === current ? "bar-item current" : "bar-item"} aria-current={s.path === current ? "page" : undefined}>
+        <a key={s.path} href={`#/${s.path}`} className={s.path === here ? "bar-item current" : "bar-item"} aria-current={s.path === here ? "page" : undefined}>
           <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">{BAR_ICONS[s.path]}</svg>
           <span>{s.label}</span>
           {(s.count ?? 0) > 0 && <span className="bar-count" aria-label={`${s.count} ${s.countWords}`}>{s.count}</span>}
@@ -360,6 +359,7 @@ export function MoreWork({ player, onPlayer, onLogout }: { player: Player; onPla
           {rest.map((s) => <a key={s.path} href={`#/${s.path}`}>{s.label}<span aria-hidden="true">›</span></a>)}
           <a href="#/messages">Messages {player.unread_messages > 0 ? <span className="count" aria-label={`${player.unread_messages} unread`}>{player.unread_messages}</span> : <span aria-hidden="true">›</span>}</a>
           {player.build_name && <a href="#/rank">Rank {player.rank_waiting ? <span className="menu-flag">◆ a case is waiting</span> : <span aria-hidden="true">›</span>}</a>}
+          <a href="#/talent">Proven Talent {(player.talent_waiting ?? 0) > 0 ? <span className="menu-flag">◆ an invitation is waiting</span> : <span aria-hidden="true">›</span>}</a>
           <a href="#/profile">Profile<span aria-hidden="true">›</span></a>
         </nav>
       </Panel>
@@ -436,7 +436,7 @@ export function Shell({ player, live, current, onLogout, onPlayer, work, rail, a
       <PriceTicker />
       <div className={wide ? "shell shell-wide" : "shell"}>
         <SectionsMenu player={player} current={current} />
-        <main className="work" id="main" tabIndex={-1}>{work}</main>
+        <main className="work" id="main" tabIndex={-1}><SectionTabs player={player} current={current} />{work}</main>
         {!wide && <aside className="rail" aria-label="Context">{rail}</aside>}
       </div>
       <BottomBar player={player} current={current} />

@@ -1290,16 +1290,18 @@ TEMPLATES: dict[str, Template] = {t.code: t for t in (
 )}
 
 
-from simulation import objectives_more  # noqa: E402,F401  (adds the work of the other four builds to the library)
-from simulation import objectives_property  # noqa: E402,F401  (adds the work about land and property, Stage 8)
-from simulation import objectives_stage9  # noqa: E402,F401  (adds the work about borrowing, short selling and derivatives, Stage 9)
-from simulation import empires  # noqa: E402,F401          (adds the work that exists only inside an empire)
-from simulation import objectives_ceo  # noqa: E402,F401   (adds the leadership work of the CEO track)
-from simulation import objectives_gap  # noqa: E402,F401   (the gap stage: the library brought to 350, Levels 41 to 100)
-from simulation import objectives_news  # noqa: E402,F401  (Stage 10: work about the news, and the editors who come back)
-from simulation import objectives_intel  # noqa: E402,F401 (Stage 10, Part 2: sources, investigations and economic intelligence)
-from simulation import leagues, ranks  # noqa: E402
-
+from simulation import (  # noqa: E402
+    empires,  # noqa: E402,F401          (adds the work that exists only inside an empire)
+    leagues,
+    objectives_ceo,  # noqa: E402,F401   (adds the leadership work of the CEO track)
+    objectives_gap,  # noqa: E402,F401   (the gap stage: the library brought to 350, Levels 41 to 100)
+    objectives_intel,  # noqa: E402,F401 (Stage 10, Part 2: sources, investigations and economic intelligence)
+    objectives_more,  # noqa: E402,F401  (adds the work of the other four builds to the library)
+    objectives_news,  # noqa: E402,F401  (Stage 10: work about the news, and the editors who come back)
+    objectives_property,  # noqa: E402,F401  (adds the work about land and property, Stage 8)
+    objectives_stage9,  # noqa: E402,F401  (adds the work about borrowing, short selling and derivatives, Stage 9)
+    ranks,
+)
 
 # ---------------------------------------------------------------------------
 # Three settings. Every module's work comes alone, with the empire, and as a weekend challenge

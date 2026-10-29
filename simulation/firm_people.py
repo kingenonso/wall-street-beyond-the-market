@@ -21,7 +21,16 @@ from psycopg import Connection, errors
 
 from simulation import careers, clock, empires, firm, leagues, ledger
 from simulation import world_data as data
-from simulation.empires import BUILD_NAMES, EmpireError, _log, _money, _one, _open, _rows, _text
+from simulation.empires import (
+    BUILD_NAMES,
+    EmpireError,
+    _log,
+    _money,
+    _one,
+    _open,
+    _rows,
+    _text,
+)
 from simulation.money import BPS, apply_bps, naira
 
 MATCH_HOURS = 48                    # the home empire has this long to match a poaching offer

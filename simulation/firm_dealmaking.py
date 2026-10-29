@@ -30,8 +30,22 @@ from datetime import datetime
 from psycopg import Connection
 from psycopg.types.json import Jsonb
 
-from simulation import (bonds, careers, clock, corporate, empires, exchange, firm, firm_deals, firm_money, firm_practice, leagues, ledger,
-                        news, private)
+from simulation import (
+    bonds,
+    careers,
+    clock,
+    corporate,
+    empires,
+    exchange,
+    firm,
+    firm_deals,
+    firm_money,
+    firm_practice,
+    leagues,
+    ledger,
+    news,
+    private,
+)
 from simulation import firm_duties as fd
 from simulation import world_data as data
 from simulation.empires import EmpireError, _log, _money, _one, _open, _rows, _text

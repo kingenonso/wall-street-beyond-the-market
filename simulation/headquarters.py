@@ -28,7 +28,8 @@ from datetime import datetime
 
 from psycopg import Connection
 
-from simulation import clock, ledger, property as prop
+from simulation import clock, ledger
+from simulation import property as prop
 from simulation import world_data as data
 from simulation.money import BPS, naira
 from simulation.property import PropertyError, _one, _rows, _uniform, money

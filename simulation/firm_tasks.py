@@ -20,8 +20,28 @@ from datetime import datetime, timedelta
 
 from psycopg import Connection, errors
 
-from simulation import careers, clock, empires, exchange, firm, leagues, ledger, marketview, objectives
-from simulation.empires import BUILD_NAMES, EmpireError, _log, _money, _one, _open, _roll, _rows, _text
+from simulation import (
+    careers,
+    clock,
+    empires,
+    exchange,
+    firm,
+    leagues,
+    ledger,
+    marketview,
+    objectives,
+)
+from simulation.empires import (
+    BUILD_NAMES,
+    EmpireError,
+    _log,
+    _money,
+    _one,
+    _open,
+    _roll,
+    _rows,
+    _text,
+)
 from simulation.money import BPS, apply_bps, naira
 
 OPEN_TASKS_MOST = 3

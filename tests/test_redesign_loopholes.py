@@ -6,7 +6,7 @@ nowhere, no seeing what is hidden, no acting as somebody else, no beating the cl
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 import psycopg
 import pytest
@@ -65,7 +65,10 @@ def test_q3_moves_come_only_with_stories_already_out_and_from_public_prices(db, 
     # Directly: a story dated tomorrow shows no move, and a private company named in a story never does.
     world = _dicts(db, "SELECT world_start, weeks_ahead FROM world_state")[0]
     start = clock.effective_start(world["world_start"], world["weeks_ahead"])
-    now = datetime.now(timezone.utc)
+    # (A fixed moment just after the test's trading days, not today's date: with today's date the test stopped working
+    # once the trades it makes fell more than a fortnight before the running quarter.)
+    from tests.test_market import OPEN
+    now = OPEN + timedelta(days=6)
     quarter = timedelta(days=clock.REAL_DAYS_PER_QUARTER)
     elapsed = now - start
     period = elapsed // quarter + 1

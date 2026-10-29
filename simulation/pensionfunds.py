@@ -22,7 +22,16 @@ from datetime import datetime
 from psycopg import Connection, errors
 from psycopg.rows import dict_row
 
-from simulation import bonds, careers, clock, empires, exchange, ledger, marketview, objectives
+from simulation import (
+    bonds,
+    careers,
+    clock,
+    empires,
+    exchange,
+    ledger,
+    marketview,
+    objectives,
+)
 from simulation import world_data as data
 from simulation.money import BPS, apply_bps, naira
 

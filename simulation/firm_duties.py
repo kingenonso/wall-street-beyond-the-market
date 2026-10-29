@@ -15,8 +15,28 @@ from datetime import datetime
 
 from psycopg import Connection
 
-from simulation import banking, careers, clock, corporate, empires, exchange, firm, leagues, ledger, marketview, objectives
-from simulation.empires import BUILD_NAMES, EmpireError, _log, _money, _one, _rows, _text
+from simulation import (
+    banking,
+    careers,
+    clock,
+    corporate,
+    empires,
+    exchange,
+    firm,
+    leagues,
+    ledger,
+    marketview,
+    objectives,
+)
+from simulation.empires import (
+    BUILD_NAMES,
+    EmpireError,
+    _log,
+    _money,
+    _one,
+    _rows,
+    _text,
+)
 from simulation.firm import Duty
 from simulation.money import BPS, apply_bps, naira
 

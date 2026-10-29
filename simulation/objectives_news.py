@@ -9,7 +9,7 @@ verified news, and the Investment Banker times a deal's announcement. Each comes
 from __future__ import annotations
 
 from simulation import objectives as o
-from simulation.objectives_gap import Q, YES_NO, choice, m, pc, piece, yn
+from simulation.objectives_gap import YES_NO, Q, choice, m, pc, piece, yn
 
 NEWS: list = []
 

@@ -28,10 +28,11 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from simulation import clock, credit, economy, events, ledger, macro
-from simulation import stochastic
+from simulation import clock, credit, economy, events, ledger, macro, stochastic
 from simulation import world_data as data
-from simulation.fortune import fortune_bps  # noqa: F401  (also used by tests through this module)
+from simulation.fortune import (
+    fortune_bps,  # noqa: F401  (also used by tests through this module)
+)
 from simulation.ledger import NGN, Leg
 from simulation.money import BPS, apply_bps
 
@@ -837,7 +838,7 @@ def _borrow_to_expand(conn, company, ctx, prev, debts, rating, in_good_standing,
     amount = min(wanted, bank["room"])
     if amount <= 0:
         return 0
-    from simulation import banking                 # (banking needs this module too)
+    from simulation import banking  # (banking needs this module too)
     banking.ensure_cash(conn, ctx.world, bank, amount, period, ctx.policy_rate_bps)
     paid = ledger.pay_up_to(
         conn, payer=bank["account_id"], receiver=company["account_id"], wanted=amount, kind="new_loan",

@@ -152,10 +152,13 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
     foreign_left = foreign_budget
     first_new_trade = _rows(conn, "SELECT coalesce(max(id), 0) AS id FROM market_trades")[0]["id"] if foreign_budget > 0 else 0
 
-    from simulation import corporate                  # (it needs this module's neighbours too)
     # Stage 9: each kind of investor has its own temper about a share's recent move (some chase it, some lean
     # against it), and small investors bid up a heavily shorted share that is rising (a squeeze).
-    from simulation import lending, marketview
+    from simulation import (
+        corporate,  # (it needs this module's neighbours too)
+        lending,
+        marketview,
+    )
     recent = marketview.recent_closes(conn, 6)
     shorted = lending.short_interest(conn) if _rows(conn, "SELECT to_regclass('short_positions') IS NOT NULL AS ok")[0]["ok"] else {}
     open_bids = {b["target_company_id"]: b for b in _rows(conn, "SELECT * FROM takeovers WHERE status = 'open'")}

@@ -17,14 +17,44 @@ from datetime import datetime
 from psycopg import Connection
 from psycopg.rows import dict_row
 
-from simulation import (abroad, banking, bonds, careers, clock, companies, consumers, corporate, economy, events, exchange, grants, investors, ledger,
-                        macro, marketview, mindsets, moneywatch, news, objectives, private, valuation)
-from simulation import empires
-from simulation import conveyancing, crashfund, derivatives, development, instruments, lending, propfunds, stochastic, swaps
+from simulation import (
+    abroad,
+    banking,
+    bonds,
+    careers,
+    clock,
+    companies,
+    consumers,
+    conveyancing,
+    corporate,
+    crashfund,
+    derivatives,
+    development,
+    economy,
+    empires,
+    events,
+    exchange,
+    grants,
+    instruments,
+    investors,
+    ledger,
+    lending,
+    macro,
+    marketview,
+    mindsets,
+    moneywatch,
+    news,
+    objectives,
+    private,
+    propfunds,
+    ranks,
+    stochastic,
+    swaps,
+    valuation,
+)
 from simulation import property as property_market
-from simulation import ranks
-from simulation.money import BPS, apply_bps
 from simulation.ledger import NGN
+from simulation.money import BPS, apply_bps
 
 log = logging.getLogger("wsbm.quarters")
 

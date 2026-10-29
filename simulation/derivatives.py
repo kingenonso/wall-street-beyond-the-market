@@ -403,7 +403,8 @@ def trade(conn: Connection, account, series_id: int, side: str, contracts: int, 
         if s.get("company_id") and _one(conn, "SELECT halted_reason FROM market_instruments WHERE company_id = %s", (s["company_id"],))["halted_reason"]:
             raise DerivativesError("Trading in this company's shares is stopped: the Central Bank closed the bank.")
         if not forced and not company and s.get("company_id"):
-            from simulation import exchange as _exchange, newsroom
+            from simulation import exchange as _exchange
+            from simulation import newsroom
             try:
                 newsroom.check_trade(conn, account, s["company_id"], now)
             except _exchange.ExchangeError as e:
@@ -809,7 +810,9 @@ def at_bell(conn: Connection, now: datetime, ended) -> dict:
             _settle_series(conn, s, fair(conn, s, now), period, now, "tonight's settlement")
             done["settled"] += 1
     for p in _rows(conn, "SELECT p.id FROM derivative_positions p JOIN derivative_series s ON s.id = p.series_id"
-                         " WHERE p.status = 'open' AND NOT p.cash_settled AND (s.kind = 'future' OR p.side = 'short') ORDER BY p.id"):
+                         " WHERE p.status = 'open' AND NOT p.cash_settled AND (s.kind = 'future' OR p.side = 'short')"
+                         # A contract whose quarter has ended is settled at the quarter's close, not closed by force before it.
+                         " AND s.expiry_period >= %s ORDER BY p.id", (period,)):
         with conn.transaction():
             p = _one(conn, "SELECT p.*, s.kind, s.underlying, s.company_id, s.strike, s.expiry_period FROM derivative_positions p"
                            " JOIN derivative_series s ON s.id = p.series_id WHERE p.id = %s AND p.status = 'open' FOR UPDATE OF p", (p["id"],))

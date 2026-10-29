@@ -28,8 +28,7 @@ from __future__ import annotations
 from psycopg import Connection
 from psycopg.rows import dict_row
 
-from simulation import clock, ledger
-from simulation import stochastic
+from simulation import clock, ledger, stochastic
 from simulation import world_data as data
 from simulation.money import BPS, apply_bps
 

@@ -274,6 +274,7 @@ def _regulator(conn: Connection, now: datetime, ended: date) -> int:
     """The Securities Regulator (a rule-based stand-in until the Government stage): after a fall of 15% in a day, no new
     short sales in that share for three days; after the BSX 50 falls 10% in a day, none in any share."""
     from datetime import timedelta
+
     from simulation import risk
     made = 0
     start, end = ended + timedelta(days=1), ended + timedelta(days=data.SHORT_BAN_DAYS)

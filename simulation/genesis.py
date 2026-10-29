@@ -27,7 +27,18 @@ from psycopg import Connection
 from psycopg.rows import tuple_row
 from psycopg.types.json import Jsonb
 
-from simulation import bonds, companies, events, exchange, ledger, macro, news, players, private, valuation
+from simulation import (
+    bonds,
+    companies,
+    events,
+    exchange,
+    ledger,
+    macro,
+    news,
+    players,
+    private,
+    valuation,
+)
 from simulation import world_data as data
 from simulation.ledger import NGN, Leg
 from simulation.money import apply_bps, million_naira, naira

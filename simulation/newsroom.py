@@ -30,7 +30,15 @@ from psycopg import Connection, errors
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from simulation import careers, clock, exchange, ledger, newsroom_facts, ripple, standing
+from simulation import (
+    careers,
+    clock,
+    exchange,
+    ledger,
+    newsroom_facts,
+    ripple,
+    standing,
+)
 from simulation import world_data as data
 from simulation.money import BPS, naira
 
