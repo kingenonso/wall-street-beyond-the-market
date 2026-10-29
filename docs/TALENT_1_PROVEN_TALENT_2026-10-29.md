@@ -22,7 +22,7 @@ Two smaller problems turned up along the way and were fixed too:
 
 Nothing on Part 1's list was dropped or put off.
 
-Tests at the end: __TESTS__.
+Tests at the end: 1,363 server tests in 82 files pass on both runners (each file run once, split between them), with cargo test (13) and vitest (23).
 
 ## Things worth knowing, said plainly
 
