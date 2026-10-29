@@ -10,7 +10,18 @@ from __future__ import annotations
 
 from simulation import clock
 from simulation import objectives as o
-from simulation.objectives_more import HAND_IN, M, _due_soon, _given, _marked, _price_now, _roll, _text, _year_profit, _yes_no
+from simulation.objectives_more import (
+    HAND_IN,
+    M,
+    _due_soon,
+    _given,
+    _marked,
+    _price_now,
+    _roll,
+    _text,
+    _year_profit,
+    _yes_no,
+)
 
 _FINANCIAL = ("banking", "insurance")
 

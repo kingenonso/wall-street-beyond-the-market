@@ -28,7 +28,16 @@ from psycopg.types.json import Jsonb
 
 from simulation import careers, empires, leagues
 from simulation import world_data as data
-from simulation.empires import BUILD_NAMES, EmpireError, _log, _one, _open, _roll, _rows, _text
+from simulation.empires import (
+    BUILD_NAMES,
+    EmpireError,
+    _log,
+    _one,
+    _open,
+    _roll,
+    _rows,
+    _text,
+)
 from simulation.money import BPS
 
 APPROVAL_HOURS = 24                 # a desk has this long; then the request passes to the head
@@ -650,7 +659,9 @@ def hand_in(conn: Connection, player_id, duty_id: int, answers: dict, now: datet
                      (score, player_id, _json(answers), _json(result), now, duty_id))
         mine = careers.career(conn, player_id, seat["build"])
         gained = DUTY_EXPERIENCE * score // 100 * (1 + (mine["rank"] if mine else 0))
-        from simulation import headquarters                       # a fine headquarters teaches more (Stage 8)
+        from simulation import (
+            headquarters,  # a fine headquarters teaches more (Stage 8)
+        )
         gained = gained * (BPS + headquarters.bonus_bps(conn, empire["id"])) // BPS
         if gained and mine:
             careers.add_experience(conn, player_id, seat["build"], gained, now)
@@ -1068,5 +1079,15 @@ def view(conn: Connection, player_id, now: datetime) -> dict | None:
 
 
 # The parts of the firm, each adding itself to the lists above.
-from simulation import firm_money, firm_people, firm_risk, firm_tasks, firm_duties, firm_clients  # noqa: E402,F401
-from simulation import firm_deals, firm_owned, firm_practice, firm_dealmaking  # noqa: E402,F401  (registers their hooks)
+from simulation import (  # noqa: E402,F401  # noqa: E402,F401  (registers their hooks)
+    firm_clients,
+    firm_dealmaking,
+    firm_deals,
+    firm_duties,
+    firm_money,
+    firm_owned,
+    firm_people,
+    firm_practice,
+    firm_risk,
+    firm_tasks,
+)

@@ -31,6 +31,8 @@ export type Player = {
   corrections_due?: number;
   crises_due?: number;
   banks_uneasy?: number;
+  /** Proven Talent: invitations from firms waiting for an answer. */
+  talent_waiting?: number;
   /** The redesign: the player's own look and sound, and whether the first-time tour has been seen. */
   theme: "dark" | "light";
   sound_on: boolean;
@@ -1113,6 +1115,28 @@ export const api = {
   charities: () => request<{ charities: Charity[] }>("/charities"),
   savings: () => request<SavingsView>("/savings"),
   crisis: () => request<CrisisPage>("/crisis"),
+  talent: () => request<TalentPage>("/talent"),
+  talentPost: (path: string, body: unknown = {}) => request<TalentPage & { dealt?: { price: Kobo; fee: Kobo; cash: Kobo } }>(path, { method: "POST", body: JSON.stringify(body) }),
+  sharedRecord: (slug: string) => request<TalentView>(`/talent/shared/${encodeURIComponent(slug)}`),
+  firmMe: () => request<Firm>("/firms/me"),
+  firmSignup: (body: Record<string, string>) => request<Firm>("/firms/signup", { method: "POST", body: JSON.stringify(body) }),
+  firmLogin: (email: string, password: string) => request<Firm>("/firms/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  firmLogout: () => request<void>("/firms/logout", { method: "POST" }),
+  firmBoard: (q: { build?: string; least_level?: number; badge?: string; sort?: string }) => {
+    const query = new URLSearchParams();
+    if (q.build) query.set("build", q.build);
+    if (q.least_level) query.set("least_level", String(q.least_level));
+    if (q.badge) query.set("badge", q.badge);
+    if (q.sort) query.set("sort", q.sort);
+    return request<{ players: BoardPlayer[] }>(`/firms/board?${query}`);
+  },
+  firmRecord: (playerId: string) => request<TalentView & { invitations: FirmInvitation[] }>(`/firms/records/${playerId}`),
+  firmInvitations: () => request<{ invitations: FirmInvitation[] }>("/firms/invitations"),
+  firmInvite: (player_id: string, message: string, challenge_id?: number) =>
+    request<{ invitations: FirmInvitation[] }>("/firms/invitations", { method: "POST", body: JSON.stringify({ player_id, message, ...(challenge_id ? { challenge_id } : {}) }) }),
+  firmChallenges: () => request<FirmChallenges>("/firms/challenges"),
+  firmNewChallenge: (body: unknown) => request<FirmChallenges>("/firms/challenges", { method: "POST", body: JSON.stringify(body) }),
+  firmCancelChallenge: (id: number) => request<FirmChallenges>(`/firms/challenges/${id}/cancel`, { method: "POST" }),
   bankAlerts: (mark: number | null) => request<{ mark: number; items: BankAlert[] }>(`/crisis/alerts${mark === null ? "" : `?after=${mark}`}`),
   media: () => request<{ titles: MediaTitle[]; auctions: TitleAuction[] }>("/media"),
   news: (filter: { outlet?: string; ticker?: string; limit?: number } = {}) => {
@@ -1257,3 +1281,60 @@ export interface CrisisPage {
 export interface BankAlert {
   id: number; kind: string; headline: string; body: string; ticker: string | null; company: string | null; yours: "you" | "empire" | null;
 }
+
+
+/** Proven Talent (the talent and funds stage, Part 1): a record worked out from the game's own books; badges; sharing;
+ * firms' challenges and invitations. Only percentages and counts, never anybody's money. */
+export type TalentBadge = { code: string; label: string; words: string; earned_at: string };
+export type TalentQuarter = { period: number; label: string; you_bps: number; index_bps: number; beat: boolean };
+export type TalentRecord = {
+  investing: {
+    days_counted: number; first_day: string | null; last_day: string | null; total_bps: number | null; index_bps: number | null;
+    versus_index_bps: number | null; annual_bps: number | null; swing_bps: number | null; risk_ratio: number | null;
+    worst_fall_bps: number | null; last_year_bps: number | null; quarters: TalentQuarter[]; beat_streak: number; best_streak: number;
+    quarters_counted: number; quarters_beaten: number; chart: { day: string; you_bps: number; index_bps: number }[];
+  };
+  work: { builds: { build: string; name: string; level: number; rank: string; since: string; passed: number; failed: number }[]; passed: number; failed: number };
+  calls: { kinds: { kind: string; name: string; right: number; wrong: number }[]; right: number; wrong: number; right_bps: number | null };
+  audits: { filed: number; rightly_named: number; wrongly_named: number; missed_proved_later: number };
+  journalism: { published: number; scoops: number; corrections: number; late_corrections: number; credibility: number | null; leads_held: number; leads_failed: number };
+  leadership: { empires: string[]; good: number; bad: number };
+  crisis: { banks_closed_with_savings: number; pulled_out_in_time: number; lost_savings: boolean; rescues_won: number; crises_lived_through: number };
+  conduct: { proved: number; entries: { kind: string; words: string; at: string }[] };
+  challenges: { entered: number; wins: number; top_tenth: number; results: { id: number; title: string; firm: string; place: number | null; entrants: number }[] };
+};
+export type TalentView = {
+  who: { name: string; icon: ProfileIcon | null; since: string; build: string | null };
+  headline?: string;
+  sections: string[];
+  names: Record<string, string>;
+  record: Partial<TalentRecord>;
+  badges: TalentBadge[];
+  worked_at: string | null;
+  how?: string;
+};
+export type ChallengeItem = {
+  id: number; kind: "paper" | "valuation" | "weak_bank" | "forecast" | "live"; kind_name: string; kind_words: string; title: string; brief: string;
+  firm: { name: string; colour: string; tagline: string; website: string }; company: { ticker: string; name: string } | null;
+  starting_cash: Kobo; opens_at: string; locks_at: string; ends_at: string; phase: "waiting" | "open" | "running" | "scoring" | "scored" | "cancelled";
+  entrants: number; top_shown: number; target_period: string | null;
+  scoreboard: { place: number; name: string; score_words: string }[];
+  mine?: null | { seen_by_sponsor: boolean; answer: Kobo | null; answered_at: string | null; answer_text: string; answer_ticker: string | null;
+    score_words: string | null; place: number | null; cash?: Kobo; value?: Kobo;
+    holdings?: { ticker: string; name: string; quantity: number; cost: Kobo; price: Kobo }[] };
+  finishers?: { place: number; name: string; player_id: string; score_words: string; answer_text: string; badges: string[] }[];
+};
+export type TalentInvitation = { id: number; message: string; status: "sent" | "accepted" | "declined"; sent_at: string; answered_at: string | null;
+  contact: string | null; firm_id: string; firm: string; website: string; tagline: string; colour: string; challenge: string | null };
+export type TalentPage = Omit<TalentView, "record"> & {
+  record: TalentRecord;
+  settings: { shared: boolean; slug: string | null; show: string[]; on_board: boolean; headline: string; board_ready: boolean; board_words: string };
+  invitations: TalentInvitation[];
+  challenges: ChallengeItem[];
+};
+export type Firm = { id: string; name: string; contact_name: string; website: string; tagline: string; colour: string; status: "pending" | "approved" | "suspended"; created_at: string };
+export type BoardPlayer = { player_id: string; name: string; icon: ProfileIcon | null; headline: string; builds: { build: string; level: number; name: string }[];
+  days: number; total_bps: number | null; versus_index_bps: number | null; worst_fall_bps: number | null; risk_ratio: number | null;
+  calls_right_bps: number | null; proved: number; wins: number; badges: number; worked_at: string };
+export type FirmInvitation = { id: number; status: string; sent_at: string; answered_at: string | null; contact: string | null; message: string; name?: string; player_id?: string };
+export type FirmChallenges = { challenges: ChallengeItem[]; kinds: Record<string, string>; kind_words: Record<string, string> };

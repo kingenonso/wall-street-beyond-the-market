@@ -95,8 +95,7 @@ def check(text: str, allowed: set[str]) -> list[str]:
 
 
 def _background(conn: Connection, item: dict, label_period: int) -> tuple[list[str], set[str]]:
-    from simulation import insight
-    from simulation import news
+    from simulation import insight, news
     parts, allowed = [], set()
     for ticker in (item["tickers"] or [])[:2]:
         c = _one(conn, "SELECT c.id, c.name, c.sector, c.headquarters FROM companies c WHERE c.ticker = %s", (ticker,))

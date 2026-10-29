@@ -101,7 +101,7 @@ def _margin_submit(ctx, objective, answers):
 def _carry_offer(ctx):
     if ctx.get("target") is not None:
         return None
-    from simulation import marketview, exchange
+    from simulation import exchange, marketview
     day, _ = exchange.session_of(ctx["now"])
     level = marketview.index_level(marketview._shares(ctx["conn"], day), marketview.index_base(ctx["conn"]))
     if not level:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from simulation import objectives as o
 from simulation import world_data as data
-from simulation.objectives_gap import Q, YES_NO, choice, m, piece, yn
+from simulation.objectives_gap import YES_NO, Q, choice, m, piece, yn
 
 INTEL: list = []
 

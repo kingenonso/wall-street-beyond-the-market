@@ -27,8 +27,16 @@ from datetime import datetime, timedelta
 from psycopg import Connection, errors
 from psycopg.rows import dict_row
 
-from simulation import bonds, careers, clock, exchange, ledger, marketview, objectives
-from simulation import leagues
+from simulation import (
+    bonds,
+    careers,
+    clock,
+    exchange,
+    leagues,
+    ledger,
+    marketview,
+    objectives,
+)
 from simulation import world_data as data
 from simulation.money import BPS, apply_bps, naira
 
@@ -797,7 +805,9 @@ def bonus_limit(conn: Connection, empire: dict, now: datetime) -> int:
 def _book(conn: Connection, empire_id, period: int, category: str, description: str, amount: int, genuine: bool, now: datetime,
           entered_by=None, thief_level: int | None = None, kind: str = "cost", desk: str | None = None, company_id=None) -> int:
     if category == "Fines" and genuine:
-        from simulation import standing          # Stage 10: a regulator's fine is public, and costs the empire its good name
+        from simulation import (
+            standing,  # Stage 10: a regulator's fine is public, and costs the empire its good name
+        )
         standing.change(conn, empire_id, -2, f"Fined: {description}", period, now)
     return _one(conn, "INSERT INTO empire_books (empire_id, period, category, description, amount, genuine, entered_by, thief_level, at, kind, desk,"
                       " company_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
@@ -1841,7 +1851,9 @@ def report_pact(conn: Connection, head_id, pact_id: int, now: datetime) -> None:
         for side in (empire["id"], other):                 # both signed it: both pay for it in the league, whoever came forward
             leagues.award(conn, side, data.LEAGUE_POINTS["theft"], "An unlawful pact came to light", careers.world_now(conn, now)["period"],
                           now, reference=f"pact:{pact_id}")
-        from simulation import standing                    # Stage 10: and in their public reputation (less for the one that came forward)
+        from simulation import (
+            standing,  # Stage 10: and in their public reputation (less for the one that came forward)
+        )
         period_now = careers.world_now(conn, now)["period"]
         standing.change(conn, empire["id"], -2, "Reported an unlawful pact it had signed", period_now, now)
         standing.change(conn, other, -6, "An unlawful pact it signed came to light", period_now, now)
@@ -1885,7 +1897,7 @@ def expose_pact(conn: Connection, pact: dict, player_id, period: int, now: datet
     """A hidden pact comes to light (a journalist's search or investigation, or a leak). An unlawful one costs both empires trust,
     league points and reputation, and each must answer for it publicly (a crisis statement, Stage 10)."""
     conn.execute("UPDATE empire_pacts SET exposed_at = %s, exposed_by = %s WHERE id = %s", (now, player_id, pact["id"]))
-    from simulation import standing            # Stage 10: and in its public reputation
+    from simulation import standing  # Stage 10: and in its public reputation
     if not pact["legal"]:
         _trust(conn, pact["from_empire"], -data.PACT_EXPOSED_TRUST)
         _trust(conn, pact["to_empire"], -data.PACT_EXPOSED_TRUST)

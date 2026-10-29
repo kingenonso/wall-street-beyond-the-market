@@ -26,7 +26,6 @@ from simulation import bonds, clock, corporate, exchange, marketview, news
 from simulation import world_data as data
 from simulation.money import BPS
 
-
 # A player's bonds, and what the exchange holds for their applications and acceptances, count towards what they are worth.
 # (Added to, never replaced: property adds its own part too, Stage 8.)
 for _holding in (bonds.values_by_account, corporate.held_by_account):

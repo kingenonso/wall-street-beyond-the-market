@@ -58,3 +58,33 @@ def read_session_token(token: str) -> tuple[str, int] | None:
         return str(UUID(subject)), version   # a pass must name a real kind of player id
     except (TypeError, ValueError, AttributeError):
         return None
+
+
+# ---------------------------------------------------------------------------
+# Proven Talent: firms log in separately. Their pass carries its own audience, so it can never be read as a player's
+# (a player's pass is read without an audience, and a pass that names one is refused), and its own cookie.
+# ---------------------------------------------------------------------------
+FIRM_COOKIE = "wsbm_firm"
+_FIRM_AUDIENCE = "wsbm-firm"
+
+
+def create_firm_token(firm_id: str, version: int) -> str:
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    payload = {"sub": firm_id, "ver": version, "aud": _FIRM_AUDIENCE, "iat": now, "exp": now + timedelta(days=settings.session_days)}
+    return jwt.encode(payload, settings.secret_key, algorithm="HS256")
+
+
+def read_firm_token(token: str) -> tuple[str, int] | None:
+    try:
+        payload = jwt.decode(token, get_settings().secret_key, algorithms=["HS256"], audience=_FIRM_AUDIENCE,
+                             options={"require": ["exp", "iat", "sub", "ver", "aud"]})
+    except jwt.PyJWTError:
+        return None
+    subject, version = payload.get("sub"), payload.get("ver")
+    if not isinstance(version, int) or isinstance(version, bool):
+        return None
+    try:
+        return str(UUID(subject)), version
+    except (TypeError, ValueError, AttributeError):
+        return None

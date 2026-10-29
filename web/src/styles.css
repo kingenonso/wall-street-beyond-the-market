@@ -1059,3 +1059,20 @@ label.check { display: inline-flex; gap: 6px; align-items: center; }
 .bank-alert-tag { color: var(--down); font-weight: 700; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
 .bank-alert-headline { font-size: 20px; font-weight: 700; margin: 8px 0 6px; }
 .bank-alert-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+/* Proven Talent (the talent and funds stage, Part 1) */
+.badge-list { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
+.talent-badge { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; background: var(--panel); }
+.talent-badge > span[aria-hidden="true"] { color: #B88A30; }
+.public-page { min-height: 100vh; background: var(--bg); color: var(--ink); }
+.public-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.public-main { max-width: 960px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+@media print {
+  .print-hide, .bottom-bar, .topbar { display: none !important; }
+  .public-page { background: #fff; color: #000; }
+  .panel { break-inside: avoid; border-color: #999; }
+}
+fieldset.check-list { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 10px 0; display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 4px 16px; }
+fieldset.check-list > legend { padding: 0 4px; }
+fieldset.check-list .check-line { display: flex; gap: 6px; align-items: center; min-height: 28px; }

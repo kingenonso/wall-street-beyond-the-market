@@ -26,6 +26,7 @@ import { RankRail, RankWork } from "./Rank";
 import { MessagesRail, MessagesWork, partnerFrom } from "./Messages";
 import { WorkFocus, WorkRail, WorkWork } from "./Work";
 import { useClock } from "./useClock";
+import { FirmPortal, SharedRecordPage, TalentRail, TalentWork } from "./Talent";
 
 export function App() {
   // undefined = still checking, null = not logged in.
@@ -72,6 +73,10 @@ export function App() {
     window.location.hash = "#/";
     setPlayer(null);
   }
+
+  // Proven Talent: a shared record and the firms' portal open without a player's login.
+  if (route[0] === "r" && route[1]) return <SharedRecordPage slug={route[1]} />;
+  if (route[0] === "firms") return <FirmPortal route={route} />;
 
   if (player === undefined) return <div className="loading">Loading…</div>;
   if (player === null) return <Auth live={live} onSignedIn={setPlayer} />;
@@ -192,6 +197,10 @@ export function App() {
     const other = partnerFrom(item);
     work = <MessagesWork key={other ?? ""} with={other} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <MessagesRail />;
+  } else if (section === "talent") {
+    current = "talent";
+    work = <TalentWork key={item ?? ""} player={player} tab={item} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <TalentRail player={player} />;
   } else if (section === "profile") {
     current = "profile";
     work = <ProfileWork player={player} onChanged={setPlayer} />;

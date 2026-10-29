@@ -106,6 +106,11 @@ def _close_due_quarters_once() -> None:
         if conn.execute("SELECT to_regclass('bank_confidence') IS NOT NULL").fetchone()[0]:
             from simulation import crisis
             crisis.tick(conn, now)
+        # Proven Talent: after each closing bell, the day's trades are checked and every record is worked out afresh;
+        # challenges that have ended are scored.
+        if conn.execute("SELECT to_regclass('talent_records') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
+            from simulation import talent
+            talent.tick(conn, now)
         # The Auction House settles every auction whose countdown has ended.
         if conn.execute("SELECT to_regclass('auctions') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
             auctions.run(conn, now)
@@ -198,6 +203,7 @@ def _player_response(conn: Connection, row: dict) -> PlayerResponse:
         margin_calls=_margin_calls(conn, row["id"]),
         **dict(zip(("press_questions", "corrections_due", "crises_due"), _press(conn, row["id"]))),
         banks_uneasy=_banks_uneasy(conn, row["id"]),
+        talent_waiting=_talent_waiting(conn, row["id"]),
         theme=row.get("theme", "dark"), sound_on=row.get("sound_on", True),
         sound_volume=row.get("sound_volume", 30), tour_done=row.get("tour_done", False),
         work_in_hand=conn.execute("SELECT count(*) AS n FROM objectives WHERE player_id = %s AND state = 'active'", (row["id"],)).fetchone()["n"]
@@ -233,6 +239,15 @@ def _banks_uneasy(conn: Connection, player_id) -> int:
         WHERE b.balance > 0 AND (a.player_id = %s OR a.id IN (SELECT account_id FROM empires WHERE head_player_id = %s AND status = 'active'))
           AND (SELECT c.state FROM bank_confidence c WHERE c.company_id = d.company_id ORDER BY c.period DESC, c.day DESC LIMIT 1)
               IN ('worried', 'run', 'panic', 'closed')""", (player_id, player_id)).fetchone()["n"]
+
+
+def _talent_waiting(conn: Connection, player_id) -> int:
+    """Proven Talent: invitations from firms the player has not answered yet."""
+    if conn.execute("SELECT to_regclass('talent_invitations') IS NOT NULL AS ok").fetchone()["ok"] is not True:
+        return 0
+    return conn.execute("SELECT count(*) AS n FROM talent_invitations i WHERE i.player_id = %s AND i.status = 'sent'"
+                        " AND NOT EXISTS (SELECT 1 FROM talent_firm_blocks b WHERE b.player_id = i.player_id AND b.firm_id = i.firm_id)",
+                        (player_id,)).fetchone()["n"]
 
 
 def _margin_calls(conn: Connection, player_id) -> int:
@@ -435,6 +450,7 @@ def confirm_email(body: ConfirmEmailRequest, request: Request, response: Respons
         if row is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, _CODE_WRONG)
         _start_session(response, row)
+        _note_visit(conn, row["id"], request)
         return _player_response(conn, row)
 
 
@@ -454,6 +470,7 @@ def log_in(body: LoginRequest, request: Request, response: Response):
 
     _start_session(response, row)
     with connection() as conn:
+        _note_visit(conn, row["id"], request)
         return _player_response(conn, row)
 
 
@@ -474,8 +491,18 @@ def log_out(
 
 
 @app.get("/api/me", response_model=PlayerResponse)
-def me(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+def me(request: Request, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    _note_visit(conn, player["id"], request)
     return _player_response(conn, player)
+
+
+def _note_visit(conn: Connection, player_id, request: Request) -> None:
+    """Proven Talent: a one-way mark of the device, kept for the honesty checks (never the address itself)."""
+    if conn.execute("SELECT to_regclass('visitor_marks') IS NOT NULL AS ok").fetchone()["ok"] is not True:
+        return
+    from simulation import talent
+    mark = talent.visitor_mark(get_settings().secret_key, limits.visitor(request), request.headers.get("user-agent", ""))
+    talent.note_visit(conn, player_id, mark, _exchange_time(conn))
 
 
 @app.patch("/api/me/profile-icon", response_model=PlayerResponse)
@@ -1668,3 +1695,4 @@ from server import intel_routes  # noqa: E402,F401
 from server import press_routes  # noqa: E402,F401
 from server import society_routes  # noqa: E402,F401
 from server import crisis_routes  # noqa: E402,F401
+from server import talent_routes  # noqa: E402,F401

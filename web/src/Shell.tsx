@@ -287,6 +287,7 @@ export function sectionsFor(player: Player) {
     { path: "companies", label: "Companies" },
     { path: "economy", label: "Economy" },
     { path: "career", label: "Career" },
+    { path: "talent", label: "Proven Talent", ...((player.talent_waiting ?? 0) > 0 ? { count: player.talent_waiting, countWords: "invitations waiting" } : {}) },
     { path: "charities", label: "Charities" },
   ] as { path: string; label: string; count?: number; countWords?: string }[];
 }

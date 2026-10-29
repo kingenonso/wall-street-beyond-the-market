@@ -258,5 +258,7 @@ firm.BELL.append(_bell)
 firm.VIEW["risk"] = view
 
 
-from simulation import lending_empire  # noqa: E402,F401  (an empire's borrowing and short selling, Stage 9)
-from simulation import crashfund  # noqa: E402,F401  (the crash fund's approvals, Stage 9)
+from simulation import (
+    crashfund,  # noqa: E402,F401  (the crash fund's approvals, Stage 9)
+    lending_empire,  # noqa: E402,F401  (an empire's borrowing and short selling, Stage 9)
+)

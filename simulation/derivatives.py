@@ -403,7 +403,8 @@ def trade(conn: Connection, account, series_id: int, side: str, contracts: int, 
         if s.get("company_id") and _one(conn, "SELECT halted_reason FROM market_instruments WHERE company_id = %s", (s["company_id"],))["halted_reason"]:
             raise DerivativesError("Trading in this company's shares is stopped: the Central Bank closed the bank.")
         if not forced and not company and s.get("company_id"):
-            from simulation import exchange as _exchange, newsroom
+            from simulation import exchange as _exchange
+            from simulation import newsroom
             try:
                 newsroom.check_trade(conn, account, s["company_id"], now)
             except _exchange.ExchangeError as e:

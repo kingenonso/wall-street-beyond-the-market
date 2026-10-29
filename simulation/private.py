@@ -539,7 +539,9 @@ def after_close(conn: Connection, period: int, results: list[tuple[dict, dict]],
                   {"company": company["name"], "city": company["headquarters"]})
         _secrets_come_true(conn, company, p, period, now)
     _rivals_answer_prices(conn, period)
-    from simulation import firm_owned               # administration and plans are judged with the owners in view
+    from simulation import (
+        firm_owned,  # administration and plans are judged with the owners in view
+    )
     firm_owned.after_companies(conn, period, seed, now)
     open_sales(conn, period, seed, now)
     if period % STARTUP_EVERY == 2:

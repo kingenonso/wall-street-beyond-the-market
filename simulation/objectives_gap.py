@@ -22,7 +22,6 @@ from simulation import objectives as o
 from simulation import world_data as data
 from simulation.objectives_more import HAND_IN, _marked, _text
 
-
 # ---------------------------------------------------------------------------
 # The machinery
 # ---------------------------------------------------------------------------

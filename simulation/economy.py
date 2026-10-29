@@ -23,8 +23,7 @@ from uuid import UUID
 from psycopg import Connection
 from psycopg.rows import dict_row
 
-from simulation import clock, events, ledger, mindsets
-from simulation import stochastic
+from simulation import clock, events, ledger, mindsets, stochastic
 from simulation import world_data as data
 from simulation.fortune import fortune_bps
 from simulation.money import BPS, apply_bps

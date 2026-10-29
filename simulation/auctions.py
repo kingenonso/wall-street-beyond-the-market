@@ -22,14 +22,14 @@ Every naira moves through the ledger: held cash sits in the Auction House's own 
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 
 from psycopg import Connection
 from psycopg.types.json import Jsonb
 
-import logging
-
-from simulation import clock, ledger, property as prop
+from simulation import clock, ledger
+from simulation import property as prop
 from simulation import world_data as data
 from simulation.money import BPS
 from simulation.property import PropertyError, _one, _rows, _uniform, money

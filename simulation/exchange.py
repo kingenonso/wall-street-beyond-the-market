@@ -378,7 +378,9 @@ def place_order(conn: Connection, *, account: UUID | str, ticker: str, side: str
         if share.get("halted_reason"):
             raise ExchangeError(f"No trading in this share: {share['halted_reason']}.")
         if owner["kind"] in ("player", "empire"):
-            from simulation import newsroom          # Stage 10: no trading around one's own story
+            from simulation import (
+                newsroom,  # Stage 10: no trading around one's own story
+            )
             newsroom.check_trade(conn, account, share["company_id"], now)
         _bring_up_to_date(conn, share, now, accounts)
         _, state = session_of(now)
