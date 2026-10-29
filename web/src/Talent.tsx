@@ -140,7 +140,7 @@ function Section({ name, rec, names }: { name: string; rec: Partial<TalentRecord
       <Panel title={title} aside="funds run for other people's money, against each fund's benchmark">
         {f.funds.length === 0 ? <p className="muted small">Has not run an investment fund.</p> : (
           <div className="table-scroll">
-            <table className="mini-table">
+            <table className="mini-table" tabIndex={0}>
               <caption className="sr-only">Funds managed</caption>
               <thead><tr><th scope="col">Fund</th><th scope="col">Since</th><th scope="col" className="num">Return</th><th scope="col" className="num">Benchmark</th>
                 <th scope="col">Stars</th><th scope="col">Now</th></tr></thead>

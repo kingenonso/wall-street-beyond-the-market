@@ -76,8 +76,8 @@ export function FundsWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void;
         if (!ids.length) return null;
         return (
           <Panel key={key} title={data.strategies[key]} aside={data.strategy_words[key]}>
-            <div className="table-scroll" tabIndex={0} role="region" aria-label={`${data.strategies[key]} funds`}>
-              <table className="mini-table fund-table">
+            <div className="table-scroll">
+              <table className="mini-table fund-table" tabIndex={0}>
                 <caption className="sr-only">{data.strategies[key]} funds, best rated first</caption>
                 <thead><tr><th scope="col">Fund</th><th scope="col">Stars</th><th scope="col" className="num">Today</th><th scope="col" className="num">Quarter</th>
                   <th scope="col" className="num">Year</th><th scope="col" className="num">Since launch</th><th scope="col" className="num">Fee</th>
@@ -196,8 +196,8 @@ function FundSheetView({ id, onBack, onLoggedOut, onChanged }: { id: number; onB
       </Panel>
       <Panel title="Quarter by quarter">
         {f.quarters.length === 0 ? <p className="muted small">Not yet a full quarter.</p> : (
-          <div className="table-scroll" tabIndex={0} role="region" aria-label="The fund's quarters">
-            <table className="mini-table">
+          <div className="table-scroll">
+            <table className="mini-table" tabIndex={0}>
               <caption className="sr-only">The fund's quarters</caption>
               <thead><tr><th scope="col">Quarter</th><th scope="col">Stars</th><th scope="col" className="num">Quarter</th><th scope="col" className="num">Year</th>
                 <th scope="col" className="num">Benchmark</th><th scope="col" className="num">Return per unit of risk</th></tr></thead>
