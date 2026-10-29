@@ -134,6 +134,31 @@ function Section({ name, rec, names }: { name: string; rec: Partial<TalentRecord
       </Panel>
     );
   }
+  if (name === "funds" && rec.funds) {
+    const f = rec.funds;
+    return (
+      <Panel title={title} aside="funds run for other people's money, against each fund's benchmark">
+        {f.funds.length === 0 ? <p className="muted small">Has not run an investment fund.</p> : (
+          <div className="table-scroll">
+            <table className="mini-table">
+              <caption className="sr-only">Funds managed</caption>
+              <thead><tr><th scope="col">Fund</th><th scope="col">Since</th><th scope="col" className="num">Return</th><th scope="col" className="num">Benchmark</th>
+                <th scope="col">Stars</th><th scope="col">Now</th></tr></thead>
+              <tbody>
+                {f.funds.map((x) => (
+                  <tr key={x.name}><td><span className="strong">{x.name}</span> <span className="muted small">{x.strategy}</span></td><td>{x.since}</td>
+                    <td className="num mono">{x.return_bps === null ? "n/a" : pct(x.return_bps)}</td>
+                    <td className="num mono">{x.bench_bps === null ? "n/a" : pct(x.bench_bps)}</td>
+                    <td><span aria-label={x.stars_now ? `${x.stars_now} stars` : "not rated yet"}>{x.stars_now ? "★".repeat(x.stars_now) : "—"}</span></td>
+                    <td>{x.status}{x.run_survived ? " · came through a run" : ""}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+    );
+  }
   if (name === "crisis" && rec.crisis) {
     const c = rec.crisis;
     return (

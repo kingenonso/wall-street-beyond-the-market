@@ -118,11 +118,13 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
           { label: "Shares", value: Number(BigInt(p.shares_value_kobo) / 100n), color: "var(--info)", note: formatCompact(p.shares_value_kobo) },
           { label: "Bonds and bills", value: Number(BigInt(p.bonds_value_kobo) / 100n), color: "var(--build-am)", note: formatCompact(p.bonds_value_kobo) },
           ...(BigInt(p.property_kobo ?? "0") !== 0n ? [{ label: "Property, after what is owed", value: Math.max(Number(BigInt(p.property_kobo ?? "0") / 100n), 0), color: "var(--build-ib)", note: formatCompact(p.property_kobo ?? "0") }] : []),
+          ...(BigInt(p.funds_kobo ?? "0") > 0n ? [{ label: "Investment funds", value: Number(BigInt(p.funds_kobo ?? "0") / 100n), color: "var(--build-rm)", note: formatCompact(p.funds_kobo ?? "0") }] : []),
           { label: "Cash", value: Number((BigInt(p.cash_kobo) + BigInt(p.held_for_orders_kobo)) / 100n), color: "var(--border-strong)", note: formatCompact((BigInt(p.cash_kobo) + BigInt(p.held_for_orders_kobo)).toString()) },
         ]} />
         <p className="muted small" style={{ marginTop: 8 }}>
           Cash you can use now: {formatNaira(p.cash_kobo)}{BigInt(p.held_for_orders_kobo) > 0n ? `, plus ${formatNaira(p.held_for_orders_kobo)} held for your buy orders` : ""}.
           {BigInt(p.held_for_offers_kobo) + BigInt(p.offered_to_bidders_kobo) > 0n && <> Held for <a href="#/market/offers">offers you have answered</a>: {formatNaira((BigInt(p.held_for_offers_kobo) + BigInt(p.offered_to_bidders_kobo)).toString())}.</>}
+          {BigInt(p.funds_kobo ?? "0") > 0n && <> In <a href="#/market/funds">investment funds</a>: {formatNaira(p.funds_kobo ?? "0")}.</>}
           {BigInt(p.held_for_bids_kobo ?? "0") > 0n && <> Held for your <a href="#/property/auctions">bids at the Auction House</a>: {formatNaira(p.held_for_bids_kobo ?? "0")}.</>}
         </p>
       </Panel>

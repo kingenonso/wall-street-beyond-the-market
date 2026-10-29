@@ -84,9 +84,9 @@ OFF_VALUE_BPS = 2_000                # an option, future or building dealt 20% o
 MARKS_KEPT_DAYS = 2                  # device marks are kept this long
 LINKED_TRADES = 3                    # ...this many times between the same two players: they are linked
 CRISIS_WINDOW_DAYS = 15              # money pulled out in the fifteen game days before a bank closed
-SECTIONS = ("investing", "work", "calls", "audits", "journalism", "leadership", "crisis", "challenges")
+SECTIONS = ("investing", "work", "calls", "audits", "journalism", "leadership", "funds", "crisis", "challenges")
 SECTION_NAMES = {"investing": "Investing", "work": "Work and levels", "calls": "Calls put in writing", "audits": "Audits",
-                 "journalism": "Journalism", "leadership": "Leadership", "crisis": "Bank crises", "challenges": "Firm challenges",
+                 "journalism": "Journalism", "leadership": "Leadership", "funds": "Funds managed", "crisis": "Bank crises", "challenges": "Firm challenges",
                  "conduct": "Conduct"}
 
 
@@ -379,7 +379,7 @@ def crisis_conduct(conn: Connection, player_id) -> dict:
     return out
 
 
-CONDUCT_NAMES = {"theft": "Proved to have taken money from an empire"}
+CONDUCT_NAMES = {"theft": "Proved to have taken money from an empire or a fund"}
 
 
 def conduct(conn: Connection, player_id) -> dict:
@@ -406,7 +406,13 @@ def work_out(conn: Connection, player_id, now: datetime) -> dict:
     return {"investing": inv, "work": work(conn, player_id), "calls": calls(conn, player_id), "audits": audits(conn, player_id),
             "journalism": journalism(conn, player_id), "leadership": leadership(conn, player_id),
             "crisis": crisis_conduct(conn, player_id), "conduct": conduct(conn, player_id),
-            "challenges": challenge_record(conn, player_id), "worked_at": now}
+            "challenges": challenge_record(conn, player_id), "funds": fund_record(conn, player_id), "worked_at": now}
+
+
+def fund_record(conn: Connection, player_id) -> dict:
+    """Every investment fund the player has run (Part 2): its return against its benchmark, its stars, runs it came through."""
+    from simulation import funds
+    return funds.track_record(conn, player_id)
 
 
 # ---------------------------------------------------------------------------
@@ -442,6 +448,14 @@ def badges_from(rec: dict) -> list[tuple[str, str, str]]:
         out.append(("came_through_crisis", "Came through a bank crisis", "Had savings at a bank that closed, and lost nothing."))
     if cr["rescues_won"]:
         out.append(("bank_rescuer", "Bank rescuer", "Won the sale of a closed bank and put new money into it."))
+    fr = rec.get("funds") or {"funds": [], "five_star_quarters": 0, "runs_survived": 0}
+    if fr["five_star_quarters"]:
+        out.append(("five_star_fund", "Five-star fund", "Ran a fund that earned five stars against its peers."))
+    if fr["runs_survived"]:
+        out.append(("fund_run_survived", "Kept a fund through a run", "Ran a fund whose investors rushed for the door, and kept it going."))
+    if any(f["quarters_rated"] >= 4 and f["return_bps"] is not None and f["bench_bps"] is not None and f["return_bps"] > f["bench_bps"]
+           for f in fr["funds"]):
+        out.append(("fund_beat_benchmark", "Fund ahead of its benchmark", "Ran a fund for a game year or more, ahead of its benchmark."))
     if inv["days_counted"] >= 4 * 7 * 2 and rec["conduct"]["proved"] == 0:
         out.append(("clean_record", "Clean record", "Two game years of record with no wrongdoing proved."))
     for b in rec["work"]["builds"]:
@@ -465,6 +479,8 @@ def badge_section(code: str) -> str:
         return "work"
     if code.startswith("won_challenge_"):
         return "challenges"
+    if code.startswith(("five_star_fund", "fund_")):
+        return "funds"
     return {"sharp_calls": "calls", "clean_audits": "audits", "leads_held": "journalism", "trusted_head": "leadership",
             "came_through_crisis": "crisis", "bank_rescuer": "crisis", "clean_record": "conduct"}.get(code, "conduct")
 

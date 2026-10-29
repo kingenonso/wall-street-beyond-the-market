@@ -1098,3 +1098,13 @@ fieldset.check-list .check-line { display: flex; gap: 6px; align-items: center; 
 }
 .stack-label { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 .stack-label textarea { width: 100%; background: var(--input, var(--bg)); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 8px 10px; font: inherit; }
+
+/* Run Your Own Fund (the talent and funds stage, Part 2) */
+.fund-alert-region { inset: auto 16px 16px auto; background: none; display: block; z-index: 55; padding: 0; max-width: min(420px, calc(100vw - 32px)); }
+.fund-alert { border-color: var(--line); max-width: 420px; }
+.fund-alert .bank-alert-tag { color: var(--accent, var(--ink)); }
+.fund-alert .bank-alert-headline { font-size: 17px; }
+.fund-stars { color: var(--gold); letter-spacing: 1px; white-space: nowrap; }
+.fund-stars-off { color: var(--muted, var(--line)); opacity: 0.45; }
+.tag-warn { color: var(--down); border-color: var(--down); margin-left: 4px; }
+.fund-table td { vertical-align: top; }

@@ -59,6 +59,7 @@ log = logging.getLogger("wsbm.funds")
 UNIT = 1_000_000                       # unit prices in millionths of a kobo
 FIRST_PRICE = 100 * UNIT               # the first unit costs ₦1
 DEALING = "fund_dealing"               # the escrow account holding money waiting to come into a fund
+HOUSEHOLDS = "households:lagos"        # the computer's own investors: the households' savings, held for them in Lagos
 STRATEGIES = {
     "shares": "Nigerian shares", "banks": "Banks", "bonds": "Bonds and bills", "balanced": "Balanced (shares and bonds)",
     "anything": "Anything (shares and bonds, no fixed mix)",
@@ -190,7 +191,7 @@ def setup(conn: Connection, now: datetime) -> None:
     if _one(conn, "SELECT 1 AS x FROM investment_funds WHERE computer LIMIT 1"):
         return
     state = careers.world_now(conn, now)
-    public = ledger.account_id(conn, ledger.INVESTORS_PUBLIC)
+    public = ledger.account_id(conn, HOUSEHOLDS)
     for name, strategy, fee, seed in data.COMPUTER_FUNDS:
         account = ledger.create_account(conn, kind="fund", name=name)
         fund = _one(conn, "INSERT INTO investment_funds (name, name_key, account_id, computer, strategy, fee_bps, high_water, least_in,"
@@ -495,13 +496,13 @@ def trade_shares(conn: Connection, manager_id, *, ticker: str, side: str, quanti
             raise FundError("Buy or sell a whole number of shares above nothing.")
         if not isinstance(limit_price, int) or isinstance(limit_price, bool) or limit_price <= 0:
             raise FundError("A fund deals only at a price you name.")
+        if side == "buy":
+            check_buy(conn, fund, now, value=limit_price * quantity, company=share)
         try:
             empires.fair_dealing(share, side, "limit", limit_price, "A fund")
             empires.no_dealing_with_yourself(conn, fund["account_id"], share["id"], side, _insiders(conn, fund), "the fund")
         except empires.EmpireError as refused:
             raise FundError(str(refused)) from None
-        if side == "buy":
-            check_buy(conn, fund, now, value=limit_price * quantity, company=share)
         _front_running(conn, fund, share["id"], side, now)
         try:
             return exchange.place_order(conn, account=fund["account_id"], ticker=share["ticker"], side=side, kind="limit", quantity=quantity,
@@ -856,7 +857,7 @@ def _take_money_in(conn: Connection, fund: dict, total: int, now: datetime, day:
 
 
 def _run(conn: Connection, fund: dict, day: date, now: datetime) -> None:
-    public = ledger.account_id(conn, ledger.INVESTORS_PUBLIC)
+    public = ledger.account_id(conn, HOUSEHOLDS)
     held = _one(conn, "SELECT * FROM fund_units WHERE fund_id = %s AND account_id = %s", (fund["id"], public))
     if fund["run_until"] is None or fund["run_until"] < day:
         high = _one(conn, "SELECT max(unit_price) AS h FROM fund_days WHERE fund_id = %s AND session_date > %s", (fund["id"], day - timedelta(days=30)))["h"]
@@ -930,7 +931,7 @@ def _computer_rebalance(conn: Connection, fund: dict, now: datetime) -> None:
                 qty = min(qty, ledger.balance(conn, institutions, asset))
                 payer_s, receiver_s = institutions, fund["account_id"]
             else:
-                qty = min(qty, ledger.balance(conn, fund["account_id"], asset))
+                qty = min(qty, ledger.balance(conn, fund["account_id"], asset), max(ledger.balance(conn, institutions), 0) // max(s["price"], 1))
                 payer_s, receiver_s = fund["account_id"], institutions
             if qty <= 0:
                 continue
@@ -957,7 +958,7 @@ def _computer_rebalance(conn: Connection, fund: dict, now: datetime) -> None:
                 units = min(units, ledger.balance(conn, institutions, b["asset"]))
                 payer_b, receiver_b = institutions, fund["account_id"]
             else:
-                units = min(units, ledger.balance(conn, fund["account_id"], b["asset"]))
+                units = min(units, ledger.balance(conn, fund["account_id"], b["asset"]), max(ledger.balance(conn, institutions), 0) // fair)
                 payer_b, receiver_b = fund["account_id"], institutions
             if units <= 0:
                 continue
@@ -984,25 +985,26 @@ def _sell_everything(conn: Connection, fund: dict, now: datetime, period: int) -
         qty = ledger.balance(conn, fund["account_id"], asset)
         if qty <= 0:
             continue
-        amount = qty * s["price"] * 98 // 100
-        got = min(amount, max(ledger.balance(conn, institutions), 0))
-        if got <= 0:
+        each = max(s["price"] * 98 // 100, 1)
+        qty = min(qty, max(ledger.balance(conn, institutions), 0) // each)       # only as much as the dealers can pay for today
+        if qty <= 0:
             continue
         ledger.post(conn, kind="fund_wind_up", memo=f"{fund['name']}: {qty:,} {s['ticker']} sold as it closes", period=period,
                     legs=[ledger.Leg(fund["account_id"], -qty, asset), ledger.Leg(institutions, qty, asset),
-                          ledger.Leg(institutions, -got), ledger.Leg(fund["account_id"], got)])
+                          ledger.Leg(institutions, -qty * each), ledger.Leg(fund["account_id"], qty * each)])
     state = bonds.market(conn, now)
     for line in bonds.holdings_of(conn, fund["account_id"], now):
         b = bonds.find(conn, line["code"])
         units = ledger.balance(conn, fund["account_id"], b["asset"])
         if units <= 0:
             continue
-        got = min(units * bonds.fair_value(b, state) * 99 // 100, max(ledger.balance(conn, institutions), 0))
-        if got <= 0:
+        each = max(bonds.fair_value(b, state) * 99 // 100, 1)
+        units = min(units, max(ledger.balance(conn, institutions), 0) // each)
+        if units <= 0:
             continue
         ledger.post(conn, kind="fund_wind_up", memo=f"{fund['name']}: {units:,} of {b['name']} sold as it closes", period=period,
                     legs=[ledger.Leg(fund["account_id"], -units, b["asset"]), ledger.Leg(institutions, units, b["asset"]),
-                          ledger.Leg(institutions, -got), ledger.Leg(fund["account_id"], got)])
+                          ledger.Leg(institutions, -units * each), ledger.Leg(fund["account_id"], units * each)])
     for loan in _rows(conn, "SELECT * FROM fund_loans WHERE fund_id = %s AND status = 'open'", (fund["id"],)):
         paid = ledger.pay_up_to(conn, payer=fund["account_id"], receiver=institutions, wanted=loan["owed"], kind="fund_loan_repayment",
                                 memo=f"{fund['name']}: loan repaid as it closes", period=period)
@@ -1013,6 +1015,21 @@ def _sell_everything(conn: Connection, fund: dict, now: datetime, period: int) -
 def _wind_up(conn: Connection, fund: dict, day: date, now: datetime, period: int) -> None:
     _sell_everything(conn, fund, now, period)
     fund = _fund(conn, fund["id"])
+    left = _one(conn, "SELECT count(*) AS n FROM ledger_balances WHERE account_id = %s AND asset <> 'NGN' AND balance > 0", (fund["account_id"],))["n"]
+    if left or owed(conn, fund):
+        # The market's dealers could not take it all today: the rest is offered on the exchange, and the fund tries again at
+        # the next bell. Nobody is paid until everything is sold, so every holder gets the same.
+        for row in _rows(conn, "SELECT c.ticker, o.shares, m.reference_price FROM share_owners o JOIN companies c ON c.id = o.company_id"
+                               " JOIN market_instruments m ON m.company_id = o.company_id WHERE o.account_id = %s AND o.shares > 0",
+                         (fund["account_id"],)):
+            low, _ = exchange.price_limits(row["reference_price"])
+            try:
+                with conn.transaction():
+                    exchange.place_order(conn, account=fund["account_id"], ticker=row["ticker"], side="sell", kind="limit", quantity=row["shares"],
+                                         limit_price=max(row["reference_price"] * 98 // 100, low), now=now)
+            except (exchange.ExchangeError, ledger.LedgerError):
+                continue
+        return
     cash = max(ledger.balance(conn, fund["account_id"]), 0)
     units_all = fund["units"]
     holders = _rows(conn, "SELECT * FROM fund_units WHERE fund_id = %s AND units > 0 ORDER BY account_id", (fund["id"],))
@@ -1202,7 +1219,7 @@ def stars_of(conn: Connection, fund_id) -> int | None:
 
 def _computer_money(conn: Connection, fund: dict, period: int, now: datetime) -> None:
     """The households follow the stars: money in to good funds, out of poor ones, at the next bell."""
-    public = ledger.account_id(conn, ledger.INVESTORS_PUBLIC)
+    public = ledger.account_id(conn, HOUSEHOLDS)
     total = worth(conn, fund, now)
     if total <= 0:
         return
@@ -1271,19 +1288,21 @@ def _news(conn: Connection, kind: str, fund: dict, now: datetime, facts: dict) -
     news.publish(conn, period=w["period"], day=w["day"], kind=kind, story=f"fund:{fund['id']}:{kind}", facts=facts)
 
 
-def alerts_for(conn: Connection, player_id, after: int | None, now: datetime) -> list[dict]:
+def alerts_for(conn: Connection, player_id, after: int | None, now: datetime) -> dict:
     """The pop-ups a player should see: everybody's, and those of the funds they (or their empire) hold or follow."""
     accounts = [ledger.player_account_id(conn, player_id)]
     seat = empires.seat_of(conn, player_id)
     if seat and seat["empire_kind"] != "pension":
         accounts.append(seat["account_id"])
     since = after if after is not None else (_one(conn, "SELECT coalesce(max(id), 0) AS m FROM fund_alerts WHERE at < %s", (now - timedelta(hours=24),))["m"])
-    return _rows(conn, "SELECT a.id, a.kind, a.headline, a.words, a.at, a.fund_id, f.name AS fund FROM fund_alerts a JOIN investment_funds f ON f.id = a.fund_id"
+    found = _rows(conn, "SELECT a.id, a.kind, a.headline, a.words, a.at, a.fund_id, f.name AS fund FROM fund_alerts a JOIN investment_funds f ON f.id = a.fund_id"
                        " WHERE a.id > %s AND (a.everyone OR EXISTS (SELECT 1 FROM fund_units u WHERE u.fund_id = a.fund_id AND u.account_id = ANY(%s) AND u.units > 0)"
                        " OR EXISTS (SELECT 1 FROM fund_follows w WHERE w.fund_id = a.fund_id AND w.player_id = %s)"
                        " OR (a.kind = 'merged' AND EXISTS (SELECT 1 FROM fund_merges m JOIN fund_units u ON u.fund_id = m.into_fund"
                        "     WHERE m.from_fund = a.fund_id AND u.account_id = ANY(%s) AND u.units > 0)))"
                        " ORDER BY a.id LIMIT 5", (since, accounts, player_id, accounts))
+    newest = _one(conn, "SELECT coalesce(max(id), 0) AS m FROM fund_alerts")["m"]
+    return {"mark": found[-1]["id"] if len(found) == 5 else max(newest, since), "alerts": found}
 
 
 # ---------------------------------------------------------------------------
@@ -1295,11 +1314,11 @@ def held_value(conn: Connection, account, now: datetime | None = None) -> int:
     if not ready(conn):
         return 0
     total = 0
-    for h in _rows(conn, "SELECT u.units, f.* FROM fund_units u JOIN investment_funds f ON f.id = u.fund_id WHERE u.account_id = %s AND u.units > 0",
+    for h in _rows(conn, "SELECT f.*, u.units AS held FROM fund_units u JOIN investment_funds f ON f.id = u.fund_id WHERE u.account_id = %s AND u.units > 0",
                    (account,)):
         last = _one(conn, "SELECT unit_price FROM fund_days WHERE fund_id = %s ORDER BY session_date DESC LIMIT 1", (h["id"],))
         price = last["unit_price"] if last else FIRST_PRICE
-        total += value_of(h["units"], price * (BPS - data.INVEST_FUND_SWING_BPS) // BPS)
+        total += value_of(h["held"], price * (BPS - data.INVEST_FUND_SWING_BPS) // BPS)
     total += _one(conn, "SELECT coalesce(sum(amount), 0)::bigint AS t FROM fund_orders WHERE account_id = %s AND side = 'in' AND status = 'waiting'",
                   (account,))["t"]
     return total
@@ -1354,7 +1373,7 @@ def _summary(conn: Connection, fund: dict, now: datetime) -> dict:
     first = days[0]["unit_price"] if days else FIRST_PRICE
     return {
         "id": fund["id"], "name": fund["name"], "strategy": fund["strategy"], "strategy_name": STRATEGIES[fund["strategy"]],
-        "manager": _manager_name(conn, fund), "manager_id": str(fund["manager_id"]) if fund["manager_id"] else None,
+        "manager": _manager_name(conn, fund),
         "computer": fund["computer"], "regulator_run": fund["regulator_run"], "status": fund["status"], "gated": fund["gated_at"] is not None,
         "run": bool(fund["run_until"] and fund["run_until"] >= exchange.session_of(now)[0]),
         "fee_bps": fund["fee_bps"], "perf_fee_bps": fund["perf_fee_bps"], "least_in": fund["least_in"],
@@ -1439,11 +1458,11 @@ def mine(conn: Connection, player_id, now: datetime) -> dict:
     accounts = [(me, "you")] + ([(seat["account_id"], "empire")] if seat and seat["empire_kind"] != "pension" else [])
     lines = []
     for account, whose in accounts:
-        for h in _rows(conn, "SELECT u.units, u.leaving, f.* FROM fund_units u JOIN investment_funds f ON f.id = u.fund_id WHERE u.account_id = %s"
+        for h in _rows(conn, "SELECT f.*, u.units AS held, u.leaving AS held_leaving FROM fund_units u JOIN investment_funds f ON f.id = u.fund_id WHERE u.account_id = %s"
                              " AND u.units > 0 ORDER BY f.name", (account,)):
             s = _summary(conn, h, now)
-            lines.append({**s, "whose": whose, "units": h["units"], "leaving": h["leaving"],
-                          "value": value_of(h["units"], s["unit_price"] * (BPS - data.INVEST_FUND_SWING_BPS) // BPS)})
+            lines.append({**s, "whose": whose, "units": h["held"], "leaving": h["held_leaving"],
+                          "value": value_of(h["held"], s["unit_price"] * (BPS - data.INVEST_FUND_SWING_BPS) // BPS)})
     waiting = _rows(conn, "SELECT o.id, o.side, o.amount, o.units, o.placed_at, f.name AS fund, f.id AS fund_id FROM fund_orders o"
                           " JOIN investment_funds f ON f.id = o.fund_id WHERE o.player_id = %s AND o.status = 'waiting' ORDER BY o.id", (player_id,))
     return {"lines": lines, "waiting": waiting, "value": sum(line["value"] for line in lines if line["whose"] == "you")}

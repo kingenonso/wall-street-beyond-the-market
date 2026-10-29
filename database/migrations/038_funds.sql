@@ -162,3 +162,7 @@ CREATE TABLE fund_progress (
     dealt_through    date
 );
 INSERT INTO fund_progress (id) VALUES (true);
+
+-- Proven Talent shows the funds a player has run, as its own section.
+ALTER TABLE talent_settings ALTER COLUMN show SET DEFAULT ARRAY['investing', 'work', 'calls', 'audits', 'journalism', 'leadership', 'funds',
+                                                                  'crisis', 'challenges'];

@@ -47,7 +47,7 @@ def test_r1_conduct_shows_what_was_proved_and_when_never_the_sums(db):
     s = talent.share(db, pid, True, OPEN)
     page = repr(talent.public_view(db, s["slug"]))
     assert "₦" not in page and "owed" not in page and "salary" not in page
-    assert talent.public_view(db, s["slug"])["record"]["conduct"]["entries"][0]["words"] == "Proved to have taken money from an empire"
+    assert talent.public_view(db, s["slug"])["record"]["conduct"]["entries"][0]["words"] == "Proved to have taken money from an empire or a fund"
 
 
 def test_r2_a_hidden_part_of_the_record_stays_hidden_from_the_board_the_badges_and_the_shared_page(db):

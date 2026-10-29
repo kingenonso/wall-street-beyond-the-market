@@ -110,7 +110,10 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     stage, Part 1 added savings at the banks (test_crises*.py): a player moves their own money, or the head their empire's
     within what they may sign for, between cash and savings, only through the ledger. The talent and funds stage, Part 1
     added Proven Talent (test_talent*.py): a player shares their own record and answers invitations and challenges; a firm
-    signs up, confirms by email, and invites or sets challenges; challenge trades are on paper and move no money."""
+    signs up, confirms by email, and invites or sets challenges; challenge trades are on paper and move no money.
+    Part 2 added investment funds (test_funds*.py): a player puts their own money (or the head their empire's, within what
+    they may sign for) into a fund or asks it back, dealt at the next bell through the ledger; a manager acts only on the fund
+    they run, under its rules, and every naira moves through the ledger."""
     from server.main import app
 
     writes = sorted(
@@ -242,6 +245,20 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/firms/pay-out"),
         ("POST", "/api/firms/restructurings"),
         ("POST", "/api/firms/signup"),
+        ("POST", "/api/funds/launch"),
+        ("POST", "/api/funds/manage/bonds"),
+        ("POST", "/api/funds/manage/close"),
+        ("POST", "/api/funds/manage/costs"),
+        ("POST", "/api/funds/manage/fees"),
+        ("POST", "/api/funds/manage/gate"),
+        ("POST", "/api/funds/manage/merge"),
+        ("POST", "/api/funds/manage/merges/{merge_id}"),
+        ("POST", "/api/funds/manage/shares"),
+        ("POST", "/api/funds/manage/shares/{order_id}/cancel"),
+        ("POST", "/api/funds/orders/{order_id}/cancel"),
+        ("POST", "/api/funds/{fund_id}/follow"),
+        ("POST", "/api/funds/{fund_id}/invest"),
+        ("POST", "/api/funds/{fund_id}/leave"),
         ("POST", "/api/instruments/exercises/{exercise_id}/cancel"),
         ("POST", "/api/instruments/{code}/exercise"),
         ("POST", "/api/instruments/{code}/trade"),
