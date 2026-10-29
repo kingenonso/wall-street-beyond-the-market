@@ -730,6 +730,9 @@ def _runner(conn: Connection, account: dict):
     if account["kind"] == "empire":
         row = _one(conn, "SELECT head_player_id FROM empires WHERE account_id = %s", (account["id"],))
         return row["head_player_id"] if row else None
+    if account["kind"] == "fund":
+        row = _one(conn, "SELECT manager_id FROM investment_funds WHERE account_id = %s", (account["id"],))
+        return row["manager_id"] if row else None
     return None
 
 

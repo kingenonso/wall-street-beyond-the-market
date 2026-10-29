@@ -21,6 +21,7 @@ CREATE TABLE investment_funds (
     least_in           bigint NOT NULL CHECK (least_in > 0),
     status             text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closing', 'closed', 'merged')),
     gated_at           timestamptz,                                                    -- leavers are paid only in part
+    gate_lifted_at     timestamptz,                                                    -- a gate cannot go straight back up
     gate_bps           integer NOT NULL DEFAULT 1000,
     units              bigint NOT NULL DEFAULT 0 CHECK (units >= 0),
     launched_at        timestamptz NOT NULL,

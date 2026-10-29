@@ -938,8 +938,11 @@ def no_dealing_with_yourself(conn: Connection, account, company_id, side: str, i
 
 
 def _insiders(conn: Connection, empire_id) -> list:
+    # Its people's own accounts, and the investment funds any of them manage (the talent and funds stage, Part 2).
     return [r["id"] for r in _rows(conn, "SELECT a.id FROM empire_seats s JOIN ledger_accounts a ON a.player_id = s.player_id"
-                                         " WHERE s.empire_id = %s", (empire_id,))]
+                                         " WHERE s.empire_id = %s UNION SELECT f.account_id FROM empire_seats s JOIN investment_funds f"
+                                         " ON f.manager_id = s.player_id AND f.status IN ('open', 'closing') WHERE s.empire_id = %s",
+                                   (empire_id, empire_id))]
 
 
 def own_order_allowed(conn: Connection, account, company_id, side: str) -> None:
@@ -948,10 +951,11 @@ def own_order_allowed(conn: Connection, account, company_id, side: str) -> None:
     theirs = [r["account_id"] for r in _rows(
         conn, "SELECT e.account_id FROM ledger_accounts a JOIN empire_seats s ON s.player_id = a.player_id JOIN empires e ON e.id = s.empire_id"
               " WHERE a.id = %s UNION SELECT e.account_id FROM ledger_accounts a JOIN empires e ON e.head_player_id = a.player_id"
-              " AND e.kind = 'pension' WHERE a.id = %s", (account, account))]
+              " AND e.kind = 'pension' WHERE a.id = %s UNION SELECT f.account_id FROM ledger_accounts a JOIN investment_funds f"
+              " ON f.manager_id = a.player_id AND f.status IN ('open', 'closing') WHERE a.id = %s", (account, account, account))]
     if theirs and _one(conn, "SELECT 1 FROM market_orders WHERE account_id = ANY(%s) AND company_id = %s AND side <> %s AND status = 'open' LIMIT 1",
                        (theirs, company_id, side)):
-        raise EmpireError("Your empire, or the pension fund you manage, has an order waiting in this share on the other side. "
+        raise EmpireError("Your empire, or a fund you manage, has an order waiting in this share on the other side. "
                           "You cannot deal with it yourself.")
 
 

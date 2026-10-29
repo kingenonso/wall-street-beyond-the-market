@@ -76,19 +76,19 @@ export function FundsWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void;
         if (!ids.length) return null;
         return (
           <Panel key={key} title={data.strategies[key]} aside={data.strategy_words[key]}>
-            <div className="table-scroll">
+            <div className="table-scroll" tabIndex={0} role="region" aria-label={`${data.strategies[key]} funds`}>
               <table className="mini-table fund-table">
                 <caption className="sr-only">{data.strategies[key]} funds, best rated first</caption>
                 <thead><tr><th scope="col">Fund</th><th scope="col">Stars</th><th scope="col" className="num">Today</th><th scope="col" className="num">Quarter</th>
                   <th scope="col" className="num">Year</th><th scope="col" className="num">Since launch</th><th scope="col" className="num">Fee</th>
-                  <th scope="col" className="num">Size</th><th scope="col" className="num">Holders</th></tr></thead>
+                  <th scope="col" className="num">Size</th></tr></thead>
                 <tbody>
                   {ids.map((id) => {
                     const f = byId.get(id)!;
                     return (
                       <tr key={id}>
                         <td><button className="link-button strong" onClick={() => setOpen(id)}>{f.name}</button>
-                          <div className="muted small">{f.manager} <Tags f={f} /></div></td>
+                          <div className="muted small">{f.manager}{f.computer ? "" : ` · ${units(f.holders)} holder${f.holders === 1 ? "" : "s"}`} <Tags f={f} /></div></td>
                         <td><Stars n={f.stars} /></td>
                         <td className="num"><Change bps={f.day_bps} /></td>
                         <td className="num"><Change bps={f.quarter_bps} /></td>
@@ -96,7 +96,6 @@ export function FundsWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void;
                         <td className="num"><Change bps={f.since_bps} /></td>
                         <td className="num mono">{formatPercent(f.fee_bps, 2)}{f.perf_fee_bps ? <span className="muted small"> +{formatPercent(f.perf_fee_bps, 0)}</span> : null}</td>
                         <td className="num mono">{formatCompact(f.worth)}</td>
-                        <td className="num mono">{units(f.holders)}</td>
                       </tr>
                     );
                   })}
@@ -155,7 +154,7 @@ function FundSheetView({ id, onBack, onLoggedOut, onChanged }: { id: number; onB
         {f.words && <p className="small muted">“{f.words}”</p>}
         <div className="tiles">
           <NumberTile label="A unit" value={unitNaira(f.unit_price)} change={f.day_bps} note="at the last closing bell" />
-          <NumberTile label="Size of the fund" value={formatCompact(f.worth)} note={`${units(f.holders)} holders`} />
+          <NumberTile label="Size of the fund" value={formatCompact(f.worth)} note={`${units(f.holders)} holder${f.holders === 1 ? "" : "s"}${f.computer ? " (the households, as one)" : ""}`} />
           <NumberTile label="Over a year" value={f.year_bps === null ? "n/a" : <Change bps={f.year_bps} />} note={`benchmark: ${f.benchmark}`} />
           <NumberTile label="Worst fall from a high" value={formatPercent(f.worst_fall_bps)} />
           <NumberTile label="Fees" value={`${formatPercent(f.fee_bps, 2)} a year`} note={f.perf_fee_bps ? `and ${formatPercent(f.perf_fee_bps, 0)} of gains above its best` : "no performance fee"} />
@@ -191,13 +190,13 @@ function FundSheetView({ id, onBack, onLoggedOut, onChanged }: { id: number; onB
         {!f.holdings ? <p className="muted small">Nothing published yet: a fund's holdings appear a quarter after the quarter they are for.</p> : (
           <>
             <p className="small muted">At the end of {f.holdings.label} · cash {formatPercent(f.holdings.cash_bps)}</p>
-            {f.holdings.lines.map((l) => <div key={l.ticker} className="row small"><span>{l.name ?? l.ticker} <span className="ticker">{l.ticker}</span></span><span className="mono">{formatPercent(l.weight_bps)}</span></div>)}
+            {f.holdings.lines.map((l) => <div key={l.ticker} className="row small"><span>{l.name ?? l.ticker}{l.name && <> <span className="ticker">{l.ticker}</span></>}</span><span className="mono">{formatPercent(l.weight_bps)}</span></div>)}
           </>
         )}
       </Panel>
       <Panel title="Quarter by quarter">
         {f.quarters.length === 0 ? <p className="muted small">Not yet a full quarter.</p> : (
-          <div className="table-scroll">
+          <div className="table-scroll" tabIndex={0} role="region" aria-label="The fund's quarters">
             <table className="mini-table">
               <caption className="sr-only">The fund's quarters</caption>
               <thead><tr><th scope="col">Quarter</th><th scope="col">Stars</th><th scope="col" className="num">Quarter</th><th scope="col" className="num">Year</th>

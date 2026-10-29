@@ -1379,7 +1379,7 @@ export type FundsPage = {
 };
 export type FundSheet = FundSummary & {
   words: string; strategy_words: string; benchmark: string; rules: string[];
-  chart: { day: string; fund_bps: number; bench_bps: number | null }[]; flows: { day: string; in: Kobo; out: Kobo }[];
+  chart: { day: string; fund_bps: number; bench_bps: number | null }[];
   quarters: { period: number; label: string; stars: number | null; quarter_bps: number | null; year_bps: number | null; bench_bps: number | null; risk_ratio: number | null; holders: number }[];
   holdings: null | { label: string; lines: { ticker: string; name?: string; weight_bps: number }[]; cash_bps: number };
   mine: { units: number; leaving: number; value: Kobo }; empire?: { units: number; leaving: number; value: Kobo; head: boolean };
