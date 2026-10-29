@@ -480,7 +480,8 @@ export function FirmPortal({ route }: { route: string[] }) {
       <main id="main" className="public-main">
         {firm === undefined && <p className="muted">Loading…</p>}
         {firm === null && <FirmAuth onIn={setFirm} />}
-        {firm && firm.status !== "approved" && (
+        {firm && !firm.email_confirmed && <FirmConfirm firm={firm} onDone={setFirm} />}
+        {firm && firm.email_confirmed && firm.status !== "approved" && (
           <Panel title="Waiting for approval">
             <p className="small">Thank you. An administrator looks at every firm before it can see the talent board or set challenges. You will be able to use it as soon as {firm.name} is approved.</p>
           </Panel>
@@ -488,6 +489,35 @@ export function FirmPortal({ route }: { route: string[] }) {
         {firm && firm.status === "approved" && <FirmDesk firm={firm} route={route} onLoggedOut={() => setFirm(null)} />}
       </main>
     </div>
+  );
+}
+
+function FirmConfirm({ firm, onDone }: { firm: Firm; onDone: (f: Firm) => void }) {
+  const [code, setCode] = useState("");
+  const [shown, setShown] = useState<string | null>(firm.code_shown_on_screen ?? null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function submit(e: FormEvent) {
+    e.preventDefault(); setBusy(true); setError(null);
+    try { onDone(await api.firmConfirm(code)); } catch (p) { setError(problemWords(p)); } finally { setBusy(false); }
+  }
+  async function again() {
+    setBusy(true); setError(null);
+    try { const f = await api.firmNewCode(); setShown(f.code_shown_on_screen ?? null); } catch (p) { setError(problemWords(p)); } finally { setBusy(false); }
+  }
+  return (
+    <Panel title="Confirm your email address">
+      <p className="small">We sent a six-figure code to the address you signed up with. An administrator approves a firm only once its address is confirmed.</p>
+      {shown && <p className="small test-mode">No email service is connected here, so the code is shown instead: <span className="mono">{shown}</span></p>}
+      <form onSubmit={submit} className="stack-form">
+        <label className="answer">Code <input inputMode="numeric" pattern="[0-9]{6}" required value={code} onChange={(e) => setCode(e.target.value.trim())} /></label>
+        {error && <p className="error" role="alert">{error}</p>}
+        <div className="button-row">
+          <button className="button-primary" disabled={busy}>Confirm</button>
+          <button type="button" className="button-quiet" disabled={busy} onClick={again}>Send a new code</button>
+        </div>
+      </form>
+    </Panel>
   );
 }
 
@@ -679,8 +709,8 @@ function FirmChallengesDesk({ firm, onLoggedOut }: { firm: Firm; onLoggedOut: ()
           {needsCompany && <label className="answer">Company (three letters) <input required maxLength={3} value={form.ticker} onChange={(e) => setForm({ ...form, ticker: e.target.value.toUpperCase() })} /></label>}
           {form.kind === "paper" && <label className="answer">Paper cash for each entrant, ₦ <input type="number" min={1000000} max={100000000000} value={form.starting_cash_naira} onChange={set("starting_cash_naira")} /></label>}
           <label className="answer">Starts (Lagos time) <input type="datetime-local" required value={form.opens_at} onChange={set("opens_at")} /></label>
-          {form.kind !== "live" && <label className="answer">Closes to new entrants and answers (optional) <input type="datetime-local" value={form.locks_at} onChange={set("locks_at")} /></label>}
-          <label className="answer">Ends <input type="datetime-local" required value={form.ends_at} onChange={set("ends_at")} /></label>
+          {form.kind !== "live" && <label className="answer">Closes to new entrants and answers (Lagos time, optional) <input type="datetime-local" value={form.locks_at} onChange={set("locks_at")} /></label>}
+          <label className="answer">Ends (Lagos time) <input type="datetime-local" required value={form.ends_at} onChange={set("ends_at")} /></label>
           <label className="answer">How many of the best finishers you may see <input type="number" min={1} max={50} value={form.top_shown} onChange={set("top_shown")} /></label>
           {state.error && <p className="error" role="alert">{state.error}</p>}
           {state.done && <p className="notice" role="status">{state.done}</p>}

@@ -20,7 +20,7 @@ from fastapi import Cookie, Depends, HTTPException, Query, Response, status
 from fastapi import Path as FastPath
 from fastapi import Request as HttpRequest
 from psycopg import Connection
-from psycopg.errors import DeadlockDetected, UniqueViolation
+from psycopg.errors import CheckViolation, DeadlockDetected, UniqueViolation
 from pydantic import EmailStr, Field
 
 from server import emails, limits, security
@@ -55,10 +55,12 @@ def _refuse(error: Exception) -> HTTPException:
 def _act(conn: Connection, who: str, action, bucket: str = "talent", attempts: int = 30):
     limits.allow(bucket, who, attempts=attempts, per_seconds=60)
     try:
-        return action(_exchange_time(conn))
+        # All of it or none of it: the locks the action takes hold until it is saved, so two requests at once take turns.
+        with conn.transaction():
+            return action(_exchange_time(conn))
     except (talent.TalentError, challenges.ChallengeError, firms.FirmError) as refused:
         raise _refuse(refused) from None
-    except DeadlockDetected:
+    except (DeadlockDetected, UniqueViolation, CheckViolation):
         raise HTTPException(status.HTTP_409_CONFLICT, "Somebody else changed this at the same moment. Please try again.") from None
 
 
@@ -220,6 +222,10 @@ class FirmSignUp(Request):
     colour: str = Field(default="#2f6f9f", pattern="^#[0-9a-f]{6}$")
 
 
+class FirmCode(Request):
+    code: str = Field(pattern="^[0-9]{6}$")
+
+
 class FirmLogin(Request):
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)
@@ -285,8 +291,45 @@ def firm_signup(body: FirmSignUp, request: HttpRequest, response: Response):
             raise _refuse(refused) from None
         except UniqueViolation:
             raise HTTPException(status.HTTP_409_CONFLICT, "A firm with that name or email has already signed up.") from None
+        shown = _send_code(conn, row)
     _firm_session(response, row)
-    return _firm_public(row)
+    return {**_firm_public(row), "code_shown_on_screen": shown}
+
+
+def _send_code(conn: Connection, row: dict) -> str | None:
+    """A code is sent to the firm's address; it proves the address before an administrator will approve the firm. With no
+    email service connected (on a home computer), it is shown on the screen instead."""
+    code = emails.new_code()
+    firms.set_code(conn, row["id"], emails.hash_code(row["email_key"], code), emails.CODE_MINUTES)
+    try:
+        emails.send(row["email"], "Your Wall Street: Beyond the Market firm code",
+                    f"Your code is {code}\n\nType it into the firms' page to confirm this address. It works for {emails.CODE_MINUTES} minutes.\n\n"
+                    "If you did not sign a firm up, ignore this email.")
+    except Exception:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "We could not send the email. Please ask for a new code in a moment.") from None
+    return code if emails.shown_on_screen() else None
+
+
+@app.post("/api/firms/confirm")
+def firm_confirm(body: FirmCode, firm: dict = Depends(current_firm), conn: Connection = Depends(get_connection)):
+    limits.allow("firm-confirm", str(firm["id"]), attempts=10, per_seconds=900)
+    try:
+        with conn.transaction():
+            right = firms.confirm(conn, firm["id"], lambda stored: emails.code_matches(firm["email_key"], body.code, stored), _exchange_time(conn),
+                                  emails.MAX_WRONG_GUESSES)
+    except firms.FirmError as refused:
+        raise _refuse(refused) from None
+    if not right:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "That code is not right.")
+    return _firm_public(conn.execute("SELECT * FROM talent_firms WHERE id = %s", (firm["id"],)).fetchone())
+
+
+@app.post("/api/firms/new-code")
+def firm_new_code(firm: dict = Depends(current_firm), conn: Connection = Depends(get_connection)):
+    limits.allow("firm-new-code", str(firm["id"]), attempts=3, per_seconds=900)
+    if firm["email_confirmed_at"] is not None:
+        return {**_firm_public(firm), "code_shown_on_screen": None}
+    return {**_firm_public(firm), "code_shown_on_screen": _send_code(conn, firm)}
 
 
 @app.post("/api/firms/login")

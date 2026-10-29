@@ -145,8 +145,16 @@ def test_the_board_needs_a_long_enough_record(db):
 def _approved_firm(db, name="Lagoon Capital"):
     firm = firms.sign_up(db, name=name, email=f"{firms.name_key(name)}@example.com", email_key=f"{firms.name_key(name)}@example.com",
                          password_hash="x", contact_name="Ife Ade", website="https://example.com", tagline="We hire", colour="#123456", now=OPEN)
+    db.execute("UPDATE talent_firms SET email_confirmed_at = %s WHERE id = %s", (OPEN, firm["id"]))
     firms.approve(db, firm["id"], OPEN)
     return firm
+
+
+def bell_after(db, moment):
+    """The closing bell of the trading day that ends with or after a moment (a paper portfolio is valued on that day)."""
+    day = clock.to_lagos(moment).date()
+    db.execute("INSERT INTO closing_bells (session_date, rung_at, content) VALUES (%s, %s, '{}') ON CONFLICT DO NOTHING", (day, bell(day)))
+    return day
 
 
 def _boarded(db, name):
@@ -217,6 +225,9 @@ def test_a_paper_portfolio_challenge_deals_at_live_prices_touches_nothing_real_a
     # The price rises (no trades on the last day: the reference price is the day's price): alpha (holding) comes first.
     db.execute("UPDATE market_instruments SET reference_price = %s WHERE company_id = (SELECT id FROM companies WHERE ticker = 'IDC')",
                (price * 11 // 10,))
+    challenges.tick(db, c["ends_at"] + timedelta(minutes=1))
+    assert _one(db, "SELECT status FROM talent_challenges WHERE id = %s", (c["id"],))["status"] == "open"   # its last day's bell not rung yet
+    bell_after(db, c["ends_at"])
     challenges.tick(db, c["ends_at"] + timedelta(minutes=1))
     scored = {r["player_id"]: r for r in _rows(db, "SELECT * FROM challenge_entries WHERE challenge_id = %s", (c["id"],))}
     assert scored[a]["place"] == 1 and scored[b]["place"] == 2
@@ -313,7 +324,7 @@ def test_a_trade_between_two_players_at_an_odd_price_is_a_gift_not_a_return_and_
     assert not talent.held_back(db, t)
 
 
-def test_players_from_one_device_who_trade_with_each_other_are_linked(db):
+def test_players_from_one_device_who_deal_with_each_other_at_odd_prices_are_linked(db):
     a, b = player_of(db, trader(db, "twin1")), player_of(db, trader(db, "twin2"))
     mark = talent.visitor_mark("k" * 40, "10.0.0.1", "Browser")
     talent.note_visit(db, a, mark, OPEN)
@@ -323,12 +334,17 @@ def test_players_from_one_device_who_trade_with_each_other_are_linked(db):
     price = reference(db)
     a_acc, b_acc = ledger.player_account_id(db, a), ledger.player_account_id(db, b)
     ledger.transfer(db, payer=ledger.account_id(db, ledger.TREASURY), receiver=a_acc, amount=naira(1_000_000), kind="test_cash", memo="t")
-    ledger.transfer(db, payer=ledger.account_id(db, ledger.INVESTORS_PUBLIC), receiver=b_acc, amount=100, asset="SHR-IDC", kind="test_shares",
+    ledger.transfer(db, payer=ledger.account_id(db, ledger.INVESTORS_PUBLIC), receiver=b_acc, amount=200, asset="SHR-IDC", kind="test_shares",
                     memo="t")
+    # Meeting on the order book at the market's price is not wrong either.
     place(db, b_acc, "sell", 100, price)
     place(db, a_acc, "buy", 100, price)
-    talent.note_visit(db, a, mark, OPEN + timedelta(days=1))
-    talent.note_visit(db, b, mark, OPEN + timedelta(days=1))
+    talent.check_trades(db, OPEN.date(), OPEN)
+    assert not talent.held_back(db, a)
+    # One deal at an odd price, from one device: linked.
+    place(db, b_acc, "sell", 100, price * 93 // 100)
+    place(db, a_acc, "buy", 100, price * 93 // 100)
+    talent.check_trades(db, OPEN.date(), OPEN)
     assert talent.held_back(db, a) and talent.held_back(db, b)
     # The address itself is never kept: only a keyed mark of it.
     assert "10.0.0.1" not in repr(_rows(db, "SELECT * FROM visitor_marks"))
@@ -353,6 +369,9 @@ def test_the_website_for_players_the_public_and_firms(db, client):
         assert made.status_code == 201, made.text
         assert firm.get("/api/me").status_code == 401
         assert firm.get("/api/firms/board").status_code == 403                 # waiting for approval
+        with pytest.raises(firms.FirmError, match="confirmed"):
+            firms.approve(db, made.json()["id"], OPEN)
+        assert firm.post("/api/firms/confirm", json={"code": made.json()["code_shown_on_screen"]}).json()["email_confirmed"] is True
         firms.approve(db, made.json()["id"], OPEN)
         assert firm.get("/api/firms/board").json()["players"] == []
         assert firm.post("/api/talent/share", json={"on": True}).status_code == 401

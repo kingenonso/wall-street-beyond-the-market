@@ -88,6 +88,11 @@ CREATE TABLE talent_firms (
     tagline          text NOT NULL DEFAULT '' CHECK (length(tagline) <= 140),
     colour           text NOT NULL DEFAULT '#2f6f9f' CHECK (colour ~ '^#[0-9a-f]{6}$'),
     status           text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'suspended')),
+    -- The email address is proved with a code before an administrator will approve the firm.
+    email_confirmed_at timestamptz,
+    code_hash        text,
+    code_expires_at  timestamptz,
+    wrong_guesses    integer NOT NULL DEFAULT 0,
     session_version  integer NOT NULL DEFAULT 1,
     created_at       timestamptz NOT NULL DEFAULT now(),
     approved_at      timestamptz

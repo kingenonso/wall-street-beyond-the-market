@@ -13,7 +13,7 @@ from simulation.money import naira
 from tests.conftest import ADULT, join
 from tests.test_crises import unlocked
 from tests.test_market import OPEN, place, reference, trader
-from tests.test_talent import T0, _approved_firm, _boarded, _paper, bell, filed_later, history, player_of
+from tests.test_talent import T0, _approved_firm, _boarded, _paper, bell, bell_after, filed_later, history, player_of
 
 
 def _one(db, sql, params=()):
@@ -92,6 +92,7 @@ def test_l3_one_small_trade_at_the_end_does_not_move_a_paper_portfolio(db):
     held_at_day = challenges.paper_value(db, entry, day) - entry["cash"]
     assert held_at_day <= 1_000 * price * 10_001 // 10_000             # the day's average price, not the last trade
     db.execute("INSERT INTO closing_bells (session_date, rung_at, content) VALUES (%s, %s, '{}')", (day, bell(day)))
+    bell_after(db, c["ends_at"])
     challenges.tick(db, c["ends_at"] + timedelta(minutes=1))
     score = _one(db, "SELECT score_words FROM challenge_entries WHERE id = %s", (entry["id"],))["score_words"]
     assert score.startswith("-")                                       # the dealing fee, and no lift
@@ -125,6 +126,7 @@ def test_l5_two_entries_from_one_device_are_scored_but_not_placed(db):
         challenges.join(db, c["id"], p, True, OPEN)
     challenges.paper_trade(db, c["id"], a, ticker="IDC", side="buy", quantity=1_000, now=OPEN)
     db.execute("UPDATE market_instruments SET reference_price = reference_price * 2 WHERE company_id = (SELECT id FROM companies WHERE ticker = 'IDC')")
+    bell_after(db, c["ends_at"])
     challenges.tick(db, c["ends_at"] + timedelta(minutes=1))
     places = {r["player_id"]: r for r in _rows(db, "SELECT * FROM challenge_entries WHERE challenge_id = %s", (c["id"],))}
     assert places[honest]["place"] == 1 and places[a]["place"] is None and places[b]["place"] is None
@@ -162,6 +164,7 @@ def test_l7_a_firm_sees_names_and_records_only_where_the_player_agreed(db):
     challenges.join(db, c["id"], open_, True, OPEN)
     challenges.paper_trade(db, c["id"], shy, ticker="IDC", side="buy", quantity=1_000, now=OPEN)
     db.execute("UPDATE market_instruments SET reference_price = reference_price * 2 WHERE company_id = (SELECT id FROM companies WHERE ticker = 'IDC')")
+    bell_after(db, c["ends_at"])
     challenges.tick(db, c["ends_at"] + timedelta(minutes=1))
     seen = challenges.firm_list(db, firm["id"], c["ends_at"] + timedelta(minutes=2))[0]
     assert "shy" not in repr(seen) and [f["name"] for f in seen["finishers"]] == ["open"]
@@ -209,6 +212,7 @@ def test_l9_a_firm_has_no_powers_in_the_world_and_a_suspended_firm_is_shut_out(d
         when = OPEN.isoformat()
         assert firm.post("/api/firms/challenges", json={"kind": "paper", "title": "Too early", "opens_at": when,
                                                         "ends_at": (OPEN + timedelta(days=2)).isoformat()}).status_code == 403
+        firm.post("/api/firms/confirm", json={"code": made.json()["code_shown_on_screen"]})
         firms.approve(db, fid, OPEN)
         for path, body in (("/api/orders", {"ticker": "IDC", "side": "buy", "kind": "market", "quantity": 1}),
                            ("/api/talent/share", {"on": True}), ("/api/savings/IKB/in", {"amount_naira": 1})):

@@ -110,7 +110,10 @@ def _close_due_quarters_once() -> None:
         # challenges that have ended are scored.
         if conn.execute("SELECT to_regclass('talent_records') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
             from simulation import talent
-            talent.tick(conn, now)
+            try:
+                talent.tick(conn, now)
+            except Exception:                       # a fault here must never hold up the auctions and the rest of the loop
+                log.exception("Proven Talent's daily working-out failed; it will be tried again.")
         # The Auction House settles every auction whose countdown has ended.
         if conn.execute("SELECT to_regclass('auctions') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
             auctions.run(conn, now)
@@ -502,7 +505,8 @@ def _note_visit(conn: Connection, player_id, request: Request) -> None:
         return
     from simulation import talent
     mark = talent.visitor_mark(get_settings().secret_key, limits.visitor(request), request.headers.get("user-agent", ""))
-    talent.note_visit(conn, player_id, mark, _exchange_time(conn))
+    with conn.transaction():
+        talent.note_visit(conn, player_id, mark, _exchange_time(conn))
 
 
 @app.patch("/api/me/profile-icon", response_model=PlayerResponse)

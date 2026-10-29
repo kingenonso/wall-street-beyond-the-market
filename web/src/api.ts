@@ -1122,6 +1122,8 @@ export const api = {
   firmSignup: (body: Record<string, string>) => request<Firm>("/firms/signup", { method: "POST", body: JSON.stringify(body) }),
   firmLogin: (email: string, password: string) => request<Firm>("/firms/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   firmLogout: () => request<void>("/firms/logout", { method: "POST" }),
+  firmConfirm: (code: string) => request<Firm>("/firms/confirm", { method: "POST", body: JSON.stringify({ code }) }),
+  firmNewCode: () => request<Firm>("/firms/new-code", { method: "POST" }),
   firmBoard: (q: { build?: string; least_level?: number; badge?: string; sort?: string }) => {
     const query = new URLSearchParams();
     if (q.build) query.set("build", q.build);
@@ -1332,9 +1334,10 @@ export type TalentPage = Omit<TalentView, "record"> & {
   invitations: TalentInvitation[];
   challenges: ChallengeItem[];
 };
-export type Firm = { id: string; name: string; contact_name: string; website: string; tagline: string; colour: string; status: "pending" | "approved" | "suspended"; created_at: string };
+export type Firm = { id: string; name: string; contact_name: string; website: string; tagline: string; colour: string; status: "pending" | "approved" | "suspended"; created_at: string;
+  email_confirmed: boolean; code_shown_on_screen?: string | null };
 export type BoardPlayer = { player_id: string; name: string; icon: ProfileIcon | null; headline: string; builds: { build: string; level: number; name: string }[];
-  days: number; total_bps: number | null; versus_index_bps: number | null; worst_fall_bps: number | null; risk_ratio: number | null;
-  calls_right_bps: number | null; proved: number; wins: number; badges: number; worked_at: string };
+  days: number | null; total_bps: number | null; versus_index_bps: number | null; worst_fall_bps: number | null; risk_ratio: number | null;
+  calls_right_bps: number | null; proved: number; wins: number | null; badges: number; worked_at: string };
 export type FirmInvitation = { id: number; status: string; sent_at: string; answered_at: string | null; contact: string | null; message: string; name?: string; player_id?: string };
 export type FirmChallenges = { challenges: ChallengeItem[]; kinds: Record<string, string>; kind_words: Record<string, string> };

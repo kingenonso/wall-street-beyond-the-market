@@ -42,7 +42,8 @@ def name_key(name: str) -> str:
 
 
 def public(firm: dict) -> dict:
-    return {k: firm[k] for k in ("id", "name", "contact_name", "website", "tagline", "colour", "status", "created_at")}
+    return {**{k: firm[k] for k in ("id", "name", "contact_name", "website", "tagline", "colour", "status", "created_at")},
+            "email_confirmed": firm.get("email_confirmed_at") is not None}
 
 
 def sign_up(conn: Connection, *, name: str, email: str, email_key: str, password_hash: str, contact_name: str, website: str,
@@ -62,7 +63,30 @@ def sign_up(conn: Connection, *, name: str, email: str, email_key: str, password
 
 
 def approve(conn: Connection, firm_id, now: datetime) -> None:
+    """An administrator approves a firm, once it has proved its email address."""
+    if not _one(conn, "SELECT 1 AS x FROM talent_firms WHERE id = %s AND email_confirmed_at IS NOT NULL", (firm_id,)):
+        raise FirmError("This firm has not confirmed its email address yet: it cannot be approved until it does.")
     conn.execute("UPDATE talent_firms SET status = 'approved', approved_at = coalesce(approved_at, %s) WHERE id = %s", (now, firm_id))
+
+
+def set_code(conn: Connection, firm_id, code_hash: str, minutes: int) -> None:
+    conn.execute("UPDATE talent_firms SET code_hash = %s, code_expires_at = now() + make_interval(mins => %s), wrong_guesses = 0"
+                 " WHERE id = %s AND email_confirmed_at IS NULL", (code_hash, minutes, firm_id))
+
+
+def confirm(conn: Connection, firm_id, matches, now: datetime, most_wrong: int) -> bool:
+    """`matches(code_hash)` says whether the code typed is the one sent. A few wrong guesses throw the code away."""
+    firm = _one(conn, "SELECT *, code_expires_at > now() AS live FROM talent_firms WHERE id = %s FOR UPDATE", (firm_id,))
+    if firm["email_confirmed_at"] is not None:
+        return True
+    if not firm["code_hash"] or not firm["live"]:
+        raise FirmError("That code has run out. Ask for a new one.")
+    if matches(firm["code_hash"]):
+        conn.execute("UPDATE talent_firms SET email_confirmed_at = %s, code_hash = NULL WHERE id = %s", (now, firm_id))
+        return True
+    conn.execute("UPDATE talent_firms SET wrong_guesses = wrong_guesses + 1, code_hash = CASE WHEN wrong_guesses + 1 >= %s THEN NULL"
+                 " ELSE code_hash END WHERE id = %s", (most_wrong, firm_id))
+    return False
 
 
 def suspend(conn: Connection, firm_id) -> None:
@@ -83,11 +107,25 @@ def _approved(conn: Connection, firm_id) -> dict:
 # ---------------------------------------------------------------------------
 
 def _on_board(conn: Connection) -> list[dict]:
-    rows = _rows(conn, "SELECT s.player_id, s.headline, r.summary, r.worked_at, p.display_name, p.profile_icon FROM talent_settings s"
+    rows = _rows(conn, "SELECT s.player_id, s.headline, s.show, r.summary, r.worked_at, p.display_name, p.profile_icon FROM talent_settings s"
                        " JOIN talent_records r ON r.player_id = s.player_id JOIN players p ON p.id = s.player_id WHERE s.on_board"
                        " AND NOT EXISTS (SELECT 1 FROM talent_flags f WHERE f.player_id = s.player_id AND f.kind = 'linked'"
                        "                 AND f.cleared_at IS NULL)")
     return [r for r in rows if (r["summary"].get("days") or 0) >= talent.BOARD_MIN_DAYS]
+
+
+def _visible(r: dict) -> dict:
+    """What the board shows of one player: only figures from the parts of the record they chose to show (conduct always)."""
+    s, show = r["summary"], set(r["show"] or [])
+    inv, calls, work, chal = "investing" in show, "calls" in show, "work" in show, "challenges" in show
+    shown_badges = [c for c in (s.get("badges") or []) if talent.badge_section(c) in show | {"conduct"}]
+    return {"player_id": r["player_id"], "name": r["display_name"], "icon": r["profile_icon"], "headline": r["headline"],
+            "builds": [{**b, "name": careers.BUILDS.get(b["build"], {}).get("name", b["build"])} for b in (s.get("builds") or [])] if work else [],
+            "days": s.get("days") if inv else None, "total_bps": s.get("total_bps") if inv else None,
+            "versus_index_bps": s.get("versus_index_bps") if inv else None, "worst_fall_bps": s.get("worst_fall_bps") if inv else None,
+            "risk_ratio": s.get("risk_ratio") if inv else None, "calls_right_bps": s.get("calls_right_bps") if calls else None,
+            "proved": s.get("proved"), "wins": s.get("wins") if chal else None, "badges": len(shown_badges), "badge_codes": shown_badges,
+            "worked_at": r["worked_at"]}
 
 
 def board(conn: Connection, firm_id, *, build: str | None = None, least_level: int = 0, badge: str | None = None,
@@ -98,19 +136,16 @@ def board(conn: Connection, firm_id, *, build: str | None = None, least_level: i
     for r in _on_board(conn):
         if r["player_id"] in blocked:
             continue
-        s = r["summary"]
-        builds = s.get("builds") or []
+        v = _visible(r)
+        builds = v["builds"]
         if build and not any(b["build"] == build and b["level"] >= least_level for b in builds):
             continue
         if not build and least_level and not any(b["level"] >= least_level for b in builds):
             continue
-        if badge and badge not in (s.get("badges") or []):
+        if badge and badge not in v["badge_codes"]:
             continue
-        out.append({"player_id": r["player_id"], "name": r["display_name"], "icon": r["profile_icon"], "headline": r["headline"],
-                    "builds": [{**b, "name": careers.BUILDS.get(b["build"], {}).get("name", b["build"])} for b in builds],
-                    "days": s.get("days"), "total_bps": s.get("total_bps"), "versus_index_bps": s.get("versus_index_bps"),
-                    "worst_fall_bps": s.get("worst_fall_bps"), "risk_ratio": s.get("risk_ratio"), "calls_right_bps": s.get("calls_right_bps"),
-                    "proved": s.get("proved"), "wins": s.get("wins"), "badges": len(s.get("badges") or []), "worked_at": r["worked_at"]})
+        del v["badge_codes"]
+        out.append(v)
     keys = {"versus_index": lambda x: x["versus_index_bps"] if x["versus_index_bps"] is not None else -10**9,
             "risk": lambda x: x["risk_ratio"] if x["risk_ratio"] is not None else -10**9,
             "calls": lambda x: x["calls_right_bps"] if x["calls_right_bps"] is not None else -1,
@@ -178,8 +213,10 @@ def answer(conn: Connection, player_id, invitation_id: int, accept: bool, contac
     contact = " ".join((contact or "").split())[:300]
     if accept and len(contact) < 5:
         raise FirmError("Type how the firm can reach you (an email address, for example). It is sent only to this firm.")
-    conn.execute("UPDATE talent_invitations SET status = %s, contact = %s, answered_at = %s WHERE id = %s",
-                 ("accepted" if accept else "declined", contact if accept else None, now, invitation_id))
+    done = conn.execute("UPDATE talent_invitations SET status = %s, contact = %s, answered_at = %s WHERE id = %s AND status = 'sent'"
+                        " RETURNING id", ("accepted" if accept else "declined", contact if accept else None, now, invitation_id)).fetchone()
+    if done is None:
+        raise FirmError("You have already answered this invitation.")
     return _one(conn, "SELECT * FROM talent_invitations WHERE id = %s", (invitation_id,))
 
 

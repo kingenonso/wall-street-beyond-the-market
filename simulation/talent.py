@@ -21,10 +21,13 @@ Only percentages and counts are shown, never how much money a player has.
 Badges are earned from the record, never bought; a few (a clean record) are lost again if it stops being true.
 
 Keeping it honest:
-  * a trade between two players at a price far from what everybody else paid that day hands value from one to the
-    other. The value handed over is taken out of the receiver's record as if it were a gift.
-  * players who trade like that with each other again and again, or who trade with each other from one device, are
-    "linked": they are kept off the talent board and out of challenge results until an administrator has looked.
+  * a trade between two accounts run by players (their own, their empires', the funds they manage) at a price far from
+    the market's hands value from one to the other: shares at a price far from what the market paid that day, options
+    and futures far from the dealers' own price, a building sold privately far from its value. The value handed over is
+    taken out of the receiver's record as if it were a gift.
+  * players who deal like that with each other again and again, or who deal at odd prices with each other from one
+    device, are "linked": they are kept off the talent board and out of challenge places until an administrator has
+    looked. Once cleared, a pair can be linked again by what they do afterwards.
   * none of these checks, and none of their results, is ever shown to a player.
 """
 
@@ -34,14 +37,18 @@ import hashlib
 import hmac
 import math
 import secrets
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+import logging
+
 from simulation import careers, clock, ledger
 from simulation.money import naira
+
+log = logging.getLogger("wsbm.talent")
 
 # Money that moves because of investing: it is part of the return. Anything else that reaches a player's cash is
 # money from outside (pay, fees, gifts) and is taken out before the return is worked out. A kind that is not listed
@@ -56,19 +63,24 @@ INVESTING_KINDS = frozenset({
     "derivative_fee", "derivative_margin", "derivative_margin_release", "derivative_order", "derivative_order_release",
     "swap_payment", "monte_carlo_fee", "intel_check",
     "savings_interest", "savings_placed", "savings_withdrawn", "deposit_interest", "deposit_placed", "deposit_withdrawn",
-    "bail_in", "fund_units", "fund_fee",
+    "bail_in", "fund_units", "buy_in", "share_issue", "preferred_issue", "bond_issue",
     "margin_loan", "personal_loan", "loan_repayment", "player_loan_interest", "lending_fee", "share_loan",
     "short_collateral", "short_release", "shortfall_repayment", "forced_sale",
     "auction_hold", "auction_release", "property_sale", "property_forced_sale", "rent", "lease_rent", "property_tax",
     "land_registration", "mortgage_loan", "mortgage_interest", "mortgage_repayment", "capital_spending",
     "crash_premium", "crash_payout", "crash_cover",
 })
+# Money of these kinds is part of the return when the player pays it, but pay for work when they receive it: a fund's fee
+# paid to its manager is earned by managing, not by investing.
+PAID_IS_INVESTING = frozenset({"fund_fee"})
 
 MIN_BASE = naira(100_000)            # a day is not counted when the player had less than this to invest
 SESSIONS_PER_YEAR = 28               # a trading day each real day; seven to a game quarter
 DAY_CLAMP = (-0.95, 3.0)             # one day's return is never taken as more extreme than this
 BOARD_MIN_DAYS = 14                  # two game quarters of counted days before a record can be on the board
 OFF_MARKET_BPS = 500                 # a trade 5% or more away from what everybody else paid that day
+OFF_VALUE_BPS = 2_000                # an option, future or building dealt 20% or more away from its value
+MARKS_KEPT_DAYS = 2                  # device marks are kept this long
 LINKED_TRADES = 3                    # ...this many times between the same two players: they are linked
 CRISIS_WINDOW_DAYS = 15              # money pulled out in the fifteen game days before a bank closed
 SECTIONS = ("investing", "work", "calls", "audits", "journalism", "leadership", "crisis", "challenges")
@@ -143,13 +155,13 @@ def _price_then(conn: Connection, asset: str, at: datetime) -> int:
 
 def outside_money(conn: Connection, account, since: datetime | None = None) -> list[tuple[datetime, int]]:
     """Every movement of value into (+) or out of (-) an account that did not come from investing, with its moment."""
-    rows = _rows(conn, "SELECT t.created_at, e.asset, sum(e.amount)::bigint AS amount FROM ledger_entries e"
+    rows = _rows(conn, "SELECT t.created_at, t.kind, e.asset, sum(e.amount)::bigint AS amount FROM ledger_entries e"
                        " JOIN ledger_transactions t ON t.id = e.transaction_id"
                        " WHERE e.account_id = %s AND NOT (t.kind = ANY(%s)) AND (%s::timestamptz IS NULL OR t.created_at > %s)"
-                       " GROUP BY t.id, t.created_at, e.asset ORDER BY t.created_at", (account, list(INVESTING_KINDS), since, since))
+                       " GROUP BY t.id, t.created_at, t.kind, e.asset ORDER BY t.created_at", (account, list(INVESTING_KINDS), since, since))
     out = []
     for r in rows:
-        if r["amount"] == 0:
+        if r["amount"] == 0 or (r["kind"] in PAID_IS_INVESTING and r["amount"] < 0):
             continue
         value = r["amount"] if r["asset"] == ledger.NGN else r["amount"] * _price_then(conn, r["asset"], r["created_at"])
         if value:
@@ -172,7 +184,10 @@ def daily_returns(conn: Connection, player_id) -> tuple[list[tuple[date, float, 
     levels = {r["session_date"]: r["level"] for r in _rows(conn, "SELECT session_date, level FROM index_days WHERE session_date"
                                                                  " BETWEEN %s AND %s", (dates[0], dates[-1]))}
     cutoffs = [_bell(d, rung) for d in dates]
+    # Money from outside, day by day, and how much of each day it was there for. Money arriving just before the bell was
+    # invested for almost none of the day, so it barely counts in the day's base: it cannot water down a losing day.
     flows = [0] * len(days)
+    weighted = [0.0] * len(days)
     i = 0
     for at, value in outside_money(conn, account, cutoffs[0]):
         while i < len(cutoffs) and cutoffs[i] < at:
@@ -180,7 +195,9 @@ def daily_returns(conn: Connection, player_id) -> tuple[list[tuple[date, float, 
         if i >= len(cutoffs):
             break
         flows[i] += value
-    # Value handed over in trades at odd prices is a gift, not a return.
+        span = (cutoffs[i] - cutoffs[i - 1]).total_seconds() if i else 0
+        weighted[i] += value * (max(0.0, min(1.0, (cutoffs[i] - at).total_seconds() / span)) if span > 0 else 0.0)
+    # Value handed over in trades at odd prices is a gift, not a return (counted as arriving at the day's end).
     gifts = {r["session_date"]: r["amount"] for r in _rows(
         conn, "SELECT session_date, sum(amount)::bigint AS amount FROM talent_flags WHERE player_id = %s AND kind = 'off_market_trade'"
               " AND cleared_at IS NULL GROUP BY session_date", (player_id,))}
@@ -189,8 +206,8 @@ def daily_returns(conn: Connection, player_id) -> tuple[list[tuple[date, float, 
     returns: list[tuple[date, float, float | None]] = []
     for k in range(1, len(days)):
         before, now_, flow = days[k - 1]["worth"], days[k]["worth"], flows[k]
-        base = before + max(flow, 0)
-        if before < MIN_BASE or base <= 0:
+        base = before + weighted[k]
+        if before < MIN_BASE or base < MIN_BASE // 2:
             continue
         r = (now_ - before - flow) / base
         r = min(max(r, DAY_CLAMP[0]), DAY_CLAMP[1])
@@ -241,6 +258,7 @@ def investing(conn: Connection, player_id, *, start: datetime | None = None) -> 
             quarters.setdefault(period_of_day(start, d), []).append((r, x))
     q_rows = []
     streak = best = beaten = counted = 0
+    last_counted = None
     for period in sorted(quarters):
         items = quarters[period]
         if len(items) < 3:
@@ -250,6 +268,10 @@ def investing(conn: Connection, player_id, *, start: datetime | None = None) -> 
         counted += 1
         beat = mine > market
         beaten += beat
+        # "Running" means quarter after quarter: a quarter sat out (too little invested to count) breaks the run.
+        if last_counted is not None and period != last_counted + 1:
+            streak = 0
+        last_counted = period
         streak = streak + 1 if beat else 0
         best = max(best, streak)
         q_rows.append({"period": period, "label": clock.period_label(period), "you_bps": _bps(mine), "index_bps": _bps(market), "beat": beat})
@@ -356,9 +378,14 @@ def crisis_conduct(conn: Connection, player_id) -> dict:
     return out
 
 
+CONDUCT_NAMES = {"theft": "Proved to have taken money from an empire"}
+
+
 def conduct(conn: Connection, player_id) -> dict:
-    rows = _rows(conn, "SELECT kind, words, at FROM legal_records WHERE player_id = %s ORDER BY id DESC", (player_id,))
-    return {"proved": len(rows), "entries": rows[:10]}
+    """Wrongdoing proved. Only what it was and when: never the sums, the fines or what is still owed."""
+    rows = _rows(conn, "SELECT kind, at FROM legal_records WHERE player_id = %s ORDER BY id DESC", (player_id,))
+    return {"proved": len(rows), "entries": [{"kind": r["kind"], "words": CONDUCT_NAMES.get(r["kind"], "Wrongdoing proved"), "at": r["at"]}
+                                             for r in rows[:10]]}
 
 
 def challenge_record(conn: Connection, player_id) -> dict:
@@ -410,7 +437,7 @@ def badges_from(rec: dict) -> list[tuple[str, str, str]]:
     if lead["good"] >= 4 and lead["good"] > 2 * lead["bad"]:
         out.append(("trusted_head", "Trusted head", "Decisions as an empire's head that turned out well, far more often than not."))
     cr = rec["crisis"]
-    if cr["pulled_out_in_time"] or (cr["crises_lived_through"] and not cr["lost_savings"] and cr["banks_closed_with_savings"]):
+    if not cr["lost_savings"] and (cr["pulled_out_in_time"] or (cr["crises_lived_through"] and cr["banks_closed_with_savings"])):
         out.append(("came_through_crisis", "Came through a bank crisis", "Had savings at a bank that closed, and lost nothing."))
     if cr["rescues_won"]:
         out.append(("bank_rescuer", "Bank rescuer", "Won the sale of a closed bank and put new money into it."))
@@ -427,6 +454,18 @@ def badges_from(rec: dict) -> list[tuple[str, str, str]]:
 
 
 LOSABLE = {"clean_record", "clean_audits", "leads_held"}
+
+
+def badge_section(code: str) -> str:
+    """The part of the record a badge comes from: it is shown only where that part is shown."""
+    if code.startswith(("beat_market", "steady_hand", "grew_half")):
+        return "investing"
+    if code.startswith("level_"):
+        return "work"
+    if code.startswith("won_challenge_"):
+        return "challenges"
+    return {"sharp_calls": "calls", "clean_audits": "audits", "leads_held": "journalism", "trusted_head": "leadership",
+            "came_through_crisis": "crisis", "bank_rescuer": "crisis", "clean_record": "conduct"}.get(code, "conduct")
 
 
 def _keep_badges(conn: Connection, player_id, earned: list[tuple[str, str, str]], now: datetime) -> None:
@@ -570,8 +609,12 @@ def _shown(conn: Connection, player_id, show: list[str], headline: str) -> dict:
     rec = row["record"] if row else {}
     parts = {k: rec.get(k) for k in show if k in rec}
     parts["conduct"] = rec.get("conduct", {"proved": 0, "entries": []})
-    return {"who": _identity(conn, player_id), "headline": headline, "sections": [k for k in (*SECTIONS, "conduct") if k in parts],
-            "names": SECTION_NAMES, "record": parts, "badges": _plain(badges(conn, player_id)),
+    shown = [b for b in badges(conn, player_id) if badge_section(b["code"]) in parts]
+    who = _identity(conn, player_id)
+    if "work" not in parts:
+        who["build"] = None
+    return {"who": who, "headline": headline, "sections": [k for k in (*SECTIONS, "conduct") if k in parts],
+            "names": SECTION_NAMES, "record": parts, "badges": _plain(shown),
             "worked_at": row["worked_at"].isoformat() if row else None,
             "how": "Worked out by the game from its own books: nobody, the player included, can type in or change any of it."
                    " Only percentages and counts are shown, never how much money anybody has."}
@@ -599,12 +642,17 @@ def visitor_mark(secret_key: str, address: str, browser: str) -> str:
 
 def note_visit(conn: Connection, player_id, mark: str, now: datetime) -> None:
     day = clock.to_lagos(now).date()
-    conn.execute("INSERT INTO visitor_marks (player_id, mark, day) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING", (player_id, mark, day))
+    added = conn.execute("INSERT INTO visitor_marks (player_id, mark, day) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING RETURNING player_id",
+                         (player_id, mark, day)).fetchone()
+    if added is None:
+        return                                   # seen from this device today already: nothing new to check
     for other in _rows(conn, "SELECT DISTINCT player_id FROM visitor_marks WHERE mark = %s AND day = %s AND player_id <> %s",
                        (mark, day, player_id)):
+        new = False
         for a, b in ((player_id, other["player_id"]), (other["player_id"], player_id)):
-            _flag(conn, a, "shared_device", b, f"device:{b}", 0, day, {"day": day.isoformat()}, now)
-        _maybe_linked(conn, player_id, other["player_id"], now)
+            new |= _flag(conn, a, "shared_device", b, f"device:{b}:{day.isoformat()}", 0, day, {"day": day.isoformat()}, now)
+        if new:
+            _maybe_linked(conn, player_id, other["player_id"], now)
 
 
 def _flag(conn: Connection, player_id, kind: str, other, reference: str, amount: int, day, detail: dict, now: datetime) -> bool:
@@ -615,16 +663,24 @@ def _flag(conn: Connection, player_id, kind: str, other, reference: str, amount:
 
 
 def _maybe_linked(conn: Connection, a, b, now: datetime) -> None:
-    odd = _one(conn, "SELECT count(DISTINCT reference) AS n FROM talent_flags WHERE kind = 'off_market_trade' AND player_id = ANY(%s) AND other_id = ANY(%s)"
-                     " AND player_id <> other_id", ([a, b], [a, b]))["n"]
-    shared = _one(conn, "SELECT 1 AS x FROM talent_flags WHERE kind = 'shared_device' AND player_id = %s AND other_id = %s", (a, b))
-    traded = _one(conn, "SELECT 1 AS x FROM market_trades t JOIN ledger_accounts x ON x.id = t.buyer_account_id"
-                        " JOIN ledger_accounts y ON y.id = t.seller_account_id WHERE (x.player_id = %s AND y.player_id = %s)"
-                        " OR (x.player_id = %s AND y.player_id = %s) LIMIT 1", (a, b, b, a))
-    if odd >= LINKED_TRADES or (shared and (odd or traded)):
-        why = {"odd_trades": odd, "one_device": bool(shared)}
+    """Two players are linked when they dealt with each other at odd prices again and again, or at all from one device. A
+    shared device alone is not wrong (families share them), and nor is meeting on the open order book at the market's price.
+    Only what happened since an administrator last cleared the pair counts."""
+    if a == b:
+        return
+    since = _one(conn, "SELECT max(cleared_at) AS t FROM talent_flags WHERE kind = 'linked' AND player_id = %s AND other_id = %s",
+                 (a, b))["t"]
+    odd = _one(conn, "SELECT count(DISTINCT reference) AS n FROM talent_flags WHERE kind = 'off_market_trade' AND player_id = ANY(%s)"
+                     " AND other_id = ANY(%s) AND player_id <> other_id AND cleared_at IS NULL AND (%s::timestamptz IS NULL OR at > %s)",
+               ([a, b], [a, b], since, since))["n"]
+    shared = _one(conn, "SELECT 1 AS x FROM talent_flags WHERE kind = 'shared_device' AND player_id = %s AND other_id = %s"
+                        " AND cleared_at IS NULL AND (%s::timestamptz IS NULL OR at > %s) LIMIT 1", (a, b, since, since))
+    if odd >= LINKED_TRADES or (shared and odd):
+        why = {"odd_deals": odd, "one_device": bool(shared)}
         for p, q in ((a, b), (b, a)):
-            _flag(conn, p, "linked", q, f"linked:{q}", 0, None, why, now)
+            if not _one(conn, "SELECT 1 AS x FROM talent_flags WHERE kind = 'linked' AND player_id = %s AND other_id = %s AND cleared_at IS NULL",
+                        (p, q)):
+                _flag(conn, p, "linked", q, f"linked:{q}:{now.isoformat()}", 0, None, why, now)
 
 
 # Accounts run by players: their own, their empires' and the funds they manage. A trade between two of these is not the
@@ -693,6 +749,62 @@ def check_trades(conn: Connection, day: date, now: datetime) -> int:
     return found
 
 
+def _gift(conn: Connection, day: date, reference: str, buyer_acc: dict, seller_acc: dict, price: int, fair: int, detail: dict,
+          now: datetime) -> bool:
+    """Flag a deal at an odd price between two accounts run by players. Returns True when it was odd."""
+    if not fair or abs(price - fair) * 10_000 < OFF_VALUE_BPS * fair:
+        return False
+    handed = abs(price - fair)
+    buyer, seller = _runner(conn, buyer_acc), _runner(conn, seller_acc)
+    cheap = price < fair
+    if buyer_acc["player_id"]:
+        _flag(conn, buyer_acc["player_id"], "off_market_trade", seller, reference, handed if cheap else -handed, day, detail, now)
+    if seller_acc["player_id"]:
+        _flag(conn, seller_acc["player_id"], "off_market_trade", buyer, reference, -handed if cheap else handed, day, detail, now)
+    if buyer_acc["player_id"] and seller_acc["player_id"]:
+        _maybe_linked(conn, buyer_acc["player_id"], seller_acc["player_id"], now)
+    return True
+
+
+def _account(conn: Connection, account_id) -> dict:
+    return _one(conn, "SELECT id, kind, player_id FROM ledger_accounts WHERE id = %s", (account_id,))
+
+
+def check_other_deals(conn: Connection, day: date, now: datetime) -> int:
+    """Options and futures dealt between players far from the dealers' own price, and buildings sold privately between
+    players far from their value, on one trading day. Returns how many were at odd prices."""
+    start = datetime.combine(day, time(0, 0), tzinfo=clock.LAGOS)
+    end = datetime.combine(day, time(23, 59, 59), tzinfo=clock.LAGOS)
+    found = 0
+    run = list(PLAYER_RUN)
+    if _one(conn, "SELECT to_regclass('derivative_trades') IS NOT NULL AS ok")["ok"]:
+        from simulation import derivatives
+        for t in _rows(conn, "SELECT t.* FROM derivative_trades t JOIN ledger_accounts x ON x.id = t.buyer JOIN ledger_accounts y ON y.id = t.seller"
+                             " WHERE t.at BETWEEN %s AND %s AND NOT t.with_makers AND x.kind = ANY(%s) AND y.kind = ANY(%s) AND t.buyer <> t.seller"
+                             " AND (x.player_id IS NOT NULL OR y.player_id IS NOT NULL) ORDER BY t.id", (start, end, run, run)):
+            series = _one(conn, "SELECT * FROM derivative_series WHERE id = %s", (t["series_id"],))
+            try:
+                fair = derivatives.fair(conn, series, t["at"])
+            except Exception:                                   # a contract that can no longer be priced: nothing to compare
+                continue
+            found += _gift(conn, day, f"derivative:{t['id']}", _account(conn, t["buyer"]), _account(conn, t["seller"]), t["price"] * t["contracts"],
+                           fair * t["contracts"], {"trade": t["id"], "price": t["price"], "fair": fair, "contracts": t["contracts"]}, now)
+    if _one(conn, "SELECT to_regclass('property_sales') IS NOT NULL AS ok")["ok"]:
+        from simulation import property as prop
+        sales = _rows(conn, "SELECT s.*, p.district_id FROM property_sales s JOIN properties p ON p.id = s.property_id"
+                            " JOIN ledger_accounts x ON x.id = s.buyer JOIN ledger_accounts y ON y.id = s.seller WHERE s.status = 'done'"
+                            " AND s.done_at BETWEEN %s AND %s AND x.kind = ANY(%s) AND y.kind = ANY(%s)"
+                            " AND (x.player_id IS NOT NULL OR y.player_id IS NOT NULL) ORDER BY s.id", (start, end, run, run))
+        if sales:
+            districts, rate = prop.districts(conn), prop.policy_rate(conn)
+            for sale in sales:
+                p = _one(conn, "SELECT * FROM properties WHERE id = %s", (sale["property_id"],))
+                fair = prop.value(p, districts[p["district_id"]], rate)
+                found += _gift(conn, day, f"property:{sale['id']}", _account(conn, sale["buyer"]), _account(conn, sale["seller"]), sale["price"],
+                               fair, {"sale": sale["id"], "price": sale["price"], "fair": fair}, now)
+    return found
+
+
 def clear_flag(conn: Connection, flag_id: int, why: str, now: datetime) -> None:
     """An administrator has looked and found nothing wrong."""
     conn.execute("UPDATE talent_flags SET cleared_at = %s, cleared_why = %s WHERE id = %s AND cleared_at IS NULL", (now, why[:300], flag_id))
@@ -706,6 +818,8 @@ def tick(conn: Connection, now: datetime) -> int:
     """After each closing bell: check the day's trades, then work every record out afresh. Returns records worked out."""
     if not ready(conn):
         return 0
+    with conn.transaction():
+        conn.execute("DELETE FROM visitor_marks WHERE day < %s", (clock.to_lagos(now).date() - timedelta(days=MARKS_KEPT_DAYS),))
     progress = _one(conn, "SELECT checked_through FROM talent_progress")
     days = [r["session_date"] for r in _rows(conn, "SELECT session_date FROM closing_bells WHERE %s::date IS NULL OR session_date > %s"
                                                    " ORDER BY session_date", (progress["checked_through"], progress["checked_through"]))]
@@ -714,12 +828,18 @@ def tick(conn: Connection, now: datetime) -> int:
         challenges.tick(conn, now)
         return 0
     for day in days:
-        check_trades(conn, day, now)
-    conn.execute("UPDATE talent_progress SET checked_through = %s", (days[-1],))
+        with conn.transaction():
+            check_trades(conn, day, now)
+            check_other_deals(conn, day, now)
+            conn.execute("UPDATE talent_progress SET checked_through = %s", (day,))
     done = 0
     for p in _rows(conn, "SELECT id FROM players ORDER BY created_at"):
-        refresh(conn, p["id"], now)
-        done += 1
+        try:
+            with conn.transaction():
+                refresh(conn, p["id"], now)
+            done += 1
+        except Exception:                                # one record that cannot be worked out never stops the rest
+            log.exception("Proven Talent: a record could not be worked out")
     from simulation import challenges
     challenges.tick(conn, now)
     return done

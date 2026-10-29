@@ -7,10 +7,12 @@ nothing a player wins is money.
 
 Five kinds. The first four are sealed: nothing an entrant does in them touches the live world.
 
-  paper       a paper portfolio: every entrant starts with the same paper cash and deals in the listed shares at the
-              live prices, while the market is open, paying a dealing fee, and never more in a day than the real market
-              could have supplied. Valued at each day's average price (not the last trade, which one small real trade
-              could move). Scored on the return at the end; a smaller worst fall breaks a tie.
+  paper       a paper portfolio: every entrant starts with the same paper cash and deals in the listed shares while the
+              market is open, at the average price paid across the day so far (or, before the day's first trade,
+              yesterday's closing price), paying a dealing fee, and never more in a day than the real market could have
+              supplied. Valued at each day's average price, never the last trade, which one small real trade could move,
+              and at the end at the average of the trading day that ends with or after the challenge. Scored on the
+              return; a smaller worst fall breaks a tie.
   valuation   value one company: a price for each share, with the reasons. Scored on how close it came to the game's
               own valuation of the company, worked out from the accounts it files at the end of the quarter in which
               answers close (so the answer cannot be copied from figures already out, nor won by trading the share).
@@ -54,6 +56,7 @@ PAPER_LEAST_SHARES = 1_000           # ...and never less than this many shares a
 PAPER_CASH_LIMITS = (naira(1_000_000), naira(100_000_000_000))
 MAX_OPEN_PER_FIRM = 3
 LONGEST = timedelta(weeks=12)
+GIVE_UP_AFTER = timedelta(weeks=2)   # a challenge waiting on figures that never come is closed with nobody placed
 SHORTEST = timedelta(days=1)
 
 
@@ -215,14 +218,23 @@ def answer(conn: Connection, challenge_id: int, player_id, now: datetime, *, amo
 
 def day_price(conn: Connection, company_id, day) -> int:
     """A share's price for a whole trading day: the average paid across the day, weighted by the shares traded, so one small
-    trade at the end cannot move it. With no trades that day, the last trade before; failing that, the reference price."""
+    trade at the end cannot move it. With no trades that day, the average of the last day before that had trades; failing
+    that, the reference price."""
     row = _one(conn, "SELECT (sum(price * quantity)::numeric / nullif(sum(quantity), 0))::bigint AS p FROM market_trades"
-                     " WHERE company_id = %s AND session_date = %s", (company_id, day))
+                     " WHERE company_id = %s AND session_date = (SELECT max(session_date) FROM market_trades WHERE company_id = %s"
+                     " AND session_date <= %s)", (company_id, company_id, day))
     if row and row["p"]:
         return row["p"]
-    row = _one(conn, "SELECT price AS p FROM market_trades WHERE company_id = %s AND session_date < %s ORDER BY traded_at DESC LIMIT 1",
-               (company_id, day))
-    if row:
+    return _one(conn, "SELECT reference_price AS p FROM market_instruments WHERE company_id = %s", (company_id,))["p"]
+
+
+def deal_price(conn: Connection, company_id, now: datetime) -> int:
+    """The price a paper deal is made at: the average paid across the trading day so far, weighted by shares, so that one
+    small real trade cannot move it; before the day's first trade, the reference price (yesterday's close)."""
+    today = clock.to_lagos(now).date()
+    row = _one(conn, "SELECT (sum(price * quantity)::numeric / nullif(sum(quantity), 0))::bigint AS p FROM market_trades"
+                     " WHERE company_id = %s AND session_date = %s AND traded_at <= %s", (company_id, today, now))
+    if row and row["p"]:
         return row["p"]
     return _one(conn, "SELECT reference_price AS p FROM market_instruments WHERE company_id = %s", (company_id,))["p"]
 
@@ -264,7 +276,7 @@ def paper_trade(conn: Connection, challenge_id: int, player_id, *, ticker: str, 
     company = _company(conn, ticker)
     if company["halted_reason"] or not company["price"]:
         raise ChallengeError("Trading in that company is stopped.")
-    price = company["price"]
+    price = deal_price(conn, company["id"], now)
     gross = price * quantity
     fee = max(1, gross * PAPER_FEE_BPS // 10_000)
     held = _one(conn, "SELECT * FROM challenge_positions WHERE entry_id = %s AND company_id = %s FOR UPDATE", (e["id"], company["id"]))
@@ -302,7 +314,8 @@ def _mark_days(conn: Connection, now: datetime) -> None:
         return
     for c in _rows(conn, "SELECT * FROM talent_challenges WHERE kind = 'paper' AND status = 'open' AND opens_at <= %s AND ends_at >= %s",
                    (bell["rung_at"], bell["rung_at"])):
-        for e in _rows(conn, "SELECT * FROM challenge_entries WHERE challenge_id = %s", (c["id"],)):
+        for e in _rows(conn, "SELECT e.* FROM challenge_entries e WHERE e.challenge_id = %s AND NOT EXISTS (SELECT 1 FROM challenge_days d"
+                             " WHERE d.entry_id = e.id AND d.session_date = %s)", (c["id"], bell["session_date"])):
             conn.execute("INSERT INTO challenge_days (entry_id, session_date, value) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                          (e["id"], bell["session_date"], paper_value(conn, e, bell["session_date"])))
 
@@ -319,8 +332,7 @@ def _worst_fall(conn: Connection, entry: dict, start: int) -> int:
 def _score(conn: Connection, c: dict, e: dict) -> tuple[int | None, str]:
     kind = c["kind"]
     if kind == "paper":
-        last = _one(conn, "SELECT max(session_date) AS d FROM closing_bells WHERE rung_at <= %s", (c["ends_at"],))["d"]
-        value = paper_value(conn, e, last or clock.to_lagos(c["ends_at"]).date())
+        value = paper_value(conn, e, _final_day(conn, c) or clock.to_lagos(c["ends_at"]).date())
         ret = (value - c["starting_cash"]) * 10_000 // c["starting_cash"] if c["starting_cash"] else 0
         fall = _worst_fall(conn, e, c["starting_cash"])
         # The return decides; a smaller worst fall breaks a tie (it moves the score by less than one basis point).
@@ -359,9 +371,20 @@ def _score(conn: Connection, c: dict, e: dict) -> tuple[int | None, str]:
     return None, ""
 
 
+def _final_day(conn: Connection, c: dict):
+    """The trading day a paper portfolio is valued on at the end: the first whose closing bell rang at or after the end, so
+    deals made on the last day are never valued at the day before's prices."""
+    row = _one(conn, "SELECT min(session_date) AS d FROM closing_bells WHERE rung_at >= %s", (c["ends_at"],))
+    return row["d"] if row else None
+
+
 def _due(conn: Connection, c: dict, now: datetime) -> bool:
     if now < c["ends_at"]:
         return False
+    if now >= c["ends_at"] + GIVE_UP_AFTER:
+        return True
+    if c["kind"] == "paper":
+        return _final_day(conn, c) is not None
     if c["kind"] == "forecast":
         return bool(_one(conn, "SELECT 1 AS x FROM company_results WHERE company_id = %s AND period = %s", (c["company_id"], c["target_period"])))
     if c["kind"] == "valuation":
@@ -376,7 +399,10 @@ def _one_device(conn: Connection, entries: list[dict]) -> set:
                                                 " AND player_id = ANY(%s) AND other_id = ANY(%s)", (ids, ids))}
 
 
-def score_challenge(conn: Connection, c: dict, now: datetime) -> dict:
+def score_challenge(conn: Connection, c: dict, now: datetime) -> dict | None:
+    c = _one(conn, "SELECT * FROM talent_challenges WHERE id = %s FOR UPDATE", (c["id"],))
+    if c["status"] != "open":
+        return None                                   # scored (or called off) already, perhaps by another server
     entries = _rows(conn, "SELECT * FROM challenge_entries WHERE challenge_id = %s ORDER BY joined_at, id FOR UPDATE", (c["id"],))
     scored = []
     twins = _one_device(conn, entries)
@@ -388,7 +414,8 @@ def score_challenge(conn: Connection, c: dict, now: datetime) -> dict:
         conn.execute("UPDATE challenge_entries SET score = %s, score_words = %s, place = NULL WHERE id = %s", (score, words, e["id"]))
         if score is not None and not held:
             scored.append((score, e))
-    scored.sort(key=lambda x: (-x[0], x[1]["joined_at"], x[1]["id"]))
+    # Ties: the earlier answer (a harder call to make) or, with no answer to give, the earlier entrant.
+    scored.sort(key=lambda x: (-x[0], x[1]["answered_at"] or x[1]["joined_at"], x[1]["joined_at"], x[1]["id"]))
     for place, (_, e) in enumerate(scored, start=1):
         conn.execute("UPDATE challenge_entries SET place = %s WHERE id = %s", (place, e["id"]))
     results = {"entrants": len(entries), "placed": len(scored)}
@@ -403,8 +430,8 @@ def tick(conn: Connection, now: datetime) -> int:
     done = 0
     for c in _rows(conn, "SELECT * FROM talent_challenges WHERE status = 'open' AND ends_at <= %s ORDER BY id", (now,)):
         if _due(conn, c, now):
-            score_challenge(conn, c, now)
-            done += 1
+            with conn.transaction():
+                done += score_challenge(conn, c, now) is not None
     return done
 
 
@@ -476,6 +503,8 @@ def firm_list(conn: Connection, firm_id, now: datetime) -> list[dict]:
             for e in _rows(conn, "SELECT e.place, e.score_words, e.player_id, e.answer_text, p.display_name AS name FROM challenge_entries e"
                                  " JOIN players p ON p.id = e.player_id WHERE e.challenge_id = %s AND e.place IS NOT NULL"
                                  " AND e.place <= %s AND e.seen_by_sponsor ORDER BY e.place", (c["id"], c["top_shown"])):
-                item["finishers"].append({**e, "badges": [b["label"] for b in talent.badges(conn, e["player_id"])]})
+                show = set(talent.settings(conn, e["player_id"])["show"]) | {"conduct"}
+                item["finishers"].append({**e, "badges": [b["label"] for b in talent.badges(conn, e["player_id"])
+                                                          if talent.badge_section(b["code"]) in show]})
         out.append(item)
     return out

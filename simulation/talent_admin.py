@@ -31,13 +31,18 @@ def main(argv: list[str] | None = None) -> None:
     now = datetime.now(timezone.utc)
     with psycopg.connect(os.environ["DATABASE_URL"], row_factory=dict_row) as conn:
         if args.command == "firms":
-            for f in conn.execute("SELECT name, contact_name, email, website, status, created_at FROM talent_firms ORDER BY created_at").fetchall():
-                print(f"{f['status']:10} {f['name']:30} {f['contact_name']:24} {f['email']:32} {f['website']}")
+            for f in conn.execute("SELECT name, contact_name, email, website, status, created_at, email_confirmed_at FROM talent_firms"
+                                  " ORDER BY created_at").fetchall():
+                confirmed = "email confirmed" if f["email_confirmed_at"] else "email NOT confirmed"
+                print(f"{f['status']:10} {f['name']:30} {f['contact_name']:24} {f['email']:32} {confirmed:20} {f['website']}")
         elif args.command in ("approve", "suspend"):
             firm = conn.execute("SELECT id, name FROM talent_firms WHERE name_key = %s", (firms.name_key(args.target or ""),)).fetchone()
             if firm is None:
                 raise SystemExit(f"No firm called {args.target!r}.")
-            firms.approve(conn, firm["id"], now) if args.command == "approve" else firms.suspend(conn, firm["id"])
+            try:
+                firms.approve(conn, firm["id"], now) if args.command == "approve" else firms.suspend(conn, firm["id"])
+            except firms.FirmError as refused:
+                raise SystemExit(f"{firm['name']}: {refused}") from None
             print(f"{firm['name']}: {args.command}d.")
         elif args.command == "flags":
             for f in conn.execute("SELECT f.id, f.kind, p.display_name AS who, q.display_name AS other, f.amount, f.session_date, f.detail"
