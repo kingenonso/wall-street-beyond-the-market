@@ -126,7 +126,7 @@ function ProfileMenu({ player, onLogout, onPlayer }: { player: Player; onLogout:
   const box = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const first = useRef<HTMLAnchorElement>(null);
-  const waiting = player.rank_waiting || player.unread_messages > 0;
+  const waiting = player.rank_waiting || player.unread_messages > 0 || (player.talent_waiting ?? 0) > 0;
   useEffect(() => {
     if (!open) return;
     first.current?.focus();
@@ -175,6 +175,10 @@ function ProfileMenu({ player, onLogout, onPlayer }: { player: Player; onLogout:
               {player.rank_waiting && <span className="menu-flag">◆ a case is waiting</span>}
             </a>
           )}
+          <a href="#/talent" onClick={close}>
+            Proven Talent
+            {(player.talent_waiting ?? 0) > 0 && <span className="menu-flag">◆ {player.talent_waiting === 1 ? "an invitation" : `${player.talent_waiting} invitations`} waiting</span>}
+          </a>
           <a href="#/messages" onClick={close}>
             Messages
             {player.unread_messages > 0 && <span className="count" aria-label={`${player.unread_messages} unread`}>{player.unread_messages}</span>}
@@ -287,7 +291,6 @@ export function sectionsFor(player: Player) {
     { path: "companies", label: "Companies" },
     { path: "economy", label: "Economy" },
     { path: "career", label: "Career" },
-    { path: "talent", label: "Proven Talent", ...((player.talent_waiting ?? 0) > 0 ? { count: player.talent_waiting, countWords: "invitations waiting" } : {}) },
     { path: "charities", label: "Charities" },
   ] as { path: string; label: string; count?: number; countWords?: string }[];
 }
@@ -361,6 +364,7 @@ export function MoreWork({ player, onPlayer, onLogout }: { player: Player; onPla
           {rest.map((s) => <a key={s.path} href={`#/${s.path}`}>{s.label}<span aria-hidden="true">›</span></a>)}
           <a href="#/messages">Messages {player.unread_messages > 0 ? <span className="count" aria-label={`${player.unread_messages} unread`}>{player.unread_messages}</span> : <span aria-hidden="true">›</span>}</a>
           {player.build_name && <a href="#/rank">Rank {player.rank_waiting ? <span className="menu-flag">◆ a case is waiting</span> : <span aria-hidden="true">›</span>}</a>}
+          <a href="#/talent">Proven Talent {(player.talent_waiting ?? 0) > 0 ? <span className="menu-flag">◆ an invitation is waiting</span> : <span aria-hidden="true">›</span>}</a>
           <a href="#/profile">Profile<span aria-hidden="true">›</span></a>
         </nav>
       </Panel>
