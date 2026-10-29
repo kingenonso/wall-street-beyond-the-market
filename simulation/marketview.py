@@ -261,6 +261,7 @@ def net_worth_of_players(conn: Connection) -> dict:
         "            WHERE o.account_id = a.id AND o.status = 'open' AND o.side = 'sell'), 0) AS investments"
         " FROM ledger_accounts a WHERE a.kind = 'player'")
     worth = {r["id"]: [int(r["cash"]), int(r["investments"])] for r in rows}
+    from simulation import funds  # noqa: F401  (registers the units players hold in investment funds)
     for extra in _OTHER_HOLDINGS:
         for account, (cash, investments) in extra(conn).items():
             if account in worth:

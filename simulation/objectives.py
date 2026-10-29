@@ -222,8 +222,13 @@ def wealth(conn: Connection, account, now: datetime) -> dict:
     if _one(conn, "SELECT to_regclass('derivative_positions') IS NOT NULL AS ok")["ok"]:
         from simulation import derivatives
         contracts = derivatives.held_value(conn, account, now)              # options and futures, their margin included
+    in_funds = 0
+    if _one(conn, "SELECT to_regclass('investment_funds') IS NOT NULL AS ok")["ok"]:
+        from simulation import funds
+        in_funds = funds.held_value(conn, account, now)                      # units in investment funds, and money waiting to buy them
     return {"cash": cash, "shares": shares_value, "bonds": bonds_value, "property": property_value, "borrowing": -borrowing,
-            "derivatives": contracts, "total": cash + shares_value + bonds_value + property_value - borrowing + contracts,
+            "derivatives": contracts, "funds": in_funds,
+            "total": cash + shares_value + bonds_value + property_value - borrowing + contracts + in_funds,
             "lines": lines, "bond_lines": held, "day": day}
 
 

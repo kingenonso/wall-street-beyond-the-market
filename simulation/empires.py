@@ -1978,6 +1978,9 @@ def after_close(conn: Connection, period: int, now: datetime) -> None:
     leagues.after_close(conn, period, now)
     from simulation import pensionfunds
     pensionfunds.after_close(conn, period, now)
+    # Run Your Own Fund: performance fees, published holdings, star ratings, the households' money and the regulator's audit.
+    from simulation import funds
+    funds.after_close(conn, period, now)
 
 
 def _computer_head(conn: Connection, empire: dict, period: int, now: datetime) -> None:

@@ -106,6 +106,13 @@ def _close_due_quarters_once() -> None:
         if conn.execute("SELECT to_regclass('bank_confidence') IS NOT NULL").fetchone()[0]:
             from simulation import crisis
             crisis.tick(conn, now)
+        # Run Your Own Fund: after each closing bell, every fund deals the money waiting to come in and go out at that bell's price.
+        if conn.execute("SELECT to_regclass('investment_funds') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
+            from simulation import funds
+            try:
+                funds.tick(conn, now)
+            except Exception:                       # a fault here must never hold up the rest of the loop
+                log.exception("The funds' dealing at the bell failed; it will be tried again.")
         # Proven Talent: after each closing bell, the day's trades are checked and every record is worked out afresh;
         # challenges that have ended are scored.
         if conn.execute("SELECT to_regclass('talent_records') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:

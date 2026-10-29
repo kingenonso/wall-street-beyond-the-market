@@ -1288,3 +1288,42 @@ COMPANY_SAVINGS_BPS = 5_000                      # a company keeps half its cash
 CONTAGION_MOST = 25                              # trouble at other banks costs a bank at most this much trust
 REOPEN_GRACE_DAYS = 15                           # a bank opened again under a new owner: its savers give it this many game days...
 REOPEN_SUPPORT_POINTS = 15                       # ...and this much trust for the fresh money behind it
+
+# ---------------------------------------------------------------------------
+# Run Your Own Fund (the talent and funds stage, Part 2): open investment funds anybody may put money into
+# ---------------------------------------------------------------------------
+INVEST_FUND_LEVEL = 20                       # an Asset Manager of this level or above may launch one
+INVEST_FUND_REGISTRATION_NAIRA = 2_000_000   # paid into the prize pool
+INVEST_FUND_SEED_NAIRA = 5_000_000           # the least the manager puts in of their own money
+INVEST_FUND_MANAGER_KEEPS_BPS = 100          # while managing, the manager keeps at least 1% of the units (or all they put in)
+INVEST_FUND_FEE_MOST_BPS = 200               # the yearly fee: at most 2% of the fund, taken at each closing bell
+INVEST_FUND_PERF_FEE_MOST_BPS = 2_000        # the performance fee: at most 20% of the gain above the fund's previous best
+INVEST_FUND_SWING_BPS = 25                   # money coming in pays 0.25% above the price, money going out 0.25% below: kept by the fund
+INVEST_FUND_ONE_HOLDING_BPS = 1_000          # no holding above 10% of the fund
+INVEST_FUND_LEAST_CASH_BPS = 500             # at least 5% kept in cash
+INVEST_FUND_BALANCED_MOST_BPS = 7_000        # a balanced fund: at most 70% in shares and at most 70% in bonds
+INVEST_FUND_STRATEGY_LEAST_BPS = 8_000       # a banks fund keeps at least 80% of its holdings in banks
+INVEST_FUND_BORROW_MOST_BPS = 1_000          # it may borrow at most 10% of the fund, and only to pay investors who leave
+INVEST_FUND_LOAN_OVER_POLICY_BPS = 300       # ...at the Central Bank's rate and 3% more
+INVEST_FUND_GATE_BPS = 1_000                 # a gated fund pays leavers at most 10% of the fund at a bell
+INVEST_FUND_GATE_LONGEST_BELLS = 7           # a gate lasts at most a game quarter
+INVEST_FUND_LEAST_IN_LIMITS_NAIRA = (10_000, 50_000_000)
+INVEST_FUND_SMALL_NAIRA = 50_000_000         # a fund this small at two quarter ends running (after its first two) is closed
+INVEST_FUND_SMALL_QUARTERS = 2
+INVEST_FUND_STAR_FLOWS_BPS = {5: 800, 4: 400, 3: 100, 2: -300, 1: -600}   # computer investors' money in or out each quarter
+INVEST_FUND_NEW_FLOW_BPS = 200               # a fund too young for stars draws a little new money
+INVEST_FUND_NEW_FLOW_LEAST_NAIRA = 20_000_000
+INVEST_FUND_RUN_FALL_BPS = 1_500             # a fall of 15% from its high, or a banking panic, starts a run by its computer investors
+INVEST_FUND_RUN_DAILY_BPS = 800              # ...who ask back 8% of their units at each bell...
+INVEST_FUND_RUN_BELLS = 5                    # ...for five bells
+INVEST_FUND_COSTS_BPS = 100                  # a manager may sign for costs of 1% of the fund in a quarter
+INVEST_FUND_AUDIT_FINDS_BPS = 4_000          # the regulator's audit finds a false cost 40% of the time each quarter it is looked at
+INVEST_FUND_FINE_BPS = 5_000                 # a manager proved to have taken money repays it and a fine of half as much
+INVEST_FUND_SESSIONS_PER_YEAR = 28
+# The computer-run funds every player fund is compared with: (name, strategy, fee, seed).
+COMPUTER_FUNDS = (
+    ("Broad Street Equity Fund", "shares", 120, 20_000_000_000),
+    ("Lagoon Banks Fund", "banks", 150, 8_000_000_000),
+    ("Niger Delta Bond Fund", "bonds", 60, 15_000_000_000),
+    ("Harmattan Balanced Fund", "balanced", 100, 12_000_000_000),
+)

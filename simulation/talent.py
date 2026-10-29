@@ -62,6 +62,7 @@ INVESTING_KINDS = frozenset({
     "instrument_trade", "future_trade", "option_premium", "variation_margin",
     "derivative_fee", "derivative_margin", "derivative_margin_release", "derivative_order", "derivative_order_release",
     "swap_payment", "monte_carlo_fee", "intel_check",
+    "fund_order_hold", "fund_order_release", "fund_units_sold", "fund_seed",
     "savings_interest", "savings_placed", "savings_withdrawn", "deposit_interest", "deposit_placed", "deposit_withdrawn",
     "bail_in", "fund_units", "buy_in", "share_issue", "preferred_issue", "bond_issue",
     "margin_loan", "personal_loan", "loan_repayment", "player_loan_interest", "lending_fee", "share_loan",
