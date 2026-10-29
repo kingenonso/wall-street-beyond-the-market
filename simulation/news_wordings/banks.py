@@ -245,7 +245,7 @@ WORDINGS = {
              "{buyer} has bought the public stake in {company} for {price}. The money goes back to the guarantee fund."),
             ("New private owner for {company}",
              "After a year in public hands, {company} has been sold to {buyer} for {price}."),
-            ("{buyer} buys {company}",
+            ("{buyer} takes over {company} from public hands",
              "The public's stake in {company} fetched {price} at the Auction House."),
         ],
         "ogene": [

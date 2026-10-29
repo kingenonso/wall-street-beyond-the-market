@@ -126,6 +126,8 @@ class TestStageTwo:
             "government_purchase", "government_wages", "pension_payment",
             "loan_interest", "household_loan", "household_loan_repayment", "insurance_claim", "new_loan",
             "central_bank_lending",
+            # The crises stage: savers' money at the banks, its interest and the banks' premium to the guarantee fund.
+            "deposit_record", "company_savings", "company_savings_back", "savings_interest", "guarantee_premium",
         }
 
 

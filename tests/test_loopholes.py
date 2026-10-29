@@ -106,7 +106,9 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     pays its journalists, through the ledger. Stage 10, Part 2 added information, investigations, the press desk, charities
     and media titles (test_intel.py, test_press.py, test_society.py, test_stage10b_*.py): each acts as the player (or as the
     head, or the empire's journalist, for their empire); checking a piece, buying one, giving to or granting from a charity
-    and buying a title move money only through the ledger, and an empire's spending stays within its head's limit."""
+    and buying a title move money only through the ledger, and an empire's spending stays within its head's limit. The crises
+    stage, Part 1 added savings at the banks (test_crises*.py): a player moves their own money, or the head their empire's
+    within what they may sign for, between cash and savings, only through the ledger."""
     from server.main import app
 
     writes = sorted(
@@ -316,6 +318,8 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/replies/raise"),
         ("POST", "/api/reports"),
         ("POST", "/api/rescues"),
+        ("POST", "/api/savings/{ticker}/in"),
+        ("POST", "/api/savings/{ticker}/out"),
         ("POST", "/api/shorts"),
         ("POST", "/api/shorts/{short_id}/close"),
         ("POST", "/api/shorts/{short_id}/collateral"),
