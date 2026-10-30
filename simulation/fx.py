@@ -176,6 +176,21 @@ def official_for(conn: Connection, period: int) -> int:
     return row["official"] if row else data.FX_START
 
 
+def expected_official(conn: Connection) -> int:
+    """Where the official rate is heading at the coming close, by the Central Bank's published rules and the figures everybody
+    can see: a bank prices a currency forward from this, not from today's rate."""
+    q = current(conn)
+    if q is None:
+        return data.FX_START
+    cover = ledger.balance(conn, ledger.account_id(conn, ledger.CENTRAL_BANK), "USD") * BPS // imports_usd(conn)   # (as it stands today)
+    if q["regime"] == "float" or cover < data.FX_FLOAT_COVER_BPS:
+        return street(conn)
+    gap = q["market"] * BPS // max(q["official"], 1) - BPS
+    if gap >= data.FX_DEVALUE_GAP_BPS and cover < data.FX_COMFORT_COVER_BPS:
+        return q["market"]
+    return q["official"] + (q["market"] - q["official"]) * data.FX_CRAWL_BPS // BPS
+
+
 def _impact(conn: Connection) -> int:
     row = _one(conn, "SELECT impact_bps FROM fx_street WHERE id = 1")
     return row["impact_bps"] if row else 0
@@ -357,6 +372,7 @@ def window_ask(conn: Connection, player_id, amount: int, now: datetime, *, for_e
         if not opened(conn):
             raise FxError("The currency desk opens at the next closing bell.")
         account, empire = _acting(conn, player_id, for_empire)
+        conn.execute("SELECT id FROM ledger_accounts WHERE id = %s FOR UPDATE", (account,))   # one request at a time per account
         if _runs_bdc(conn, account):
             raise FxError("A bureau de change buys its dollars on the street, not at the official window.")
         period = _period(conn, now)
@@ -371,9 +387,8 @@ def window_ask(conn: Connection, player_id, amount: int, now: datetime, *, for_e
                         memo=f"Held for {_cash(amount)} asked of the official window", period=period)
         row = _one(conn, "INSERT INTO fx_window (account_id, amount, held, period, placed_at) VALUES (%s, %s, %s, %s, %s) RETURNING id",
                    (account, amount, hold, period, now))
-        ahead = _one(conn, "SELECT coalesce(sum(amount - filled), 0)::bigint AS n FROM fx_window WHERE status = 'waiting' AND id < %s",
-                     (row["id"],))["n"]
-        return {"request_id": row["id"], "held": hold, "ahead": ahead}
+        ahead = _one(conn, "SELECT count(*) AS n FROM fx_window WHERE status = 'waiting' AND id < %s", (row["id"],))["n"]
+        return {"request_id": row["id"], "held": hold, "place": ahead + 1}
 
 
 def _release_window(conn: Connection, req: dict, status: str, now: datetime, period: int) -> None:
@@ -440,7 +455,16 @@ def window_sell(conn: Connection, player_id, amount: int, now: datetime, *, for_
         if ledger.balance(conn, account, "USD") < amount:
             raise FxError("You do not have that many dollars.")
         period = _period(conn, now)
-        rate = official(conn)
+        rate = official(conn) * (BPS - data.FX_WINDOW_BUYBACK_BPS) // BPS
+        kept = kept_from_window(conn, account, period)
+        if kept > 0:
+            # Dollars the window sold in the last two quarters come back no dearer than they were bought (no bet on a devaluation
+            # through the window).
+            paid = _one(conn, "SELECT coalesce(sum(naira), 0)::bigint AS k, coalesce(sum(amount), 0)::bigint AS c FROM fx_trades"
+                              " WHERE account_id = %s AND venue = 'window' AND side = 'buy' AND period > %s",
+                        (account, period - data.FX_WINDOW_KEEP_QUARTERS))
+            if paid["c"] > 0:
+                rate = min(rate, paid["k"] * 100 // paid["c"])
         kobo = to_naira(amount, rate)
         cb = ledger.account_id(conn, ledger.CENTRAL_BANK)
         ledger.post(conn, kind="fx_reserves", memo=f"Sold {_cash(amount)} to the official window", period=period,
@@ -481,6 +505,9 @@ def open_bdc(conn: Connection, player_id, name: str, buy_bps: int, sell_bps: int
             raise FxError("Your empire already runs a bureau de change.")
         if _one(conn, "SELECT 1 AS x FROM fx_window WHERE account_id = %s AND status = 'waiting'", (empire["account_id"],)):
             raise FxError("Withdraw the empire's requests at the official window first: a bureau buys on the street.")
+        if kept_from_window(conn, empire["account_id"], _period(conn, now)) > 0:
+            raise FxError("The empire holds dollars from the official window. A bureau may not sell those: sell them back to the window first,"
+                          " or wait two quarters.")
         fee = naira(data.FX_BDC_LICENCE_NAIRA)
         if ledger.balance(conn, empire["account_id"]) < naira(data.FX_BDC_LEAST_CAPITAL_NAIRA) + fee:
             raise FxError(f"A bureau needs {_money(naira(data.FX_BDC_LEAST_CAPITAL_NAIRA))} behind it, and {_money(fee)} for its licence.")
@@ -542,11 +569,12 @@ def bdc_deal(conn: Connection, player_id, bdc_id: int, side: str, amount: int, n
             raise FxError("A bureau does not deal with its own empire or its members.")
         period = _period(conn, now)
         prices = _bdc_prices(conn, b)
+        refused = "That bureau cannot take that deal now. Try a smaller amount, or another bureau."
         if side == "buy":
             rate = prices["sell"]
             cost = -(-amount * rate // 100)
-            if ledger.balance(conn, b["bdc_account"], "USD") < amount:
-                raise FxError("That bureau does not have that many dollars.")
+            if _sellable(conn, b["bdc_account"], "USD", period) < amount:
+                raise FxError(refused)
             if ledger.balance(conn, account) < cost:
                 raise FxError(f"That costs {_money(cost)}.")
             ledger.post(conn, kind="fx_bdc", memo=f"Bought {_cash(amount)} from {b['name']}", period=period,
@@ -558,7 +586,7 @@ def bdc_deal(conn: Connection, player_id, bdc_id: int, side: str, amount: int, n
             rate = prices["buy"]
             kobo = amount * rate // 100
             if ledger.balance(conn, b["bdc_account"]) < kobo:
-                raise FxError("That bureau does not have the naira for that much.")
+                raise FxError(refused)
             ledger.post(conn, kind="fx_bdc", memo=f"Sold {_cash(amount)} to {b['name']}", period=period,
                         legs=[Leg(account, -amount, "USD"), Leg(b["bdc_account"], amount, "USD"), Leg(b["bdc_account"], -kobo), Leg(account, kobo)])
         trade = _record(conn, account, "bdc", side, "USD", amount, rate, kobo, period, now, bdc_id=b["id"])
@@ -586,8 +614,8 @@ def _retail(conn: Connection, day: date, now: datetime, period: int) -> int:
             if amount < data.FX_LEAST_CENTS:
                 continue
             prices = _bdc_prices(conn, b)
-            if side == "buy":                         # households buy dollars from the bureau
-                amount = min(amount, ledger.balance(conn, b["bdc_account"], "USD"))
+            if side == "buy":                         # households buy dollars from the bureau (never dollars from the official window)
+                amount = min(amount, _sellable(conn, b["bdc_account"], "USD", period))
                 kobo = amount * prices["sell"] // 100
                 if amount < data.FX_LEAST_CENTS or ledger.balance(conn, households) < kobo:
                     continue
@@ -812,16 +840,25 @@ def _yield_bps(conn: Connection, eb: dict) -> int:
     return data.WORLD_RATE_BPS + _country_spread(conn) + extra
 
 
-def fair_price(conn: Connection, eb: dict, period: int) -> int:
-    """Cents for one bond: its interest and its repayment, at the yield dollar lenders ask of Nigeria now."""
+def _elapsed(conn: Connection, now: datetime | None) -> float:
+    """How much of the running quarter has passed (0 to 1): a bond's price includes the interest built up so far."""
+    if now is None:
+        now = _one(conn, "SELECT now() AS t")["t"]
+    return min(max((careers.world_now(conn, now)["day"] - 1) / clock.GAME_DAYS_PER_QUARTER, 0.0), 1.0)
+
+
+def fair_price(conn: Connection, eb: dict, period: int, elapsed: float = 0.0) -> int:
+    """Cents for one bond: its remaining interest and its repayment, at the yield dollar lenders ask of Nigeria now,
+    including the interest built up since the last payment (so nobody gains by buying just before a payment). A bond in
+    default is priced the same way at a distressed yield."""
     if eb["redeemed_period"] is not None:
         return 0
-    if eb["defaulted"]:
-        return eb["face"] * 3 // 10
-    n = max(eb["maturity_period"] - period, 0)
-    y = _yield_bps(conn, eb) / BPS / 4
+    left = max(eb["maturity_period"] - period + 1, 1)          # payments still to come, the first at this quarter's close
+    y = (_yield_bps(conn, eb) + (data.FX_EUROBOND_DISTRESS_BPS if eb["defaulted"] else 0)) / BPS / 4
     c = eb["face"] * eb["coupon_bps"] / BPS / 4
-    pv = sum(c / (1 + y) ** k for k in range(1, n + 1)) + eb["face"] / (1 + y) ** n
+    pv = sum(c / (1 + y) ** (k - elapsed) for k in range(1, left + 1)) + eb["face"] / (1 + y) ** (left - elapsed)
+    if eb["defaulted"]:
+        pv = max(pv * data.FX_EUROBOND_RECOVERY_BPS / BPS, eb["face"] * 2 / 10)
     return max(int(pv), 1)
 
 
@@ -837,7 +874,7 @@ def eurobond_deal(conn: Connection, player_id, eurobond_id: int, side: str, unit
         if eb is None or eb["redeemed_period"] is not None:
             raise FxError("There is no such Eurobond still to be repaid.")
         period = _period(conn, now)
-        fair = fair_price(conn, eb, period)
+        fair = fair_price(conn, eb, period, _elapsed(conn, now))
         world_abroad, _ = abroad.accounts(conn)
         if side == "buy":
             price = -(-fair * (BPS + data.FX_EUROBOND_DEAL_BPS) // BPS)
@@ -871,10 +908,14 @@ def _buy_dollars(conn: Connection, payer, cents: int, receiver_legs: list, perio
         return 0
     cb = ledger.account_id(conn, ledger.CENTRAL_BANK)
     world_abroad, _ = abroad.accounts(conn)
-    from_cb = ledger.balance(conn, cb, "USD") >= cents and current(conn)["regime"] == "managed"
-    rate = official(conn) if from_cb else street(conn)
-    can = (ledger.balance(conn, payer) if most is None else min(most, ledger.balance(conn, payer))) * 100 // max(rate, 1)
-    cents = min(cents, max(can, 0))
+    budget = max(ledger.balance(conn, payer) if most is None else min(most, ledger.balance(conn, payer)), 0)
+    rate = official(conn)
+    want = min(cents, budget * 100 // max(rate, 1))
+    from_cb = current(conn)["regime"] == "managed" and ledger.balance(conn, cb, "USD") >= want
+    if not from_cb:
+        rate = street(conn)
+        want = min(cents, budget * 100 // max(rate, 1))
+    cents = want
     if cents <= 0:
         return 0
     kobo = to_naira(cents, rate)
@@ -894,7 +935,10 @@ def _buy_dollars(conn: Connection, payer, cents: int, receiver_legs: list, perio
 
 
 def _pay_eurobonds(conn: Connection, period: int, now: datetime) -> None:
-    """At the close: each Eurobond's interest (and its repayment, when due) is paid to its holders in dollars."""
+    """At the close: each Eurobond's interest (and its face, when it is due) is paid to its holders in dollars. The
+    Government pays from the Treasury; a company's bond passes on in dollars whatever the company paid the paying agent this
+    quarter (interest, and any repayment). A bond that reaches its end is repaid once and taken in, whatever was short; a
+    shortfall is a default, and the bond is then priced as one."""
     agent = ledger.account_id(conn, AGENT)
     treasury = ledger.account_id(conn, ledger.TREASURY)
     for eb in _rows(conn, "SELECT * FROM eurobonds WHERE redeemed_period IS NULL AND issued_period < %s ORDER BY id FOR UPDATE", (period,)):
@@ -904,37 +948,36 @@ def _pay_eurobonds(conn: Connection, period: int, now: datetime) -> None:
         out = sum(h["units"] for h in holders)
         if out <= 0:
             continue
+        legs = [(h["account_id"], h["units"]) for h in holders]
         coupon = eb["face"] * eb["coupon_bps"] // BPS // 4
-        repay = 0
         if eb["issuer"] == "government":
             ends = period >= eb["maturity_period"]
-            per = coupon + (eb["face"] if ends else 0)
-            paid = _buy_dollars(conn, treasury, per * out, [(h["account_id"], h["units"]) for h in holders], period,
-                                f"{eb['name']}: interest{' and repayment' if ends else ''}")
-            repay = eb["face"] * out if ends else 0
+            due = (coupon + (eb["face"] if ends else 0)) * out
+            paid = _buy_dollars(conn, treasury, due, legs, period, f"{eb['name']}: interest{' and repayment' if ends else ''}")
         else:
             debt = _one(conn, "SELECT * FROM company_debts WHERE id = %s", (eb["debt_id"],))
             got = _one(conn, "SELECT coalesce(sum(e.amount), 0)::bigint AS n FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
                              " WHERE e.account_id = %s AND e.asset = 'NGN' AND e.amount > 0 AND t.period = %s AND t.reference = %s",
                        (agent, period, f"debt:{eb['debt_id']}"))["n"]
-            ends = debt is not None and debt["principal_outstanding"] == 0
-            per = coupon + (eb["face"] if ends else 0)
-            paid = _buy_dollars(conn, agent, per * out, [(h["account_id"], h["units"]) for h in holders], period,
-                                f"{eb['name']}: interest{' and repayment' if ends else ''}", most=got) if got > 0 else 0
-            repay = eb["face"] * out if ends else 0
+            ends = debt is None or debt["principal_outstanding"] == 0
+            due = (coupon + (eb["face"] if ends else 0)) * out
+            # Everything the company paid in goes out to the holders, in dollars (interest, and a part repayment too).
+            paid = _buy_dollars(conn, agent, 10 ** 15, legs, period, f"{eb['name']}: what the company paid", most=got) if got > 0 else 0
             if debt is not None and debt["maturity_period"] > eb["maturity_period"]:
                 conn.execute("UPDATE eurobonds SET maturity_period = %s WHERE id = %s", (debt["maturity_period"], eb["id"]))
-        short = max(per * out - paid, 0)
+        short = max(due - paid, 0)
         conn.execute("INSERT INTO eurobond_payments (eurobond_id, period, per_bond, paid, short, at) VALUES (%s, %s, %s, %s, %s, %s)",
-                     (eb["id"], period, per, paid, short, now))
-        if short > per * out // 10 and not eb["defaulted"]:
-            conn.execute("UPDATE eurobonds SET defaulted = true WHERE id = %s", (eb["id"],))
-            _alert(conn, kind="eurobond", now=now, headline=f"Default on {eb['name']}",
-                   words=f"Its holders were paid {_cash(paid)} of the {_cash(per * out)} due. The bond now trades at a fraction of its face.")
-        elif repay and short == 0:
+                     (eb["id"], period, paid // out, paid, short, now))
+        if ends:
             ledger.post(conn, kind="eurobond_redemption", memo=f"{eb['name']}: repaid", period=period,
                         legs=[*[Leg(h["account_id"], -h["units"], eb["asset"]) for h in holders], Leg(agent, out, eb["asset"])])
-            conn.execute("UPDATE eurobonds SET redeemed_period = %s WHERE id = %s", (period, eb["id"]))
+            conn.execute("UPDATE eurobonds SET redeemed_period = %s, defaulted = defaulted OR %s WHERE id = %s", (period, short > 0, eb["id"]))
+        if short > due // 10 and not eb["defaulted"]:
+            if not ends:
+                conn.execute("UPDATE eurobonds SET defaulted = true WHERE id = %s", (eb["id"],))
+            _alert(conn, kind="eurobond", now=now, headline=f"Default on {eb['name']}",
+                   words=f"Its holders were paid {_cash(paid)} of the {_cash(due)} due"
+                         + (". It has been taken in: what was short is lost." if ends else ". It now trades as a bond in default."))
     # Whatever naira the paying agent still holds (rounding, or a company paying when no bond is left) go back to the Treasury.
     left = ledger.balance(conn, agent)
     if left > 0:
@@ -973,8 +1016,9 @@ def currency_loss(conn: Connection, company_id, period: int) -> int:
 
 def _hedge(conn: Connection, company: dict, first_period: int, now: datetime) -> None:
     """A company with dollar debts hedges part of a year's interest with a currency forward from a bank."""
-    if _one(conn, "SELECT 1 AS x FROM swaps WHERE kind = 'fx' AND fixed_payer = %s AND status = 'active'", (company["account_id"],)):
-        return
+    if _one(conn, "SELECT 1 AS x FROM swaps WHERE kind = 'fx' AND fixed_payer = %s AND status = 'active' AND last_period >= %s",
+            (company["account_id"], first_period)):
+        return                                          # (still hedged for the quarter coming)
     usd = _one(conn, "SELECT coalesce(sum(principal_outstanding * 100 / fx_rate * annual_rate_bps / 40000), 0)::bigint AS q"
                      " FROM company_debts WHERE company_id = %s AND currency = 'USD' AND principal_outstanding > 0", (company["id"],))["q"]
     notional = apply_bps(usd, data.FX_HEDGE_SHARE_BPS)
@@ -1246,7 +1290,7 @@ def held_value(conn: Connection, account) -> int:
     bid = quote(conn, "USD")["buy"]
     for eb in _rows(conn, "SELECT e.*, b.balance::bigint AS held FROM eurobonds e JOIN ledger_balances b ON b.asset = e.asset"
                           " WHERE b.account_id = %s AND b.balance > 0", (account,)):
-        total += eb["held"] * fair_price(conn, eb, period) * bid // 100
+        total += eb["held"] * fair_price(conn, eb, period, _elapsed(conn, None)) * bid // 100
     total += _one(conn, "SELECT coalesce(sum(held), 0)::bigint AS n FROM fx_window WHERE account_id = %s AND status = 'waiting'", (account,))["n"]
     return total
 
@@ -1342,8 +1386,7 @@ def page(conn: Connection, player_id, now: datetime) -> dict:
     for acct in [me] + ([empire["account_id"]] if can_empire else []):
         first = _one(conn, "SELECT min(id) AS i FROM fx_window WHERE account_id = %s AND status = 'waiting'", (acct,))["i"]
         if first:
-            ahead[str(acct)] = _one(conn, "SELECT coalesce(sum(amount - filled), 0)::bigint AS n FROM fx_window WHERE status = 'waiting' AND id < %s",
-                                    (first,))["n"]
+            ahead[str(acct)] = _one(conn, "SELECT count(*) AS n FROM fx_window WHERE status = 'waiting' AND id < %s", (first,))["n"] + 1
     out["window_ahead"] = ahead
     out["bdcs"] = [{"id": b["id"], "name": b["name"], "empire": b["empire_name"], **_bdc_prices(conn, b)}
                    for b in _rows(conn, "SELECT b.*, e.name AS empire_name FROM bdcs b JOIN empires e ON e.id = b.empire_id WHERE b.status = 'open' ORDER BY b.id")]
@@ -1368,7 +1411,7 @@ def page(conn: Connection, player_id, now: datetime) -> dict:
     world_abroad, _ = abroad.accounts(conn)
     out["eurobonds"] = []
     for eb in _rows(conn, "SELECT * FROM eurobonds WHERE redeemed_period IS NULL ORDER BY id"):
-        fair = fair_price(conn, eb, period)
+        fair = fair_price(conn, eb, period, _elapsed(conn, now))
         out["eurobonds"].append({
             "id": eb["id"], "name": eb["name"], "issuer": eb["issuer"], "coupon_bps": eb["coupon_bps"], "maturity": clock.period_label(eb["maturity_period"]),
             "face": eb["face"], "yield_bps": _yield_bps(conn, eb), "defaulted": eb["defaulted"],

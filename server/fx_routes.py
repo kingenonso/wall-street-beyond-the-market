@@ -29,7 +29,7 @@ from simulation import fx
 # Money in kobo, and foreign money in cents: sent as text, so no figure is ever rounded on the way.
 MONEY = {"naira", "held", "rate", "official", "street", "mid", "buy", "sell", "fee", "cost", "backlog", "worth", "market", "bdc", "bdc_capital",
          "remitter", "amount", "filled", "reserves", "sold", "kept", "window_limit", "window_used", "dollars", "face", "available", "report",
-         "USD", "GBP", "EUR", "price"}
+         "USD", "GBP", "EUR", "price", "remitted"}
 
 
 def _wire(value, key: str | None = None):

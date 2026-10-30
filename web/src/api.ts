@@ -1442,7 +1442,7 @@ export type FxPage = {
   open: boolean; regime: "managed" | "float"; official: string; street: string; gap_bps: number; reserves: string; cover_bps: number;
   backlog: string; words: string; quotes: FxQuote[]; names: Record<string, string>; quarters: FxQuarter[];
   days: { session_date: string; official: string; street: string; premium_bps: number; reserves: string; remitted: string }[];
-  mine: FxWallet; empire: FxWallet | null; is_head: boolean; window_ahead: Record<string, string>;
+  mine: FxWallet; empire: FxWallet | null; is_head: boolean; window_ahead: Record<string, number>;
   bdcs: { id: number; name: string; empire: string; buy: string; sell: string }[];
   remitters: { id: number; name: string; computer: boolean; fee_bps: number; days: number; share_bps: number }[];
   my_bdc: null | { id: number; name: string; buy_bps: number; sell_bps: number; buy: string; sell: string; dollars: string; naira: string;

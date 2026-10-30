@@ -78,10 +78,15 @@ def _bank_fixed(conn: Connection, kind: str, proposer_side: str, now: datetime) 
         level = rate_for(conn, state["period"] + 1)
         return level + data.SWAP_BANK_RATE_SPREAD_BPS if proposer_side == "pay_fixed" else max(level - data.SWAP_BANK_RATE_SPREAD_BPS, 0)
     if kind == "fx":
+        # A bank prices a currency forward from where the official rate is heading by the Central Bank's published rules (a
+        # devaluation everybody can see coming is in the price), always the worse of that and today's rate for the player.
         from simulation import fx
-        level = fx.official(conn)
-        spread = level * data.SWAP_BANK_FX_SPREAD_BPS // BPS
-        return level + spread if proposer_side == "pay_fixed" else max(level - spread, 1)
+        now_, ahead = fx.official(conn), fx.expected_official(conn)
+        if proposer_side == "pay_fixed":
+            level = max(now_, ahead)
+            return level + level * data.SWAP_BANK_FX_SPREAD_BPS // BPS
+        level = min(now_, ahead)
+        return max(level - level * data.SWAP_BANK_FX_SPREAD_BPS // BPS, 1)
     level = oil_for(conn)
     spread = level * data.SWAP_BANK_OIL_SPREAD_BPS // BPS
     return level + spread if proposer_side == "pay_fixed" else max(level - spread, 1)

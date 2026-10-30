@@ -150,7 +150,7 @@ def test_dollars_from_the_window_cannot_be_sold_on_the_street(db):
     with pytest.raises(fx.FxError, match="official window"):
         fx.street_deal(db, player, "sell", "USD", 1_000_000, TRADING + timedelta(days=1))
     got = fx.window_sell(db, player, 1_000_000, TRADING + timedelta(days=1))      # but back to the window, at once
-    assert got["naira"] == 1_000_000 * fx.official(db) // 100
+    assert got["rate"] <= fx.official(db)
     sound(db)
 
 
