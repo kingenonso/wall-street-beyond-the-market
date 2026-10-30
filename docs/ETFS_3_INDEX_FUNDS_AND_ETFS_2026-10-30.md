@@ -10,7 +10,8 @@ This report covers:
 - players' own ETFs, index funds and indexes.
 
 Part 3 had ten loophole tests and an independent review. The review found 14 problems. Every one was fixed and tested.
-The ten-year runs found nine more, all fixed and tested:
+The ten-year runs found ten more, all fixed and tested:
+- **The oil and metals ETFs' records missed some days.** Units made during the day settle the move so far, and the bell then measured the day's move only from that point. The money was right, but the record showed oil standing still on days it had moved. Each day is now measured from the last bell.
 - **The pension funds paid out their savings as pensions.** When they sold shares to the index funds, the game counted the money as income and paid 90% of it out. They ran out of cash, could not settle what they owed the 2x, inverse and commodity ETFs, and those ETFs' holders quietly fell short. That money now counts as savings changing form, like a bond being repaid.
 - **Indexes counted only price moves.** ETFs keep the dividends they are paid, so every quarter they ran about 2% ahead of their index. The share indexes now count dividends as if they were put straight back in, as real "total return" indexes do.
 - **Bond indexes counted only prices too.** Meanwhile the bond funds collected the interest, so the bond ETF ended 92% ahead of its index. Bond indexes now count interest and repayments as if put back in.
