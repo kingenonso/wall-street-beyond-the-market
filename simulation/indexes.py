@@ -207,6 +207,18 @@ def prices_now(conn: Connection, assets: list[str], now: datetime) -> dict:
     return out
 
 
+def dividends_per_share(conn: Connection, assets: list[str], after_period: int, through_period: int) -> dict:
+    """Dividends paid on one of today's shares by each company, in the quarters after one and up to another (kobo)."""
+    out = {}
+    for r in _rows(conn, "SELECT c.share_asset AS asset, r.period, r.dividends_paid, r.shares_in_issue FROM company_results r"
+                         " JOIN companies c ON c.id = r.company_id WHERE c.share_asset = ANY(%s) AND r.period > %s AND r.period <= %s"
+                         " AND r.dividends_paid > 0 AND r.shares_in_issue > 0", (assets, after_period, through_period)):
+        later = _one(conn, "SELECT coalesce(round(exp(sum(ln(ratio::numeric)))), 1)::bigint AS f FROM share_splits s JOIN companies c ON c.id = s.company_id"
+                           " WHERE c.share_asset = %s AND s.period > %s", (r["asset"], r["period"]))["f"]
+        out[r["asset"]] = out.get(r["asset"], 0) + r["dividends_paid"] // r["shares_in_issue"] // max(later, 1)
+    return out
+
+
 def after_split(conn: Connection, company_id, ratio: int) -> None:
     asset = _one(conn, "SELECT share_asset FROM companies WHERE id = %s", (company_id,))["share_asset"]
     conn.execute("UPDATE index_members SET quantity = quantity * %s, last_price = greatest(last_price / %s, 1) WHERE asset = %s",
@@ -250,9 +262,10 @@ def setup(conn: Connection, day: date, now: datetime) -> bool:
     if _one(conn, "SELECT 1 AS x FROM market_indexes WHERE owner_id IS NULL LIMIT 1"):
         return False
     for code, name, kind, rule, words in data.INDEXES:
-        idx = _one(conn, "INSERT INTO market_indexes (code, name, kind, rule, rules_words, cap_bps, level, level_day, started_day, created_at)"
-                         " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
-                   (code, name, kind, rule, _rules_words(kind, words), data.INDEX_CAP_BPS, data.INDEX_START_LEVEL, day, day, now))
+        closed = _one(conn, "SELECT last_closed_period AS p FROM world_state")["p"]
+        idx = _one(conn, "INSERT INTO market_indexes (code, name, kind, rule, rules_words, cap_bps, level, level_day, started_day, created_at,"
+                         " div_period) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+                   (code, name, kind, rule, _rules_words(kind, words), data.INDEX_CAP_BPS, data.INDEX_START_LEVEL, day, day, now, closed))
         plan = plan_for(conn, idx, now)
         _install(conn, code, plan, prices_now(conn, [m["asset"] for m in plan], now), day)
         conn.execute("INSERT INTO index_levels (index_code, session_date, level) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
@@ -263,7 +276,7 @@ def setup(conn: Connection, day: date, now: datetime) -> bool:
 def _rules_words(kind: str, words: str) -> str:
     if kind == "bonds":
         return f"{words} Reviewed every quarter; changes are announced as the quarter closes and made at the third closing bell after."
-    return (f"{words} Each counted by the value of its freely traded shares (not those of its founders, or of any one owner with 30% or"
+    return (f"{words} Dividends count as if put back into the index. Each counted by the value of its freely traded shares (not those of its founders, or of any one owner with 30% or"
             " more), and none above 15% of the index (with fewer than seven members, one and a half times an equal share). Reviewed"
             " every quarter; changes are announced as the quarter closes and made at the third closing bell after.")
 
@@ -279,6 +292,14 @@ def at_bell(conn: Connection, day: date, now: datetime) -> list[str]:
         prices = prices_now(conn, [m["asset"] for m in mem], now)
         before = sum(m["quantity"] * m["last_price"] for m in mem)
         after = sum(m["quantity"] * (prices.get(m["asset"]) or m["last_price"]) for m in mem)
+        # A share index counts the dividends paid since the last bell as if they were put back into it (a total-return index),
+        # so a fund that copies it and keeps its dividends follows it closely.
+        closed = _one(conn, "SELECT last_closed_period AS p FROM world_state")["p"]
+        if idx["kind"] == "shares" and idx["div_period"] is not None and closed > idx["div_period"]:
+            paid = dividends_per_share(conn, [m["asset"] for m in mem], idx["div_period"], closed)
+            after += sum(m["quantity"] * paid.get(m["asset"], 0) for m in mem)
+        if idx["kind"] == "shares":
+            conn.execute("UPDATE market_indexes SET div_period = %s WHERE code = %s", (closed, idx["code"]))
         level = max(int(Decimal(idx["level"]) * after / before), 1) if before else idx["level"]
         conn.execute("INSERT INTO index_levels (index_code, session_date, level) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                      (idx["code"], day, level))
@@ -374,7 +395,8 @@ def create_custom(conn: Connection, player_id, *, code: str, name: str, tickers:
         rules = (f"Chosen by its manager: {', '.join(chosen)}. Counted {'equally' if weighting == 'equal' else 'by the value of their freely traded shares, none above 15%'}."
                  " Changes are announced three closing bells ahead.")
         idx = _one(conn, "INSERT INTO market_indexes (code, name, kind, rule, rules_words, cap_bps, owner_id, weighting, level, level_day, started_day,"
-                         " created_at) VALUES (%s, %s, 'shares', 'custom', %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+                         " created_at, div_period) VALUES (%s, %s, 'shares', 'custom', %s, %s, %s, %s, %s, %s, %s, %s,"
+                         " (SELECT last_closed_period FROM world_state)) RETURNING *",
                    (code, name, rules, data.INDEX_CAP_BPS, player_id, weighting, data.INDEX_START_LEVEL, _last_bell_day(conn, day), day, now))
         found = [listed[t] for t in chosen]
         weights = capped_weights([1] * len(found) if weighting == "equal" else [c["value"] for c in found],

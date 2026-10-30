@@ -19,6 +19,7 @@ CREATE TABLE market_indexes (
     weighting     text NOT NULL DEFAULT 'value' CHECK (weighting IN ('value', 'equal')),
     level         bigint,                            -- at the last closing bell, hundredths of a point (1,000.00 at the start)
     level_day     date,
+    div_period    integer,                           -- the last quarter whose dividends the level has counted (share indexes)
     started_day   date,
     created_at    timestamptz NOT NULL,
     status        text NOT NULL DEFAULT 'live' CHECK (status IN ('live', 'retired'))

@@ -195,3 +195,24 @@ def test_r14_a_trade_worth_one_kobo_does_not_break_anything(db):
     etfs.place_order(db, p, "TOPX", side="sell", quantity=1, limit_price=q["bid"], now=TRADING)
     sound(db)
     assert BPS
+
+
+@pytest.mark.world("eight")
+def test_r15_a_share_index_counts_dividends_as_if_put_back_so_funds_that_keep_them_follow_it(db):
+    """Found in the ten-year run: ETFs keep their dividends, so against a price-only index they ran ahead every quarter."""
+    from datetime import datetime, time as dtime
+    from simulation import clock
+    from tests.conftest import after_quarters
+    now = after_quarters(8) + timedelta(hours=14)
+    day = exchange.session_of(now)[0]
+    indexes.setup(db, day, now)
+    db.execute("UPDATE market_indexes SET div_period = 7")              # as if quarter 8's dividends had not been counted yet
+    paid = indexes.dividends_per_share(db, [m["asset"] for m in indexes.members(db, "TOP30")], 7, 8)
+    assert paid and all(v >= 0 for v in paid.values())
+    later = datetime.combine(day + timedelta(days=1), dtime(22, 5), tzinfo=clock.LAGOS)
+    indexes.at_bell(db, day + timedelta(days=1), later)
+    level = _one(db, "SELECT level FROM market_indexes WHERE code = 'TOP30'")["level"]
+    assert level > data.INDEX_START_LEVEL                               # no price moved: only the dividends
+    bonds_level = _one(db, "SELECT level FROM market_indexes WHERE code = 'GOVBOND'")["level"]
+    assert bonds_level > 0
+    assert _one(db, "SELECT div_period FROM market_indexes WHERE code = 'TOP30'")["div_period"] == 8

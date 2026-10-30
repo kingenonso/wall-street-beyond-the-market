@@ -159,6 +159,13 @@ def holdings(conn: Connection, fund: dict, now: datetime) -> dict:
     """What a fund holds at today's prices: cash, shares and bonds, and what it owes on its loan."""
     w = objectives.wealth(conn, fund["account_id"], now)
     debt = owed(conn, fund)
+    if fund.get("strategy") == "index":
+        # An index fund is valued at the same prices as the index it copies (Part 3), so the two can be compared fairly.
+        from simulation import etfs
+        same = etfs.holdings_value(conn, fund["account_id"], now)
+        return {"cash": same["cash"], "shares": sum(x["value"] for x in same["lines"] if x["asset"].startswith("SHR-")),
+                "bonds": sum(x["value"] for x in same["lines"] if not x["asset"].startswith("SHR-")), "lines": w["lines"],
+                "bond_lines": w["bond_lines"], "owed": debt, "total": same["total"] - debt}
     return {"cash": w["cash"], "shares": w["shares"], "bonds": w["bonds"], "lines": w["lines"], "bond_lines": w["bond_lines"],
             "owed": debt, "total": w["total"] - debt}
 
