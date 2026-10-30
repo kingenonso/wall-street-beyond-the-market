@@ -16,7 +16,7 @@ const STATUS: Record<string, string> = { signing: "Being signed inside the empir
 export function SwapsPanel({ onLoggedOut, onChanged }: { onLoggedOut: () => void; onChanged?: () => void }) {
   const { data, error, loading, reload } = useLoad<SwapsDesk>(api.swaps, "swaps", onLoggedOut);
   const act = useAct(reload, onLoggedOut, onChanged);
-  const [kind, setKind] = useState<"rate" | "oil">("rate");
+  const [kind, setKind] = useState<"rate" | "oil" | "fx">("rate");
   const [with_, setWith] = useState<"bank" | "player" | "empire">("bank");
   const [bank, setBank] = useState("");
   const [name, setName] = useState("");
@@ -31,12 +31,13 @@ export function SwapsPanel({ onLoggedOut, onChanged }: { onLoggedOut: () => void
   const q = Math.floor(Number(quarters) || 0);
   const notional = kind === "rate" ? asKobo(size) : null;
   const barrels = kind === "oil" ? Math.floor(Number(size.replace(/,/g, "")) || 0) : 0;
+  const dollars = kind === "fx" ? Math.round((Number(size.replace(/[,$]/g, "")) || 0) * 100) : 0;
   const fixedValue = with_ === "bank" ? null : kind === "rate" ? Math.round(Number(fixed) * 100) || null : asKobo(fixed);
   const counter = with_ === "bank" ? { bank: bank || data.banks[0]?.id } : with_ === "player" ? { player: name.trim() } : { empire: name.trim() };
-  const ready = q >= 1 && q <= 8 && (kind === "rate" ? notional !== null : barrels > 0) && (with_ === "bank" || (fixedValue !== null && name.trim() !== ""));
-  const body = { kind, side, quarters: q, ...(kind === "rate" ? { notional_kobo: notional } : { barrels }), ...(fixedValue ? { fixed: fixedValue } : {}), ...counter, for_empire: forEmpire };
+  const ready = q >= 1 && q <= 8 && (kind === "rate" ? notional !== null : kind === "fx" ? dollars > 0 : barrels > 0) && (with_ === "bank" || (fixedValue !== null && name.trim() !== ""));
+  const body = { kind, side, quarters: q, ...(kind === "rate" ? { notional_kobo: notional } : kind === "fx" ? { dollars_cents: dollars } : { barrels }), ...(fixedValue ? { fixed: fixedValue } : {}), ...counter, for_empire: forEmpire };
   return (
-    <Panel title="Swaps" aside={`Central Bank rate ${formatPercent(data.rate_now, 2)} · oil ${formatNaira(data.oil_now)} a barrel · opens at Level ${data.unlock_level}`}>
+    <Panel title="Swaps" aside={`Central Bank rate ${formatPercent(data.rate_now, 2)} · oil ${formatNaira(data.oil_now)} a barrel · dollar ${formatNaira(String(data.dollar_now))} · opens at Level ${data.unlock_level}`}>
       {act.error && <p className="error" role="alert">{act.error}</p>}
       {act.notice && <p className="saved" role="status">{act.notice}</p>}
       <p className="small">
@@ -73,15 +74,15 @@ export function SwapsPanel({ onLoggedOut, onChanged }: { onLoggedOut: () => void
         </div>
       ) : <p className="muted small">No swaps.</p>}
       <form className="form-grid" onSubmit={(e) => { e.preventDefault(); if (ready) act.run("/swaps", body, with_ === "bank" ? "Signed with the bank." : forEmpire ? "Sent for signing inside the empire." : "Offered. They will be asked."); }}>
-        <label className="answer">On<select value={kind} onChange={(e) => setKind(e.target.value as "rate" | "oil")}><option value="rate">The Central Bank's rate</option><option value="oil">The oil price</option></select></label>
+        <label className="answer">On<select value={kind} onChange={(e) => setKind(e.target.value as "rate" | "oil" | "fx")}><option value="rate">The Central Bank's rate</option><option value="oil">The oil price</option><option value="fx">The dollar (a currency forward)</option></select></label>
         <label className="answer">With<select value={with_} onChange={(e) => setWith(e.target.value as "bank" | "player" | "empire")}><option value="bank">A bank</option><option value="player">A player</option><option value="empire">An empire</option></select></label>
         {with_ === "bank"
           ? <label className="answer">Bank<select value={bank || data.banks[0]?.id || ""} onChange={(e) => setBank(e.target.value)}>{data.banks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
           : <label className="answer">Their name<input type="text" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} /></label>}
         <label className="answer">You<select value={side} onChange={(e) => setSide(e.target.value as "pay_fixed" | "receive_fixed")}><option value="pay_fixed">Pay fixed, receive the floating</option><option value="receive_fixed">Receive fixed, pay the floating</option></select></label>
         <label className="answer">Quarters (1–8)<input type="number" min={1} max={8} value={quarters} onChange={(e) => setQuarters(e.target.value)} /></label>
-        <label className="answer">{kind === "rate" ? "On (₦)" : "Barrels a quarter"}<input type="text" inputMode="decimal" value={size} onChange={(e) => setSize(e.target.value)} /></label>
-        {with_ !== "bank" && <label className="answer">{kind === "rate" ? "Fixed rate (% a year)" : "Fixed price (₦ a barrel)"}<input type="text" inputMode="decimal" value={fixed} onChange={(e) => setFixed(e.target.value)} /></label>}
+        <label className="answer">{kind === "rate" ? "On (₦)" : kind === "fx" ? "Dollars a quarter ($)" : "Barrels a quarter"}<input type="text" inputMode="decimal" value={size} onChange={(e) => setSize(e.target.value)} /></label>
+        {with_ !== "bank" && <label className="answer">{kind === "rate" ? "Fixed rate (% a year)" : kind === "fx" ? "Fixed rate (₦ a dollar)" : "Fixed price (₦ a barrel)"}<input type="text" inputMode="decimal" value={fixed} onChange={(e) => setFixed(e.target.value)} /></label>}
         {data.empire && <label className="check-line"><input type="checkbox" checked={forEmpire} onChange={(e) => setForEmpire(e.target.checked)} /> For {data.empire}</label>}
         <button className="button-outline" disabled={act.busy || !ready}>{with_ === "bank" ? "Sign with the bank" : "Offer the swap"}</button>
       </form>

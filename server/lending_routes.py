@@ -294,11 +294,12 @@ def empire_crash_fund(body: CoverRequest, player: dict = Depends(current_player)
 # ---------------------------------------------------------------------------
 
 class SwapRequest(ForRequest):
-    kind: Literal["rate", "oil"]
+    kind: Literal["rate", "oil", "fx"]
     side: Literal["pay_fixed", "receive_fixed"]
     quarters: int = Field(ge=1, le=8, strict=True)
     notional_kobo: int | None = Field(default=None, gt=0, le=1_000_000_000_000, strict=True)
     barrels: int | None = Field(default=None, gt=0, le=100_000, strict=True)
+    dollars_cents: int | None = Field(default=None, gt=0, le=1_000_000_000_000, strict=True)   # a currency forward: dollars a quarter
     fixed: int | None = Field(default=None, gt=0, le=1_000_000_000_000, strict=True)
     bank: UUID | None = None
     player: str | None = Field(default=None, max_length=80)
@@ -316,14 +317,15 @@ def swaps_list(player: dict = Depends(current_player), conn: Connection = Depend
         empire_name = seat["empire_name"]
     banks = conn.execute("SELECT id, name FROM companies WHERE sector = 'banking' AND status = 'trading' ORDER BY name").fetchall()
     return wire({"swaps": swaps.view(conn, accounts), "empire": empire_name, "banks": [{"id": str(b["id"]), "name": b["name"]} for b in banks],
-                 "rate_now": swaps.rate_for(conn, 10 ** 6), "oil_now": swaps.oil_for(conn), "unlock_level": derivatives.data.UNLOCK_ADVANCED_LEVEL})
+                 "rate_now": swaps.rate_for(conn, 10 ** 6), "oil_now": swaps.oil_for(conn), "dollar_now": swaps._dollar(conn), "unlock_level": derivatives.data.UNLOCK_ADVANCED_LEVEL})
 
 
 @app.post("/api/swaps")
 def swaps_propose(body: SwapRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     other = {"bank": str(body.bank)} if body.bank else {"player": body.player} if body.player else {"empire": body.empire} if body.empire else {}
     return _act(conn, player, lambda now: swaps.propose(conn, player["id"], kind=body.kind, counterparty=other, side=body.side,
-                                                         quarters=body.quarters, notional=body.notional_kobo, barrels=body.barrels,
+                                                         quarters=body.quarters,
+                                                         notional=body.dollars_cents if body.kind == "fx" else body.notional_kobo, barrels=body.barrels,
                                                          fixed=body.fixed, now=now, for_empire=body.for_empire), bucket="derivatives")
 
 

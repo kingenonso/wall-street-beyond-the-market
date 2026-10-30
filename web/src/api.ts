@@ -991,7 +991,7 @@ export type FairExplained = { name: string; fair: Kobo; last_trade: Kobo | null;
 export type Swap = { id: number; kind: "rate" | "oil"; name: string; status: string; side: "pay_fixed" | "receive_fixed"; other: string;
   yours_to_answer: boolean; empire_side: boolean; contract: string | null; first_period: number | null; last_period: number | null; value: Kobo;
   payments: { period: number; floating: number; amount: Kobo; unpaid: Kobo }[] };
-export type SwapsDesk = { swaps: Swap[]; empire: string | null; banks: { id: string; name: string }[]; rate_now: number; oil_now: Kobo; unlock_level: number };
+export type SwapsDesk = { swaps: Swap[]; empire: string | null; banks: { id: string; name: string }[]; rate_now: number; oil_now: Kobo; dollar_now: number; unlock_level: number };
 export type Instrument = { code: string; kind: "preferred" | "warrant"; ticker: string; name: string; fair: Kobo; bid: Kobo; ask: Kobo; on_offer: number;
   dividend_bps: number | null; par: number | null; strike: number | null; shares_per: number | null; expiry: string | null; held: number };
 export type InstrumentsDesk = { instruments: Instrument[]; waiting: { id: number; name: string; units: number; cash: Kobo }[];
@@ -1213,6 +1213,9 @@ export const api = {
   indexPage: (code: string) => request<IndexPage>(`/indexes/${code}`),
   etfAct: (path: string, body?: unknown) => request<{ result: unknown }>(path, { method: "POST", body: JSON.stringify(body ?? {}) }),
   etfAlerts: (mark: number | null) => request<{ mark: number; alerts: EtfAlert[] }>(`/etfs/alerts${mark === null ? "" : `?after=${mark}`}`),
+  fx: () => request<FxPage>("/fx"),
+  fxAct: (path: string, body?: unknown) => request<{ result: unknown }>(path, { method: "POST", body: JSON.stringify(body ?? {}) }),
+  fxAlerts: (mark: number | null) => request<{ mark: number; alerts: FxAlert[] }>(`/fx/alerts${mark === null ? "" : `?after=${mark}`}`),
   fundAlerts: (mark: number | null) => request<{ mark: number; alerts: FundAlert[] }>(`/funds/alerts${mark === null ? "" : `?after=${mark}`}`),
   pensionFund: (method: "POST" | "PUT" | "DELETE", path: string, body?: unknown) =>
     request<PensionFunds>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) }),
@@ -1424,3 +1427,30 @@ export type EtfSheet = EtfSummary & {
   creation_units: number; warning: string | null;
 };
 export type EtfAlert = { id: number; kind: string; headline: string; words: string; at: string; code: string | null };
+
+// The currency desk (the talent and funds stage, Part 4a). Money is sent as text: naira in kobo, foreign money in cents.
+export type FxQuote = { currency: "USD" | "GBP" | "EUR"; mid: string; sell: string; buy: string };
+export type FxWallet = {
+  name?: string; naira: string; balances: { USD: string; GBP: string; EUR: string }; kept: string; window_limit: string; window_used: string;
+  requests: { id: number; amount: string; filled: string; held: string; status: string; placed_at: string }[];
+  trades: { venue: string; side: string; currency: string; amount: string; rate: string; naira: string; at: string }[];
+  worth: string;
+};
+export type FxQuarter = { period: number; label: string; official: string; market: string; regime: string; reserves: string; cover_bps: number;
+  sold: string; backlog: string; event: string | null; words: string };
+export type FxPage = {
+  open: boolean; regime: "managed" | "float"; official: string; street: string; gap_bps: number; reserves: string; cover_bps: number;
+  backlog: string; words: string; quotes: FxQuote[]; names: Record<string, string>; quarters: FxQuarter[];
+  days: { session_date: string; official: string; street: string; premium_bps: number; reserves: string; remitted: string }[];
+  mine: FxWallet; empire: FxWallet | null; is_head: boolean; window_ahead: Record<string, string>;
+  bdcs: { id: number; name: string; empire: string; buy: string; sell: string }[];
+  remitters: { id: number; name: string; computer: boolean; fee_bps: number; days: number; share_bps: number }[];
+  my_bdc: null | { id: number; name: string; buy_bps: number; sell_bps: number; buy: string; sell: string; dollars: string; naira: string;
+    reports: { customer: string; amount: string; naira: string; at: string }[] };
+  my_remitter: null | { id: number; name: string; fee_bps: number; days: number;
+    days_record: { session_date: string; dollars: string; fee: string; cost: string }[] };
+  eurobonds: { id: number; name: string; issuer: string; coupon_bps: number; maturity: string; face: string; yield_bps: number; defaulted: boolean;
+    buy: string; sell: string; available: string; mine: number; empire: number }[];
+  licences: { bdc: string; bdc_capital: string; remitter: string; report: string };
+};
+export type FxAlert = { id: number; kind: string; headline: string; words: string; at: string };

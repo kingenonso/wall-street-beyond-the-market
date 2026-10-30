@@ -18,6 +18,7 @@ import { CharitiesRail, CharitiesWork, IntelRail, IntelWork } from "./Intel";
 import { PortfolioRail, PortfolioWork } from "./Portfolio";
 import { PropertyRail, PropertyWork } from "./Property";
 import { BorrowRail, BorrowWork } from "./Borrow";
+import { CurrenciesWork } from "./Currencies";
 import { useRoute } from "./hooks";
 import { ProfileRail, ProfileWork } from "./Profile";
 import { MoreWork, Panel, SearchWork, Shell } from "./Shell";
@@ -119,6 +120,10 @@ export function App() {
   } else if (section === "borrow") {
     current = "borrow";
     work = <BorrowWork key={item ?? ""} player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <BorrowRail onLoggedOut={loggedOut} />;
+  } else if (section === "currencies") {
+    current = "currencies";
+    work = <CurrenciesWork onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <BorrowRail onLoggedOut={loggedOut} />;
   } else if (section === "property") {
     current = "property";
