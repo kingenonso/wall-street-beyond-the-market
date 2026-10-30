@@ -786,7 +786,8 @@ def _issue_companies(conn: Connection, period: int, now: datetime) -> None:
                 SELECT c.*, r.revenue FROM companies c JOIN LATERAL (SELECT greatest(revenue, base_revenue) AS revenue FROM company_results WHERE company_id = c.id
                 ORDER BY period DESC LIMIT 1) r ON true WHERE c.sector = %s AND c.listed AND c.status = 'trading'
                 ORDER BY r.revenue DESC, c.ticker LIMIT %s""", (sector, how_many)):
-            cents = to_cents(apply_bps(c["revenue"] * 4, data.FX_COMPANY_EUROBOND_SHARE_BPS), rate)
+            cents = min(to_cents(apply_bps(c["revenue"] * 4, data.FX_COMPANY_EUROBOND_SHARE_BPS), rate),
+                        apply_bps(imports_usd(conn), data.FX_COMPANY_EUROBOND_MOST_BPS))
             cents = cents // data.FX_EUROBOND_FACE_CENTS * data.FX_EUROBOND_FACE_CENTS
             if cents <= 0:
                 continue
