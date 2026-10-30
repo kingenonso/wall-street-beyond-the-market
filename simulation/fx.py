@@ -330,6 +330,12 @@ def _window_limit(empire) -> int:
     return data.FX_WINDOW_LIMIT_EMPIRE_CENTS if empire else data.FX_WINDOW_LIMIT_PLAYER_CENTS
 
 
+def _window_used(conn: Connection, account, period: int) -> int:
+    """What counts against the quarter's limit: every request still open or filled, and what was filled of any withdrawn."""
+    return _one(conn, "SELECT coalesce(sum(CASE WHEN status = 'cancelled' THEN filled ELSE amount END), 0)::bigint AS n FROM fx_window"
+                      " WHERE account_id = %s AND period = %s", (account, period))["n"]
+
+
 def _runs_bdc(conn: Connection, account) -> bool:
     return _one(conn, "SELECT 1 AS x FROM bdcs b JOIN empires e ON e.id = b.empire_id WHERE e.account_id = %s AND b.status = 'open'",
                 (account,)) is not None
@@ -347,8 +353,7 @@ def window_ask(conn: Connection, player_id, amount: int, now: datetime, *, for_e
         if _runs_bdc(conn, account):
             raise FxError("A bureau de change buys its dollars on the street, not at the official window.")
         period = _period(conn, now)
-        used = _one(conn, "SELECT coalesce(sum(amount), 0)::bigint AS n FROM fx_window WHERE account_id = %s AND period = %s"
-                          " AND status <> 'cancelled'", (account, period))["n"]
+        used = _window_used(conn, account, period)
         limit = _window_limit(empire)
         if used + amount > limit:
             raise FxError(f"The official window gives at most {_cash(limit)} a quarter ({_cash(max(limit - used, 0))} is left this quarter).")
@@ -1309,8 +1314,7 @@ def page(conn: Connection, player_id, now: datetime) -> dict:
     can_empire = bool(empire and (empire["head_player_id"] == player_id or seat["build"] == "investment_banker"))
 
     def wallet(account, is_empire: bool) -> dict:
-        used = _one(conn, "SELECT coalesce(sum(amount), 0)::bigint AS n FROM fx_window WHERE account_id = %s AND period = %s AND status <> 'cancelled'",
-                    (account, period))["n"]
+        used = _window_used(conn, account, period)
         return {
             "naira": ledger.balance(conn, account),
             "balances": {c: ledger.balance(conn, account, c) for c in CURRENCIES},
