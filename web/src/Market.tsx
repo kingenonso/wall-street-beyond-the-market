@@ -10,6 +10,7 @@ import { BondsWork, CorporateWork, OwnershipWork } from "./Capital";
 import { IndustriesWork } from "./Industries";
 import { DerivativesWork, RiskWork } from "./Derivatives";
 import { FundsWork } from "./Funds";
+import { EtfsWork } from "./Etfs";
 
 const shares = (count: number) => count.toLocaleString("en-NG");
 const points = (level: number) => level.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -18,7 +19,7 @@ export const shortDate = (iso: string) =>
 
 
 const TABS: [string, string][] = [
-  ["", "Shares"], ["bonds", "Bonds and bills"], ["funds", "Funds"], ["derivatives", "Options and futures"], ["risk", "Risk"], ["offers", "Offers, votes and bids"],
+  ["", "Shares"], ["bonds", "Bonds and bills"], ["funds", "Funds"], ["etfs", "Indexes & ETFs"], ["derivatives", "Options and futures"], ["risk", "Risk"], ["offers", "Offers, votes and bids"],
   ["industries", "Industries"], ["owners", "Who owns what"],
 ];
 
@@ -36,6 +37,7 @@ export function MarketWork({ tab = "", onLoggedOut, onChanged }: { tab?: string;
       {tab !== "" && <h1 className="sr-only">Market: {TABS.find(([path]) => path === tab)?.[1] ?? "the market"}</h1>}
       {tab === "bonds" ? <BondsWork onLoggedOut={onLoggedOut} onChanged={onChanged} />
         : tab === "funds" ? <FundsWork onLoggedOut={onLoggedOut} onChanged={onChanged} />
+        : tab === "etfs" ? <EtfsWork onLoggedOut={onLoggedOut} onChanged={onChanged} />
         : tab === "derivatives" ? <DerivativesWork onLoggedOut={onLoggedOut} onChanged={onChanged} />
         : tab === "risk" ? <RiskWork onLoggedOut={onLoggedOut} />
         : tab === "offers" ? <CorporateWork onLoggedOut={onLoggedOut} onChanged={onChanged} />

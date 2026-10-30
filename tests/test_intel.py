@@ -108,16 +108,19 @@ def test_a_journalists_tips_include_pacts_and_thefts_and_a_lawyers_pacts(db):
 
 
 def test_checking_costs_a_fee_is_mostly_right_and_the_verdict_is_the_holders_own(db):
-    p = _player(db, "risk_manager", "checker", level=30, cash=50_000_000)
+    p = _player(db, "risk_manager", "checker", level=30, cash=500_000_000)
     account = ledger.player_account_id(db, p)
     before = ledger.balance(db, account)
     right = 0
-    items = [_held_item(db, p, truth="true" if i % 2 else "false") for i in range(40)]
+    items = [_held_item(db, p, truth="true" if i % 2 else "false") for i in range(200)]
     for item in items:
         got = intel.check(db, p, item["ref"], NOW9)
         right += got["verdict"] == ("holds" if item["truth"] == "true" else "fails")
-    assert ledger.balance(db, account) == before - 40 * naira(data.CHECK_FEE_NAIRA)
-    assert right >= 30                                                        # about 85% at level 30
+    assert ledger.balance(db, account) == before - 200 * naira(data.CHECK_FEE_NAIRA)
+    # Experience alone stops at Level 20 (the next level needs the rank case), so the check is right 80% of the time: about
+    # 160 of 200. (It was 40 pieces needing 30, which chance failed nearly half the time.)
+    assert careers.career(db, p, "risk_manager")["level"] == 20
+    assert 140 <= right < 200
     with pytest.raises(intel.IntelError, match="already been checked"):
         intel.check(db, p, items[0]["ref"], NOW9)
     leads = _one(db, "SELECT count(*) AS n FROM intel_items WHERE id = ANY(%s) AND status = 'lead'", ([i["id"] for i in items],))["n"]

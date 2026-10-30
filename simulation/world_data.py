@@ -1327,3 +1327,78 @@ COMPUTER_FUNDS = (
     ("Niger Delta Bond Fund", "bonds", 60, 15_000_000_000),
     ("Harmattan Balanced Fund", "balanced", 100, 12_000_000_000),
 )
+
+# ---------------------------------------------------------------------------
+# Index funds and ETFs (the talent and funds stage, Part 3)
+# ---------------------------------------------------------------------------
+INDEX_START_LEVEL = 100_000                  # every index starts at 1,000.00 (hundredths of a point)
+INDEX_CAP_BPS = 1_500                        # no company above 15% of an index...
+INDEX_CAP_FEW_MEMBERS = 7                    # ...unless it has fewer than seven members: then one and a half times an equal share
+INDEX_STRATEGIC_HOLDER_BPS = 3_000           # shares held by founders, or by any one owner with 30% or more, are not freely traded
+INDEX_CHANGE_NOTICE_BELLS = 3                # a review's changes are announced as the quarter closes and made at the third bell after
+INDEX_DIVIDEND_MEMBERS = 10                  # the High Dividend index: the ten best dividend payers of the last year
+INDEX_CUSTOM_MOST = 30                       # a manager's own index: at most 30 companies
+INDEX_FUTURES = ("TOP30", "BANKS", "OILGAS")  # futures and options on these indexes, alongside the BSX 50's
+# The game's own indexes: (code, name, kind, rule, published rules).
+INDEXES = (
+    ("TOP30", "BSX Top 30", "shares", "top30",
+     "The 30 largest companies on the Broad Street Exchange by the value of their freely traded shares."),
+    ("BANKS", "BSX Banks", "shares", "sector:banking", "Every listed bank."),
+    ("OILGAS", "BSX Oil & Gas", "shares", "sector:oil_gas", "Every listed oil and gas company."),
+    ("CONSUMER", "BSX Consumer", "shares", "sector:consumer", "Every listed company making food, drinks and household goods."),
+    ("DIVIDEND", "BSX High Dividend", "shares", "dividend",
+     "The ten listed companies that paid the most in dividends over the last year, for their size."),
+    ("PROPERTY", "BSX Property", "shares", "sector:real_estate", "Every listed property and construction company."),
+    ("GOVBOND", "Federal Government Bond", "bonds", "govbond", "Every Federal Government bond and bill still to be repaid, by the amount owed."),
+    ("CORPBOND", "Company Bond", "bonds", "corpbond", "Every company bond still to be repaid and not in default, by the amount owed."),
+)
+
+ETF_LEVEL = 20                               # an Asset Manager of this level launches an ETF or an index fund (as in Part 2)
+ETF_FEE_MOST_BPS = 100                       # an index vehicle's yearly fee: at most 1%
+ETF_FIRST_NAV_KOBO = 10_000                  # a new ETF's first unit is worth ₦100
+ETF_CREATION_UNITS = 10_000                  # units are made and unmade in blocks of 10,000
+ETF_BASKET_FEE_BPS = 5                       # making or unmaking units against a basket of shares: 0.05%
+ETF_CASH_FEE_BPS = 25                        # ...against cash (the fund buys or sells the basket): 0.25%
+ETF_TRADE_FEE_BPS = 5                        # each side of a trade in ETF units pays 0.05% to the exchange
+ETF_PRICE_BAND_BPS = 1_000                   # an ETF trades within 10% of the last bell's price (20% for 2x and inverse)
+ETF_MAKER_HALF_SPREAD_BPS = 20               # the market makers quote 0.2% either side of where they put the value...
+ETF_MAKER_SPECIAL_HALF_SPREAD_BPS = 50       # ...0.5% for 2x, inverse and commodity ETFs
+ETF_MAKER_DEPTH_BPS = 50                     # ...for up to 0.5% of the units in issue (and at least 5,000)
+ETF_MAKER_LEAST_DEPTH = 5_000
+ETF_PREMIUM_MOST_BPS = 75                    # the game's own dealers make or unmake units once the price is 0.75% from value...
+ETF_SPECIAL_PREMIUM_MOST_BPS = 150           # ...1.5% for 2x, inverse and commodity ETFs
+# Buying (or selling) the makers' whole depth moves where they quote by their half spread: never enough to buy from them and
+# sell straight back at a profit.
+ETF_PREMIUM_DECAY_BPS = 5_000                # at each bell half of the gap closes...
+ETF_PREMIUM_SHOCK_BPS = 25                   # ...and a new day's mood moves it by up to this much either way
+ETF_OFF_VALUE_ALERT_BPS = 100                # a closing price 1% or more from value is news for its holders
+ETF_SPECIAL_LEVEL = 15                       # 2x and inverse ETFs: a player of Level 15 or more in any build, who has read the warning
+ETF_DEALER_LEAST_WORTH_NAIRA = 500_000_000   # an empire worth this much, with a clean record, may be approved as a dealer
+ETF_SAMPLE_COVER_BPS = 8_000                 # a sampling fund holds the largest members up to 80% of the index (and at least five)
+ETF_FOUNDERS_PREMIUM_BPS = 100               # founders sell to index funds only once the dealers have none, and at 1% above the price
+ETF_ROOM_SHORT_BPS = 200                     # new cash goes in only while the dealers can supply all but 2% of the basket
+ETF_CASH_TARGET_BPS = 100                    # an index vehicle keeps about 1% in cash for its fee
+ETF_SMALL_NAIRA = 50_000_000                 # a player's ETF this small at two quarter ends running (after its first two) is closed
+# Passive money: the households put a growing share of their savings into index funds and ETFs.
+PASSIVE_START_BPS = 300                      # 3% of the market at the start...
+PASSIVE_RISE_BPS_A_YEAR = 300                # ...rising 3% a game year...
+PASSIVE_MOST_BPS = 3_500                     # ...to at most 35%
+PASSIVE_STEP_BPS = 2_500                     # each quarter the households move a quarter of the gap to their target
+PASSIVE_RECORD_ALERT_NAIRA = 1_000_000_000   # money in or out of one vehicle in a quarter above this is news
+# The computer's own ETFs: (code, name, index or commodity, leverage, method, fee, seed in naira).
+COMPUTER_ETFS = (
+    ("TOPX", "Broad Street Top 30 ETF", "TOP30", 10_000, "full", 20, 6_000_000_000),
+    ("BNKX", "Broad Street Banks ETF", "BANKS", 10_000, "full", 30, 2_000_000_000),
+    ("OGX", "Broad Street Oil & Gas ETF", "OILGAS", 10_000, "full", 35, 1_500_000_000),
+    ("DIVX", "Broad Street High Dividend ETF", "DIVIDEND", 10_000, "full", 35, 1_500_000_000),
+    ("GBND", "Broad Street Government Bond ETF", "GOVBOND", 10_000, "full", 15, 3_000_000_000),
+    ("TOPL", "Broad Street Top 30 2x Daily ETF", "TOP30", 20_000, "swap", 75, 1_000_000_000),
+    ("TOPI", "Broad Street Top 30 Inverse Daily ETF", "TOP30", -10_000, "swap", 75, 1_000_000_000),
+    ("OILX", "Broad Street Oil ETF", "OIL", 10_000, "swap", 50, 1_000_000_000),
+    ("MTLX", "Broad Street Gold & Metals ETF", "METALS", 10_000, "swap", 50, 1_000_000_000),
+)
+# The computer's own index funds (Part 2's funds, copying an index): (name, index, fee, seed in naira).
+COMPUTER_INDEX_FUNDS = (
+    ("Broad Street Top 30 Index Fund", "TOP30", 25, 5_000_000_000),
+    ("Broad Street Bond Index Fund", "GOVBOND", 20, 3_000_000_000),
+)

@@ -380,6 +380,7 @@ def government_service(conn: Connection, treasury, period: int, policy_rate_bps:
         total = each * sum(owners.values())
         if total > max(ledger.balance(conn, treasury), 0):
             continue                                   # the Treasury is short: it pays when it can (never yet seen)
+        record_cash(conn, bond["asset"], period, each * sum(owners.values()), sum(owners.values()))
         if coupon:
             ledger.post(conn, kind="bond_coupon", memo=f"{bond['name']}: interest for {clock.period_label(period)}",
                         period=period, reference=f"bond:{bond['id']}",
@@ -452,6 +453,12 @@ def government_debt(conn: Connection) -> int:
 def of_debt(conn: Connection, debt_id) -> dict | None:
     found = _load(conn, "b.debt_id = %s", (debt_id,))
     return found[0] if found else None
+
+
+def record_cash(conn: Connection, asset: str, period: int, amount: int, units: int) -> None:
+    """What a bond paid its holders (interest or repayment), kept so a bond index can count it as put back in (Part 3)."""
+    if amount > 0 and units > 0 and _one(conn, "SELECT to_regclass('bond_cash') IS NOT NULL AS ok")["ok"]:
+        conn.execute("INSERT INTO bond_cash (asset, period, amount, units) VALUES (%s, %s, %s, %s)", (asset, period, amount, units))
 
 
 def share_out(conn: Connection, bond: dict, amount: int) -> dict:

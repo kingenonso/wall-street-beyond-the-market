@@ -82,7 +82,8 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
                         + lending.check_books(conn) + derivatives.check_books(conn)
                         + crashfund.check_books(conn) + instruments.check_books(conn)
                         + conveyancing.check_books(conn) + development.check_books(conn) + propfunds.check_books(conn)
-                        + _crisis().check_books(conn) + _funds().check_books(conn))
+                        + _crisis().check_books(conn) + _funds().check_books(conn)
+                        + _etfs().check_books(conn))
             if problems:
                 raise ledger.LedgerError("The ledger failed its end-of-quarter check: " + " ".join(problems))
             conn.execute("UPDATE world_state SET last_closed_period = %s", (period,))
@@ -294,6 +295,11 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     day, _ = exchange.session_of(now)
     careers.close_retirement(conn, period, marketview.index_level(marketview._shares(conn, day), marketview.index_base(conn)),
                              measured["next_policy_rate_bps"])
+
+
+def _etfs():
+    from simulation import etfs
+    return etfs
 
 
 def _funds():

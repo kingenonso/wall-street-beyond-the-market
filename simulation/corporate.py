@@ -448,6 +448,10 @@ def _complete_splits(conn: Connection, period: int, now: datetime) -> None:
                      (ratio, company["id"]))
         from simulation import instruments
         instruments.after_split(conn, company["id"], ratio)
+        # Part 3: every index the company is in counts as many more shares, each at a price as much lower, so the index does not move.
+        from simulation import indexes
+        if indexes.ready(conn):
+            indexes.after_split(conn, company["id"], ratio)
         conn.execute("INSERT INTO share_splits (company_id, period, ratio, after_trade_id, session_date) VALUES (%s, %s, %s, %s, %s)",
                      (company["id"], period, ratio, _after_trade(conn), day))
         after = _market_price(conn, company["id"])

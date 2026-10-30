@@ -12,7 +12,7 @@ import { NumberTile } from "./Parts";
 import { Change, Failed, Loading, Panel } from "./Shell";
 import { LineChart } from "./TrendChart";
 
-const ORDER: FundStrategy[] = ["shares", "banks", "bonds", "balanced", "anything"];
+const ORDER: FundStrategy[] = ["shares", "banks", "bonds", "balanced", "anything", "index"];
 const unitNaira = (price: string) => `₦${(Number(price) / 1e8).toFixed(4)}`;
 const units = (n: number) => n.toLocaleString("en-NG");
 const day = (iso: string) => new Date(iso).toLocaleDateString("en-NG", { day: "numeric", month: "short", timeZone: "Africa/Lagos" });
@@ -228,11 +228,16 @@ function LaunchForm({ data, onChanged, reload }: { data: FundsPage; onChanged: (
   const [least, setLeast] = useState("10000");
   const [seed, setSeed] = useState(String(Number(BigInt(data.launch.seed) / 100n)));
   const [words, setWords] = useState("");
+  const [indexCode, setIndexCode] = useState(data.indexes[0]?.code ?? "");
+  const [method, setMethod] = useState("full");
+  const isIndex = strategy === "index";
+  const chosenIndex = data.indexes.find((i) => i.code === indexCode);
   return (
     <Panel title="Launch a fund of your own" aside={`registration ${formatNaira(data.launch.registration)}`}>
       <form className="stack-form" onSubmit={(e) => {
         e.preventDefault();
-        run("/launch", { name, strategy, fee_bps: Number(fee), perf_fee_bps: Number(perf), least_in_naira: Number(least), seed_naira: Number(seed), words });
+        run("/launch", { name, strategy, fee_bps: Number(fee), perf_fee_bps: isIndex ? 0 : Number(perf), least_in_naira: Number(least), seed_naira: Number(seed), words,
+          ...(isIndex ? { index_code: indexCode, method: chosenIndex?.kind === "bonds" ? "full" : method } : {}) });
       }}>
         <p className="small muted">
           You run one fund at a time and put in at least {formatNaira(data.launch.seed)} of your own money, which buys the first units at ₦1.
@@ -242,10 +247,16 @@ function LaunchForm({ data, onChanged, reload }: { data: FundsPage; onChanged: (
         <label className="answer"><span className="field-label">What it holds</span>
           <select value={strategy} onChange={(e) => setStrategy(e.target.value as FundStrategy)}>{ORDER.map((k) => <option key={k} value={k}>{data.strategies[k]}</option>)}</select></label>
         <p className="small muted">{data.strategy_words[strategy]}</p>
+        {isIndex && (<>
+          <label className="answer"><span className="field-label">The index it copies</span>
+            <select value={indexCode} onChange={(e) => setIndexCode(e.target.value)}>{data.indexes.map((i) => <option key={i.code} value={i.code}>{i.name}</option>)}</select></label>
+          {chosenIndex?.kind !== "bonds" && <label className="answer"><span className="field-label">How it copies</span>
+            <select value={method} onChange={(e) => setMethod(e.target.value)}><option value="full">Every member, in proportion</option><option value="sample">Only the largest members, up to 80% of the index</option></select></label>}
+        </>)}
         <label className="answer"><span className="field-label">Yearly fee, of the whole fund</span>
-          <select value={fee} onChange={(e) => setFee(e.target.value)}>{[0, 25, 50, 75, 100, 125, 150, 175, 200].map((b) => <option key={b} value={b}>{formatPercent(b, 2)}</option>)}</select></label>
-        <label className="answer"><span className="field-label">Performance fee, of gains above the fund's best</span>
-          <select value={perf} onChange={(e) => setPerf(e.target.value)}>{[0, 500, 1000, 1500, 2000].map((b) => <option key={b} value={b}>{formatPercent(b, 0)}</option>)}</select></label>
+          <select value={isIndex && Number(fee) > 100 ? "100" : fee} onChange={(e) => setFee(e.target.value)}>{(isIndex ? [0, 10, 15, 20, 25, 35, 50, 75, 100] : [0, 25, 50, 75, 100, 125, 150, 175, 200]).map((b) => <option key={b} value={b}>{formatPercent(b, 2)}</option>)}</select></label>
+        {!isIndex && <label className="answer"><span className="field-label">Performance fee, of gains above the fund's best</span>
+          <select value={perf} onChange={(e) => setPerf(e.target.value)}>{[0, 500, 1000, 1500, 2000].map((b) => <option key={b} value={b}>{formatPercent(b, 0)}</option>)}</select></label>}
         <label className="answer"><span className="field-label">The least a new investor puts in (₦)</span><span className="answer-box"><input type="number" min={10000} value={least} onChange={(e) => setLeast(e.target.value)} /></span></label>
         <label className="answer"><span className="field-label">Your own money (₦)</span><span className="answer-box"><input type="number" value={seed} onChange={(e) => setSeed(e.target.value)} /></span></label>
         <label className="answer"><span className="field-label">A line for investors (optional)</span><span className="answer-box"><input type="text" maxLength={400} value={words} onChange={(e) => setWords(e.target.value)} /></span></label>
