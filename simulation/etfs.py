@@ -344,6 +344,10 @@ def _create_cash(conn: Connection, etf: dict, payer, units: int, now: datetime, 
     etf = settle_swap(conn, etf, now, period)
     nav = nav_now(conn, etf, now)
     value = units * nav
+    if etf["method"] != "swap" and units_out(conn, etf) > 0 and value > cash_room(conn, etf, now):
+        most = cash_room(conn, etf, now) // max(nav, 1) // data.ETF_CREATION_UNITS * data.ETF_CREATION_UNITS
+        raise EtfError(f"The market's dealers do not have enough of {etf['name']}'s shares for that many new units against cash"
+                       f" (at most {most:,} now). Make them against a basket of the shares instead.")
     fee = apply_bps(value, fee_bps)
     receiver = receiver or payer
     try:
@@ -358,6 +362,29 @@ def _create_cash(conn: Connection, etf: dict, payer, units: int, now: datetime, 
     conn.execute("INSERT INTO etf_creations (etf_id, account_id, side, how, units, nav, fee, at) VALUES (%s, %s, 'create', 'cash', %s, %s, %s, %s)",
                  (etf["id"], receiver, units, nav, fee, now))
     return {"units": units, "nav": nav, "paid": value + fee, "fee": fee}
+
+
+def cash_room(conn: Connection, vehicle: dict, now: datetime) -> int:
+    """The most new cash a fund copying an index can put into its basket now, in proportion, from what the market's dealers
+    still hold (money it could not invest would sit as cash and drag it away from its index). Members making up at most
+    2% of the index may be short; government bonds are always to be had from the Treasury."""
+    treasury = ledger.account_id(conn, ledger.TREASURY)
+    rooms = []
+    for w in _target_basket(conn, vehicle, now):
+        if w["weight_bps"] <= 0:
+            continue
+        sellers = _dealers(conn, w["asset"])
+        if treasury in sellers:
+            continue
+        have = sum(max(ledger.balance(conn, d, w["asset"]), 0) for d in sellers)
+        rooms.append((have * w["price"] * BPS // w["weight_bps"], w["weight_bps"]))
+    rooms.sort()
+    skipped = 0
+    for room, weight in rooms:
+        if skipped + weight > data.ETF_ROOM_SHORT_BPS:
+            return room
+        skipped += weight
+    return 10 ** 18
 
 
 def _invest_cash(conn: Connection, etf: dict, now: datetime, period: int) -> None:
@@ -1005,13 +1032,16 @@ def _fund_pairs(conn: Connection, fund_id, since: date | None = None, until: dat
 
 
 def _tracking(conn: Connection, period: int, now: datetime) -> None:
+    # Every bell from the one after the last quarter's close (that day's move counts here: it is made by the results and
+    # dividends just announced) up to this close.
     first, last = _quarter_days(conn, period)
+    since, until = first - timedelta(days=2), last - timedelta(days=1)
     for e in _rows(conn, "SELECT id FROM etfs WHERE launched_period <= %s", (period,)):
-        f = tracking_figures(_etf_pairs(conn, e["id"], first - timedelta(days=1), last))
+        f = tracking_figures(_etf_pairs(conn, e["id"], since, until))
         conn.execute("INSERT INTO tracking_quarters (vehicle, vehicle_id, period, return_bps, tracked_bps, difference_bps, error_bps)"
                      " VALUES ('etf', %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING", (e["id"], period, *f.values()))
     for fnd in _rows(conn, "SELECT id FROM investment_funds WHERE strategy = 'index' AND launched_period <= %s", (period,)):
-        f = tracking_figures(_fund_pairs(conn, fnd["id"], first - timedelta(days=1), last))
+        f = tracking_figures(_fund_pairs(conn, fnd["id"], since, until))
         conn.execute("INSERT INTO tracking_quarters (vehicle, vehicle_id, period, return_bps, tracked_bps, difference_bps, error_bps)"
                      " VALUES ('fund', %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING", (fnd["id"], period, *f.values()))
 
@@ -1022,17 +1052,25 @@ def passive_target_bps(conn: Connection, period: int) -> int:
 
 def passive_value(conn: Connection, now: datetime) -> int:
     total = 0
-    for e in _rows(conn, "SELECT * FROM etfs WHERE status = 'open' AND method <> 'swap' AND index_code IS NOT NULL"):
-        total += units_out(conn, e) * e["nav"]
+    # Only what copies a share index: the target is a share of the share market (bond index vehicles are not part of it).
+    for e in _rows(conn, "SELECT * FROM etfs WHERE status = 'open' AND method <> 'swap' AND index_code IN (SELECT code FROM market_indexes"
+                         " WHERE kind = 'shares')"):
+        total += units_out(conn, e) * nav_now(conn, e, now)     # at today's prices, as the market it is measured against
     from simulation import funds
-    for f in _rows(conn, "SELECT * FROM investment_funds WHERE strategy = 'index' AND status = 'open'"):
+    for f in _rows(conn, "SELECT * FROM investment_funds WHERE strategy = 'index' AND status = 'open' AND index_code IN (SELECT code FROM"
+                         " market_indexes WHERE kind = 'shares')"):
         total += funds.worth(conn, f, now)
     return total
 
 
 def market_value(conn: Connection, now: datetime) -> int:
+    """Every listed share at the prices index vehicles are valued at (so the share held passively is measured like with like)."""
     from simulation import marketview
-    return sum(s["market_value"] or 0 for s in marketview._shares(conn, exchange.session_of(now)[0]))
+    rows = [s for s in marketview._shares(conn, exchange.session_of(now)[0]) if s["shares"]]
+    assets = {r["asset"]: r["id"] for r in _rows(conn, "SELECT share_asset AS asset, id FROM companies WHERE id = ANY(%s)", ([s["id"] for s in rows],))}
+    prices = indexes.prices_now(conn, list(assets), now)
+    by_id = {cid: prices.get(a) for a, cid in assets.items()}
+    return sum((by_id.get(s["id"]) or s["price"]) * s["shares"] for s in rows)
 
 
 def _score(conn: Connection, kind: str, row: dict) -> float:
@@ -1063,6 +1101,8 @@ def _passive_money(conn: Connection, period: int, now: datetime) -> None:
     from simulation import funds
     for (kind, row), sc in zip(vehicles, scores):
         amount = int(move * sc / total_score)
+        if amount > 0:
+            amount = min(amount, cash_room(conn, row, now))      # only money the fund can actually put into its index
         if kind == "etf":
             nav = nav_now(conn, row, now)
             units = abs(amount) // max(nav, 1) // data.ETF_CREATION_UNITS * data.ETF_CREATION_UNITS

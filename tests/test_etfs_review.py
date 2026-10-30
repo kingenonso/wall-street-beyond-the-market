@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 import pytest
 
-from simulation import etfs, exchange, indexes, ledger
+from simulation import clock, etfs, exchange, indexes, ledger
 from simulation import world_data as data
 from simulation.money import BPS, naira
-from tests.test_etfs import DAY, TRADING, _one, _rows, as_dealer, move_shares, person, ring, sound, started
+from tests.test_etfs import DAY, OPEN, TRADING, _one, _rows, as_dealer, move_shares, person, ring, sound, started
 
 
 def test_r1_buying_from_the_makers_and_selling_straight_back_always_loses(db):
@@ -216,3 +216,59 @@ def test_r15_a_share_index_counts_dividends_as_if_put_back_so_funds_that_keep_th
     bonds_level = _one(db, "SELECT level FROM market_indexes WHERE code = 'GOVBOND'")["level"]
     assert bonds_level > 0
     assert _one(db, "SELECT div_period FROM market_indexes WHERE code = 'TOP30'")["div_period"] == 8
+
+
+def test_r16_the_passive_share_is_measured_at_the_same_prices_on_both_sides(db):
+    """Found in the ten-year run: in a crash the market was valued at once but ETFs at the last bell, so the share held
+    passively jumped; and bond index vehicles were counted against the share market."""
+    started(db)
+    ring(db, DAY)
+    every = [r["ticker"] for r in _rows(db, "SELECT ticker FROM companies c JOIN market_instruments m ON m.company_id = c.id")]
+    before = etfs.passive_value(db, TRADING) * BPS // etfs.market_value(db, TRADING)
+    market = etfs.market_value(db, TRADING)
+    move_shares(db, every, -5_000)
+    assert etfs.market_value(db, TRADING) < market * 6 // 10                # everything halved...
+    after = etfs.passive_value(db, TRADING) * BPS // etfs.market_value(db, TRADING)
+    assert abs(after - before) <= max(before // 20, 2)                      # ...and the passive share hardly moved
+    bonds = _one(db, "SELECT * FROM etfs WHERE code = 'GBND'")
+    total = etfs.passive_value(db, TRADING)
+    db.execute("UPDATE etfs SET status = 'closed' WHERE code = 'GBND'")
+    assert etfs.passive_value(db, TRADING) == total and bonds               # the bond ETF was never part of it
+
+
+def test_r17_the_day_after_a_quarter_closes_counts_in_the_tracking_record(db):
+    """Found in the ten-year run: the quarter's record was made before the next bell and the next quarter began after it, so
+    the day the results and dividends move prices most was in neither."""
+    started(db)
+    e = _one(db, "SELECT * FROM etfs WHERE code = 'TOPX'")
+    first, last = etfs._quarter_days(db, 2)
+    nav = 10_000
+    for i, day in enumerate([first - timedelta(days=1) + timedelta(days=k) for k in range(8)]):
+        move = 1_000 if i == 1 else 0                                       # the bell after quarter 1's close: +10%
+        nav = nav * (BPS + move) // BPS
+        db.execute("INSERT INTO etf_days (etf_id, session_date, nav, close, units, tracked_bps) VALUES (%s, %s, %s, %s, 10000, %s)",
+                   (e["id"], day, nav, nav, move))
+    etfs._tracking(db, 2, datetime.combine(last, time(9), tzinfo=clock.LAGOS))
+    row = _one(db, "SELECT * FROM tracking_quarters WHERE vehicle = 'etf' AND vehicle_id = %s AND period = 2", (e["id"],))
+    assert row["tracked_bps"] == 1_000 and row["return_bps"] == 1_000
+
+
+def test_r18_new_cash_goes_in_only_while_the_dealers_can_supply_the_basket(db):
+    """Found in the ten-year run: once the dealers had run out of the largest companies, money kept coming in and sat as cash,
+    a fifth of some funds, so they fell behind their indexes."""
+    started(db)
+    e = _one(db, "SELECT * FROM etfs WHERE code = 'TOPX'")
+    assert etfs.cash_room(db, e, TRADING) > 0
+    top = max(indexes.weights_now(db, "TOP30", TRADING), key=lambda w: w["weight_bps"])
+    parked = ledger.create_account(db, kind="fund", name="Shares parked for a test")
+    for d in etfs._dealers(db, top["asset"]):
+        n = ledger.balance(db, d, top["asset"])
+        if n > 0:
+            ledger.post(db, kind="etf_basket", memo="test", period=1, legs=[ledger.Leg(d, -n, top["asset"]), ledger.Leg(parked, n, top["asset"])])
+    assert etfs.cash_room(db, e, TRADING) == 0
+    with pytest.raises(etfs.EtfError, match="against a basket"):
+        etfs._create_cash(db, e, ledger.account_id(db, etfs.HOUSEHOLDS), data.ETF_CREATION_UNITS, TRADING, 1)
+    before = etfs.units_out(db, e)
+    etfs.after_close(db, 1, OPEN + timedelta(days=6))
+    assert etfs.units_out(db, _one(db, "SELECT * FROM etfs WHERE code = 'TOPX'")) <= before   # the households put nothing in
+    sound(db)
