@@ -1410,6 +1410,7 @@ COMPUTER_INDEX_FUNDS = (
 FX_CURRENCIES = (("USD", "US dollar", "$"), ("GBP", "British pound", "£"), ("EUR", "Euro", "€"))
 FX_GBP_USD_START = 1.27                      # dollars for one pound when the desk opens
 FX_EUR_USD_START = 1.08                      # dollars for one euro
+FX_CROSS_RETURN_BPS = 1_500                  # and each quarter they move 15% of the way back to their usual level
 FX_CROSS_SWING_BPS = 300                     # each quarter the pound and the euro move by up to about 3% against the dollar
 FX_RESERVES_START_QUARTERS = 2               # the Central Bank opens with two quarters' imports in dollars (its first Eurobonds add more)
 FX_OIL_TO_RESERVES_BPS = 6_000               # 60% of oil sold abroad comes back as dollars to the Central Bank

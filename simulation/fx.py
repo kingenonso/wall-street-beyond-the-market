@@ -1112,8 +1112,11 @@ def after_abroad(conn: Connection, period: int, now: datetime, row: dict, import
         off = market
         if cover >= data.FX_REPEG_COVER_BPS:
             regime, event = "managed", "repegged"
-    gbp = float(q["gbp_usd"]) * (1 + stochastic.normal(seed, "fx", "gbp", period) * data.FX_CROSS_SWING_BPS / BPS)
-    eur = float(q["eur_usd"]) * (1 + stochastic.normal(seed, "fx", "eur", period) * data.FX_CROSS_SWING_BPS / BPS)
+    # The pound and the euro wander against the dollar, pulled back a little each quarter towards their usual levels.
+    gbp = float(q["gbp_usd"]) + (data.FX_GBP_USD_START - float(q["gbp_usd"])) * data.FX_CROSS_RETURN_BPS / BPS
+    gbp *= 1 + stochastic.normal(seed, "fx", "gbp", period) * data.FX_CROSS_SWING_BPS / BPS
+    eur = float(q["eur_usd"]) + (data.FX_EUR_USD_START - float(q["eur_usd"])) * data.FX_CROSS_RETURN_BPS / BPS
+    eur *= 1 + stochastic.normal(seed, "fx", "eur", period) * data.FX_CROSS_SWING_BPS / BPS
     words = _move_words(event, q["official"], off, market, cover, sold)
     conn.execute("INSERT INTO fx_quarters (period, official, market, regime, reserves, cover_bps, gbp_usd, eur_usd, sold, backlog, event, words, at)"
                  " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
