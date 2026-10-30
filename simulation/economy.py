@@ -369,7 +369,10 @@ def companies_buy_inputs(conn: Connection, world: World, companies: list[dict], 
     return imported
 
 
-CAPITAL_RETURNED = ("bond_redemption", "bond_trade", "bond_issue", "takeover_payment", "takeover_refund")
+CAPITAL_RETURNED = ("bond_redemption", "bond_trade", "bond_issue", "takeover_payment", "takeover_refund",
+                    # Part 3: shares sold to the index funds, ETF units sold or handed back, and a daily-reset ETF's move settled
+                    # are savings changing form (the pension funds keep the cash to stand behind the ETFs), not income.
+                    "etf_basket", "etf_trade", "etf_redeem_cash", "etf_swap", "etf_order_release")
 # "salary": the income tax taken from players' pay. Property tax is not here: it is taken at the property market's close,
 # after the Government has spent, so it (like the Land Registry's fees and the betterment levy) adds to the reserve.
 GOVERNMENT_INCOME = ("company_tax", "debt_interest", "share_trade", "exchange_surplus", "salary", "oil_royalty")

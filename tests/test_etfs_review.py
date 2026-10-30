@@ -321,3 +321,19 @@ def test_r20_once_the_dealers_have_none_the_founders_sell_to_the_funds_at_a_pric
     assert paid >= 1_000 * top["price"] * (BPS + data.ETF_FOUNDERS_PREMIUM_BPS) // BPS     # above the market: the dealers come first
     assert etfs.cash_room(db, e, TRADING) > 0
     sound(db)
+
+
+def test_r21_shares_sold_to_the_index_funds_are_not_paid_out_as_pensions(db):
+    """Found in the ten-year run: the pension funds counted the money from shares sold to the funds as income and paid 90% of
+    it out as pensions, until they had no cash left to settle the 2x, inverse and commodity ETFs, whose holders then fell short."""
+    from simulation import economy
+    started(db)
+    world = economy.load_world(db)
+    inst = world.institutions
+    seller = ledger.create_account(db, kind="fund", name="A fund for a test")
+    ledger.post(db, kind="etf_basket", memo="test", period=7, legs=[ledger.Leg(seller, naira(1_000_000_000)), ledger.Leg(inst, -naira(1_000_000_000))])
+    ledger.post(db, kind="etf_basket", memo="test", period=7, legs=[ledger.Leg(inst, naira(1_000_000_000)), ledger.Leg(seller, -naira(1_000_000_000))])
+    before = ledger.balance(db, inst)
+    economy.pensions_paid(db, world, 7)
+    paid = before - ledger.balance(db, inst)
+    assert paid <= before * 301 // 10_000 + 1                       # only the usual share of savings: nothing of the sale

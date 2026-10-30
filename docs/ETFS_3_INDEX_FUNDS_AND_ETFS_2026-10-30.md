@@ -10,12 +10,18 @@ This report covers:
 - players' own ETFs, index funds and indexes.
 
 Part 3 had ten loophole tests and an independent review. The review found 14 problems. Every one was fixed and tested.
-The ten-year runs found five more, all fixed and tested:
+The ten-year runs found eight more, all fixed and tested:
 - **Indexes counted only price moves.** ETFs keep the dividends they are paid, so every quarter they ran about 2% ahead of their index. The share indexes now count dividends as if they were put straight back in, as real "total return" indexes do.
+- **Bond indexes counted only prices too.** Meanwhile the bond funds collected the interest, so the bond ETF ended 92% ahead of its index. Bond indexes now count interest and repayments as if put back in.
+- **A bond repaid at the quarter's close still showed its last price** until the next bell, so a fund could have bought a bond that no longer existed. It now leaves every fund's shopping list at once.
 - **Index funds were valued at different prices from their index,** so they seemed to track it badly. They now use the same prices.
 - **The passive share of the market was measured unevenly.** In a crash the market was valued at once, but ETFs at the last bell, so the passive share seemed to jump. Bond funds were also counted against the share market. Both sides now use the same prices, and only share funds count.
 - **The tracking record missed the biggest day of each quarter.** That day is the bell after the quarter closes, when results and dividends move prices. It now counts.
 - **Passive funds kept taking money they could not invest.** Once the market's dealers ran out of the largest companies, new money sat as cash: up to a fifth of some funds, so they fell behind their index. New cash now goes in only while the shares can be bought.
+- **Funds could not reinvest their dividends** once the dealers had run out, and held up to a third of themselves in cash. Now, as a last resort, the founders and insiders sell to the funds, at 1% above the market price, as insiders do in real markets when funds keep buying. Their stake shrinks, so more of the company counts as freely traded.
+
+One more problem turned up in an older part of the game while testing, and was fixed:
+- **Companies' savings landed on a bank by chance.** A company with no lender picked a bank by its random ID. In about one test world in seven, a large insurer's ₦13.5 billion went to the smallest microfinance bank. That bank could not earn the interest it had to pay, and slid into a crisis. Companies now spread their savings in proportion to each bank's size, and the pick is fixed by the world's secret, so a world always repeats.
 
 Nothing on Part 3's list was dropped or put off. Following the owner's standing rule, nothing new was added to the sidebar:
 - **Indexes and ETFs** are a tab inside Markets.
@@ -61,7 +67,7 @@ Tests at the end: [[TESTS]]
      - against a basket of the shares the ETF holds (0.05% fee);
      - or against cash (0.25%), with the ETF buying the basket.
    - When the price is above value, a dealer makes units cheaply and sells them. When it is below, they buy units and hand them back. That pulls the price back to value, and the dealer keeps the gap.
-   - Making units for cash works only while the market's dealers can supply the shares. When they cannot, the dealer is told to use a basket.
+   - Making units for cash works only while the shares can be bought (from the pension funds, the small investors, or as a last resort the founders). When they cannot, the dealer is told to use a basket.
 5. **Special ETFs.**
    - **Top 30 2x (TOPL)** moves twice the index each day. **Top 30 Inverse (TOPI)** moves the opposite way. Both reset daily, so over many days they do not simply double or reverse the index.
    - **Oil (OILX)** and **Gold & Metals (MTLX)** follow the commodity prices.
@@ -113,9 +119,9 @@ Tests at the end: [[TESTS]]
 
 ## Honest limits
 
-- The funds buy and sell their shares directly with the market's dealers (the pension funds and the public) at the latest price, not through the exchange. Passive money therefore does not push prices up as it would in real life.
-- When the dealers run out of a large company, passive money stops flowing in until they have shares again. In the ten-year run the passive share therefore stayed below its target late in the game.
-- A player who bought up all of the dealers' shares in a large index member could stop new units being made for cash until the dealers had shares again. Making units against a basket still works.
+- The funds buy and sell their shares directly with the market's dealers (the pension funds and the public) at the latest price, not through the exchange. Passive money therefore does not push prices up as it would in real life. The 1% the founders ask is the only sign of it.
+- Founders who sell to the funds have fewer votes on their boards over the years.
+- A player who bought up every spare share of a large index member could stop new units being made for cash until shares were available again. Making units against a basket still works.
 
 ## The ten-year run (40 quarters, with the earlier stages running)
 
