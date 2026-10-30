@@ -135,14 +135,16 @@ def setup(conn: Connection, now: datetime) -> bool:
     reserves = imports_usd * data.FX_RESERVES_START_QUARTERS
     ledger.post(conn, kind="fx_abroad", memo="The Central Bank's dollar reserves", period=closed,
                 legs=[Leg(world_abroad, -reserves, "USD"), Leg(cb, reserves, "USD")])
+    for name, fee, days in data.FX_COMPUTER_REMITTERS:
+        conn.execute("INSERT INTO remitters (name, fee_bps, days, licensed_at) VALUES (%s, %s, %s, %s)", (name, fee, days, now))
+    # The Government's first Eurobond and the largest companies' dollar debts (their dollars go into the reserves).
+    _issue_government(conn, closed, now, first=True, rate=market)
+    _issue_companies(conn, closed, now, rate=market)
+    reserves = ledger.balance(conn, cb, "USD")
     conn.execute("INSERT INTO fx_quarters (period, official, market, regime, reserves, cover_bps, gbp_usd, eur_usd, words, at)"
                  " VALUES (%s, %s, %s, 'managed', %s, %s, %s, %s, %s, %s)",
                  (closed, market, market, reserves, reserves * BPS // max(imports_usd, 1), data.FX_GBP_USD_START, data.FX_EUR_USD_START,
                   "The currency desk opens: the Central Bank manages the naira at the market's rate.", now))
-    for name, fee, days in data.FX_COMPUTER_REMITTERS:
-        conn.execute("INSERT INTO remitters (name, fee_bps, days, licensed_at) VALUES (%s, %s, %s, %s)", (name, fee, days, now))
-    _issue_government(conn, closed, now, first=True)
-    _issue_companies(conn, closed, now)
     return True
 
 
@@ -162,7 +164,8 @@ def official(conn: Connection) -> int:
     """Kobo for one dollar at the official window now. A floating naira's official rate follows the street each day."""
     q = current(conn)
     if q is None:
-        return data.FX_START
+        row = _one(conn, "SELECT fx FROM abroad_results ORDER BY period DESC LIMIT 1")
+        return row["fx"] if row else data.FX_START
     if q["regime"] == "float":
         d = _last_day(conn)
         if d and d["at"] >= q["at"]:
@@ -784,7 +787,7 @@ def _country_spread(conn: Connection) -> int:
     return data.FX_EUROBOND_SPREAD_BPS + max(data.FX_COMFORT_COVER_BPS - cover, 0) * data.FX_EUROBOND_SHORT_SPREAD_BPS // BPS
 
 
-def _issue_government(conn: Connection, period: int, now: datetime, *, first: bool = False) -> dict:
+def _issue_government(conn: Connection, period: int, now: datetime, *, first: bool = False, rate: int | None = None) -> dict:
     treasury = ledger.account_id(conn, ledger.TREASURY)
     world_abroad, _ = abroad.accounts(conn)
     amount = max(apply_bps(imports_usd(conn), data.FX_GOVERNMENT_EUROBOND_BPS) // data.FX_EUROBOND_FACE_CENTS, 1) * data.FX_EUROBOND_FACE_CENTS
@@ -794,8 +797,7 @@ def _issue_government(conn: Connection, period: int, now: datetime, *, first: bo
                        company=None, amount=amount, coupon_bps=coupon, period=period)
     ledger.post(conn, kind="fx_abroad", memo=f"{eb['name']}: dollars raised", period=period,
                 legs=[Leg(world_abroad, -eb["units"] * eb["face"], "USD"), Leg(treasury, eb["units"] * eb["face"], "USD")])
-    _sell_dollars_to_reserves(conn, treasury, eb["units"] * eb["face"], official(conn) if not first else
-                              _one(conn, "SELECT official FROM fx_quarters ORDER BY period DESC LIMIT 1")["official"], period,
+    _sell_dollars_to_reserves(conn, treasury, eb["units"] * eb["face"], rate or official(conn), period,
                               f"{eb['name']}: dollars sold to the Central Bank")
     if not first:
         _alert(conn, kind="eurobond", now=now, headline=f"The Government borrows {_cash(eb['units'] * eb['face'])} abroad",
@@ -805,8 +807,7 @@ def _issue_government(conn: Connection, period: int, now: datetime, *, first: bo
     return eb
 
 
-def _issue_companies(conn: Connection, period: int, now: datetime) -> None:
-    rate = _one(conn, "SELECT official FROM fx_quarters ORDER BY period DESC LIMIT 1")["official"]
+def _issue_companies(conn: Connection, period: int, now: datetime, *, rate: int) -> None:
     agent = ledger.account_id(conn, AGENT)
     world_abroad, _ = abroad.accounts(conn)
     for sector, how_many in data.FX_COMPANY_EUROBONDS:

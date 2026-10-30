@@ -10,11 +10,12 @@ import { formatCompact } from "./format";
 import { useLoad } from "./hooks";
 import { NumberTile } from "./Parts";
 import { Failed, Loading, Panel } from "./Shell";
-import { LineChart } from "./TrendChart";
+import { SingleLine } from "./TrendChart";
 
 const CUR = ["USD", "GBP", "EUR"] as const;
 type Cur = (typeof CUR)[number];
 const SYMBOL: Record<Cur, string> = { USD: "$", GBP: "£", EUR: "€" };
+const PLURAL: Record<Cur, string> = { USD: "dollars", GBP: "pounds", EUR: "euros" };
 const naira = (kobo: string | number) => `₦${(Number(kobo) / 100).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const cash = (cents: string | number, c: Cur = "USD") => `${SYMBOL[c]}${(Number(cents) / 100).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const bigUsd = (cents: string | number) => {
@@ -59,12 +60,21 @@ export function CurrenciesWork({ onLoggedOut, onChanged }: { onLoggedOut: () => 
   if (!page.data) return <Loading what="the currency desk" />;
   const d: FxPage = page.data;
   if (!d.open) {
-    return <Panel title="Currencies"><p className="small">The currency desk opens at the next closing bell.</p></Panel>;
+    return (
+      <>
+        <div className="work-head"><h1>Currencies</h1></div>
+        <Panel title="The currency desk"><p className="small">The currency desk opens at the next closing bell.</p></Panel>
+      </>
+    );
   }
   const wallet: FxWallet = forEmpire && d.empire ? d.empire : d.mine;
   const said = <Said error={error} done={done} />;
   return (
     <>
+      <div className="work-head">
+        <h1>Currencies</h1>
+        <span className="muted small">Dollars, pounds and euros; the naira's two rates; Eurobonds</span>
+      </div>
       <Rates d={d} />
       {d.empire && (
         <div className="row-gap" role="group" aria-label="Whose money">
@@ -82,7 +92,7 @@ export function CurrenciesWork({ onLoggedOut, onChanged }: { onLoggedOut: () => 
       <Panel title="Hedging with a currency forward">
         <p className="small">
           A <span className="strong">currency forward</span> fixes today the naira you will pay for a dollar in a coming quarter. At each quarter's close
-          only the difference against the official rate changes hands. Arrange one with a bank or another player under <a href="#/capital/swaps">Swaps</a>.
+          only the difference against the official rate changes hands. Arrange one with a bank or another player under <a href="#/market/derivatives">Markets, Options and futures</a> (the swaps form).
         </p>
       </Panel>
     </>
@@ -102,9 +112,9 @@ function Rates({ d }: { d: FxPage }) {
       <p className="small">{d.words}{BigInt(d.backlog) > 0n ? ` Foreign investors have ${formatCompact(d.backlog)} waiting for dollars to leave.` : ""}</p>
       {d.days.length >= 2 && (
         <>
-          <h3 className="small strong">Official and street, day by day</h3>
-          <LineChart names={["Official", "Street"]} format={(v) => `₦${v.toLocaleString("en-NG", { maximumFractionDigits: 0 })}`}
-            data={d.days.map((x) => ({ label: day(x.session_date), first: Number(x.official) / 100, second: Number(x.street) / 100 }))} />
+          <h3 className="small strong">How far the street is above the official rate, day by day</h3>
+          <SingleLine name="Gap" format={(v) => `${v.toFixed(1)}%`}
+            data={d.days.map((x) => ({ label: day(x.session_date), value: x.premium_bps / 100 }))} />
         </>
       )}
       {d.quarters.length >= 2 && (
@@ -188,7 +198,7 @@ function Street({ d, wallet, run, busy, forEmpire, said }: Part & { wallet: FxWa
       </div>
       {ok && <p className="small">Buying costs {naira(Math.ceil(cents * Number(q.sell) / 100))}. Selling pays {naira(Math.floor(cents * Number(q.buy) / 100))}. You hold {cash(wallet.balances[currency], currency)}.</p>}
       <div className="row-gap">
-        <button className="button" disabled={busy || !ok} onClick={() => run("/fx/street", { side: "buy", currency, amount: cents, for_empire: forEmpire })}>Buy {d.names[currency].toLowerCase()}s</button>
+        <button className="button" disabled={busy || !ok} onClick={() => run("/fx/street", { side: "buy", currency, amount: cents, for_empire: forEmpire })}>Buy {PLURAL[currency]}</button>
         <button className="button-outline" disabled={busy || !ok} onClick={() => run("/fx/street", { side: "sell", currency, amount: cents, for_empire: forEmpire })}>Sell</button>
       </div>
       {said}
