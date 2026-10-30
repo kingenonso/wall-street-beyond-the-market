@@ -109,6 +109,13 @@ def _quarter_imports(conn: Connection) -> int:
     return max((row["imports"] or row["export_base"]) if row else 1, 1)
 
 
+def imports_usd(conn: Connection) -> int:
+    """A quarter's imports in dollars (cents): the measure of the economy everything on the desk is sized against."""
+    q = current(conn)
+    rate = q["market"] if q else (_one(conn, "SELECT fx FROM abroad_results ORDER BY period DESC LIMIT 1") or {"fx": data.FX_START})["fx"]
+    return max(to_cents(_quarter_imports(conn), rate), 1)
+
+
 def setup(conn: Connection, now: datetime) -> bool:
     """The desk opens the first time the world meets it: the currencies, the Central Bank's reserves, the official rate,
     the money-transfer companies, the Government's first Eurobond and the largest companies' dollar debts."""
@@ -225,7 +232,7 @@ def quote(conn: Connection, currency: str) -> dict:
 
 def _move_street(conn: Connection, cents_usd: int) -> None:
     """Buying dollars on the street pushes it up; selling pushes it down."""
-    move = cents_usd * 100 // data.FX_STREET_DEPTH_CENTS
+    move = cents_usd * 100 // max(apply_bps(imports_usd(conn), data.FX_STREET_DEPTH_BPS), 1)
     conn.execute("UPDATE fx_street SET impact_bps = greatest(least(impact_bps + %s, %s), %s) WHERE id = 1",
                  (move, data.FX_STREET_MOST_IMPACT_BPS, -data.FX_STREET_MOST_IMPACT_BPS))
 
@@ -568,7 +575,7 @@ def _retail(conn: Connection, day: date, now: datetime, period: int) -> int:
     if not bdcs:
         return 0
     households = ledger.account_id(conn, "households:lagos")
-    each_side = data.FX_RETAIL_DAILY_CENTS // 2
+    each_side = apply_bps(imports_usd(conn), data.FX_RETAIL_DAILY_BPS) // 2
     street_score = 1 / (data.FX_STREET_SPREAD_BPS + 20)
     for side, spread_key in (("buy", "sell_bps"), ("sell", "buy_bps")):
         scores = [1 / (b[spread_key] + 20) for b in bdcs]
@@ -666,7 +673,7 @@ def remitted_today(conn: Connection, period: int, premium_bps: int) -> int:
     when the street pays more naira for them, and growing each year."""
     _, quarter = clock.period_to_date(max(period, 1))
     years = max(period - 1, 0) / 4
-    base = data.FX_REMIT_QUARTER_CENTS / BELLS_PER_QUARTER
+    base = apply_bps(imports_usd(conn), data.FX_REMIT_IMPORTS_BPS) / BELLS_PER_QUARTER
     festive = data.FX_REMIT_FESTIVE.get(quarter, 1.0)
     cheap = 1 + max(premium_bps, 0) * data.FX_REMIT_CHEAP_BPS / BPS / BPS
     growth = (1 + data.FX_REMIT_GROWTH_BPS / BPS) ** years
@@ -752,7 +759,7 @@ def _country_spread(conn: Connection) -> int:
 def _issue_government(conn: Connection, period: int, now: datetime, *, first: bool = False) -> dict:
     treasury = ledger.account_id(conn, ledger.TREASURY)
     world_abroad, _ = abroad.accounts(conn)
-    amount = data.FX_GOVERNMENT_EUROBOND_CENTS
+    amount = max(apply_bps(imports_usd(conn), data.FX_GOVERNMENT_EUROBOND_BPS) // data.FX_EUROBOND_FACE_CENTS, 1) * data.FX_EUROBOND_FACE_CENTS
     coupon = data.WORLD_RATE_BPS + _country_spread(conn)
     year, _ = clock.period_to_date(max(period, 1) + data.FX_EUROBOND_TERM_QUARTERS)
     eb = _new_eurobond(conn, name=f"Federal Government {coupon / 100:.2f}% dollar Eurobond, due Year {year}", issuer="government",
