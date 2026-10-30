@@ -254,7 +254,7 @@ def setup(conn: Connection, day: date, now: datetime) -> bool:
                          " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
                    (code, name, kind, rule, _rules_words(kind, words), data.INDEX_CAP_BPS, data.INDEX_START_LEVEL, day, day, now))
         plan = plan_for(conn, idx, now)
-        _install(conn, code, plan, {m["asset"]: m["price"] for m in plan}, day)
+        _install(conn, code, plan, prices_now(conn, [m["asset"] for m in plan], now), day)
         conn.execute("INSERT INTO index_levels (index_code, session_date, level) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                      (code, day, data.INDEX_START_LEVEL))
     return True
@@ -304,7 +304,7 @@ def at_bell(conn: Connection, day: date, now: datetime) -> list[str]:
             # as there are any: there is nothing for anybody to trade around.
             plan = plan_for(conn, idx, now)
             if plan:
-                _install(conn, idx["code"], plan, {m["asset"]: m["price"] for m in plan}, day)
+                _install(conn, idx["code"], plan, prices_now(conn, [m["asset"] for m in plan], now), day)
                 changed.append(idx["code"])
     return changed
 
@@ -380,7 +380,7 @@ def create_custom(conn: Connection, player_id, *, code: str, name: str, tickers:
         weights = capped_weights([1] * len(found) if weighting == "equal" else [c["value"] for c in found],
                                  BPS if weighting == "equal" else data.INDEX_CAP_BPS)
         plan = [{"asset": c["asset"], "ticker": c["ticker"], "name": c["name"], "weight_bps": w, "price": c["price"]} for c, w in zip(found, weights)]
-        _install(conn, code, plan, {m["asset"]: m["price"] for m in plan}, day)
+        _install(conn, code, plan, prices_now(conn, [m["asset"] for m in plan], now), day)
         return idx
 
 
