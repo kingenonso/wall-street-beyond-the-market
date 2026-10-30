@@ -844,8 +844,11 @@ def _at_bell(conn: Connection, etf: dict, day: date, now: datetime, changed: lis
     move_bps = None
     if tracked and last_level:
         move_bps = int((tracked / Decimal(last_level["level"]) - 1) * etf["leverage_bps"])
-    elif tracked and etf["tracked_level"] and etf["method"] == "swap":
-        move_bps = int((tracked / Decimal(etf["tracked_level"]) - 1) * etf["leverage_bps"])
+    elif tracked and (etf["bell_level"] or etf["tracked_level"]) and etf["method"] == "swap":
+        # From the last bell, not from the last settlement: units made during the day settle the move so far early.
+        move_bps = int((tracked / Decimal(etf["bell_level"] or etf["tracked_level"]) - 1) * etf["leverage_bps"])
+    if tracked:
+        conn.execute("UPDATE etfs SET bell_level = %s WHERE id = %s", (tracked, etf["id"]))
     if etf["method"] == "swap":
         # The daily reset: 2x, inverse and commodity ETFs settle the day's move with the pension funds.
         etf = settle_swap(conn, etf, now, period)

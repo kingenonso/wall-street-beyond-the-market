@@ -337,3 +337,17 @@ def test_r21_shares_sold_to_the_index_funds_are_not_paid_out_as_pensions(db):
     economy.pensions_paid(db, world, 7)
     paid = before - ledger.balance(db, inst)
     assert paid <= before * 301 // 10_000 + 1                       # only the usual share of savings: nothing of the sale
+
+
+def test_r22_units_made_during_the_day_do_not_hide_a_commodity_etf_s_move_from_its_record(db, monkeypatch):
+    """Found in the ten-year run: making units settles the move so far, and the bell then measured the day's move from there,
+    so the oil ETF's record showed oil standing still on days it had moved."""
+    started(db)
+    e = _one(db, "SELECT * FROM etfs WHERE code = 'OILX'")
+    db.execute("UPDATE etfs SET bell_level = 100, tracked_level = 105 WHERE id = %s", (e["id"],))   # settled at 105 during the day
+    monkeypatch.setattr(etfs, "tracked_now", lambda conn, etf, now: 110)
+    rung = datetime.combine(DAY, time(22, 5), tzinfo=clock.LAGOS)
+    etfs._at_bell(db, etfs._etf(db, e["id"]), DAY, rung, [])
+    row = _one(db, "SELECT tracked_bps FROM etf_days WHERE etf_id = %s AND session_date = %s", (e["id"], DAY))
+    assert row["tracked_bps"] == 1_000                                  # 100 to 110 since the last bell
+    assert _one(db, "SELECT bell_level FROM etfs WHERE id = %s", (e["id"],))["bell_level"] == 110

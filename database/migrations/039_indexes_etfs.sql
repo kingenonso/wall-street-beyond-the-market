@@ -169,7 +169,8 @@ CREATE TABLE etfs (
     status           text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closing', 'closed')),
     nav              bigint NOT NULL,                     -- kobo a unit, at the last closing bell
     nav_day          date,
-    tracked_level    numeric(30, 6),                      -- what it tracks, at the last closing bell (for a daily reset)
+    tracked_level    numeric(30, 6),                      -- what it tracks, when its move was last settled (for a daily reset)
+    bell_level       numeric(30, 6),                      -- what it tracks, at the last closing bell (for its tracking record)
     reference_price  bigint NOT NULL,                     -- the last bell's closing price; the day's limits are measured from it
     last_price       bigint,
     session_date     date,
