@@ -31,7 +31,12 @@ Nothing on Part 3's list was dropped or put off. Following the owner's standing 
 - **An index fund** is launched from the Funds tab, as in Part 2.
 - **Tracking records** appear on the factsheets and in Proven Talent.
 
-Tests at the end: [[TESTS]]
+Tests at the end: 1,459 server tests in 88 files pass, run in full on both runners after the last fix to the shared code. The ETF files were run again after the final two fixes. cargo test (13) and vitest (23) pass. Five older tests needed updating for this part:
+- the news count (four new kinds of news);
+- the list of places that count in net worth (ETF units);
+- the list of things that write to the books;
+- one new test in the crisis review, for the savings fix above;
+- a test of how often checking a rumour is right. It assumed a Level 30 player, but experience alone stops at Level 20, so the right rate is 80%, not 85%, and chance failed it nearly half the time. It now checks 200 pieces against the real rate.
 
 ## Things worth knowing, said plainly
 
@@ -127,7 +132,26 @@ Tests at the end: [[TESTS]]
 
 ## The ten-year run (40 quarters, with the earlier stages running)
 
-[[RUN]]
+Every fund started at ₦100 a unit, and every index at 1,000. "Behind its index" is over the whole ten years, after its fee.
+
+| Fund | Copies | Unit price after 10 years | Index (as ₦ a unit) | Behind its index |
+|---|---|---|---|---|
+| Broad Street Top 30 ETF (TOPX) | Top 30 | ₦544 | ₦566 | 3.9% |
+| Broad Street Government Bond ETF (GBND) | Government bonds | ₦303 | ₦319 | 5.1% |
+| Broad Street Oil & Gas ETF (OGX) | Oil & Gas | ₦500 | ₦524 | 4.7% |
+| Broad Street Banks ETF (BNKX) | Banks | ₦149 | ₦158 | 5.1% |
+| Broad Street High Dividend ETF (DIVX) | High Dividend | ₦857 | ₦955 | 10.3% (its members change every quarter, and each change costs dealing) |
+| Harbour Top 30 Tracker (a player's, by sampling) | Top 30 | ₦483 | — | gained 383% against the index's 459%: sampling left out the smaller companies, which did best |
+
+The 2x, inverse, oil and metals ETFs settled their move every day. Their daily gap from what they track swung by 0.02% to 0.07% a year.
+
+The rest of the run:
+- **Passive money:** households held 2.6% of the share market in index funds and ETFs after one year, 14.6% after five, and 32.5% after ten, against a target of 32.25%.
+- **Index changes:** 312 reviews, 137 of them announcing changes, with a pop-up each time. The High Dividend index changed most (129 companies in over the ten years).
+- **Index futures and options:** listed on the Top 30, Banks and Oil & Gas every quarter (451 contracts each).
+- **Trading:** 1,072 trades in ETF units on the exchange. Seven times an ETF closed 1% or more away from its value (each was news).
+- **Speed:** the ETFs' work at each bell took 0.65 seconds on average (1.8 at most).
+- **Checks:** the books audit was clean, and the ETF and fund registers always added up. The two odd company results are the two staged bank shocks, as in earlier runs.
 
 ## Screenshots (docs/screenshots/etfs-3/)
 
