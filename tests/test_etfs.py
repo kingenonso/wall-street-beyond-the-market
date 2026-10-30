@@ -63,9 +63,10 @@ def sound(db):
 
 
 def move_shares(db, tickers, bps):
-    """Every share named moves by `bps` (its last price)."""
-    db.execute("UPDATE market_instruments m SET last_price = coalesce(m.last_price, m.reference_price) * (10000 + %s) / 10000"
-               " FROM companies c WHERE c.id = m.company_id AND c.ticker = ANY(%s)", (bps, list(tickers)))
+    """Every share named moves by `bps`: with no trades today, an index and an ETF's value use the reference price."""
+    db.execute("UPDATE market_instruments m SET reference_price = m.reference_price * (10000 + %s) / 10000,"
+               " last_price = coalesce(m.last_price, m.reference_price) * (10000 + %s) / 10000"
+               " FROM companies c WHERE c.id = m.company_id AND c.ticker = ANY(%s)", (bps, bps, list(tickers)))
 
 
 def as_dealer(monkeypatch, account):
@@ -410,3 +411,26 @@ def test_futures_and_options_are_listed_on_the_top_30_banks_and_oil_and_gas_inde
     assert {(r["underlying"], r["kind"]) for r in rows} >= {("TOP30", "future"), ("BANKS", "call"), ("OILGAS", "put")}
     s = _one(db, "SELECT * FROM derivative_series WHERE underlying = 'TOP30' AND kind = 'future' LIMIT 1")
     assert derivatives.spot(db, s, TRADING) == indexes.level_now(db, "TOP30", TRADING)
+
+
+# ---------------------------------------------------------------------------
+# The website
+# ---------------------------------------------------------------------------
+
+def test_the_page_lists_indexes_and_etfs_and_never_shows_anybody_else_s_orders_or_holdings(db, client, player):
+    started(db)
+    a, _ = person(db, "someone")
+    topx = etfs.by_code(db, "TOPX")
+    q = etfs.maker_quote(db, topx, TRADING)
+    etfs.place_order(db, a, "TOPX", side="buy", quantity=300, limit_price=q["bid"] - 3, now=TRADING)
+    page = client.get("/api/etfs").json()
+    assert {e["code"] for e in page["etfs"]} >= {"TOPX", "TOPL", "GBND"} and len(page["indexes"]) == 8
+    sheet = client.get("/api/etfs/TOPX").json()
+    assert sheet["basket"]["lines"] and sheet["orders"] == [] and sheet["mine"]["units"] == 0
+    assert "account" not in str(sheet["book"]) and all(set(b) == {"limit_price", "units"} for b in sheet["book"]["buy"])
+    assert client.get("/api/indexes/TOP30").json()["weights"]
+    assert client.get("/api/etfs/NOPE").status_code == 404
+    assert client.post("/api/etfs/launch", json={"code": "MINE", "name": "My Tracker", "index_code": "TOP30", "method": "full", "fee_bps": 10,
+                                                 "seed_naira": 5_000_000}).status_code == 409
+    assert client.post("/api/etfs/TOPX/create", json={"units": 10_000, "how": "cash"}).status_code == 409
+    assert client.get("/api/etfs/alerts").json()["alerts"] == []

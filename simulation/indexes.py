@@ -185,19 +185,32 @@ def _install(conn: Connection, code: str, plan: list[dict], prices: dict, day: d
 # ---------------------------------------------------------------------------
 
 def prices_now(conn: Connection, assets: list[str], now: datetime) -> dict:
-    """The price of each member now: a share's last price (or the day's reference), a bond's fair value."""
+    """The price of each member now: for a share, the volume-weighted price of its latest session's trades (so one small trade
+    near the bell cannot move an index, an ETF's value or a contract on them), or the reference price when nothing traded;
+    for a bond, its fair value."""
     out = {}
     shares = [a for a in assets if a.startswith("SHR-")]
     if shares:
-        for r in _rows(conn, "SELECT c.share_asset AS asset, coalesce(m.last_price, m.reference_price) AS p FROM market_instruments m"
-                             " JOIN companies c ON c.id = m.company_id WHERE c.share_asset = ANY(%s)", (shares,)):
-            out[r["asset"]] = r["p"]
+        for r in _rows(conn, """
+            SELECT c.share_asset AS asset, m.reference_price, m.last_price,
+                   (SELECT sum(t.price * t.quantity) / nullif(sum(t.quantity), 0) FROM market_trades t
+                    WHERE t.company_id = m.company_id AND t.session_date = (SELECT max(x.session_date) FROM market_trades x
+                                                                            WHERE x.company_id = m.company_id AND x.traded_at <= %s)
+                      AND t.id > coalesce((SELECT max(s.after_trade_id) FROM share_splits s WHERE s.company_id = m.company_id), 0))::bigint AS vwap
+            FROM market_instruments m JOIN companies c ON c.id = m.company_id WHERE c.share_asset = ANY(%s)""", (now, shares)):
+            out[r["asset"]] = r["vwap"] or r["reference_price"] or r["last_price"]
     others = [a for a in assets if not a.startswith("SHR-")]
     if others:
         state = bonds.market(conn, now)
         for b in bonds._load(conn, "b.asset = ANY(%s)", (others,)):
             out[b["asset"]] = bonds.fair_value(b, state) if b["redeemed_period"] is None else 0
     return out
+
+
+def after_split(conn: Connection, company_id, ratio: int) -> None:
+    asset = _one(conn, "SELECT share_asset FROM companies WHERE id = %s", (company_id,))["share_asset"]
+    conn.execute("UPDATE index_members SET quantity = quantity * %s, last_price = greatest(last_price / %s, 1) WHERE asset = %s",
+                 (ratio, ratio, asset))
 
 
 def members(conn: Connection, code: str) -> list[dict]:
@@ -372,12 +385,23 @@ def create_custom(conn: Connection, player_id, *, code: str, name: str, tickers:
 
 
 def change_custom(conn: Connection, player_id, code: str, tickers: list[str], now: datetime) -> dict:
+    """A custom index's members change only with three bells' notice, at most once a game quarter, and the change is
+    announced to everybody holding a fund that copies it."""
     with conn.transaction():
+        try:
+            careers.books_open(conn, now)
+        except careers.CareerError as closing:
+            raise IndexError_(str(closing)) from None
+        mine = careers.career(conn, player_id, "asset_manager")
+        if mine is None or mine["level"] < data.ETF_LEVEL:
+            raise IndexError_(f"Only an Asset Manager of Level {data.ETF_LEVEL} or above may change a published index.")
         idx = _one(conn, "SELECT * FROM market_indexes WHERE code = %s AND owner_id = %s AND status = 'live' FOR UPDATE", (code, player_id))
         if idx is None:
             raise IndexError_("You publish no index with that code.")
         if _one(conn, "SELECT 1 AS x FROM index_changes WHERE index_code = %s AND status = 'announced'", (code,)):
             raise IndexError_("A change to this index is already announced.")
+        if _one(conn, "SELECT 1 AS x FROM index_changes WHERE index_code = %s AND announced_at > %s", (code, now - timedelta(days=clock.REAL_DAYS_PER_QUARTER))):
+            raise IndexError_("A published index can be changed at most once a game quarter.")
         day = exchange.session_of(now)[0]
         listed = {c["ticker"]: c for c in _listed(conn, day)}
         chosen = sorted({(t or "").upper() for t in tickers})
@@ -389,10 +413,14 @@ def change_custom(conn: Connection, player_id, code: str, tickers: list[str], no
         before = {m["ticker"] for m in members(conn, code)}
         plan = [{"asset": c["asset"], "ticker": c["ticker"], "weight_bps": w} for c, w in zip(found, weights)]
         period = careers.world_now(conn, now)["period"]
-        return _one(conn, "INSERT INTO index_changes (index_code, period, announced_at, effective_day, adds, drops, plan) VALUES"
-                          " (%s, %s, %s, %s, %s, %s, %s) RETURNING *",
-                    (code, period, now, effective_day(now), Jsonb([{"ticker": t, "name": listed[t]["name"]} for t in chosen if t not in before]),
-                     Jsonb([{"ticker": t, "name": t} for t in sorted(before) if t not in chosen]), Jsonb(plan)))
+        row = _one(conn, "INSERT INTO index_changes (index_code, period, announced_at, effective_day, adds, drops, plan, orders_placed) VALUES"
+                         " (%s, %s, %s, %s, %s, %s, %s, true) RETURNING *",
+                   (code, period, now, effective_day(now), Jsonb([{"ticker": t, "name": listed[t]["name"]} for t in chosen if t not in before]),
+                    Jsonb([{"ticker": t, "name": t} for t in sorted(before) if t not in chosen]), Jsonb(plan)))
+        conn.execute("INSERT INTO etf_alerts (index_code, kind, everyone, headline, words, at) VALUES (%s, 'index_change', false, %s, %s, %s)",
+                     (code, f"{idx['name']}: changes announced", f"Its manager is changing its members from the closing bell on"
+                      f" {row['effective_day']:%d %b}: {', '.join(chosen)}.", now))
+        return row
 
 
 def _last_bell_day(conn: Connection, day: date) -> date:

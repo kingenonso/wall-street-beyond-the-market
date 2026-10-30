@@ -182,7 +182,9 @@ CREATE TABLE etf_orders (
     limit_price  bigint NOT NULL CHECK (limit_price > 0),
     quantity     bigint NOT NULL CHECK (quantity > 0),
     remaining    bigint NOT NULL CHECK (remaining >= 0),
-    reserved     bigint NOT NULL DEFAULT 0,               -- cash (buy) or units (sell) held for it
+    reserved     bigint NOT NULL DEFAULT 0 CHECK (reserved >= 0),   -- cash (buy) or units (sell) held for it
+    filled_value bigint NOT NULL DEFAULT 0,               -- what its fills came to, so far
+    fee_paid     bigint NOT NULL DEFAULT 0,               -- the exchange's fee on them, so far (worked out on the running total)
     status       text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'filled', 'cancelled', 'expired')),
     session_date date NOT NULL,
     placed_at    timestamptz NOT NULL

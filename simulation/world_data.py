@@ -1367,7 +1367,8 @@ ETF_MAKER_DEPTH_BPS = 50                     # ...for up to 0.5% of the units in
 ETF_MAKER_LEAST_DEPTH = 5_000
 ETF_PREMIUM_MOST_BPS = 75                    # the game's own dealers make or unmake units once the price is 0.75% from value...
 ETF_SPECIAL_PREMIUM_MOST_BPS = 150           # ...1.5% for 2x, inverse and commodity ETFs
-ETF_PREMIUM_IMPACT_BPS = 30                  # buying (or selling) a tenth of the makers' depth moves where they quote by this much
+# Buying (or selling) the makers' whole depth moves where they quote by their half spread: never enough to buy from them and
+# sell straight back at a profit.
 ETF_PREMIUM_DECAY_BPS = 5_000                # at each bell half of the gap closes...
 ETF_PREMIUM_SHOCK_BPS = 25                   # ...and a new day's mood moves it by up to this much either way
 ETF_OFF_VALUE_ALERT_BPS = 100                # a closing price 1% or more from value is news for its holders

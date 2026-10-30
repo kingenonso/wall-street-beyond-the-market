@@ -316,10 +316,32 @@ def setup(conn: Connection, day: date, now: datetime) -> None:
 # Making and unmaking units
 # ---------------------------------------------------------------------------
 
+def settle_swap(conn: Connection, etf: dict, now: datetime, period: int) -> dict:
+    """A daily-reset ETF settles the move so far with the pension funds, and starts again from here: done at every bell, and
+    before units are made or unmade during the day, so new units never collect a move that happened before they existed."""
+    if etf["method"] != "swap":
+        return etf
+    n = units_out(conn, etf)
+    level = tracked_now(conn, etf, now)
+    if not level or not etf["tracked_level"]:
+        return etf
+    ratio = level / Decimal(etf["tracked_level"])
+    pnl = int(Decimal(n) * Decimal(etf["nav"]) * (ratio - 1) * etf["leverage_bps"] / BPS)
+    desk = ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
+    if pnl > 0:
+        ledger.pay_up_to(conn, payer=desk, receiver=etf["account_id"], wanted=pnl, kind="etf_swap", memo=f"{etf['name']}: the move so far", period=period)
+    elif pnl < 0:
+        ledger.pay_up_to(conn, payer=etf["account_id"], receiver=desk, wanted=-pnl, kind="etf_swap", memo=f"{etf['name']}: the move so far", period=period)
+    nav = max(ledger.balance(conn, etf["account_id"]) // n, 1) if n > 0 else nav_now(conn, etf, now)
+    conn.execute("UPDATE etfs SET nav = %s, tracked_level = %s WHERE id = %s", (nav, level, etf["id"]))
+    return _etf(conn, etf["id"])
+
+
 def _create_cash(conn: Connection, etf: dict, payer, units: int, now: datetime, period: int, *, fee_bps: int = data.ETF_CASH_FEE_BPS,
                  receiver=None) -> dict:
     """New units against cash: the payer pays their value and the fee; the fund buys its basket (or, for a daily-reset ETF,
     keeps the cash)."""
+    etf = settle_swap(conn, etf, now, period)
     nav = nav_now(conn, etf, now)
     value = units * nav
     fee = apply_bps(value, fee_bps)
@@ -407,6 +429,7 @@ def create(conn: Connection, player_id, code: str, units: int, how: str, now: da
         _units_ok(units)
         if etf["status"] != "open":
             raise EtfError("That ETF is not making new units.")
+        _gate(conn, player_id, etf, True)
         if how == "cash" or etf["method"] == "swap":
             return _create_cash(conn, etf, account, units, now, state["period"])
         if how != "basket":
@@ -449,6 +472,7 @@ def redeem(conn: Connection, player_id, code: str, units: int, how: str, now: da
 
 
 def _redeem(conn: Connection, etf: dict, account, units: int, how: str, now: datetime, period: int, *, fee_bps: int | None = None) -> dict:
+    etf = settle_swap(conn, etf, now, period)
     n = units_out(conn, etf)
     nav = nav_now(conn, etf, now)
     fee_bps = (data.ETF_CASH_FEE_BPS if how == "cash" else data.ETF_BASKET_FEE_BPS) if fee_bps is None else fee_bps
@@ -575,7 +599,7 @@ def place_order(conn: Connection, player_id, code: str, *, side: str, quantity: 
         held = held_account(conn)
         if side == "buy":
             reserve = quantity * limit_price
-            reserve += apply_bps(reserve, data.ETF_TRADE_FEE_BPS) + 1
+            reserve += -(-reserve * data.ETF_TRADE_FEE_BPS // BPS)
             try:
                 ledger.transfer(conn, payer=account, receiver=held, amount=reserve, kind="etf_order_hold",
                                 memo=f"{etf['code']}: cash held for a buy order", period=state["period"])
@@ -593,15 +617,15 @@ def place_order(conn: Connection, player_id, code: str, *, side: str, quantity: 
         _refresh_maker(conn, etf, now)
         trades = _match(conn, etf, order, now, state["period"])
         order = _one(conn, "SELECT * FROM etf_orders WHERE id = %s", (order["id"],))
-        if order["remaining"] == 0:
-            _release(conn, etf, order, state["period"], "filled")
         return {"order": order, "trades": trades}
 
 
 def _match(conn: Connection, etf: dict, order: dict, now: datetime, period: int) -> list[dict]:
-    opposite = _rows(conn, "SELECT id, limit_price, remaining, maker, account_id FROM etf_orders WHERE etf_id = %s AND side = %s AND status = 'open'"
-                           " AND account_id <> %s AND remaining > 0 ORDER BY id", (etf["id"], "sell" if order["side"] == "buy" else "buy",
-                                                                                  order["account_id"]))
+    # Never against an order from the same account, or placed by the same player (a head's own account and their empire's).
+    opposite = _rows(conn, "SELECT id, limit_price, remaining, maker, account_id, player_id, reserved, filled_value, fee_paid, side FROM etf_orders"
+                           " WHERE etf_id = %s AND side = %s AND status = 'open' AND account_id <> %s AND (player_id IS NULL OR player_id <> %s)"
+                           " AND remaining > 0 ORDER BY id FOR UPDATE", (etf["id"], "sell" if order["side"] == "buy" else "buy",
+                                                                        order["account_id"], order["player_id"]))
     if not opposite:
         return []
     low, high = band(etf)
@@ -610,30 +634,45 @@ def _match(conn: Connection, etf: dict, order: dict, now: datetime, period: int)
     out = []
     maker = ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
     for f in fills:
-        other = by_id[f["order_id"]]
-        buy, sell = (order, other) if order["side"] == "buy" else (other, order)
-        done = _settle(conn, etf, buy, sell, f["price"], f["quantity"], now, period, maker)
+        other = _one(conn, "SELECT * FROM etf_orders WHERE id = %s", (by_id[f["order_id"]]["id"],))
+        mine = _one(conn, "SELECT * FROM etf_orders WHERE id = %s", (order["id"],))
+        if other["status"] != "open" or mine["status"] != "open":
+            continue
+        buy, sell = (mine, other) if order["side"] == "buy" else (other, mine)
+        done = _settle(conn, etf, buy, sell, f["price"], min(f["quantity"], other["remaining"], mine["remaining"]), now, period, maker)
         if not done:
             continue
         out.append({"price": f["price"], "quantity": done})
         if other["maker"]:
             sign = 1 if order["side"] == "buy" else -1
-            impact = data.ETF_PREMIUM_IMPACT_BPS * done * 10 // max(_maker_depth(conn, etf), 1)
+            half = data.ETF_MAKER_SPECIAL_HALF_SPREAD_BPS if special(etf) else data.ETF_MAKER_HALF_SPREAD_BPS
+            impact = half * done // max(_maker_depth(conn, etf), 1)
             most = data.ETF_SPECIAL_PREMIUM_MOST_BPS if special(etf) else data.ETF_PREMIUM_MOST_BPS
-            conn.execute("UPDATE etfs SET premium_bps = greatest(least(premium_bps + %s, %s), %s) WHERE id = %s",
-                         (sign * max(impact, 1), most, -most, etf["id"]))
+            if impact:
+                conn.execute("UPDATE etfs SET premium_bps = greatest(least(premium_bps + %s, %s), %s) WHERE id = %s",
+                             (sign * impact, most, -most, etf["id"]))
     if out:
         conn.execute("UPDATE etfs SET last_price = %s, session_date = %s WHERE id = %s", (out[-1]["price"], exchange.session_of(now)[0], etf["id"]))
     return out
 
 
+def _fee_now(order: dict, value: int) -> int:
+    """The fee on this fill: the fee on everything the order has dealt so far, less what it has paid (so rounding never adds up
+    to more than was held for it)."""
+    if order.get("maker"):
+        return 0
+    total = -(-(order["filled_value"] + value) * data.ETF_TRADE_FEE_BPS // BPS)
+    return max(total - order["fee_paid"], 0)
+
+
 def _settle(conn: Connection, etf: dict, buy: dict, sell: dict, price: int, qty: int, now: datetime, period: int, maker) -> int:
+    if qty <= 0:
+        return 0
     held = held_account(conn)
     fees = ledger.account_id(conn, exchange.FEES)
     value = price * qty
-    fee = -(-value * data.ETF_TRADE_FEE_BPS // BPS)
     # The market makers sell units they hold, or make them on the spot from their own shares (or cash).
-    if sell.get("maker"):
+    if sell["maker"]:
         have = ledger.balance(conn, maker, etf["asset"])
         if have < qty:
             blocks = -(-(qty - have) // data.ETF_CREATION_UNITS) * data.ETF_CREATION_UNITS
@@ -645,23 +684,29 @@ def _settle(conn: Connection, etf: dict, buy: dict, sell: dict, price: int, qty:
         seller_from = maker
     else:
         seller_from = held
-    if buy.get("maker"):
+    buyer_fee, seller_fee = _fee_now(buy, value), _fee_now(sell, value)
+    if buy["maker"]:
         if ledger.balance(conn, maker) < value:
             return 0
         buyer_from = maker
-        buyer_fee = 0
     else:
         buyer_from = held
-        buyer_fee = fee
-    seller_fee = 0 if sell.get("maker") else fee
+        if value + buyer_fee > buy["reserved"]:
+            return 0                                            # never more than was held for it
+    if seller_fee >= value:
+        return 0
     legs = [Leg(seller_from, -qty, etf["asset"]), Leg(buy["account_id"], qty, etf["asset"]),
             Leg(buyer_from, -(value + buyer_fee)), Leg(sell["account_id"], value - seller_fee)]
     if buyer_fee + seller_fee:
         legs.append(Leg(fees, buyer_fee + seller_fee))
     ledger.post(conn, kind="etf_trade", memo=f"{qty:,} {etf['code']} at {_money(price)}", period=period, legs=legs)
-    for o, used in ((buy, value + buyer_fee), (sell, qty)):
+    for o, used, fee in ((buy, value + buyer_fee, buyer_fee), (sell, qty, seller_fee)):
         conn.execute("UPDATE etf_orders SET remaining = remaining - %s, reserved = CASE WHEN maker THEN 0 ELSE reserved - %s END,"
-                     " status = CASE WHEN remaining - %s <= 0 THEN 'filled' ELSE status END WHERE id = %s", (qty, used, qty, o["id"]))
+                     " filled_value = filled_value + %s, fee_paid = fee_paid + %s WHERE id = %s AND status = 'open'",
+                     (qty, used, value, fee, o["id"]))
+        after = _one(conn, "SELECT * FROM etf_orders WHERE id = %s", (o["id"],))
+        if after["remaining"] == 0:
+            _release(conn, etf, after, period, "filled")       # what is left of what was held goes straight back
     conn.execute("INSERT INTO etf_trades (etf_id, buyer, seller, price, quantity, session_date, traded_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
                  (etf["id"], buy["account_id"], sell["account_id"], price, qty, exchange.session_of(now)[0], now))
     return qty
@@ -673,6 +718,7 @@ def _maker_create(conn: Connection, etf: dict, maker, units: int, now: datetime,
         _create_cash(conn, etf, maker, units, now, period, fee_bps=0)
         return
     b = basket(conn, etf, units, now)
+    # (Against cash, the pension funds pay the fund's dealing cost, so the holders never do.)
     if all(ledger.balance(conn, maker, x["asset"]) >= x["units"] for x in b["lines"]) and ledger.balance(conn, maker) >= max(b["cash"], 0):
         legs = []
         for x in b["lines"]:
@@ -686,7 +732,7 @@ def _maker_create(conn: Connection, etf: dict, maker, units: int, now: datetime,
         conn.execute("INSERT INTO etf_creations (etf_id, account_id, side, how, units, nav, fee, at) VALUES (%s, %s, 'create', 'basket', %s, %s, 0, %s)",
                      (etf["id"], maker, units, b["nav"], now))
     else:
-        _create_cash(conn, etf, maker, units, now, period, fee_bps=0)
+        _create_cash(conn, etf, maker, units, now, period, fee_bps=DEALING_COST_BPS)
 
 
 def _release(conn: Connection, etf: dict, order: dict, period: int, status: str) -> None:
@@ -705,6 +751,10 @@ def _release(conn: Connection, etf: dict, order: dict, period: int, status: str)
 def cancel_order(conn: Connection, player_id, order_id: int, now: datetime) -> None:
     with conn.transaction():
         state = _state(conn, now)
+        found = _one(conn, "SELECT etf_id FROM etf_orders WHERE id = %s AND player_id = %s", (order_id, player_id))
+        if found is None:
+            raise EtfError("There is no waiting order of yours with that number.")
+        _etf(conn, found["etf_id"], lock=True)                  # the same lock a match takes: one waits for the other
         order = _one(conn, "SELECT * FROM etf_orders WHERE id = %s AND player_id = %s AND status = 'open' FOR UPDATE", (order_id, player_id))
         if order is None:
             raise EtfError("There is no waiting order of yours with that number.")
@@ -732,7 +782,11 @@ def tick(conn: Connection, now: datetime) -> int:
                     setup(conn, day, at)
                 changed = [] if started else indexes.at_bell(conn, day, at)
                 for e in _rows(conn, "SELECT id FROM etfs WHERE status IN ('open', 'closing') ORDER BY id"):
-                    _at_bell(conn, _etf(conn, e["id"], lock=True), day, at, changed)
+                    try:
+                        with conn.transaction():
+                            _at_bell(conn, _etf(conn, e["id"], lock=True), day, at, changed)
+                    except Exception:
+                        log.exception("An ETF could not be dealt at the bell; the others carry on")
                 _place_change_orders(conn, day, at)
                 conn.execute("UPDATE etf_progress SET dealt_through = %s", (day,))
         except Exception:
@@ -749,19 +803,19 @@ def _at_bell(conn: Connection, etf: dict, day: date, now: datetime, changed: lis
         _wind_up(conn, etf, day, now, period)
         return
     n = units_out(conn, etf)
-    # The daily reset: 2x, inverse and commodity ETFs settle the day's move with the pension funds.
+    # What it tracks moved this much since the last bell (times its leverage), for the record of how closely it copies.
     tracked = tracked_now(conn, etf, now)
+    last_level = _one(conn, "SELECT level FROM index_levels WHERE index_code = %s AND session_date < %s ORDER BY session_date DESC LIMIT 1",
+                      (etf["index_code"], day)) if etf["index_code"] else None
     move_bps = None
-    if etf["tracked_level"] and tracked:
+    if tracked and last_level:
+        move_bps = int((tracked / Decimal(last_level["level"]) - 1) * etf["leverage_bps"])
+    elif tracked and etf["tracked_level"] and etf["method"] == "swap":
         move_bps = int((tracked / Decimal(etf["tracked_level"]) - 1) * etf["leverage_bps"])
-    if etf["method"] == "swap" and n > 0 and move_bps is not None:
-        pnl = n * etf["nav"] * move_bps // BPS
-        desk = ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
-        if pnl > 0:
-            ledger.pay_up_to(conn, payer=desk, receiver=etf["account_id"], wanted=pnl, kind="etf_swap", memo=f"{etf['name']}: the day's move", period=period)
-        elif pnl < 0:
-            ledger.pay_up_to(conn, payer=etf["account_id"], receiver=desk, wanted=-pnl, kind="etf_swap", memo=f"{etf['name']}: the day's move", period=period)
-    elif etf["method"] != "swap" and n > 0:
+    if etf["method"] == "swap":
+        # The daily reset: 2x, inverse and commodity ETFs settle the day's move with the pension funds.
+        etf = settle_swap(conn, etf, now, period)
+    elif n > 0:
         track(conn, etf["account_id"], etf, now, period=period, force=etf["index_code"] in changed)
     # The day's fee.
     value = holdings_value(conn, etf["account_id"], now)["total"] if n > 0 else 0
@@ -786,7 +840,7 @@ def _at_bell(conn: Connection, etf: dict, day: date, now: datetime, changed: lis
     most = data.ETF_SPECIAL_PREMIUM_MOST_BPS if special(etf) else data.ETF_PREMIUM_MOST_BPS
     premium = max(min(etf["premium_bps"] * (BPS - data.ETF_PREMIUM_DECAY_BPS) // BPS + shock, most), -most)
     conn.execute("UPDATE etfs SET nav = %s, nav_day = %s, tracked_level = %s, reference_price = %s, premium_bps = %s WHERE id = %s",
-                 (nav, day, tracked or etf["tracked_level"], close, premium, etf["id"]))
+                 (nav, day, tracked or _etf(conn, etf["id"])["tracked_level"], close, premium, etf["id"]))
     off = (close - nav) * BPS // nav if nav else 0
     if abs(off) >= data.ETF_OFF_VALUE_ALERT_BPS and traded["v"]:
         _alert(conn, kind="off_value", etf=etf, headline=f"{etf['code']} closed {abs(off) / 100:.1f}% {'above' if off > 0 else 'below'} its value",
@@ -841,8 +895,11 @@ def _place_change_orders(conn: Connection, day: date, now: datetime) -> None:
     """The bell before an index change: the dealers place orders on the exchange for what the index funds will need,
     newcomers to buy and leavers to sell, to be dealt in the next session (half of it; the rest is dealt with the funds at
     the change's own bell). Everybody can see the change coming; the prices move."""
-    for ch in _rows(conn, "SELECT * FROM index_changes WHERE status = 'announced' AND NOT orders_placed AND effective_day = %s FOR UPDATE",
+    for ch in _rows(conn, "SELECT * FROM index_changes WHERE status = 'announced' AND NOT orders_placed AND effective_day <= %s FOR UPDATE",
                     (day + timedelta(days=1),)):
+        if ch["effective_day"] <= day:
+            conn.execute("UPDATE index_changes SET orders_placed = true WHERE id = %s", (ch["id"],))
+            continue                                           # (a bell was missed: the change is made with the funds directly)
         conn.execute("UPDATE index_changes SET orders_placed = true WHERE id = %s", (ch["id"],))
         vehicles = _passive_vehicles(conn, ch["index_code"])
         total = sum(holdings_value(conn, v["account"], now)["total"] for v in vehicles)
@@ -1012,11 +1069,11 @@ def _passive_money(conn: Connection, period: int, now: datetime) -> None:
             if units <= 0:
                 continue
             if amount > 0 and ledger.balance(conn, households) >= units * nav * 2:
-                _create_cash(conn, row, households, units, now, period, fee_bps=0)
+                _create_cash(conn, row, households, units, now, period, fee_bps=DEALING_COST_BPS)
             elif amount < 0:
                 units = min(units, ledger.balance(conn, households, row["asset"]) // data.ETF_CREATION_UNITS * data.ETF_CREATION_UNITS)
                 if units > 0:
-                    _redeem(conn, row, households, units, "cash", now, period, fee_bps=0)
+                    _redeem(conn, row, households, units, "cash", now, period, fee_bps=DEALING_COST_BPS)
             flow = units * nav * (1 if amount > 0 else -1)
         else:
             flow = 0
@@ -1209,17 +1266,17 @@ def alerts_for(conn: Connection, player_id, after: int | None, now: datetime) ->
 # ---------------------------------------------------------------------------
 
 def held_value(conn: Connection, account) -> int:
-    """An account's ETF units at their last closing price (or value), units held for its sell orders, and cash held for its
-    buy orders."""
+    """An account's ETF units at the last bell's value (or the closing price, if lower: one trade at the bell cannot make anybody
+    richer), units held for its sell orders, and cash held for its buy orders."""
     if not ready(conn):
         return 0
     total = 0
-    for r in _rows(conn, "SELECT b.balance, e.reference_price FROM ledger_balances b JOIN etfs e ON e.asset = b.asset WHERE b.account_id = %s"
-                         " AND b.balance > 0", (account,)):
-        total += r["balance"] * r["reference_price"]
-    for o in _rows(conn, "SELECT o.side, o.reserved, e.reference_price FROM etf_orders o JOIN etfs e ON e.id = o.etf_id WHERE o.account_id = %s"
-                         " AND o.status = 'open' AND NOT o.maker", (account,)):
-        total += o["reserved"] if o["side"] == "buy" else o["reserved"] * o["reference_price"]
+    for r in _rows(conn, "SELECT b.balance, least(e.nav, e.reference_price) AS p FROM ledger_balances b JOIN etfs e ON e.asset = b.asset"
+                         " WHERE b.account_id = %s AND b.balance > 0", (account,)):
+        total += r["balance"] * r["p"]
+    for o in _rows(conn, "SELECT o.side, o.reserved, least(e.nav, e.reference_price) AS p FROM etf_orders o JOIN etfs e ON e.id = o.etf_id"
+                         " WHERE o.account_id = %s AND o.status = 'open' AND NOT o.maker", (account,)):
+        total += o["reserved"] if o["side"] == "buy" else o["reserved"] * o["p"]
     return total
 
 
@@ -1344,7 +1401,9 @@ def factsheet(conn: Connection, code: str, player_id, now: datetime) -> dict:
         out["basket"]["lines"].sort(key=lambda x: -x["weight_bps"])
     book = _rows(conn, "SELECT side, limit_price, sum(remaining)::bigint AS units FROM etf_orders WHERE etf_id = %s AND status = 'open' AND NOT maker"
                        " GROUP BY side, limit_price ORDER BY side, limit_price DESC", (etf["id"],))
-    out["book"] = {"buy": [b for b in book if b["side"] == "buy"][:5], "sell": sorted([b for b in book if b["side"] == "sell"], key=lambda b: b["limit_price"])[:5]}
+    out["book"] = {"buy": [{"limit_price": b["limit_price"], "units": b["units"]} for b in book if b["side"] == "buy"][:5],
+                   "sell": sorted([{"limit_price": b["limit_price"], "units": b["units"]} for b in book if b["side"] == "sell"],
+                                  key=lambda b: b["limit_price"])[:5]}
     me = ledger.player_account_id(conn, player_id)
     out["mine"] = {"units": ledger.balance(conn, me, etf["asset"]), "value": ledger.balance(conn, me, etf["asset"]) * out["price"]}
     seat = empires.seat_of(conn, player_id)

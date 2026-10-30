@@ -28,7 +28,7 @@ from simulation import etfs, indexes
 from simulation.money import naira
 
 KOBO = {"price", "nav", "size", "value", "cash", "bid", "ask", "low", "high", "limit_price", "least_worth", "registration", "seed", "close",
-        "paid", "fee", "fees_this_quarter", "level"}
+        "paid", "fee", "fees_this_quarter", "level", "worth", "unit_price", "least_in"}
 CODE = "^[A-Z0-9]{2,10}$"
 
 
