@@ -113,7 +113,9 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     signs up, confirms by email, and invites or sets challenges; challenge trades are on paper and move no money.
     Part 2 added investment funds (test_funds*.py): a player puts their own money (or the head their empire's, within what
     they may sign for) into a fund or asks it back, dealt at the next bell through the ledger; a manager acts only on the fund
-    they run, under its rules, and every naira moves through the ledger."""
+    they run, under its rules, and every naira moves through the ledger. Part 3 added indexes and ETFs (test_etfs*.py): a player
+    buys and sells units with their own money (or the head with their empire's), an approved dealer's head makes and unmakes units
+    for the empire, a manager runs only their own ETF or index; units and money move only through the ledger."""
     from server.main import app
 
     writes = sorted(
@@ -215,6 +217,16 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/empire/tasks"),
         ("POST", "/api/empires"),
         ("POST", "/api/empires/{empire_id}/applications"),
+        ("POST", "/api/etfs/dealer"),
+        ("POST", "/api/etfs/launch"),
+        ("POST", "/api/etfs/manage/close"),
+        ("POST", "/api/etfs/manage/fee"),
+        ("POST", "/api/etfs/orders/{order_id}/cancel"),
+        ("POST", "/api/etfs/warning"),
+        ("POST", "/api/etfs/{code}/create"),
+        ("POST", "/api/etfs/{code}/follow"),
+        ("POST", "/api/etfs/{code}/orders"),
+        ("POST", "/api/etfs/{code}/redeem"),
         ("POST", "/api/firm/apprentices"),
         ("POST", "/api/firm/approaches"),
         ("POST", "/api/firm/bonus-pool"),
@@ -259,6 +271,8 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/funds/{fund_id}/follow"),
         ("POST", "/api/funds/{fund_id}/invest"),
         ("POST", "/api/funds/{fund_id}/leave"),
+        ("POST", "/api/indexes"),
+        ("POST", "/api/indexes/{code}/change"),
         ("POST", "/api/instruments/exercises/{exercise_id}/cancel"),
         ("POST", "/api/instruments/{code}/exercise"),
         ("POST", "/api/instruments/{code}/trade"),

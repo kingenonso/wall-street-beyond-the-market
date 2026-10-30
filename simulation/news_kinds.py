@@ -178,6 +178,11 @@ KINDS: tuple[NewsKind, ...] = (
     NewsKind("fund_merged", 50, {"fund": "Ikoyi Growth Fund", "into": "Lekki Value Fund", "manager": "Tunde Bello"}),
     NewsKind("fund_five_stars", 48, {"fund": "Ikoyi Growth Fund", "manager": "Adaeze Okafor", "year": "+24.5%"}),
     NewsKind("fund_struck_off", 80, {"fund": "Ikoyi Growth Fund", "amount": "₦38 million"}),
+    # --- The talent and funds stage, Part 3: indexes and ETFs ---
+    NewsKind("index_change", 58, {"index": "BSX Top 30", "adds": "Kano Grains", "drops": "Aba Leather"}),
+    NewsKind("etf_launched", 38, {"etf": "Ikoyi Banks Tracker", "code": "IKBT", "index": "BSX Banks", "manager": "Adaeze Okafor"}),
+    NewsKind("etf_off_value", 44, {"etf": "Broad Street Top 30 ETF", "code": "TOPX", "gap": "1.4%", "side": "above"}),
+    NewsKind("etf_flows", 46, {"fund": "Broad Street Top 30 ETF", "amount": "₦1.6 billion", "side": "into"}),
     # --- The economy upgrade: the rest of the world ---
     NewsKind("oil_up", 70, {"price": "$82.40", "previous": "$75.00", "change": "9.9%"}),
     NewsKind("oil_down", 72, {"price": "$64.10", "previous": "$75.00", "change": "14.5%"}),
@@ -271,6 +276,8 @@ FIELD_NOTES = {
     "fund": "an investment fund's name", "strategy": "what the fund holds, in lower case", "manager": "the person (or house) running it",
     "limit": "the share of the fund paid out at each bell while it is gated", "why": "a clause that fits after 'because'",
     "into": "the fund it merges into",
+    "index": "an index's name", "adds": "the companies joining, as a list", "drops": "the companies leaving, as a list",
+    "etf": "an ETF's name", "code": "its trading code", "gap": "how far its price was from its value", "side": "a direction word: above, below, into or out of",
     "insurers": "a noun phrase naming the insurers", "event": "a noun phrase naming an earlier event, e.g. 'the flood in Port Harcourt'",
     "paid": "what insurers paid", "reason": "one complete sentence from the Money Watch",
     "money_growth": "how fast money grew over the year", "output_growth": "how fast the economy's sales grew",

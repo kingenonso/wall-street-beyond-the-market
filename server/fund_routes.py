@@ -139,12 +139,14 @@ def fund_follow(body: FollowRequest, fund_id: int = FastPath(ge=1), player: dict
 
 class LaunchRequest(Request):
     name: str = Field(min_length=3, max_length=60)
-    strategy: str = Field(pattern="^(shares|banks|bonds|balanced|anything)$")
+    strategy: str = Field(pattern="^(shares|banks|bonds|balanced|anything|index)$")
     fee_bps: int = Field(ge=0, le=200, strict=True)
     perf_fee_bps: int = Field(ge=0, le=2000, strict=True)
     least_in_naira: int = Field(gt=0, le=1_000_000_000, strict=True)
     seed_naira: int = Field(gt=0, le=100_000_000_000, strict=True)
     words: str = Field(default="", max_length=400)
+    index_code: str | None = Field(default=None, pattern="^[A-Z0-9]{2,10}$")      # Part 3: an index fund's index...
+    method: str = Field(default="full", pattern="^(full|sample)$")                # ...copied in full or by sampling
 
 
 class ShareDeal(Request):
@@ -185,7 +187,8 @@ class CostsRequest(Request):
 def fund_launch(body: LaunchRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     return _act(conn, player, lambda now: funds.launch(conn, player["id"], name=body.name, strategy=body.strategy, fee_bps=body.fee_bps,
                                                        perf_fee_bps=body.perf_fee_bps, least_in=naira(body.least_in_naira),
-                                                       seed=naira(body.seed_naira), now=now, words=body.words), attempts=5)
+                                                       seed=naira(body.seed_naira), now=now, words=body.words, index_code=body.index_code,
+                                                       method=body.method), attempts=5)
 
 
 @app.post("/api/funds/manage/shares")

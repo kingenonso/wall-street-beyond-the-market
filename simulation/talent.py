@@ -63,6 +63,7 @@ INVESTING_KINDS = frozenset({
     "derivative_fee", "derivative_margin", "derivative_margin_release", "derivative_order", "derivative_order_release",
     "swap_payment", "monte_carlo_fee", "intel_check",
     "fund_order_hold", "fund_order_release", "fund_units_sold", "fund_seed",
+    "etf_trade", "etf_order_hold", "etf_order_release", "etf_create", "etf_create_cash", "etf_redeem", "etf_redeem_cash", "etf_basket",
     "savings_interest", "savings_placed", "savings_withdrawn", "deposit_interest", "deposit_placed", "deposit_withdrawn",
     "bail_in", "fund_units", "buy_in", "share_issue", "preferred_issue", "bond_issue",
     "margin_loan", "personal_loan", "loan_repayment", "player_loan_interest", "lending_fee", "share_loan",
@@ -146,6 +147,9 @@ def _price_then(conn: Connection, asset: str, at: datetime) -> int:
                  (asset,))
     if found and found["price"]:
         return found["price"]
+    if asset.startswith("ETF-"):
+        found = _one(conn, "SELECT reference_price AS price FROM etfs WHERE asset = %s", (asset,))
+        return found["price"] if found else 0
     if asset.startswith("BND-"):
         from simulation import bonds
         found = bonds._load(conn, "b.asset = %s", (asset,))
@@ -411,8 +415,10 @@ def work_out(conn: Connection, player_id, now: datetime) -> dict:
 
 def fund_record(conn: Connection, player_id) -> dict:
     """Every investment fund the player has run (Part 2): its return against its benchmark, its stars, runs it came through."""
-    from simulation import funds
-    return funds.track_record(conn, player_id)
+    from simulation import etfs, funds
+    out = funds.track_record(conn, player_id)
+    out["index"] = etfs.track_record(conn, player_id)          # Part 3: ETFs and index funds, and how closely they copied
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -453,6 +459,8 @@ def badges_from(rec: dict) -> list[tuple[str, str, str]]:
         out.append(("five_star_fund", "Five-star fund", "Ran a fund that earned five stars against its peers."))
     if fr["runs_survived"]:
         out.append(("fund_run_survived", "Kept a fund through a run", "Ran a fund whose investors rushed for the door, and kept it going."))
+    if any(v["quarters"] >= 4 and v["error_bps"] is not None and v["error_bps"] < 50 for v in fr.get("index", [])):
+        out.append(("tight_tracker", "Tight tracker", "Ran an ETF or index fund for a game year that stayed within half a percent of its index."))
     if any(f["quarters_rated"] >= 4 and f["return_bps"] is not None and f["bench_bps"] is not None and f["return_bps"] > f["bench_bps"]
            for f in fr["funds"]):
         out.append(("fund_beat_benchmark", "Fund ahead of its benchmark", "Ran a fund for a game year or more, ahead of its benchmark."))
@@ -479,7 +487,7 @@ def badge_section(code: str) -> str:
         return "work"
     if code.startswith("won_challenge_"):
         return "challenges"
-    if code.startswith(("five_star_fund", "fund_")):
+    if code.startswith(("five_star_fund", "fund_", "tight_tracker")):
         return "funds"
     return {"sharp_calls": "calls", "clean_audits": "audits", "leads_held": "journalism", "trusted_head": "leadership",
             "came_through_crisis": "crisis", "bank_rescuer": "crisis", "clean_record": "conduct"}.get(code, "conduct")

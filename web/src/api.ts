@@ -1208,6 +1208,11 @@ export const api = {
   funds: () => request<FundsPage>("/funds"),
   fund: (id: number) => request<FundSheet>(`/funds/${id}`),
   fundAct: (path: string, body?: unknown) => request<{ result: unknown }>(`/funds${path}`, { method: "POST", body: JSON.stringify(body ?? {}) }),
+  etfs: () => request<EtfsPage>("/etfs"),
+  etf: (code: string) => request<EtfSheet>(`/etfs/${code}`),
+  indexPage: (code: string) => request<IndexPage>(`/indexes/${code}`),
+  etfAct: (path: string, body?: unknown) => request<{ result: unknown }>(path, { method: "POST", body: JSON.stringify(body ?? {}) }),
+  etfAlerts: (mark: number | null) => request<{ mark: number; alerts: EtfAlert[] }>(`/etfs/alerts${mark === null ? "" : `?after=${mark}`}`),
   fundAlerts: (mark: number | null) => request<{ mark: number; alerts: FundAlert[] }>(`/funds/alerts${mark === null ? "" : `?after=${mark}`}`),
   pensionFund: (method: "POST" | "PUT" | "DELETE", path: string, body?: unknown) =>
     request<PensionFunds>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) }),
@@ -1354,7 +1359,7 @@ export type FirmChallenges = { challenges: ChallengeItem[]; kinds: Record<string
 
 /** The talent and funds stage, Part 2: investment funds run by players (and four run by the computer). Unit prices are in
  * millionths of a kobo: a unit at ₦1 is "100000000". */
-export type FundStrategy = "shares" | "banks" | "bonds" | "balanced" | "anything";
+export type FundStrategy = "shares" | "banks" | "bonds" | "balanced" | "anything" | "index";
 export type FundSummary = {
   id: number; name: string; strategy: FundStrategy; strategy_name: string; manager: string; computer: boolean; regulator_run: boolean;
   status: "open" | "closing" | "closed" | "merged"; gated: boolean; run: boolean; fee_bps: number; perf_fee_bps: number; least_in: Kobo;
@@ -1376,6 +1381,7 @@ export type FundsPage = {
   can_launch: boolean; launch: { level: number; registration: Kobo; seed: Kobo; fee_most_bps: number; perf_most_bps: number; least_in_limits: Kobo[] };
   mine: { lines: FundLine[]; waiting: { id: number; side: "in" | "out"; amount: Kobo; units: number; placed_at: string; fund: string; fund_id: number }[]; value: Kobo };
   managing: FundManaging | null;
+  indexes: { code: string; name: string; kind: "shares" | "bonds" }[];
 };
 export type FundSheet = FundSummary & {
   words: string; strategy_words: string; benchmark: string; rules: string[];
@@ -1387,3 +1393,34 @@ export type FundSheet = FundSummary & {
   recent: { headline: string; words: string; at: string }[];
 };
 export type FundAlert = { id: number; kind: string; headline: string; words: string; at: string; fund_id: number; fund: string };
+
+/** The talent and funds stage, Part 3: indexes and ETFs. Index levels are hundredths of a point; prices in kobo. */
+export type IndexSummary = { code: string; name: string; kind: "shares" | "bonds"; level: Kobo; day_bps: number | null; quarter_bps: number | null;
+  year_bps: number | null; members: number; custom: boolean; owner: string; started: string | null };
+export type IndexPage = IndexSummary & { rules: string; weights: { asset: string; ticker: string; name: string; weight_bps: number; price: Kobo }[];
+  history: { session_date: string; level: Kobo }[];
+  changes: { period: number; label: string; announced_at: string; effective_day: string; adds: { ticker: string; name: string }[]; drops: { ticker: string; name: string }[]; status: string }[] };
+export type Tracking = { error_bps: number | null; difference_bps: number | null; quarters: number };
+export type EtfSummary = { id: number; code: string; name: string; kind: "index" | "leverage" | "inverse" | "commodity"; kind_words: string; tracks: string;
+  index_code: string | null; method: "full" | "sample" | "swap"; fee_bps: number; computer: boolean; manager: string; status: string; price: Kobo; nav: Kobo;
+  premium_bps: number; day_bps: number | null; quarter_bps: number | null; year_bps: number | null; units: number; size: Kobo; volume: number;
+  tracking: Tracking; special: boolean };
+export type EtfsPage = {
+  indexes: IndexSummary[]; etfs: EtfSummary[]; index_funds: (FundSummary & { tracking: Tracking; index_code: string })[];
+  passive: { share_bps: number; target_bps: number }; dealer: { approved: boolean; head: boolean; least_worth: Kobo };
+  warning_read: boolean; special_level: number; can_launch: boolean;
+  launch: { level: number; registration: Kobo; seed: Kobo; fee_most_bps: number; creation_units: number };
+  mine: (EtfSummary & { held: number; value: Kobo })[]; managing: (EtfSummary & { cash: Kobo; holdings: number; fees_this_quarter: number }) | null;
+  my_indexes: IndexSummary[];
+};
+export type EtfSheet = EtfSummary & {
+  words: string; quote: { nav: Kobo; bid: Kobo; ask: Kobo; depth: number } | null; band: { low: Kobo; high: Kobo };
+  history: { day: string; nav: Kobo; close: Kobo; volume: number; premium_bps: number }[];
+  basket: null | { units: number; nav: Kobo; cash: Kobo; value: Kobo; lines: { asset: string; ticker: string; units: number; price: Kobo; weight_bps: number }[] };
+  book: { buy: { limit_price: Kobo; units: number }[]; sell: { limit_price: Kobo; units: number }[] };
+  mine: { units: number; value: Kobo }; empire?: { units: number; head: boolean };
+  orders: { id: number; side: "buy" | "sell"; limit_price: Kobo; quantity: number; remaining: number; status: string; placed_at: string }[];
+  following: boolean; quarters: { period: number; label: string; return_bps: number | null; tracked_bps: number | null; difference_bps: number | null; error_bps: number | null }[];
+  creation_units: number; warning: string | null;
+};
+export type EtfAlert = { id: number; kind: string; headline: string; words: string; at: string; code: string | null };

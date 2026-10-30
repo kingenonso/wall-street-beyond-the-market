@@ -10,7 +10,10 @@ import { Failed, Loading, Panel } from "./Shell";
 import { InstrumentsPanel, SwapsPanel } from "./Swaps";
 import { Term } from "./Term";
 
-const NAMES: Record<string, string> = { BSX50: "BSX 50", OIL: "Oil", NAIRA: "Naira ($)", FARM: "Farm produce", METALS: "Metals", MATERIALS: "Building materials" };
+const NAMES: Record<string, string> = { BSX50: "BSX 50", TOP30: "BSX Top 30", BANKS: "BSX Banks", OILGAS: "BSX Oil & Gas", OIL: "Oil", NAIRA: "Naira ($)",
+  FARM: "Farm produce", METALS: "Metals", MATERIALS: "Building materials" };
+/** The indexes contracts are written on (Part 3 added the Top 30, Banks and Oil & Gas): levels in hundredths of a point. */
+const INDEX_UNDERLYINGS = ["BSX50", "TOP30", "BANKS", "OILGAS"];
 const KIND: Record<string, string> = { call: "Call", put: "Put", future: "Future" };
 
 export function useAct(reload: () => void, onLoggedOut: () => void, onChanged?: () => void) {
@@ -38,12 +41,12 @@ export type Act = ReturnType<typeof useAct>;
 
 function strikeText(s: Series): string {
   if (s.strike === null) return "—";
-  return s.underlying === "BSX50" ? (s.strike / 100).toLocaleString("en-NG") : formatNaira(String(s.strike));
+  return INDEX_UNDERLYINGS.includes(s.underlying) ? (s.strike / 100).toLocaleString("en-NG") : formatNaira(String(s.strike));
 }
 
 function spotText(s: Series): string {
   const v = Number(s.spot);
-  if (s.underlying === "BSX50") return (v / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 });
+  if (INDEX_UNDERLYINGS.includes(s.underlying)) return (v / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 });
   if (s.underlying === "OIL") return `$${(v / 100).toFixed(2)} a barrel`;
   if (s.underlying === "NAIRA") return `₦${(v / 100).toLocaleString("en-NG")} to $1`;
   if (["FARM", "METALS", "MATERIALS"].includes(s.underlying)) return (v / 100).toFixed(1);
@@ -193,7 +196,8 @@ export function DerivativesWork({ onLoggedOut, onChanged }: { onLoggedOut: () =>
   const futures = shown.filter((s) => s.kind === "future");
   const options = shown.filter((s) => s.kind !== "future");
   const first = shown[0];
-  const choices = ["BSX50", "OIL", "NAIRA", "FARM", "METALS", "MATERIALS", ...d.underlyings.filter((u) => !(u in NAMES))];
+  const choices = ["BSX50", ...["TOP30", "BANKS", "OILGAS"].filter((u) => d.underlyings.includes(u)), "OIL", "NAIRA", "FARM", "METALS", "MATERIALS",
+    ...d.underlyings.filter((u) => !(u in NAMES))];
   return (
     <>
       <div className="work-head">

@@ -1985,6 +1985,9 @@ def after_close(conn: Connection, period: int, now: datetime) -> None:
     # Run Your Own Fund: performance fees, published holdings, star ratings, the households' money and the regulator's audit.
     from simulation import funds
     funds.after_close(conn, period, now)
+    # Index funds and ETFs: each index reviewed, passive money moved, tracking written down (Part 3).
+    from simulation import etfs
+    etfs.after_close(conn, period, now)
 
 
 def _computer_head(conn: Connection, empire: dict, period: int, now: datetime) -> None:

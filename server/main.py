@@ -106,6 +106,14 @@ def _close_due_quarters_once() -> None:
         if conn.execute("SELECT to_regclass('bank_confidence') IS NOT NULL").fetchone()[0]:
             from simulation import crisis
             crisis.tick(conn, now)
+        # Index funds and ETFs: after each closing bell, every index's level, every ETF's value, fee and daily reset, and index
+        # changes coming due (before the funds deal, so an index fund's benchmark is there).
+        if conn.execute("SELECT to_regclass('etfs') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
+            from simulation import etfs
+            try:
+                etfs.tick(conn, now)
+            except Exception:
+                log.exception("The ETFs' work at the bell failed; it will be tried again.")
         # Run Your Own Fund: after each closing bell, every fund deals the money waiting to come in and go out at that bell's price.
         if conn.execute("SELECT to_regclass('investment_funds') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
             from simulation import funds
@@ -896,7 +904,8 @@ def my_portfolio(player: dict = Depends(current_player), conn: Connection = Depe
     mine["total"] += property_parts[0] + property_parts[1]
     # Units in investment funds, and money waiting at the next bell to buy them (the talent and funds stage, Part 2).
     from simulation import funds as _funds
-    in_funds = _funds.held_value(conn, account, now)
+    from simulation import etfs as _etfs
+    in_funds = _funds.held_value(conn, account, now) + _etfs.held_value(conn, account)
     mine["total"] += in_funds
     bill = next((b for b in bonds.curve(conn)["points"] if b["quarters"] == 1), None)
     days = [NetWorthDay(session_date=d["session_date"], total_kobo=d["total"]) for d in mine["net_worth_days"]
@@ -1712,3 +1721,4 @@ from server import society_routes  # noqa: E402,F401
 from server import crisis_routes  # noqa: E402,F401
 from server import talent_routes  # noqa: E402,F401
 from server import fund_routes  # noqa: E402,F401
+from server import etf_routes  # noqa: E402,F401

@@ -37,7 +37,12 @@ INDEX = "BSX50"
 FUTURES = ("BSX50", "OIL", "NAIRA", "FARM", "METALS", "MATERIALS")
 COMMODITY_COLUMN = {"FARM": "agriculture_bps", "METALS": "metals_bps", "MATERIALS": "materials_bps"}
 NAMES = {"BSX50": "the BSX 50", "OIL": "oil", "NAIRA": "the naira (dollars)", "FARM": "farm produce", "METALS": "metals",
-         "MATERIALS": "building materials"}
+         "MATERIALS": "building materials", "TOP30": "the BSX Top 30", "BANKS": "the BSX Banks index", "OILGAS": "the BSX Oil & Gas index"}
+INDEXES = set(data.INDEX_FUTURES)        # Part 3: futures and options on these indexes too, ₦100 a point like the BSX 50's
+
+
+def is_index(underlying: str) -> bool:
+    return underlying == INDEX or underlying in INDEXES
 
 
 class DerivativesError(Exception):
@@ -96,6 +101,9 @@ def spot(conn: Connection, series: dict, now: datetime) -> int:
         return share_level(conn, series["company_id"], now)
     if u == INDEX:
         return index_now(conn, now)
+    if u in INDEXES:
+        from simulation import indexes
+        return indexes.level_now(conn, u, now) or data.INDEX_START_LEVEL
     if u == "OIL":
         return _abroad(conn)["oil_cents"]
     if u == "NAIRA":
@@ -123,7 +131,7 @@ def value_of(conn: Connection, series: dict, level: int) -> int:
     u = series["underlying"]
     if series.get("company_id"):
         return level * data.OPTION_SHARES_PER_CONTRACT
-    if u == INDEX:
+    if is_index(u):
         return level * data.INDEX_KOBO_PER_POINT // 100
     if u == "OIL":
         return level * _abroad(conn)["fx"] * data.OIL_BARRELS_PER_CONTRACT // 100
@@ -161,7 +169,12 @@ def volatility(conn: Connection, series: dict) -> float:
         found = (table if table is not None else risk.share_risk(conn)).get(series["company_id"])
         vol = found["volatility_bps"] if found else data.OPTION_LEAST_VOLATILITY_BPS
         return max(vol, data.OPTION_LEAST_VOLATILITY_BPS) / BPS
-    moves = list(risk.returns(risk.index_closes(conn)).values())
+    if series["underlying"] in INDEXES:
+        rows = _rows(conn, "SELECT session_date, level FROM index_levels WHERE index_code = %s ORDER BY session_date DESC LIMIT %s",
+                     (series["underlying"], data.RISK_SESSIONS))
+        moves = list(risk.returns([(r["session_date"], int(r["level"])) for r in reversed(rows)]).values())
+    else:
+        moves = list(risk.returns(risk.index_closes(conn)).values())
     if len(moves) >= risk.LEAST_SESSIONS:
         mean = sum(moves) / len(moves)
         daily = math.sqrt(sum((m - mean) ** 2 for m in moves) / (len(moves) - 1))
@@ -241,6 +254,21 @@ def list_series(conn: Connection, period: int, now: datetime) -> int:
             for bps in data.OPTION_STRIKES_BPS:
                 for kind in ("call", "put"):
                     added += _add(conn, kind, share["ticker"], share["id"], _strike(share["price"], bps), expiry, period)
+    # Part 3: futures and options on the Top 30, Banks and Oil & Gas indexes, once they exist (listed even for a quarter whose
+    # other contracts are already listed, the first time the indexes appear).
+    if _one(conn, "SELECT to_regclass('market_indexes') IS NOT NULL AS ok")["ok"]:
+        from simulation import indexes
+        for expiry in range(current, current + data.OPTION_EXPIRIES):
+            for code in data.INDEX_FUTURES:
+                if _one(conn, "SELECT 1 AS x FROM derivative_series WHERE expiry_period = %s AND underlying = %s LIMIT 1", (expiry, code)):
+                    continue
+                lvl = indexes.level_now(conn, code, now)
+                if not lvl:
+                    continue
+                added += _add(conn, "future", code, None, None, expiry, period)
+                for bps in data.INDEX_OPTION_STRIKES_BPS:
+                    for kind in ("call", "put"):
+                        added += _add(conn, kind, code, None, _strike(lvl, bps), expiry, period)
     return added
 
 

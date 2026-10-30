@@ -8,6 +8,7 @@ import { play } from "./sound";
 import type { LiveClock } from "./useClock";
 import { BankAlerts } from "./Crisis";
 import { FundAlerts } from "./Funds";
+import { EtfAlerts } from "./Etfs";
 
 export function Wordmark() {
   return (
@@ -444,6 +445,7 @@ export function Shell({ player, live, current, onLogout, onPlayer, work, rail, a
       <NewsToasts player={player} onPlayer={onPlayer} />
       <BankAlerts onLoggedOut={onLogout} />
       <FundAlerts onLoggedOut={onLogout} />
+      <EtfAlerts onLoggedOut={onLogout} />
     </div>
   );
 }

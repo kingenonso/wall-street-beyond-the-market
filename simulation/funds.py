@@ -62,7 +62,7 @@ DEALING = "fund_dealing"               # the escrow account holding money waitin
 HOUSEHOLDS = "households:lagos"        # the computer's own investors: the households' savings, held for them in Lagos
 STRATEGIES = {
     "shares": "Nigerian shares", "banks": "Banks", "bonds": "Bonds and bills", "balanced": "Balanced (shares and bonds)",
-    "anything": "Anything (shares and bonds, no fixed mix)",
+    "anything": "Anything (shares and bonds, no fixed mix)", "index": "Index funds (copying an index)",
 }
 STRATEGY_WORDS = {
     "shares": "Holds shares listed on the Broad Street Exchange, and cash.",
@@ -70,10 +70,12 @@ STRATEGY_WORDS = {
     "bonds": "Holds Government and company bonds and bills, and cash.",
     "balanced": "Holds shares and bonds, at most 70% of the fund in either.",
     "anything": "Holds shares and bonds in any mix the manager chooses.",
+    "index": "Holds what its index holds, in the same proportions: the game deals for it (Part 3).",
 }
 BENCHMARK_WORDS = {
     "shares": "the BSX 50", "banks": "the BSX 50", "anything": "the BSX 50",
     "bonds": "the Central Bank's rate, earned day by day", "balanced": "60% the BSX 50 and 40% the Central Bank's rate",
+    "index": "the index it copies",
 }
 MERGE_NOTICE = timedelta(days=3)
 MERGE_ANSWER_DAYS = 7
@@ -219,7 +221,7 @@ def _manager_ok(conn: Connection, player_id) -> None:
 
 
 def launch(conn: Connection, player_id, *, name: str, strategy: str, fee_bps: int, perf_fee_bps: int, least_in: int, seed: int,
-           now: datetime, words: str = "") -> dict:
+           now: datetime, words: str = "", index_code: str | None = None, method: str = "full") -> dict:
     """Launch a fund. One open fund per manager at a time. The registration fee goes to the prize pool; the manager's own
     money (the seed) buys the first units at ₦1."""
     with conn.transaction():
@@ -230,6 +232,22 @@ def launch(conn: Connection, player_id, *, name: str, strategy: str, fee_bps: in
             raise FundError("You already run a fund. A manager runs one fund at a time.")
         if strategy not in STRATEGIES:
             raise FundError("Choose one of the strategies.")
+        if strategy == "index":
+            # Part 3: an index fund copies an index (the game's, or the manager's own); fee at most 1%, no performance fee.
+            idx = _one(conn, "SELECT * FROM market_indexes WHERE code = %s AND status = 'live'", ((index_code or "").upper(),))
+            if idx is None:
+                raise FundError("Choose an index that exists.")
+            if idx["owner_id"] is not None and idx["owner_id"] != player_id:
+                raise FundError("A manager's own index can be copied only by that manager.")
+            if method not in ("full", "sample") or (idx["kind"] == "bonds" and method == "sample"):
+                raise FundError("Copy the index in full, or (for shares) by sampling its largest members.")
+            if perf_fee_bps:
+                raise FundError("An index fund charges no performance fee: it only copies its index.")
+            if not isinstance(fee_bps, int) or isinstance(fee_bps, bool) or fee_bps > data.ETF_FEE_MOST_BPS:
+                raise FundError(f"An index fund's yearly fee is from 0% to {data.ETF_FEE_MOST_BPS / 100:g}%.")
+            index_code = idx["code"]
+        else:
+            index_code, method = None, "full"
         for value, most, what in ((fee_bps, data.INVEST_FUND_FEE_MOST_BPS, "The yearly fee"),
                                   (perf_fee_bps, data.INVEST_FUND_PERF_FEE_MOST_BPS, "The performance fee")):
             if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= most:
@@ -255,12 +273,16 @@ def launch(conn: Connection, player_id, *, name: str, strategy: str, fee_bps: in
         ledger.transfer(conn, payer=me, receiver=ledger.account_id(conn, ledger.PRIZE_POOL), amount=fee, kind="fund_registration",
                         memo=f"{name}: registration of an investment fund", period=state["period"])
         fund = _one(conn, "INSERT INTO investment_funds (name, name_key, account_id, founder_id, manager_id, strategy, fee_bps, perf_fee_bps,"
-                          " high_water, least_in, launched_at, launched_period, words) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+                          " high_water, least_in, launched_at, launched_period, words, index_code, method)"
+                          " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
                           " RETURNING *", (name, key, account, player_id, player_id, strategy, fee_bps, perf_fee_bps, FIRST_PRICE, least_in, now,
-                                           state["period"], " ".join((words or "").split())[:400]))
+                                           state["period"], " ".join((words or "").split())[:400], index_code, method))
         ledger.transfer(conn, payer=me, receiver=account, amount=seed, kind="fund_seed", memo=f"{name}: the manager's own money",
                         period=state["period"])
         _issue(conn, fund, me, seed * UNIT // FIRST_PRICE, now)
+        if strategy == "index":
+            from simulation import etfs
+            etfs.track(conn, account, fund, now, period=state["period"], force=True)
         careers._event(conn, player_id, "asset_manager", "fund_opened", f"Launched the fund {name}.", now)
         _alert(conn, fund, "launched", f"New fund: {name}", f"{STRATEGIES[strategy]}. Fee {fee_bps / 100:.2f}% a year"
                + (f", and {perf_fee_bps / 100:g}% of gains above its best" if perf_fee_bps else "") + ".", now, everyone=False)
@@ -441,6 +463,8 @@ def leavers_waiting(conn: Connection, fund: dict) -> bool:
 
 def check_buy(conn: Connection, fund: dict, now: datetime, *, value: int, company: dict | None = None, bond: dict | None = None) -> None:
     """Would this purchase break the fund's rules? Raises FundError with the reason."""
+    if fund["strategy"] == "index":
+        raise FundError("An index fund copies its index: the game deals for it.")
     if leavers_waiting(conn, fund):
         raise FundError("Investors are waiting to be paid. The fund can sell, and can buy nothing until they are.")
     if fund["status"] != "open":
@@ -502,6 +526,8 @@ def trade_shares(conn: Connection, manager_id, *, ticker: str, side: str, quanti
     with conn.transaction():
         _state(conn, now)
         fund = _managed(conn, manager_id)
+        if fund["strategy"] == "index":
+            raise FundError("An index fund copies its index: the game deals for it.")
         share = next((s for s in marketview._shares(conn, exchange.session_of(now)[0]) if s["ticker"] == (ticker or "").upper()), None)
         if share is None:
             raise FundError("There is no share with that code.")
@@ -537,6 +563,8 @@ def trade_bonds(conn: Connection, manager_id, *, code: str, side: str, units: in
     with conn.transaction():
         _state(conn, now)
         fund = _managed(conn, manager_id)
+        if fund["strategy"] == "index":
+            raise FundError("An index fund copies its index: the game deals for it.")
         bond = bonds.find(conn, code)
         if bond is None:
             raise FundError("There is no bond with that code.")
@@ -623,7 +651,10 @@ def propose_merge(conn: Connection, manager_id, into_fund_id: int, now: datetime
             raise FundError("The fund is closing.")
         if owed(conn, fund):
             raise FundError("Repay the fund's loan before merging it.")
-        if into["strategy"] not in (fund["strategy"], "anything"):
+        if into["strategy"] == "index" or fund["strategy"] == "index":
+            if into["strategy"] != fund["strategy"] or into["index_code"] != fund["index_code"]:
+                raise FundError("An index fund can merge only into another fund copying the same index.")
+        elif into["strategy"] not in (fund["strategy"], "anything"):
             raise FundError(f"A {STRATEGIES[fund['strategy']].lower()} fund can merge only into a fund with the same strategy, or one that"
                             " may hold anything: its investors chose what it holds.")
         try:
@@ -705,6 +736,10 @@ def tick(conn: Connection, now: datetime) -> int:
 
 def _benchmark(conn: Connection, fund: dict, day: date) -> int | None:
     """The fund's benchmark level that day, chained from day to day (in hundred-thousandths)."""
+    if fund["strategy"] == "index":
+        # An index fund's benchmark is its own index's level that day.
+        row = _one(conn, "SELECT level FROM index_levels WHERE index_code = %s AND session_date = %s", (fund["index_code"], day))
+        return row["level"] if row else None
     before = _one(conn, "SELECT session_date, benchmark FROM fund_days WHERE fund_id = %s AND session_date < %s ORDER BY session_date DESC LIMIT 1",
                   (fund["id"], day))
     if before is None or before["benchmark"] is None:
@@ -749,12 +784,27 @@ def deal(conn: Connection, fund: dict, day: date, rung_at: datetime) -> None:
     fund = _fund(conn, fund["id"])
     total = worth(conn, fund, now)
     price = unit_price(fund, total)
+    if fund["strategy"] == "index":
+        # An index fund sells a slice of everything to the dealers to pay its leavers (Part 3).
+        from simulation import etfs
+        due = sum(value_of(o["units"] - o["units_done"], unit_price(fund, total, side="out"))
+                  for o in _rows(conn, "SELECT * FROM fund_orders WHERE fund_id = %s AND side = 'out' AND status = 'waiting' AND placed_at < %s",
+                                 (fund["id"], cutoff)))
+        need = due - max(ledger.balance(conn, fund["account_id"]), 0)
+        if need > 0:
+            etfs.raise_cash(conn, fund["account_id"], fund, need, now, period)
+            total = worth(conn, fund, now)
+            price = unit_price(fund, total)
     money_out = _pay_leavers(conn, fund, total, cutoff, day, period, now)
     fund = _fund(conn, fund["id"])
     money_in = _take_money_in(conn, fund, worth(conn, fund, now), cutoff, day, period, now)
     fund = _fund(conn, fund["id"])
-    # 6. The computer funds keep their mix; any fund repays its loan when it can.
-    if fund["computer"]:
+    # 6. The computer funds keep their mix, an index fund copies its index; any fund repays its loan when it can.
+    if fund["strategy"] == "index":
+        from simulation import etfs
+        changed = bool(_one(conn, "SELECT 1 AS x FROM index_changes WHERE index_code = %s AND effective_day = %s", (fund["index_code"], day)))
+        etfs.track(conn, fund["account_id"], fund, now, period=period, force=changed)
+    elif fund["computer"]:
         _computer_rebalance(conn, fund, now)
     _repay_loan(conn, _fund(conn, fund["id"]), now, period)
     fund = _fund(conn, fund["id"])
@@ -1251,7 +1301,7 @@ def _rate(conn: Connection, period: int, now: datetime, closes: dict) -> None:
         scored.append({"fund": fund, "mine": mine, "bench": bench, "ratio": ratio, "quarter": q[0] if q else None})
     by_strategy: dict[str, list] = {}
     for s in scored:
-        by_strategy.setdefault(s["fund"]["strategy"], []).append(s)
+        by_strategy.setdefault((s["fund"]["strategy"], s["fund"]["index_code"]), []).append(s)
     rated = {}
     for group in by_strategy.values():
         group.sort(key=lambda s: s["ratio"])
@@ -1292,6 +1342,8 @@ def stars_of(conn: Connection, fund_id) -> int | None:
 
 def _computer_money(conn: Connection, fund: dict, period: int, now: datetime) -> None:
     """The households follow the stars: money in to good funds, out of poor ones, at the next bell."""
+    if fund["strategy"] == "index":
+        return                                   # an index fund's money from the households is passive money (Part 3)
     public = ledger.account_id(conn, HOUSEHOLDS)
     total = worth(conn, fund, now)
     if total <= 0:
@@ -1470,7 +1522,11 @@ def listing(conn: Connection, player_id, now: datetime) -> dict:
     career = careers.career(conn, player_id, "asset_manager")
     build = _one(conn, "SELECT build FROM players WHERE id = %s", (player_id,))["build"]
     runs = _one(conn, "SELECT 1 AS x FROM investment_funds WHERE manager_id = %s AND status IN ('open', 'closing')", (player_id,))
-    return {"funds": funds, "tables": tables, "strategies": STRATEGIES, "strategy_words": STRATEGY_WORDS,
+    choosable = []
+    if _one(conn, "SELECT to_regclass('market_indexes') IS NOT NULL AS ok")["ok"]:
+        choosable = _rows(conn, "SELECT code, name, kind FROM market_indexes WHERE status = 'live' AND (owner_id IS NULL OR owner_id = %s)"
+                                " ORDER BY owner_id NULLS FIRST, code", (player_id,))
+    return {"funds": funds, "tables": tables, "strategies": STRATEGIES, "strategy_words": STRATEGY_WORDS, "indexes": choosable,
             "can_launch": bool(build == "asset_manager" and career and career["level"] >= data.INVEST_FUND_LEVEL and not runs),
             "launch": {"level": data.INVEST_FUND_LEVEL, "registration": naira(data.INVEST_FUND_REGISTRATION_NAIRA),
                        "seed": naira(data.INVEST_FUND_SEED_NAIRA), "fee_most_bps": data.INVEST_FUND_FEE_MOST_BPS,
@@ -1509,6 +1565,11 @@ def factsheet(conn: Connection, fund_id: int, player_id, now: datetime) -> dict:
         "The manager may never deal with the fund, and keeps at least 1% of it (or all they put in) while running it.",
         "What it held at a quarter's end is published one quarter later.",
     ]
+    if fund["strategy"] == "index":
+        idx = _one(conn, "SELECT name FROM market_indexes WHERE code = %s", (fund["index_code"],))
+        out["benchmark"] = idx["name"] if idx else fund["index_code"]
+        out["rules"][0] = (f"It copies {out['benchmark']}{' by holding its largest members up to 80% of it' if fund['method'] == 'sample' else ', holding every member'}"
+                           " in the same proportions, and keeps about 1% in cash for its fee.")
     accounts = [ledger.player_account_id(conn, player_id)]
     seat = empires.seat_of(conn, player_id)
     empire_account = seat["account_id"] if seat and seat["empire_kind"] != "pension" else None
