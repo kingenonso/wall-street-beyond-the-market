@@ -272,3 +272,52 @@ def test_r18_new_cash_goes_in_only_while_the_dealers_can_supply_the_basket(db):
     etfs.after_close(db, 1, OPEN + timedelta(days=6))
     assert etfs.units_out(db, _one(db, "SELECT * FROM etfs WHERE code = 'TOPX'")) <= before   # the households put nothing in
     sound(db)
+
+
+@pytest.mark.world("eight")
+def test_r19_a_bond_index_counts_interest_and_repayments_and_a_repaid_bond_cannot_be_bought(db):
+    """Found in the ten-year run: the bond index counted only prices while the funds collected the interest, so the bond ETF
+    ended 92% ahead of it; and a bond repaid at the close still showed its last price until the next bell."""
+    from tests.conftest import after_quarters
+    now = after_quarters(8) + timedelta(hours=14)
+    day = exchange.session_of(now)[0]
+    indexes.setup(db, day, now)
+    mem = indexes.members(db, "GOVBOND")
+    assert mem
+    first = mem[0]
+    db.execute("UPDATE market_indexes SET div_period = 7 WHERE code = 'GOVBOND'")
+    db.execute("INSERT INTO bond_cash (asset, period, amount, units) VALUES (%s, 8, %s, 1000)", (first["asset"], 1000 * 5_000))
+    later = datetime.combine(day + timedelta(days=1), time(22, 5), tzinfo=clock.LAGOS)
+    level = indexes.level_now(db, "GOVBOND", later)
+    worth = sum(m["quantity"] * m["last_price"] for m in mem)
+    assert level > data.INDEX_START_LEVEL and level - data.INDEX_START_LEVEL >= int(first["quantity"] * 5_000 * data.INDEX_START_LEVEL / worth) - 1
+    # A repaid bond is worth nothing to anybody who would buy it now: no fund's basket holds it.
+    db.execute("UPDATE bonds SET redeemed_period = 8 WHERE asset = %s", (first["asset"],))
+    w = {x["asset"]: x for x in indexes.weights_now(db, "GOVBOND", later)}
+    assert w[first["asset"]]["price"] == 0 and w[first["asset"]]["weight_bps"] == 0
+    e = _one(db, "SELECT * FROM etfs WHERE index_code = 'GOVBOND'") or {"index_code": "GOVBOND", "method": "full"}
+    assert first["asset"] not in {x["asset"] for x in etfs._target_basket(db, e, later)}
+    indexes.at_bell(db, day + timedelta(days=1), later)
+    assert not _one(db, "SELECT 1 AS x FROM index_members WHERE index_code = 'GOVBOND' AND asset = %s", (first["asset"],))
+
+
+def test_r20_once_the_dealers_have_none_the_founders_sell_to_the_funds_at_a_price_above_the_market(db):
+    """Found in the ten-year run: with the dealers out of the largest companies, funds could not reinvest their dividends and
+    held up to a third of themselves in cash."""
+    started(db)
+    e = _one(db, "SELECT * FROM etfs WHERE code = 'TOPX'")
+    top = max(indexes.weights_now(db, "TOP30", TRADING), key=lambda w: w["weight_bps"])
+    parked = ledger.create_account(db, kind="fund", name="Shares parked for a test")
+    founders = ledger.account_id(db, ledger.INVESTORS_FOUNDERS)
+    for d in etfs._dealers(db, top["asset"])[:2]:
+        n = ledger.balance(db, d, top["asset"])
+        if n > 0:
+            ledger.post(db, kind="etf_basket", memo="test", period=1, legs=[ledger.Leg(d, -n, top["asset"]), ledger.Leg(parked, n, top["asset"])])
+    assert ledger.balance(db, founders, top["asset"]) >= 1_000
+    cash, held = ledger.balance(db, e["account_id"]), ledger.balance(db, founders, top["asset"])
+    got = etfs.buy_from_dealers(db, e["account_id"], top["asset"], 1_000, top["price"], 1, "test")
+    assert got == 1_000 and ledger.balance(db, founders, top["asset"]) == held - 1_000
+    paid = cash - ledger.balance(db, e["account_id"])
+    assert paid >= 1_000 * top["price"] * (BPS + data.ETF_FOUNDERS_PREMIUM_BPS) // BPS     # above the market: the dealers come first
+    assert etfs.cash_room(db, e, TRADING) > 0
+    sound(db)

@@ -19,7 +19,7 @@ CREATE TABLE market_indexes (
     weighting     text NOT NULL DEFAULT 'value' CHECK (weighting IN ('value', 'equal')),
     level         bigint,                            -- at the last closing bell, hundredths of a point (1,000.00 at the start)
     level_day     date,
-    div_period    integer,                           -- the last quarter whose dividends the level has counted (share indexes)
+    div_period    integer,                           -- the last quarter whose dividends (or bond interest and repayments) the level has counted
     started_day   date,
     created_at    timestamptz NOT NULL,
     status        text NOT NULL DEFAULT 'live' CHECK (status IN ('live', 'retired'))
@@ -53,6 +53,17 @@ CREATE TABLE index_changes (
 CREATE INDEX index_changes_waiting ON index_changes (status, effective_day);
 
 -- Each index at each closing bell, for good.
+-- What each bond paid its holders in a quarter (interest and repayments), so a bond index can count it as put back in.
+CREATE TABLE bond_cash (
+    asset   text    NOT NULL REFERENCES assets(code),
+    period  integer NOT NULL,
+    amount  bigint  NOT NULL CHECK (amount >= 0),
+    units   bigint  NOT NULL CHECK (units > 0),
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX bond_cash_asset ON bond_cash (asset, period);
+CREATE TRIGGER bond_cash_permanent BEFORE UPDATE OR DELETE ON bond_cash FOR EACH ROW EXECUTE FUNCTION records_forbid_change();
+
 CREATE TABLE index_levels (
     index_code    text NOT NULL REFERENCES market_indexes (code),
     session_date  date NOT NULL,

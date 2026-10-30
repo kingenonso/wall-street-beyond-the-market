@@ -1375,6 +1375,7 @@ ETF_OFF_VALUE_ALERT_BPS = 100                # a closing price 1% or more from v
 ETF_SPECIAL_LEVEL = 15                       # 2x and inverse ETFs: a player of Level 15 or more in any build, who has read the warning
 ETF_DEALER_LEAST_WORTH_NAIRA = 500_000_000   # an empire worth this much, with a clean record, may be approved as a dealer
 ETF_SAMPLE_COVER_BPS = 8_000                 # a sampling fund holds the largest members up to 80% of the index (and at least five)
+ETF_FOUNDERS_PREMIUM_BPS = 100               # founders sell to index funds only once the dealers have none, and at 1% above the price
 ETF_ROOM_SHORT_BPS = 200                     # new cash goes in only while the dealers can supply all but 2% of the basket
 ETF_CASH_TARGET_BPS = 100                    # an index vehicle keeps about 1% in cash for its fee
 ETF_SMALL_NAIRA = 50_000_000                 # a player's ETF this small at two quarter ends running (after its first two) is closed

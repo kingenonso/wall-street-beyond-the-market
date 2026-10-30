@@ -179,8 +179,13 @@ def _target_basket(conn: Connection, etf_or_fund: dict, now: datetime) -> list[d
 # ---------------------------------------------------------------------------
 
 def _dealers(conn: Connection, asset: str) -> list:
+    """Who a fund copying an index buys from, in order: the pension funds, the small investors; then, for a share, the founders
+    and insiders as a last resort (they sell into the funds' demand, at a price above the market); for a Government bond,
+    the Treasury. Only the first two buy back."""
     out = [ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS), ledger.account_id(conn, ledger.INVESTORS_PUBLIC)]
-    if asset.startswith("BND-") and _one(conn, "SELECT 1 AS x FROM bonds WHERE asset = %s AND issuer = 'government'", (asset,)):
+    if asset.startswith("SHR-"):
+        out.append(ledger.account_id(conn, ledger.INVESTORS_FOUNDERS))
+    elif asset.startswith("BND-") and _one(conn, "SELECT 1 AS x FROM bonds WHERE asset = %s AND issuer = 'government'", (asset,)):
         out.append(ledger.account_id(conn, ledger.TREASURY))
     return out
 
@@ -188,17 +193,19 @@ def _dealers(conn: Connection, asset: str) -> list:
 def buy_from_dealers(conn: Connection, account, asset: str, units: int, price: int, period: int, memo: str) -> int:
     """Buy up to `units` at the price (plus the dealing cost) from whichever dealers have them. Returns the units bought."""
     each = -(-price * (BPS + DEALING_COST_BPS) // BPS)
-    units = min(units, max(ledger.balance(conn, account), 0) // max(each, 1))
     got = 0
     treasury = ledger.account_id(conn, ledger.TREASURY)
+    founders = ledger.account_id(conn, ledger.INVESTORS_FOUNDERS)
     for seller in _dealers(conn, asset):
         if got >= units:
             break
-        have = units - got if seller == treasury else min(units - got, ledger.balance(conn, seller, asset))
+        cost = -(-price * (BPS + DEALING_COST_BPS + data.ETF_FOUNDERS_PREMIUM_BPS) // BPS) if seller == founders else each
+        afford = max(ledger.balance(conn, account), 0) // max(cost, 1)
+        have = min(units - got, afford) if seller == treasury else min(units - got, afford, ledger.balance(conn, seller, asset))
         if have <= 0:
             continue
         ledger.post(conn, kind="bond_issue" if seller == treasury else "etf_basket", memo=memo, period=period,
-                    legs=[Leg(seller, -have, asset), Leg(account, have, asset), Leg(account, -have * each), Leg(seller, have * each)])
+                    legs=[Leg(seller, -have, asset), Leg(account, have, asset), Leg(account, -have * cost), Leg(seller, have * cost)])
         got += have
     return got
 

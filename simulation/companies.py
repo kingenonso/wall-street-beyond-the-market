@@ -392,6 +392,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
             ledger.pay_split_up_to(conn, payer=account, amounts=amounts, kind="debt_interest",
                                    memo=f"{name}: interest on {debt['name']}, {label}", period=period,
                                    reference=f"debt:{debt['id']}", paid_to=got)
+            _bonds().record_cash(conn, bond["asset"], period, sum(got.values()), bond["units"])
             for holder, owed in amounts.items():
                 if owed - got.get(UUID(str(holder)), 0) > 0:
                     _owe(conn, company, holder, "debt_interest", owed - got.get(UUID(str(holder)), 0), period)
@@ -530,6 +531,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
             paid = ledger.pay_split_up_to(
                 conn, payer=account, amounts=_bonds().share_out(conn, bond, due), kind="debt_repayment",
                 memo=f"{name}: repayment of {debt['name']}, {label}", period=period, reference=f"debt:{debt['id']}")
+            _bonds().record_cash(conn, bond["asset"], period, paid, bond["units"])
         else:
             paid = ledger.pay_up_to(
                 conn, payer=account, receiver=debt["lender_account_id"], wanted=due,

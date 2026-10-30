@@ -239,17 +239,48 @@ def level_now(conn: Connection, code: str, now: datetime) -> int | None:
         return idx["level"]
     prices = prices_now(conn, [m["asset"] for m in mem], now)
     before = sum(m["quantity"] * m["last_price"] for m in mem)
-    after = sum(m["quantity"] * (prices.get(m["asset"]) or m["last_price"]) for m in mem)
+    after = _worth(mem, prices) + _income(conn, idx, mem)
     return int(Decimal(idx["level"]) * after / before) if before else idx["level"]
+
+
+def _price(m: dict, prices: dict):
+    p = prices.get(m["asset"])
+    return m["last_price"] if p is None else p          # 0 for a bond already repaid
+
+
+def _worth(mem: list[dict], prices: dict):
+    return sum(m["quantity"] * _price(m, prices) for m in mem)
+
+
+def _income(conn: Connection, idx: dict, mem: list[dict]):
+    """What the members paid since the level last counted it (as many quarters as have closed since)."""
+    closed = _one(conn, "SELECT last_closed_period AS p FROM world_state")["p"]
+    if idx["div_period"] is None or closed <= idx["div_period"] or not mem:
+        return 0
+    paid = income_per_unit(conn, [m["asset"] for m in mem], idx["div_period"], closed)
+    return sum(m["quantity"] * paid.get(m["asset"], 0) for m in mem)
+
+
+def income_per_unit(conn: Connection, assets: list[str], after_period: int, through_period: int) -> dict:
+    """Cash paid on one unit of each, in the quarters after one and up to another (kobo): a share's dividends, a bond's
+    interest and repayments."""
+    out: dict = {a: Decimal(v) for a, v in dividends_per_share(conn, [a for a in assets if a.startswith("SHR-")], after_period,
+                                                                through_period).items()}
+    others = [a for a in assets if not a.startswith("SHR-")]
+    if others:
+        for r in _rows(conn, "SELECT asset, sum(amount::numeric / units) AS per FROM bond_cash WHERE asset = ANY(%s) AND period > %s"
+                             " AND period <= %s GROUP BY asset", (others, after_period, through_period)):
+            out[r["asset"]] = out.get(r["asset"], 0) + r["per"]
+    return out
 
 
 def weights_now(conn: Connection, code: str, now: datetime) -> list[dict]:
     """Each member's share of the index at today's prices."""
     mem = members(conn, code)
     prices = prices_now(conn, [m["asset"] for m in mem], now)
-    values = [(m, m["quantity"] * (prices.get(m["asset"]) or m["last_price"])) for m in mem]
+    values = [(m, m["quantity"] * _price(m, prices)) for m in mem]
     total = sum(v for _, v in values) or 1
-    return [{"asset": m["asset"], "ticker": m["ticker"], "weight_bps": int(v * BPS / total), "price": prices.get(m["asset"]) or m["last_price"]}
+    return [{"asset": m["asset"], "ticker": m["ticker"], "weight_bps": int(v * BPS / total), "price": _price(m, prices)}
             for m, v in values]
 
 
@@ -275,7 +306,8 @@ def setup(conn: Connection, day: date, now: datetime) -> bool:
 
 def _rules_words(kind: str, words: str) -> str:
     if kind == "bonds":
-        return f"{words} Reviewed every quarter; changes are announced as the quarter closes and made at the third closing bell after."
+        return (f"{words} Interest and repayments count as if put back into the index. Reviewed every quarter; changes are announced"
+                " as the quarter closes and made at the third closing bell after.")
     return (f"{words} Dividends count as if put back into the index. Each counted by the value of its freely traded shares (not those of its founders, or of any one owner with 30% or"
             " more), and none above 15% of the index (with fewer than seven members, one and a half times an equal share). Reviewed"
             " every quarter; changes are announced as the quarter closes and made at the third closing bell after.")
@@ -291,15 +323,12 @@ def at_bell(conn: Connection, day: date, now: datetime) -> list[str]:
         mem = members(conn, idx["code"])
         prices = prices_now(conn, [m["asset"] for m in mem], now)
         before = sum(m["quantity"] * m["last_price"] for m in mem)
-        after = sum(m["quantity"] * (prices.get(m["asset"]) or m["last_price"]) for m in mem)
-        # A share index counts the dividends paid since the last bell as if they were put back into it (a total-return index),
-        # so a fund that copies it and keeps its dividends follows it closely.
+        # An index counts what its members paid since the last bell (dividends; a bond's interest and repayments) as if it
+        # were put back into it (a total-return index), so a fund that copies it and keeps that money follows it closely.
+        # A bond repaid is worth nothing now: its money is in what it paid.
+        after = _worth(mem, prices) + _income(conn, idx, mem)
         closed = _one(conn, "SELECT last_closed_period AS p FROM world_state")["p"]
-        if idx["kind"] == "shares" and idx["div_period"] is not None and closed > idx["div_period"]:
-            paid = dividends_per_share(conn, [m["asset"] for m in mem], idx["div_period"], closed)
-            after += sum(m["quantity"] * paid.get(m["asset"], 0) for m in mem)
-        if idx["kind"] == "shares":
-            conn.execute("UPDATE market_indexes SET div_period = %s WHERE code = %s", (closed, idx["code"]))
+        conn.execute("UPDATE market_indexes SET div_period = %s WHERE code = %s", (closed, idx["code"]))
         level = max(int(Decimal(idx["level"]) * after / before), 1) if before else idx["level"]
         conn.execute("INSERT INTO index_levels (index_code, session_date, level) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                      (idx["code"], day, level))
