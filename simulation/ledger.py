@@ -144,7 +144,11 @@ def audit(conn: Connection) -> list[str]:
         opening = _rows(conn, "SELECT coalesce(sum(e.amount), 0) FROM ledger_entries e JOIN ledger_transactions t"
                               " ON t.id = e.transaction_id WHERE t.kind = 'opening_balance' AND e.asset = 'NGN' AND e.amount > 0")[0][0]
         lent = _rows(conn, "SELECT coalesce(sum(principal_outstanding), 0) FROM company_debts WHERE kind = 'central_bank_loan'")[0][0]
-        if amount_in_existence(conn) != opening + lent:
+        # Part 4a: the naira the Central Bank made buying dollars for its reserves, less those it took out of existence selling them.
+        made = _rows(conn, "SELECT coalesce(-sum(e.amount), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
+                           " JOIN ledger_accounts a ON a.id = e.account_id WHERE a.code = 'central_bank' AND e.asset = 'NGN'"
+                           " AND t.kind IN ('fx_reserves', 'fx_defence')")[0][0]
+        if amount_in_existence(conn) != opening + lent + made:
             problems.append("The money in existence is not the opening money plus what banks owe the Central Bank.")
     return problems
 

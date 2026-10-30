@@ -77,6 +77,11 @@ def _bank_fixed(conn: Connection, kind: str, proposer_side: str, now: datetime) 
     if kind == "rate":
         level = rate_for(conn, state["period"] + 1)
         return level + data.SWAP_BANK_RATE_SPREAD_BPS if proposer_side == "pay_fixed" else max(level - data.SWAP_BANK_RATE_SPREAD_BPS, 0)
+    if kind == "fx":
+        from simulation import fx
+        level = fx.official(conn)
+        spread = level * data.SWAP_BANK_FX_SPREAD_BPS // BPS
+        return level + spread if proposer_side == "pay_fixed" else max(level - spread, 1)
     level = oil_for(conn)
     spread = level * data.SWAP_BANK_OIL_SPREAD_BPS // BPS
     return level + spread if proposer_side == "pay_fixed" else max(level - spread, 1)
@@ -98,10 +103,13 @@ def _acting(conn: Connection, player_id, for_empire: bool) -> tuple:
     return empire["account_id"], empire
 
 
-def _exposure(kind: str, notional: int | None, barrels: int | None, oil: int) -> int:
-    """What a swap is on, in kobo: the sum for a rate swap; for an oil swap, a quarter's barrels at today's price."""
+def _exposure(kind: str, notional: int | None, barrels: int | None, oil: int, dollar: int = data.FX_START) -> int:
+    """What a swap is on, in kobo: the sum for a rate swap; for an oil swap, a quarter's barrels at today's price; for a
+    currency forward, a quarter's dollars at today's official rate."""
     # (What is at risk is the difference that changes hands, not the whole sum: a rate swap counts at a tenth of its sum,
-    # an oil swap at three tenths of a quarter's oil.)
+    # an oil swap at three tenths of a quarter's oil, a currency forward at two tenths of its dollars.)
+    if kind == "fx":
+        return (notional or 0) * dollar // 100 * 2 // 10
     return (notional or 0) // 10 if kind == "rate" else (barrels or 0) * oil * 3 // 10
 
 
@@ -112,14 +120,20 @@ def check_room(conn: Connection, account, kind: str, notional: int | None, barre
     if _one(conn, "SELECT 1 FROM player_loans WHERE borrower = %s AND status = 'default'", (account,)):
         raise SwapError("A debt of yours is in default. No new swap can be agreed until it is paid.")
     oil = oil_for(conn)
-    held = sum(_exposure(r["kind"], r["notional"], r["barrels"], oil) for r in _rows(
+    dollar = _dollar(conn)
+    held = sum(_exposure(r["kind"], r["notional"], r["barrels"], oil, dollar) for r in _rows(
         conn, "SELECT kind, notional, barrels FROM swaps WHERE (proposer = %s OR counterparty = %s)"
               " AND status IN ('signing', 'proposed', 'countersigning', 'active')", (account, account)))
     worth = max(objectives.wealth(conn, account, now)["total"], 0)
     most = worth * data.SWAP_MOST_TIMES_WORTH
-    if held + _exposure(kind, notional, barrels, oil) > most:
+    if held + _exposure(kind, notional, barrels, oil, dollar) > most:
         raise SwapError(f"Your swaps, counted by what is at risk, may come to at most {data.SWAP_MOST_TIMES_WORTH} times what you are "
                         f"worth ({money(most)} in all; {money(held)} is taken already).")
+
+
+def _dollar(conn: Connection) -> int:
+    from simulation import fx
+    return fx.official(conn) if fx.opened(conn) else data.FX_START
 
 
 def _empire_of(conn: Connection, account) -> dict | None:
@@ -161,6 +175,8 @@ def describe(s: dict) -> str:
     q = f"{s['quarters']} quarter{'s' if s['quarters'] != 1 else ''}"
     if s["kind"] == "rate":
         return f"Rate swap on {money(s['notional'])}: {s['fixed_bps'] / 100:.2f}% fixed against the Central Bank's rate, {q}"
+    if s["kind"] == "fx":
+        return f"Currency forward on ${s['notional'] / 100:,.2f} a quarter: {money(s['fixed_price'])} a dollar fixed against the official rate, {q}"
     return f"Oil swap on {s['barrels']:,} barrels a quarter: {money(s['fixed_price'])} a barrel fixed against the oil price, {q}"
 
 
@@ -175,8 +191,12 @@ def propose(conn: Connection, player_id, *, kind: str, counterparty: dict, side:
         state = _state(conn, now)
         account, empire = _acting(conn, player_id, for_empire)
         derivatives.unlock(conn, player_id, "advanced")
-        if kind not in ("rate", "oil"):
-            raise SwapError("A swap is on the interest rate or on oil.")
+        if kind not in ("rate", "oil", "fx"):
+            raise SwapError("A swap is on the interest rate, on oil, or on the dollar (a currency forward).")
+        if kind == "fx":
+            from simulation import fx
+            if not fx.opened(conn):
+                raise SwapError("Currency forwards open with the currency desk, at the next closing bell.")
         if side not in ("pay_fixed", "receive_fixed"):
             raise SwapError("Pay the fixed side, or receive it.")
         if not isinstance(quarters, int) or isinstance(quarters, bool) or not 1 <= quarters <= data.SWAP_MOST_QUARTERS:
@@ -184,6 +204,10 @@ def propose(conn: Connection, player_id, *, kind: str, counterparty: dict, side:
         if kind == "rate":
             if not isinstance(notional, int) or isinstance(notional, bool) or not 0 < notional <= data.SWAP_MOST_NOTIONAL:
                 raise SwapError(f"Name the sum, at most {money(data.SWAP_MOST_NOTIONAL)}.")
+            barrels = None
+        elif kind == "fx":
+            if not isinstance(notional, int) or isinstance(notional, bool) or not 0 < notional <= data.SWAP_MOST_DOLLARS_CENTS:
+                raise SwapError(f"Name the dollars a quarter (in cents), at most ${data.SWAP_MOST_DOLLARS_CENTS / 100:,.0f}.")
             barrels = None
         else:
             if not isinstance(barrels, int) or isinstance(barrels, bool) or not 0 < barrels <= data.SWAP_MOST_BARRELS:
@@ -204,12 +228,13 @@ def propose(conn: Connection, player_id, *, kind: str, counterparty: dict, side:
         if bank:
             fixed = _bank_fixed(conn, kind, side, now)
         elif not isinstance(fixed, int) or isinstance(fixed, bool) or fixed <= 0 or (kind == "rate" and fixed > 10_000):
-            raise SwapError("Name the fixed rate (in hundredths of a percent) or the fixed price (in kobo a barrel).")
+            raise SwapError("Name the fixed rate (in hundredths of a percent), the fixed price (in kobo a barrel) or the fixed"
+                            " rate for the dollar (in kobo).")
         row = _one(conn, "INSERT INTO swaps (kind, proposer, proposer_side, counterparty, bank_company_id, notional, barrels, fixed_bps,"
                          " fixed_price, quarters, status, proposed_by, at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
                          " RETURNING *",
                    (kind, account, side, other, bank, notional, barrels, fixed if kind == "rate" else None,
-                    fixed if kind == "oil" else None, quarters, "signing" if empire else "proposed", player_id, now))
+                    fixed if kind in ("oil", "fx") else None, quarters, "signing" if empire else "proposed", player_id, now))
         if empire is not None:
             _ask(conn, row, empire, "swap_draft", "lawyer", player_id, "proposer", state["period"], now)
             return {"swap_id": row["id"], "waiting": True, "status": "signing"}
@@ -264,8 +289,8 @@ def _activate(conn: Connection, swap: dict, accepted_by, now: datetime) -> dict:
         # A bank's price is its price on the day the swap is signed (an empire's signing can take days).
         fixed = _bank_fixed(conn, swap["kind"], swap["proposer_side"], now)
         conn.execute("UPDATE swaps SET fixed_bps = %s, fixed_price = %s WHERE id = %s",
-                     (fixed if swap["kind"] == "rate" else None, fixed if swap["kind"] == "oil" else None, swap["id"]))
-        swap = {**swap, "fixed_bps": fixed if swap["kind"] == "rate" else None, "fixed_price": fixed if swap["kind"] == "oil" else None}
+                     (fixed if swap["kind"] == "rate" else None, fixed if swap["kind"] in ("oil", "fx") else None, swap["id"]))
+        swap = {**swap, "fixed_bps": fixed if swap["kind"] == "rate" else None, "fixed_price": fixed if swap["kind"] in ("oil", "fx") else None}
     payer, other = (swap["proposer"], swap["counterparty"]) if swap["proposer_side"] == "pay_fixed" else (swap["counterparty"], swap["proposer"])
     conn.execute("UPDATE swaps SET status = 'active', fixed_payer = %s, float_payer = %s, first_period = %s, last_period = %s,"
                  " accepted_by = coalesce(accepted_by, %s), active_at = %s WHERE id = %s",
@@ -362,6 +387,10 @@ def close(conn: Connection, period: int, now: datetime) -> dict:
             if swap["kind"] == "rate":
                 floating = rate_for(conn, period)
                 net = swap["notional"] * (floating - swap["fixed_bps"]) // BPS // 4
+            elif swap["kind"] == "fx":
+                from simulation import fx
+                floating = fx.official_for(conn, period)
+                net = swap["notional"] * (floating - swap["fixed_price"]) // 100
             else:
                 floating = oil_for(conn, period)
                 net = swap["barrels"] * (floating - swap["fixed_price"])
@@ -394,6 +423,8 @@ def value_to(conn: Connection, swap: dict, account) -> int:
     left = max(swap["last_period"] - max(state["period"], swap["first_period"] - 1), 0)
     if swap["kind"] == "rate":
         per = swap["notional"] * (rate_for(conn, state["period"] + 1) - swap["fixed_bps"]) // BPS // 4
+    elif swap["kind"] == "fx":
+        per = swap["notional"] * (_dollar(conn) - swap["fixed_price"]) // 100
     else:
         per = swap["barrels"] * (oil_for(conn) - swap["fixed_price"])
     worth = per * left

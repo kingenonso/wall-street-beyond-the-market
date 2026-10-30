@@ -228,9 +228,13 @@ def wealth(conn: Connection, account, now: datetime) -> dict:
         in_funds = funds.held_value(conn, account, now)                      # units in investment funds, and money waiting to buy them
         from simulation import etfs
         in_funds += etfs.held_value(conn, account)                           # ETF units, and what is held for ETF orders (Part 3)
+    foreign = 0
+    if _one(conn, "SELECT to_regclass('fx_quarters') IS NOT NULL AS ok")["ok"]:
+        from simulation import fx
+        foreign = fx.held_value(conn, account)                               # dollars, pounds, euros and Eurobonds (Part 4a)
     return {"cash": cash, "shares": shares_value, "bonds": bonds_value, "property": property_value, "borrowing": -borrowing,
-            "derivatives": contracts, "funds": in_funds,
-            "total": cash + shares_value + bonds_value + property_value - borrowing + contracts + in_funds,
+            "derivatives": contracts, "funds": in_funds, "foreign": foreign,
+            "total": cash + shares_value + bonds_value + property_value - borrowing + contracts + in_funds + foreign,
             "lines": lines, "bond_lines": held, "day": day}
 
 

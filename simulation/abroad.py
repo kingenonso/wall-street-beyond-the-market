@@ -225,9 +225,15 @@ def close(conn: Connection, period: int, seed: str, *, oil_next: int, inflation_
     if gap > 0:
         inflow = ledger.pay_up_to(conn, payer=abroad, receiver=foreign, wanted=min(gap, reserve // 2), kind="foreign_investment",
                                   memo=f"Foreign investors bring money in, {label}", period=period)
-    elif gap < 0:
-        inflow = -ledger.pay_up_to(conn, payer=foreign, receiver=abroad, wanted=min(-gap, cash), kind="foreign_withdrawal",
-                                   memo=f"Foreign investors take money out, {label}", period=period)
+    backlog = 0
+    if gap < 0:
+        # Part 4a: leaving needs dollars. While the Central Bank manages the naira, only what it can spare leaves; the rest waits.
+        from simulation import fx
+        wanted_out = min(-gap, cash)
+        allowed = fx.exit_room(conn, wanted_out, fx_next)
+        backlog = wanted_out - allowed
+        inflow = -ledger.pay_up_to(conn, payer=foreign, receiver=abroad, wanted=allowed, kind="foreign_withdrawal",
+                                   memo=f"Foreign investors take money out, {label}", period=period) if allowed > 0 else 0
     cash += inflow
     # How keen they are on shares next quarter: their extra return, and how far their cash is from
     # being mostly in shares. Positive: they price shares above what they are worth, and buy.
@@ -236,6 +242,9 @@ def close(conn: Connection, period: int, seed: str, *, oil_next: int, inflation_
     tilt = carry * data.FOREIGN_TILT_PER_CARRY_BPS / BPS + (8000 - in_shares) * 50 / BPS
     if want < held:
         tilt = min(tilt, -abs(tilt) / 2 - 50)        # taking money out: they sell
+    if backlog > 0:
+        # Money stuck waiting for dollars makes the rest keener to get out while they can.
+        tilt -= min(backlog * data.FX_BACKLOG_TILT_BPS / max(usual, 1) * 4, 2 * data.FX_BACKLOG_TILT_BPS)
     tilt = int(min(max(tilt, -data.FOREIGN_MOST_TILT_BPS), data.FOREIGN_MOST_TILT_BPS))
     last_trade = _rows(conn, "SELECT coalesce(max(id), 0) AS id FROM market_trades")[0]["id"]
     traded = _rows(conn, """
@@ -247,7 +256,7 @@ def close(conn: Connection, period: int, seed: str, *, oil_next: int, inflation_
         "imports": imports, "oil_royalty": trade["oil_royalty"], "reserve": ledger.balance(conn, abroad),
         "foreign_inflow": inflow, "foreign_cash": cash, "foreign_shares": shares,
         "foreign_bought": traded[0]["bought"], "foreign_sold": traded[0]["sold"], "tilt_bps": tilt,
-        "export_base": now["export_base"], "last_trade_id": last_trade,
+        "export_base": now["export_base"], "last_trade_id": last_trade, "fx_backlog": backlog,
         "reason": f"The naira moved mostly on {reason}.",
     }
     cols = list(row)

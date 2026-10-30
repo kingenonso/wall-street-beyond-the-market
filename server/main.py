@@ -114,6 +114,14 @@ def _close_due_quarters_once() -> None:
                 etfs.tick(conn, now)
             except Exception:
                 log.exception("The ETFs' work at the bell failed; it will be tried again.")
+        # The currency desk (Part 4a): after each closing bell, the Central Bank's defence, the official window's allocation,
+        # money sent home from abroad, households at the bureaux, and the day's rates.
+        if conn.execute("SELECT to_regclass('fx_quarters') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
+            from simulation import fx
+            try:
+                fx.tick(conn, now)
+            except Exception:
+                log.exception("The currency desk's work at the bell failed; it will be tried again.")
         # Run Your Own Fund: after each closing bell, every fund deals the money waiting to come in and go out at that bell's price.
         if conn.execute("SELECT to_regclass('investment_funds') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
             from simulation import funds
@@ -1722,3 +1730,4 @@ from server import crisis_routes  # noqa: E402,F401
 from server import talent_routes  # noqa: E402,F401
 from server import fund_routes  # noqa: E402,F401
 from server import etf_routes  # noqa: E402,F401
+from server import fx_routes  # noqa: E402,F401

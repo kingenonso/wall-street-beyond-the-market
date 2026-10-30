@@ -183,6 +183,15 @@ KINDS: tuple[NewsKind, ...] = (
     NewsKind("etf_launched", 38, {"etf": "Ikoyi Banks Tracker", "code": "IKBT", "index": "BSX Banks", "manager": "Adaeze Okafor"}),
     NewsKind("etf_off_value", 44, {"etf": "Broad Street Top 30 ETF", "code": "TOPX", "gap": "1.4%", "side": "above"}),
     NewsKind("etf_flows", 46, {"fund": "Broad Street Top 30 ETF", "amount": "₦1.6 billion", "side": "into"}),
+    # --- The talent and funds stage, Part 4a: the currency desk ---
+    NewsKind("fx_devalued", 88, {"rate": "₦1,820.00", "before": "₦1,560.00", "cover": "1.8", "amount": "$0.00", "quarter": "Year 3 Q2"}),
+    NewsKind("fx_floated", 92, {"rate": "₦2,100.00", "before": "₦1,600.00", "cover": "0.9", "amount": "$0.00", "quarter": "Year 3 Q2"}),
+    NewsKind("fx_repegged", 66, {"rate": "₦1,950.00", "before": "₦2,000.00", "cover": "3.1", "amount": "$0.00", "quarter": "Year 4 Q1"}),
+    NewsKind("fx_defended", 64, {"rate": "₦1,580.00", "before": "₦1,560.00", "cover": "2.4", "amount": "$120,000,000.00", "quarter": "Year 2 Q4"}),
+    NewsKind("fx_reserves_low", 70, {"cover": "1.7"}),
+    NewsKind("fx_backlog", 60, {"amount": "₦42,000,000,000.00"}),
+    NewsKind("fx_gap", 58, {"gap": "22%", "street": "₦1,950.00", "official": "₦1,600.00"}),
+    NewsKind("fx_eurobond", 56, {"issuer": "The Federal Government", "amount": "$1,000,000,000.00", "coupon": "9.50%"}),
     # --- The economy upgrade: the rest of the world ---
     NewsKind("oil_up", 70, {"price": "$82.40", "previous": "$75.00", "change": "9.9%"}),
     NewsKind("oil_down", 72, {"price": "$64.10", "previous": "$75.00", "change": "14.5%"}),

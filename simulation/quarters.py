@@ -83,7 +83,7 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
                         + crashfund.check_books(conn) + instruments.check_books(conn)
                         + conveyancing.check_books(conn) + development.check_books(conn) + propfunds.check_books(conn)
                         + _crisis().check_books(conn) + _funds().check_books(conn)
-                        + _etfs().check_books(conn))
+                        + _etfs().check_books(conn) + _fx().check_books(conn))
             if problems:
                 raise ledger.LedgerError("The ledger failed its end-of-quarter check: " + " ".join(problems))
             conn.execute("UPDATE world_state SET last_closed_period = %s", (period,))
@@ -183,6 +183,9 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
         damages=damages, ratings=ratings, banks=lenders,
         integration=corporate.integration_effects(conn, period, fortune_seed, ratings),
     )
+    # Part 4a: companies' dollar debts are revalued at the official rate before they close their books.
+    from simulation import fx
+    fx.before_companies(conn, period, now)
     results = [(company, companies.close_company_quarter(conn, company, period, ctx)) for company in all_companies]
 
     # TEMPORARY STAND-IN (until the exchange is an institution with owners of its own):
@@ -239,6 +242,8 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
                               next_rate_bps=measured["next_policy_rate_bps"], trade=trade, imports=imported)
     # Options and futures that run to this close are settled in cash, and the next ones listed; the crash fund (Stage 9).
     # (After the oil price and the naira are set for the quarter, so a future settles at the new level, not one known all quarter.)
+    # Part 4a: Eurobonds paid, the Central Bank's reserves and its next move (before currency forwards settle).
+    fx.after_abroad(conn, period, now, abroad_now, imported)
     derivatives.close(conn, period, now)
     swaps.close(conn, period, now)
     instruments.issue_preferred(conn, period, now)
@@ -295,6 +300,11 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     day, _ = exchange.session_of(now)
     careers.close_retirement(conn, period, marketview.index_level(marketview._shares(conn, day), marketview.index_base(conn)),
                              measured["next_policy_rate_bps"])
+
+
+def _fx():
+    from simulation import fx
+    return fx
 
 
 def _etfs():
