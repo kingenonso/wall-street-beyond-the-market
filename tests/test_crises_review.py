@@ -18,6 +18,11 @@ from tests.test_firm import firm_of
 pytestmark = pytest.mark.world("eight")
 
 
+def _rows(db, sql, params=()):
+    with db.cursor(row_factory=dict_row) as cur:
+        return cur.execute(sql, params).fetchall()
+
+
 def _one(db, sql, params=()):
     with db.cursor(row_factory=dict_row) as cur:
         rows = cur.execute(sql, params).fetchall()
@@ -172,3 +177,18 @@ def test_minor_everything_can_be_taken_out_to_the_last_kobo(db):
     assert deposits.saved(db, account, b["asset"]) == naira(10)
     deposits.take_out(db, p, "IKB", 0, NOW9, everything=True)
     assert deposits.saved(db, account, b["asset"]) == 0
+
+
+def test_companies_spread_their_savings_by_bank_size_and_the_same_world_always_repeats(db):
+    """Found while testing Part 3: a company with no lender picked a bank by its random id, so one build in seven handed a
+    large insurer's spare cash to the smallest microfinance bank, whose interest on it pushed the bank into a crisis."""
+    companies = _rows(db, "SELECT * FROM companies WHERE sector <> 'banking' AND listed ORDER BY ticker")
+    picks = {c["ticker"]: deposits._company_bank(db, c)["ticker"] for c in companies}
+    assert picks == {c["ticker"]: deposits._company_bank(db, c)["ticker"] for c in companies}   # fixed, not a fresh draw
+    sizes = {b["ticker"]: ledger.amount_in_existence(db, b["asset"]) for b in deposits.banks(db)}
+    smallest, largest = min(sizes, key=sizes.get), max(sizes, key=sizes.get)
+    no_lender = [c for c in companies if not _one(db, "SELECT 1 AS x FROM company_debts WHERE company_id = %s AND principal_outstanding > 0",
+                                                  (c["id"],))]
+    at_small = sum(1 for c in no_lender if picks[c["ticker"]] == smallest)
+    at_large = sum(1 for c in no_lender if picks[c["ticker"]] == largest)
+    assert at_small <= at_large                      # the biggest bank takes more of them than the smallest

@@ -275,10 +275,19 @@ def _company_bank(conn: Connection, company: dict) -> dict | None:
             return mine
     choice = [b for b in open_banks if calm(b) and trust.get(b["id"], {}).get("score", data.CONFIDENCE_START) >= data.CONFIDENCE_WARNING] \
         or [b for b in open_banks if calm(b)] or open_banks
-    # Spread over the trusted banks, each company with its own (so the risk is not all at one bank).
+    # Spread over the trusted banks, each company with its own (so the risk is not all at one bank), a bigger bank taking
+    # more of them in proportion to the savings it already keeps (so a small bank is not handed a giant's spare cash it cannot
+    # earn the interest on). The pick is fixed by the world's secret and the company, so a world always repeats.
     import hashlib
-    pick = int(hashlib.sha256(str(company["id"]).encode()).hexdigest()[:8], 16) % len(choice)
-    return sorted(choice, key=lambda b: b["ticker"])[pick]
+    seed = _one(conn, "SELECT fortune_seed FROM world_state")["fortune_seed"]
+    ranked = sorted(choice, key=lambda b: b["ticker"])
+    sizes = [max(ledger.amount_in_existence(conn, b["asset"]), 1) for b in ranked]
+    point = int(hashlib.sha256(f"{seed}:savings:{company.get('ticker') or company['id']}".encode()).hexdigest()[:12], 16) % sum(sizes)
+    for b, size in zip(ranked, sizes):
+        if point < size:
+            return b
+        point -= size
+    return ranked[-1]
 
 
 def company_savings(conn: Connection, account) -> int:
