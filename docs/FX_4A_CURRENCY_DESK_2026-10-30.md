@@ -23,7 +23,10 @@ Nothing was dropped or put off. Following the owner's standing rule, nothing new
 
 Part 4a had ten loophole tests, which found one hole, and an independent review, which found eight problems. Every one was fixed and tested.
 
-Tests at the end: [[TESTS]]
+Tests at the end:
+- 1,496 server tests in 91 files, all passing. Part 4a added 37: 18 for the desk itself, 10 loophole tests and 9 for the review's findings.
+- Three older tests were brought up to date, because they count things that Part 4a adds: the kinds of news and their wordings, the kinds of holdings in net worth, and the list of requests that change anything.
+- The engine's 13 tests and the website's 23 tests also pass.
 
 ## Things worth knowing, said plainly
 
