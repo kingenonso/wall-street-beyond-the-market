@@ -138,7 +138,10 @@ def test_5_property_and_bid_cash_count_in_the_closing_bells_net_worth():
     # (Part 4a adds foreign money and Eurobonds.)
     from simulation import fx
     assert fx._players_fx in marketview._OTHER_HOLDINGS
-    assert len(marketview._OTHER_HOLDINGS) == len(set(marketview._OTHER_HOLDINGS)) == 12
+    # (Part 4b adds shares listed abroad.)
+    from simulation import world
+    assert world._players_world in marketview._OTHER_HOLDINGS
+    assert len(marketview._OTHER_HOLDINGS) == len(set(marketview._OTHER_HOLDINGS)) == 13
 
 
 def test_6_a_lot_is_searched_once_for_an_empire_and_the_fee_is_in_its_books(db):

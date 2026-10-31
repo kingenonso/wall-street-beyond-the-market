@@ -130,7 +130,7 @@ WORDINGS = {
         "ogene": [
             ("{parent} gone", "{company} now belongs to {buyer}."),
             ("Exit done", "{buyer} bought {company} from {parent}."),
-            ("New owners for {company}", "Sold by {parent}."),
+            ("Fresh owners at {company}", "Sold by {parent}."),
         ],
         "ledger": [
             ("{parent} completes its sale of {company}",

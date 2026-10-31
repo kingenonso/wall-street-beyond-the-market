@@ -18,7 +18,7 @@ from simulation.news_kinds import BY_NAME, KINDS, OUTLETS
 from simulation.news_wordings import PER_OUTLET, check
 from tests.conftest import after_quarters
 
-MODULES = ("places", "happenings", "economy", "results", "capital", "deals", "dealmaking", "abroad", "property", "property2", "media", "banks", "funds", "etfs", "fx")
+MODULES = ("places", "happenings", "economy", "results", "capital", "deals", "dealmaking", "abroad", "property", "property2", "media", "banks", "funds", "etfs", "fx", "world")
 
 
 def _dicts(db, sql, params=()):
