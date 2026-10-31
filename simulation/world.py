@@ -711,6 +711,7 @@ def _companies_close(conn: Connection, period: int, now: datetime, seed: str, pa
     oil_ratio = (oil_now["oil_cents"] / data.OIL_START_CENTS / abroad.world_prices(period)) if oil_now else 1.0
     metals = _one(conn, "SELECT metals_bps FROM economy_results WHERE period = %s", (period - 1,))
     metals_ratio = (metals["metals_bps"] / BPS) if metals else 1.0
+    received: dict = {}
     for co in _rows(conn, "SELECT c.*, e.currency, e.country FROM world_companies c JOIN world_exchanges e ON e.code = c.exchange ORDER BY c.ticker"):
         home = economy(conn, co["country"])
         trend = ECONOMIES[co["country"]][3]
@@ -723,10 +724,10 @@ def _companies_close(conn: Connection, period: int, now: datetime, seed: str, pa
         sales = revenue
         if co["sector"] == "oil_gas":
             sales = int(revenue * oil_ratio)
-            margin += (oil_ratio - 1) * 3_000
+            margin += (oil_ratio - 1) * 1_500
         elif co["sector"] == "mining":
             sales = int(revenue * metals_ratio)
-            margin += (metals_ratio - 1) * 3_000
+            margin += (metals_ratio - 1) * 1_500
         elif co["sector"] in ("banking", "insurance"):
             margin += (home["rate_bps"] - 300) * 1.5
         margin = int(min(max(margin, -3_000), 6_000))
@@ -736,7 +737,9 @@ def _companies_close(conn: Connection, period: int, now: datetime, seed: str, pa
         eps_ttm = eps + sum(earlier) + (co["eps_ttm"] / 4) * (3 - len(earlier))
         dps = max(eps_ttm / 4 * co["payout_bps"] / BPS, Decimal(0)).quantize(Decimal("0.0001"))
         long_rate = long_rate_bps(co["country"], home["rate_bps"])
-        fair = _fair(co, eps_ttm, long_rate).quantize(Decimal("0.0001"))
+        # Investors look through a bad year: a share is valued on at least 40% of what it earns at its usual margin.
+        usual = Decimal(sales) * 4 * co["margin_bps"] / BPS / co["shares"] * Decimal("0.4")
+        fair = _fair(co, max(eps_ttm, usual), long_rate).quantize(Decimal("0.0001"))
         pe = (Decimal(BPS) / earnings_yield_bps(co["sector"], long_rate)).quantize(Decimal("0.01"))
         before = co["fair"]
         surprise = (fair / before - 1) * 100 if before else Decimal(0)
@@ -749,10 +752,15 @@ def _companies_close(conn: Connection, period: int, now: datetime, seed: str, pa
         co = {**co, "fair": fair}
         if before and before > 0:
             _rebase(conn, co, now, float(fair / before) ** (data.WORLD_NEWS_PRICED_BPS / BPS), path)
-        _pay_dividend(conn, co, dps, period, now, path)
+        _pay_dividend(conn, co, dps, period, now, path, received)
+    # One pop-up for each holder: everything their foreign shares paid them this quarter.
+    for account, got in received.items():
+        total = ", ".join(_cash(v, c) for c, v in sorted(got.items()))
+        _alert(conn, kind="world_dividend", now=now, account=account, headline=f"Your foreign shares paid {total} in dividends",
+               words="Paid into your dollar, pound and euro balances, after 15% tax kept abroad.")
 
 
-def _pay_dividend(conn: Connection, co: dict, dps: Decimal, period: int, now: datetime, path: _Path) -> None:
+def _pay_dividend(conn: Connection, co: dict, dps: Decimal, period: int, now: datetime, path: _Path, received: dict | None = None) -> None:
     """The dividend, after the tax kept abroad, to everybody holding the shares outside the rest of the world: players and
     empires in the currency; funds and ETFs in naira at the street's middle rate (less half a percent). The price falls by it."""
     if dps <= 0:
@@ -773,9 +781,9 @@ def _pay_dividend(conn: Connection, co: dict, dps: Decimal, period: int, now: da
                 ledger.post(conn, kind="fx_abroad", memo=f"{co['name']}: dividend, after tax kept abroad", period=period,
                             legs=[Leg(world_abroad, -amount, co["currency"]), Leg(h["account_id"], amount, co["currency"])])
                 paid += amount
-                _alert(conn, kind="world_dividend", now=now, account=h["account_id"],
-                       headline=f"{co['name']} paid you {_cash(amount, co['currency'])}",
-                       words=f"A dividend of {_cash(net, co['currency'])} a share (after 15% tax kept abroad) on {h['units']:,} shares.")
+                if received is not None:
+                    got = received.setdefault(h["account_id"], {})
+                    got[co["currency"]] = got.get(co["currency"], 0) + amount
         else:
             kobo = int(naira_each * (BPS - data.WORLD_ETF_DEAL_BPS) / BPS * h["units"])
             kobo = min(kobo, max(ledger.balance(conn, world_abroad), 0))

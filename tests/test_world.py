@@ -163,6 +163,8 @@ def test_at_the_close_the_economies_move_the_companies_report_and_dividends_are_
     paid = _one(db, "SELECT coalesce(sum(e.amount), 0)::bigint AS n FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
                     " WHERE e.account_id = %s AND e.asset = 'USD' AND t.memo LIKE 'Hollis%%dividend%%'", (account,))["n"]
     assert paid == int(div["per_share"] * 200)
+    # One pop-up for the quarter's foreign dividends, however many companies paid.
+    assert _one(db, "SELECT count(*) AS n FROM fx_alerts WHERE kind = 'world_dividend' AND account_id = %s", (account,))["n"] == 1
     assert _one(db, "SELECT count(*) AS n FROM world_repatriation WHERE period = 1")["n"] == len(data.WORLD_ARMS)
     q = fx.current(db)
     assert q["period"] == 1 and float(q["gbp_usd"]) != data.FX_GBP_USD_START
