@@ -383,3 +383,13 @@ def test_an_asset_manager_can_launch_an_etf_of_a_foreign_index(db):
     held = etfs.holdings_value(db, etf["account_id"], TRADING)["lines"]
     assert held and all(x["asset"].startswith("FSH-") for x in held)
     sound(db)
+
+
+def test_a_closing_bells_count_of_net_worth_values_foreign_shares_at_the_bells_own_moment(db):
+    """Found by the ten-year run: without a time, the count walked prices from the world's clock to the computer's clock."""
+    opened(db)
+    player, account = person(db, "ada", cash_naira=800_000_000)
+    dollars(db, player, 20_000_000)
+    world.deal(db, player, "TSRN", "buy", 100, TRADING)
+    rung = ring(db, DAY)
+    assert world.held_value(db, account) == world.held_value(db, account, rung - timedelta(minutes=1))
