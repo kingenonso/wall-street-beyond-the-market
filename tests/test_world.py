@@ -237,7 +237,7 @@ def test_a_leaving_parent_sells_pieces_to_empires_and_the_rest_to_the_pension_fu
     got = world.buy_stake(db, head, "AHP", want, t9)
     acct = _one(db, "SELECT account_id FROM empires WHERE head_player_id = %s", (head,))["account_id"]
     assert ledger.balance(db, acct, arm["share_asset"]) == want
-    assert got["price"] == world.market_price(db, arm["company_id"])
+    assert got["price"] >= world.market_price(db, arm["company_id"])
     with pytest.raises(world.WorldError):
         world.buy_stake(db, head, "AHP", issued * 3_000 // BPS, t9)          # never to 30%
     db.execute("UPDATE world_arms SET deadline_period = 9 WHERE company_id = %s", (arm["company_id"],))

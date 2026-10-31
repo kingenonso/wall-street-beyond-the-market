@@ -33,7 +33,7 @@ from __future__ import annotations
 import logging
 import math
 from datetime import date, datetime, time, timedelta
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 from zoneinfo import ZoneInfo
 
 from psycopg import Connection
@@ -587,7 +587,7 @@ def deal(conn: Connection, player_id, ticker: str, side: str, shares: int, now: 
         world_abroad, _ = abroad.accounts(conn)
         period = careers.world_now(conn, now)["period"]
         if side == "buy":
-            each = int(-(-(dealt * (BPS + data.WORLD_SPREAD_BPS)) // BPS))
+            each = int((dealt * (BPS + data.WORLD_SPREAD_BPS) / BPS).to_integral_value(rounding=ROUND_CEILING))
             amount = each * shares
             if ledger.balance(conn, account, cur) < amount:
                 raise WorldError(f"That costs {_cash(amount, cur)}. Buy {fx.NAMES[cur].lower()}s on the Currencies tab first.")
@@ -606,10 +606,36 @@ def deal(conn: Connection, player_id, ticker: str, side: str, shares: int, now: 
                               Leg(account, amount, cur)])
         conn.execute("UPDATE world_quotes SET impact_bps = greatest(least(impact_bps + %s, 800), -800) WHERE company_id = %s", (signed, co["id"]))
         rate = _rate(conn, cur)
+        _own_people(conn, account, for_empire, player_id, co, side, ex, now)
+        if for_empire:
+            try:
+                empires.foreign_deal(conn, player_id, fx.to_naira(amount, rate), f"{side} {shares:,} {co['ticker']} abroad", now)
+            except empires.EmpireError as refused:
+                raise WorldError(str(refused)) from None
         conn.execute("INSERT INTO world_trades (account_id, company_id, side, shares, price, amount, rate, period, at)"
                      " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", (account, co["id"], side, shares, each, amount, rate, period, now))
         _position(conn, account, co, side, shares, amount, rate)
         return {"side": side, "ticker": co["ticker"], "shares": shares, "price": each, "amount": amount, "currency": cur}
+
+
+def _own_people(conn: Connection, account, for_empire: bool, player_id, co: dict, side: str, ex: dict, now: datetime) -> None:
+    """Nobody deals against their own empire: an empire's deal in a company abroad is refused if one of its people dealt in it
+    the other way today, and a member's own deal if their empire did (so nobody can sell their own shares into the empire's
+    buying)."""
+    since = session(ex, local_day(ex, now))[0]
+    seat = empires.seat_of(conn, player_id)
+    if seat is None or seat["empire_kind"] == "pension":
+        return
+    if for_empire:
+        others = [r["id"] for r in _rows(conn, "SELECT a.id FROM empire_seats s JOIN ledger_accounts a ON a.player_id = s.player_id WHERE s.empire_id = %s",
+                                         (seat["empire_id"],))]
+        whose = "One of the empire's people"
+    else:
+        others = [seat["account_id"]]
+        whose = "Your empire"
+    if _one(conn, "SELECT 1 AS x FROM world_trades WHERE account_id = ANY(%s) AND company_id = %s AND side <> %s AND at >= %s LIMIT 1",
+            (others, co["id"], side, since)):
+        raise WorldError(f"{whose} dealt in {co['name']} the other way today. Nobody deals against their own empire.")
 
 
 def _position(conn: Connection, account, co: dict, side: str, shares: int, amount: int, rate: int) -> None:
@@ -657,7 +683,7 @@ def _economies_close(conn: Connection, period: int, now: datetime, seed: str) ->
         g += (common + stochastic.normal(seed, "world", code, "growth", period) * 0.8) * data.WORLD_GROWTH_SHOCK_BPS
         g = int(min(max(g, -800), 900))
         inf = was["inflation_bps"] + (target - was["inflation_bps"]) * data.WORLD_INFLATION_RETURN_BPS / BPS
-        inf += (g - trend) * data.WORLD_INFLATION_HEAT_BPS / BPS + oil * data.WORLD_INFLATION_OIL_BPS / BPS / 10
+        inf += (g - trend) * data.WORLD_INFLATION_HEAT_BPS / BPS + oil * data.WORLD_INFLATION_OIL_BPS / BPS
         inf += stochastic.normal(seed, "world", code, "inflation", period) * data.WORLD_INFLATION_SHOCK_BPS
         inf = int(min(max(inf, -300), 1_500))
         rule = neutral + inf + (inf - target) * 0.5 + (g - trend) * 0.5
@@ -831,7 +857,8 @@ def cross_next(conn: Connection, period: int, gbp: float, eur: float) -> tuple[f
         diff_now = rows[(code, period)]["rate_bps"] - rows[("US", period)]["rate_bps"]
         diff_before = rows[(code, period - 1)]["rate_bps"] - rows[("US", period - 1)]["rate_bps"]
         growth_gap = (rows[(code, period)]["growth_bps"] - ECONOMIES[code][3]) - (rows[("US", period)]["growth_bps"] - ECONOMIES["US"][3])
-        move = (diff_now - diff_before) * data.WORLD_CROSS_RATE_BPS / BPS / BPS + growth_gap * data.WORLD_CROSS_GROWTH_BPS / BPS / BPS / 4
+        # (Rates and growth in basis points: a hundred of them is a point.)
+        move = (diff_now - diff_before) / 100 * data.WORLD_CROSS_RATE_BPS / BPS + growth_gap / 100 * data.WORLD_CROSS_GROWTH_BPS / BPS / 4
         move += stochastic.normal(seed, "fx", name, period) * data.FX_CROSS_SWING_BPS / BPS * 0.7
         v = value + (start - value) * data.FX_CROSS_RETURN_BPS / BPS
         out.append(v * (1 + move))
@@ -886,9 +913,12 @@ def _repatriate(conn: Connection, period: int, now: datetime) -> None:
             parent = _parent(conn, a)
             if q["regime"] == "managed":
                 before = ledger.balance(conn, a["parent_account"])
+                cb_short = ledger.balance(conn, ledger.account_id(conn, ledger.CENTRAL_BANK), "USD") < fx.to_cents(share, rate)
                 dollars = fx._buy_dollars(conn, a["parent_account"], fx.to_cents(share, rate), [(world_abroad, 1)], period,
                                           f"{parent['name']}: dividends sent home", most=share)
                 sent = before - ledger.balance(conn, a["parent_account"])
+                if cb_short and dollars > 0:
+                    fx._move_street(conn, dollars)          # (the Central Bank had too few: they were bought on the street)
             else:
                 sent = ledger.pay_up_to(conn, payer=a["parent_account"], receiver=world_abroad, wanted=share, kind="fx_abroad",
                                         memo=f"{parent['name']}: dividends sent home through the street", period=period)
@@ -926,7 +956,8 @@ def _decide(conn: Connection, period: int, now: datetime, seed: str) -> None:
                 _trapped_alert(conn, arm, company, stuck, now, period)
             continue
         conn.execute("UPDATE world_arms SET pressure = pressure + 1 WHERE company_id = %s", (arm["company_id"],))
-        _trapped_alert(conn, arm, company, stuck, now, period)
+        if stuck > 0:
+            _trapped_alert(conn, arm, company, stuck, now, period)
         roll = stochastic._unit(seed, "world", "leave", company["ticker"], period)
         if roll * BPS < data.WORLD_PARENT_LEAVE_CHANCE_BPS:
             _announce_leaving(conn, arm, company, period, now, stuck, fall)
@@ -964,6 +995,16 @@ def market_price(conn: Connection, company_id) -> int:
     return row["p"] if row else 0
 
 
+def stake_price(conn: Connection, company_id) -> int:
+    """What a leaving parent asks for each share: the highest of the last trade, the last session's settled price and the average
+    price of the last five sessions' trades. One small trade cannot pull it down."""
+    m = _one(conn, "SELECT last_price, reference_price FROM market_instruments WHERE company_id = %s", (company_id,)) or {}
+    vwap = _one(conn, "SELECT (sum(price * quantity) / nullif(sum(quantity), 0))::bigint AS p FROM market_trades WHERE company_id = %s"
+                      " AND session_date >= (SELECT coalesce(max(session_date), '1900-01-01'::date) - 4 FROM market_trades WHERE company_id = %s)",
+                (company_id, company_id))["p"]
+    return max(m.get("last_price") or 0, m.get("reference_price") or 0, vwap or 0, 1)
+
+
 def _deadlines(conn: Connection, period: int, now: datetime) -> None:
     """A leaving parent whose stake is gone has left; at its deadline what is left goes to the pension funds, 20% below the market."""
     funds = ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
@@ -972,7 +1013,7 @@ def _deadlines(conn: Connection, period: int, now: datetime) -> None:
         parent = _parent(conn, arm)
         held = ledger.balance(conn, arm["parent_account"], company["share_asset"])
         if held > 0 and period >= arm["deadline_period"]:
-            price = max(market_price(conn, company["id"]) * (BPS - data.WORLD_PARENT_FINAL_BPS) // BPS, 1)
+            price = max(stake_price(conn, company["id"]) * (BPS - data.WORLD_PARENT_FINAL_BPS) // BPS, 1)
             n = min(held, max(ledger.balance(conn, funds), 0) // 2 // price)
             if n > 0:
                 ledger.post(conn, kind="share_trade", memo=f"{parent['name']} sells its stake in {company['name']} to the pension funds", period=period,
@@ -982,8 +1023,10 @@ def _deadlines(conn: Connection, period: int, now: datetime) -> None:
                              (company["id"], funds, n, price, period, now))
             held -= n
         if held <= 0:
-            buyers = _rows(conn, "SELECT buyer, sum(shares)::bigint AS n FROM world_stake_sales WHERE company_id = %s GROUP BY buyer ORDER BY n DESC", (company["id"],))
-            sold_to = ", ".join(b["buyer"] for b in buyers) or "a takeover offer"
+            # Who bought is said by kind only: what one empire holds is its own business.
+            kinds = [r["k"] for r in _rows(conn, "SELECT DISTINCT CASE WHEN buyer = 'the pension funds' THEN 1 ELSE 2 END AS k FROM world_stake_sales"
+                                                 " WHERE company_id = %s ORDER BY 1", (company["id"],))]
+            sold_to = " and ".join({1: "the pension funds", 2: "empires"}[k] for k in kinds) or "a takeover offer"
             conn.execute("UPDATE world_arms SET status = 'left', sold_to = %s, sold_period = %s, words = %s WHERE company_id = %s",
                          (sold_to[:200], period, f"{parent['name']} sold its stake and left Nigeria in {clock.period_label(period)}.", arm["company_id"]))
             _alert(conn, kind="world_sold", now=now, headline=f"{parent['name']} has left Nigeria",
@@ -1019,7 +1062,7 @@ def buy_stake(conn: Connection, player_id, ticker: str, shares: int, now: dateti
             firm_dealmaking.buying_guard(conn, empire["id"], company["id"], shares)
         except empires.EmpireError as refused:
             raise WorldError(str(refused)) from None
-        price = max(market_price(conn, company["id"]) * (BPS - arm["asking_bps"]) // BPS, 1)
+        price = max(stake_price(conn, company["id"]) * (BPS - arm["asking_bps"]) // BPS, 1)
         cost = price * shares
         if ledger.balance(conn, empire["account_id"]) < cost:
             raise WorldError(f"That costs {_money(cost)}. The empire has not that much cash.")
@@ -1311,7 +1354,7 @@ def arm_view(conn: Connection, a: dict, now: datetime) -> dict:
     issued = ledger.amount_in_existence(conn, company["share_asset"])
     held = ledger.balance(conn, a["parent_account"], company["share_asset"])
     last = _one(conn, "SELECT * FROM world_repatriation WHERE company_id = %s ORDER BY period DESC LIMIT 1", (a["company_id"],))
-    price = market_price(conn, company["id"])
+    price = stake_price(conn, company["id"])
     return {"ticker": company["ticker"], "name": company["name"], "parent": parent["name"], "parent_ticker": parent["ticker"],
             "exchange": parent["exchange"], "status": a["status"], "stake_bps": held * BPS // max(issued, 1), "shares": held,
             "trapped": trapped(conn, a), "sent_last": last["sent"] if last else 0,

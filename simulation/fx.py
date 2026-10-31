@@ -344,6 +344,11 @@ def street_deal(conn: Connection, player_id, side: str, currency: str, amount: i
                         legs=[Leg(account, -amount, currency), Leg(world_abroad, amount, currency), Leg(world_abroad, -kobo), Leg(account, kobo)])
             _move_street(conn, -usd)
         _record(conn, account, "street", side, currency, amount, rate, kobo, period, now)
+        if for_empire:
+            try:
+                empires.foreign_deal(conn, player_id, kobo, f"{side} {_cash(amount, currency)} on the street", now)
+            except empires.EmpireError as refused:
+                raise FxError(str(refused)) from None
         return {"side": side, "currency": currency, "amount": amount, "rate": rate, "naira": kobo}
 
 
@@ -390,6 +395,11 @@ def window_ask(conn: Connection, player_id, amount: int, now: datetime, *, for_e
                         memo=f"Held for {_cash(amount)} asked of the official window", period=period)
         row = _one(conn, "INSERT INTO fx_window (account_id, amount, held, period, placed_at) VALUES (%s, %s, %s, %s, %s) RETURNING id",
                    (account, amount, hold, period, now))
+        if for_empire:
+            try:
+                empires.foreign_deal(conn, player_id, hold, f"asked the official window for {_cash(amount)}", now)
+            except empires.EmpireError as refused:
+                raise FxError(str(refused)) from None
         ahead = _one(conn, "SELECT count(*) AS n FROM fx_window WHERE status = 'waiting' AND id < %s", (row["id"],))["n"]
         return {"request_id": row["id"], "held": hold, "place": ahead + 1}
 
@@ -595,6 +605,11 @@ def bdc_deal(conn: Connection, player_id, bdc_id: int, side: str, amount: int, n
         trade = _record(conn, account, "bdc", side, "USD", amount, rate, kobo, period, now, bdc_id=b["id"])
         kind = _one(conn, "SELECT kind FROM ledger_accounts WHERE id = %s", (account,))["kind"]
         _report(conn, b["id"], trade, "an empire" if kind == "empire" else "a player", amount, kobo, now)
+        if for_empire:
+            try:
+                empires.foreign_deal(conn, player_id, kobo, f"{side} {_cash(amount)} at {b['name']}", now)
+            except empires.EmpireError as refused:
+                raise FxError(str(refused)) from None
         return {"side": side, "amount": amount, "rate": rate, "naira": kobo}
 
 
@@ -899,6 +914,11 @@ def eurobond_deal(conn: Connection, player_id, eurobond_id: int, side: str, unit
             cost = price * units
             ledger.post(conn, kind="fx_abroad", memo=f"Sold {units:,} of {eb['name']}", period=period,
                         legs=[Leg(account, -units, eb["asset"]), Leg(world_abroad, units, eb["asset"]), Leg(world_abroad, -cost, "USD"), Leg(account, cost, "USD")])
+        if for_empire:
+            try:
+                empires.foreign_deal(conn, player_id, to_naira(cost, street(conn)), f"{side} {units:,} of {eb['name']}", now)
+            except empires.EmpireError as refused:
+                raise FxError(str(refused)) from None
         return {"side": side, "units": units, "price": price, "dollars": cost}
 
 

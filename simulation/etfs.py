@@ -278,7 +278,9 @@ def raise_cash(conn: Connection, account, vehicle: dict, need: int, now: datetim
     if need <= 0 or invested <= 0:
         return 0
     before = ledger.balance(conn, account)
-    share = min(Decimal(need) / Decimal(invested) * Decimal("1.002"), Decimal(1))
+    # Enough over what is needed to cover what selling costs: 0.1% at home, 0.6% for shares listed abroad (Part 4b).
+    margin = Decimal("1.010") if any(x["asset"].startswith("FSH-") for x in h["lines"]) else Decimal("1.002")
+    share = min(Decimal(need) / Decimal(invested) * margin, Decimal(1))
     for x in h["lines"]:
         n = min(int(Decimal(x["units"]) * share) + 1, x["units"])
         sell_to_dealers(conn, account, x["asset"], n, x["price"], period, f"{vehicle.get('name', 'A fund')}: paying investors who leave")
@@ -367,6 +369,9 @@ def _create_cash(conn: Connection, etf: dict, payer, units: int, now: datetime, 
     etf = settle_swap(conn, etf, now, period)
     nav = nav_now(conn, etf, now)
     value = units * nav
+    if _foreign(conn, etf) and units_out(conn, etf) > 0:
+        # Part 4b: the fund pays 0.6% abroad to buy the shares; whoever makes units pays it, not the holders already in.
+        fee_bps = max(fee_bps, data.WORLD_ETF_DEAL_BPS + DEALING_COST_BPS + 10)
     if etf["method"] != "swap" and units_out(conn, etf) > 0 and value > cash_room(conn, etf, now):
         most = cash_room(conn, etf, now) // max(nav, 1) // data.ETF_CREATION_UNITS * data.ETF_CREATION_UNITS
         raise EtfError(f"The market's dealers do not have enough of {etf['name']}'s shares for that many new units against cash"
@@ -535,6 +540,8 @@ def _redeem(conn: Connection, etf: dict, account, units: int, how: str, now: dat
     n = units_out(conn, etf)
     nav = nav_now(conn, etf, now)
     fee_bps = (data.ETF_CASH_FEE_BPS if how == "cash" else data.ETF_BASKET_FEE_BPS) if fee_bps is None else fee_bps
+    if _foreign(conn, etf):
+        fee_bps = max(fee_bps, data.WORLD_ETF_DEAL_BPS + DEALING_COST_BPS + 10)
     value = units * nav
     fee = apply_bps(value, fee_bps)
     ledger.post(conn, kind="etf_redeem", memo=f"{etf['name']}: {units:,} units unmade", period=period,
