@@ -1503,11 +1503,11 @@ WORLD_CROSS_GROWTH_BPS = 200            # and growth a point faster than America
 
 # Kinds of company abroad: (name, extra return investors want over the interest rate, growth they expect for ever), a year.
 WORLD_SECTORS = {
-    "technology": ("Technology", 250, 350), "pharmaceuticals": ("Medicines", 300, 250), "cars": ("Cars", 650, 100),
+    "technology": ("Technology", 300, 250), "pharmaceuticals": ("Medicines", 300, 250), "cars": ("Cars", 650, 100),
     "oil_gas": ("Oil and gas", 650, 50), "banking": ("Banks", 600, 150), "food": ("Food", 350, 200),
     "household": ("Household goods", 330, 200), "mining": ("Mining", 650, 100), "retail": ("Shops", 400, 200),
     "drinks": ("Drinks", 350, 200), "telecoms": ("Telecoms", 500, 150), "insurance": ("Insurance", 500, 150),
-    "shipping": ("Shipping", 700, 100), "luxury": ("Luxury goods", 330, 300), "chemicals": ("Chemicals", 550, 150),
+    "shipping": ("Shipping", 700, 100), "luxury": ("Luxury goods", 350, 250), "chemicals": ("Chemicals", 550, 150),
     "utilities": ("Power", 400, 150),
 }
 # The companies: (ticker, name, exchange, city, kind, a quarter's sales (millions), shares (millions), usual profit on sales,

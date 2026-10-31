@@ -320,15 +320,23 @@ def economy(conn: Connection, country: str, period: int | None = None) -> dict |
     return _one(conn, "SELECT * FROM world_economies WHERE country = %s AND period <= %s ORDER BY period DESC LIMIT 1", (country, period))
 
 
+def long_rate_bps(country: str, rate_bps: int) -> int:
+    """What lending for many years pays: halfway between the central bank's rate now and where it usually settles (its neutral
+    rate plus its inflation target). Shares are valued on it, so one quarter's move in the rate counts for half."""
+    e = ECONOMIES[country]
+    return (rate_bps + e[8] + e[4]) // 2
+
+
 def earnings_yield_bps(sector: str, rate_bps: int) -> int:
-    """What investors want a share to earn a year, as a share of its price: the interest rate, plus the extra for the risk of
-    its kind of business, less the growth they expect of it for ever."""
+    """What investors want a share to earn a year, as a share of its price: the long interest rate, plus the extra for the risk
+    of its kind of business, less the growth they expect of it for ever."""
     _, extra, growth = SECTORS[sector]
     low, high = data.WORLD_EARNINGS_YIELD_LIMITS_BPS
     return min(max(rate_bps + extra - growth, low), high)
 
 
 def _fair(co: dict, eps_ttm: Decimal, rate_bps: int) -> Decimal:
+    """`rate_bps` is the long rate (see long_rate_bps)."""
     ey = earnings_yield_bps(co["sector"], rate_bps)
     return max(eps_ttm * BPS / ey, Decimal("1"))
 
@@ -355,9 +363,9 @@ def setup(conn: Connection, now: datetime) -> bool:
                     legs=[Leg(registry, -shares, asset), Leg(world_abroad, shares, asset)])
         revenue = revenue_m * 100_000_000
         eps_ttm = Decimal(revenue) * margin / BPS * 4 / shares
-        rate = ECONOMIES[by_exchange[exch][3]][7]
+        country = by_exchange[exch][3]
         co = {"sector": sector}
-        fair = _fair(co, eps_ttm, rate)
+        fair = _fair(co, eps_ttm, long_rate_bps(country, ECONOMIES[country][7]))
         dps = (eps_ttm / 4 * payout / BPS).quantize(Decimal("0.0001"))
         row = _one(conn, "INSERT INTO world_companies (ticker, name, exchange, city, sector, asset, shares, revenue, margin_bps, payout_bps,"
                          " trend_bps, beta_bps, about, fair, eps_ttm, dps) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
@@ -699,8 +707,9 @@ def _companies_close(conn: Connection, period: int, now: datetime, seed: str, pa
         earlier = [r["eps"] for r in _rows(conn, "SELECT eps FROM world_results WHERE company_id = %s ORDER BY period DESC LIMIT 3", (co["id"],))]
         eps_ttm = eps + sum(earlier) + (co["eps_ttm"] / 4) * (3 - len(earlier))
         dps = max(eps_ttm / 4 * co["payout_bps"] / BPS, Decimal(0)).quantize(Decimal("0.0001"))
-        fair = _fair(co, eps_ttm, home["rate_bps"]).quantize(Decimal("0.0001"))
-        pe = (Decimal(BPS) / earnings_yield_bps(co["sector"], home["rate_bps"])).quantize(Decimal("0.01"))
+        long_rate = long_rate_bps(co["country"], home["rate_bps"])
+        fair = _fair(co, eps_ttm, long_rate).quantize(Decimal("0.0001"))
+        pe = (Decimal(BPS) / earnings_yield_bps(co["sector"], long_rate)).quantize(Decimal("0.01"))
         before = co["fair"]
         surprise = (fair / before - 1) * 100 if before else Decimal(0)
         words = (f"Sales {_cash(sales, co['currency'])}, profit {_cash(profit, co['currency'])};"
