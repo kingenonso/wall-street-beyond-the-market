@@ -393,3 +393,29 @@ def test_a_closing_bells_count_of_net_worth_values_foreign_shares_at_the_bells_o
     world.deal(db, player, "TSRN", "buy", 100, TRADING)
     rung = ring(db, DAY)
     assert world.held_value(db, account) == world.held_value(db, account, rung - timedelta(minutes=1))
+
+
+def test_a_parent_that_sold_everything_to_a_takeover_offer_has_left(db):
+    opened(db)
+    arm = _arm(db)
+    public = ledger.account_id(db, ledger.INVESTORS_PUBLIC)
+    held = ledger.balance(db, arm["parent_account"], arm["share_asset"])
+    ledger.transfer(db, payer=arm["parent_account"], receiver=public, amount=held, asset=arm["share_asset"], kind="test", memo="tendered")
+    world._decide(db, 1, NIGHT, world._seed(db))
+    a = _arm(db)
+    assert a["status"] == "left" and a["sold_to"] == "a takeover offer"
+
+
+def test_dollars_bought_on_the_street_for_a_bond_the_street_itself_holds_stay_with_it(db):
+    """Found by the ten-year run: with a floating naira, paying a company Eurobond's holders through the street failed when the
+    street's own dealers held some of the bond (an account cannot pay itself)."""
+    opened(db)
+    world_abroad, _ = abroad.accounts(db)
+    treasury = ledger.account_id(db, ledger.TREASURY)
+    player, account = person(db, "ada", cash_naira=10_000_000)
+    db.execute("ALTER TABLE fx_quarters DISABLE TRIGGER fx_quarters_permanent")
+    db.execute("UPDATE fx_quarters SET regime = 'float'")
+    db.execute("ALTER TABLE fx_quarters ENABLE TRIGGER fx_quarters_permanent")
+    got = fx._buy_dollars(db, treasury, 1_000_00, [(world_abroad, 3), (account, 1)], 1, "test")
+    assert got == 1_000_00 and ledger.balance(db, account, "USD") == got // 4
+    sound(db)

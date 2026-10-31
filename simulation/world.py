@@ -942,6 +942,12 @@ def _decide(conn: Connection, period: int, now: datetime, seed: str) -> None:
     """Each parent still here weighs leaving: years of dividends stuck in naira, or a naira that has lost much of its value."""
     for arm in _rows(conn, "SELECT * FROM world_arms WHERE status = 'parent' ORDER BY company_id FOR UPDATE"):
         company = _arm_company(conn, arm)
+        if ledger.balance(conn, arm["parent_account"], company["share_asset"]) <= 0:
+            # It sold everything to a takeover offer: it has left.
+            parent = _parent(conn, arm)
+            conn.execute("UPDATE world_arms SET status = 'left', sold_to = 'a takeover offer', sold_period = %s, words = %s WHERE company_id = %s",
+                         (period, f"{parent['name']} sold its stake to a takeover offer in {clock.period_label(period)}.", arm["company_id"]))
+            continue
         if company["status"] != "trading":
             continue
         stuck = trapped(conn, arm)

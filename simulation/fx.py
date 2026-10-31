@@ -957,6 +957,13 @@ def _buy_dollars(conn: Connection, payer, cents: int, receiver_legs: list, perio
             paid += share
     if paid != cents:
         legs.append(Leg(receiver_legs[-1][0], cents - paid, "USD"))
+    # A receiver who is also the seller (the street's dealers holding a Eurobond, when the street sells the dollars): its share
+    # simply stays with it. Each account appears once for each asset.
+    net: dict = {}
+    for leg in legs:
+        net[(str(leg.account_id), leg.asset)] = net.get((str(leg.account_id), leg.asset), (leg.account_id, 0))[0], \
+            net.get((str(leg.account_id), leg.asset), (leg.account_id, 0))[1] + leg.amount
+    legs = [Leg(acct, amount, asset) for (_, asset), (acct, amount) in net.items() if amount != 0]
     ledger.post(conn, kind="fx_reserves" if from_cb else "fx_abroad", memo=memo, period=period, legs=legs)
     return cents
 

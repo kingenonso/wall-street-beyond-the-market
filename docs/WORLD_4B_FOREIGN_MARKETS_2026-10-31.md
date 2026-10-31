@@ -73,7 +73,7 @@ Tests at the end: [[TESTS]]
 
    - **The parent's stake.** The founders' stake in each is recorded as the parent's. Nothing else about the company changed, and its free float in the indexes is the same.
    - **Votes and rights.** The parent sits with the board in votes, and takes up rights issues with its naira.
-   - **Dividends waiting for dollars.** The parent's dividends wait in naira until there are dollars to send them home. Between them, the parents may send at most 3% of the Central Bank's reserves home a quarter. That falls to nothing as reserves drop from two and a half quarters of imports to one. A floating naira lets them leave at the street rate.
+   - **Dividends waiting for dollars.** The parent's dividends wait in naira until there are dollars to send them home. Between them, the parents may send at most 10% of the Central Bank's reserves home a quarter. That falls to nothing as reserves drop from two and a half quarters of imports to one. A floating naira lets them leave at the street rate.
    - **When a parent leaves.** It may decide to leave when two years of dividends are stuck here, or when the naira has lost 40% in two years. Each quarter with such a reason there is a 15% chance. Then:
      - for two quarters, empires may buy pieces of its stake at the market price, staying under 30%;
      - any takeover offer gets its shares;
