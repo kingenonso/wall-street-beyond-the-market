@@ -192,6 +192,16 @@ KINDS: tuple[NewsKind, ...] = (
     NewsKind("fx_backlog", 60, {"amount": "₦42,000,000,000.00"}),
     NewsKind("fx_gap", 58, {"gap": "22%", "street": "₦1,950.00", "official": "₦1,600.00"}),
     NewsKind("fx_eurobond", 56, {"issuer": "The Federal Government", "amount": "$1,000,000,000.00", "coupon": "9.50%"}),
+    # --- The talent and funds stage, Part 4b: foreign markets ---
+    NewsKind("world_rates", 60, {"bank": "The Union Reserve", "country": "the United States", "rate": "4.25%", "move": "0.25%",
+                                 "side": "raises", "inflation": "3.10%"}),
+    NewsKind("world_growth", 40, {"us": "2.10%", "uk": "1.20%", "ea": "0.90%", "quarter": "Year 2 Q3"}),
+    NewsKind("world_fall", 62, {"index": "Hudson 10", "city": "New York", "move": "5.4%", "level": "1,012.40"}),
+    NewsKind("world_rise", 48, {"index": "Thames 10", "city": "London", "move": "5.1%", "level": "1,108.20"}),
+    NewsKind("world_leaving", 78, {"parent": "Hollis & Grant", "company": "Amaka Household Products", "why": "its dividends are stuck",
+                                   "ticker": "AHP"}),
+    NewsKind("world_sold", 66, {"parent": "Hollis & Grant", "company": "Amaka Household Products", "buyer": "the pension funds", "ticker": "AHP"}),
+    NewsKind("world_trapped", 56, {"parent": "Harrowgate Brewers", "company": "Tamuno Breweries", "amount": "₦4,200,000,000.00", "ticker": "TMB"}),
     # --- The economy upgrade: the rest of the world ---
     NewsKind("oil_up", 70, {"price": "$82.40", "previous": "$75.00", "change": "9.9%"}),
     NewsKind("oil_down", 72, {"price": "$64.10", "previous": "$75.00", "change": "14.5%"}),

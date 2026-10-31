@@ -344,6 +344,11 @@ def street_deal(conn: Connection, player_id, side: str, currency: str, amount: i
                         legs=[Leg(account, -amount, currency), Leg(world_abroad, amount, currency), Leg(world_abroad, -kobo), Leg(account, kobo)])
             _move_street(conn, -usd)
         _record(conn, account, "street", side, currency, amount, rate, kobo, period, now)
+        if for_empire:
+            try:
+                empires.foreign_deal(conn, player_id, kobo, f"{side} {_cash(amount, currency)} on the street", now)
+            except empires.EmpireError as refused:
+                raise FxError(str(refused)) from None
         return {"side": side, "currency": currency, "amount": amount, "rate": rate, "naira": kobo}
 
 
@@ -390,6 +395,11 @@ def window_ask(conn: Connection, player_id, amount: int, now: datetime, *, for_e
                         memo=f"Held for {_cash(amount)} asked of the official window", period=period)
         row = _one(conn, "INSERT INTO fx_window (account_id, amount, held, period, placed_at) VALUES (%s, %s, %s, %s, %s) RETURNING id",
                    (account, amount, hold, period, now))
+        if for_empire:
+            try:
+                empires.foreign_deal(conn, player_id, hold, f"asked the official window for {_cash(amount)}", now)
+            except empires.EmpireError as refused:
+                raise FxError(str(refused)) from None
         ahead = _one(conn, "SELECT count(*) AS n FROM fx_window WHERE status = 'waiting' AND id < %s", (row["id"],))["n"]
         return {"request_id": row["id"], "held": hold, "place": ahead + 1}
 
@@ -595,6 +605,11 @@ def bdc_deal(conn: Connection, player_id, bdc_id: int, side: str, amount: int, n
         trade = _record(conn, account, "bdc", side, "USD", amount, rate, kobo, period, now, bdc_id=b["id"])
         kind = _one(conn, "SELECT kind FROM ledger_accounts WHERE id = %s", (account,))["kind"]
         _report(conn, b["id"], trade, "an empire" if kind == "empire" else "a player", amount, kobo, now)
+        if for_empire:
+            try:
+                empires.foreign_deal(conn, player_id, kobo, f"{side} {_cash(amount)} at {b['name']}", now)
+            except empires.EmpireError as refused:
+                raise FxError(str(refused)) from None
         return {"side": side, "amount": amount, "rate": rate, "naira": kobo}
 
 
@@ -781,6 +796,12 @@ def _sell_dollars_to_reserves(conn: Connection, account, cents: int, rate: int, 
     return kobo
 
 
+def _rate_abroad(conn: Connection) -> int:
+    """What lending abroad pays: America's interest rate once the markets abroad are open (Part 4b)."""
+    from simulation import world
+    return world.rate_abroad(conn)
+
+
 def _country_spread(conn: Connection) -> int:
     q = current(conn)
     cover = q["cover_bps"] if q else data.FX_COMFORT_COVER_BPS
@@ -791,7 +812,7 @@ def _issue_government(conn: Connection, period: int, now: datetime, *, first: bo
     treasury = ledger.account_id(conn, ledger.TREASURY)
     world_abroad, _ = abroad.accounts(conn)
     amount = max(apply_bps(imports_usd(conn), data.FX_GOVERNMENT_EUROBOND_BPS) // data.FX_EUROBOND_FACE_CENTS, 1) * data.FX_EUROBOND_FACE_CENTS
-    coupon = data.WORLD_RATE_BPS + _country_spread(conn)
+    coupon = _rate_abroad(conn) + _country_spread(conn)
     year, _ = clock.period_to_date(max(period, 1) + data.FX_EUROBOND_TERM_QUARTERS)
     eb = _new_eurobond(conn, name=f"Federal Government {coupon / 100:.2f}% dollar Eurobond, due Year {year}", issuer="government",
                        company=None, amount=amount, coupon_bps=coupon, period=period)
@@ -820,7 +841,7 @@ def _issue_companies(conn: Connection, period: int, now: datetime, *, rate: int)
             cents = cents // data.FX_EUROBOND_FACE_CENTS * data.FX_EUROBOND_FACE_CENTS
             if cents <= 0:
                 continue
-            coupon = data.WORLD_RATE_BPS + _country_spread(conn) + data.FX_EUROBOND_COMPANY_EXTRA_BPS
+            coupon = _rate_abroad(conn) + _country_spread(conn) + data.FX_EUROBOND_COMPANY_EXTRA_BPS
             year, _ = clock.period_to_date(max(period, 1) + data.FX_EUROBOND_TERM_QUARTERS)
             name = f"{c['name']} {coupon / 100:.2f}% dollar Eurobond, due Year {year}"
             kobo = to_naira(cents, rate)
@@ -838,7 +859,7 @@ def _issue_companies(conn: Connection, period: int, now: datetime, *, rate: int)
 
 def _yield_bps(conn: Connection, eb: dict) -> int:
     extra = data.FX_EUROBOND_COMPANY_EXTRA_BPS if eb["issuer"] == "company" else 0
-    return data.WORLD_RATE_BPS + _country_spread(conn) + extra
+    return _rate_abroad(conn) + _country_spread(conn) + extra
 
 
 def _elapsed(conn: Connection, now: datetime | None) -> float:
@@ -893,6 +914,11 @@ def eurobond_deal(conn: Connection, player_id, eurobond_id: int, side: str, unit
             cost = price * units
             ledger.post(conn, kind="fx_abroad", memo=f"Sold {units:,} of {eb['name']}", period=period,
                         legs=[Leg(account, -units, eb["asset"]), Leg(world_abroad, units, eb["asset"]), Leg(world_abroad, -cost, "USD"), Leg(account, cost, "USD")])
+        if for_empire:
+            try:
+                empires.foreign_deal(conn, player_id, to_naira(cost, street(conn)), f"{side} {units:,} of {eb['name']}", now)
+            except empires.EmpireError as refused:
+                raise FxError(str(refused)) from None
         return {"side": side, "units": units, "price": price, "dollars": cost}
 
 
@@ -931,6 +957,13 @@ def _buy_dollars(conn: Connection, payer, cents: int, receiver_legs: list, perio
             paid += share
     if paid != cents:
         legs.append(Leg(receiver_legs[-1][0], cents - paid, "USD"))
+    # A receiver who is also the seller (the street's dealers holding a Eurobond, when the street sells the dollars): its share
+    # simply stays with it. Each account appears once for each asset.
+    net: dict = {}
+    for leg in legs:
+        net[(str(leg.account_id), leg.asset)] = net.get((str(leg.account_id), leg.asset), (leg.account_id, 0))[0], \
+            net.get((str(leg.account_id), leg.asset), (leg.account_id, 0))[1] + leg.amount
+    legs = [Leg(acct, amount, asset) for (_, asset), (acct, amount) in net.items() if amount != 0]
     ledger.post(conn, kind="fx_reserves" if from_cb else "fx_abroad", memo=memo, period=period, legs=legs)
     return cents
 
@@ -1112,11 +1145,17 @@ def after_abroad(conn: Connection, period: int, now: datetime, row: dict, import
         off = market
         if cover >= data.FX_REPEG_COVER_BPS:
             regime, event = "managed", "repegged"
-    # The pound and the euro wander against the dollar, pulled back a little each quarter towards their usual levels.
-    gbp = float(q["gbp_usd"]) + (data.FX_GBP_USD_START - float(q["gbp_usd"])) * data.FX_CROSS_RETURN_BPS / BPS
-    gbp *= 1 + stochastic.normal(seed, "fx", "gbp", period) * data.FX_CROSS_SWING_BPS / BPS
-    eur = float(q["eur_usd"]) + (data.FX_EUR_USD_START - float(q["eur_usd"])) * data.FX_CROSS_RETURN_BPS / BPS
-    eur *= 1 + stochastic.normal(seed, "fx", "eur", period) * data.FX_CROSS_SWING_BPS / BPS
+    # The pound and the euro against the dollar: once the markets abroad are open (Part 4b), they move with their interest rates
+    # and growth against America's; before that they wander, pulled back a little each quarter towards their usual levels.
+    from simulation import world
+    moved = world.cross_next(conn, period, float(q["gbp_usd"]), float(q["eur_usd"]))
+    if moved:
+        gbp, eur = moved
+    else:
+        gbp = float(q["gbp_usd"]) + (data.FX_GBP_USD_START - float(q["gbp_usd"])) * data.FX_CROSS_RETURN_BPS / BPS
+        gbp *= 1 + stochastic.normal(seed, "fx", "gbp", period) * data.FX_CROSS_SWING_BPS / BPS
+        eur = float(q["eur_usd"]) + (data.FX_EUR_USD_START - float(q["eur_usd"])) * data.FX_CROSS_RETURN_BPS / BPS
+        eur *= 1 + stochastic.normal(seed, "fx", "eur", period) * data.FX_CROSS_SWING_BPS / BPS
     words = _move_words(event, q["official"], off, market, cover, sold)
     conn.execute("INSERT INTO fx_quarters (period, official, market, regime, reserves, cover_bps, gbp_usd, eur_usd, sold, backlog, event, words, at)"
                  " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",

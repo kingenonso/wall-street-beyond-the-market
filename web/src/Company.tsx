@@ -1,3 +1,4 @@
+import { ArmPanel } from "./World";
 import { WhatCouldHappenPanel } from "./WhatIf";
 import { BankPanel } from "./Crisis";
 import { useState } from "react";
@@ -296,6 +297,7 @@ function CompanyBody({ company, onLoggedOut, trade }: { company: Company; onLogg
           <PlainFacts ticker={company.ticker} onLoggedOut={onLoggedOut} />
           <WhyPricePanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
           <BankPanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
+          <ArmPanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
           {trading.length === 0 ? (
             <Panel>
               <p className="muted">

@@ -1469,3 +1469,142 @@ FX_EXIT_FROM_RESERVES_BPS = 500              # foreign investors leaving get at 
 FX_BACKLOG_TILT_BPS = 200                    # a backlog of a quarter's foreign money makes them 2% keener to sell
 SWAP_BANK_FX_SPREAD_BPS = 150                # a bank prices a currency forward 1.5% in its favour
 SWAP_MOST_DOLLARS_CENTS = 10_000_000_000     # a currency forward on at most $100 million a quarter
+
+# ---------------------------------------------------------------------------
+# The talent and funds stage, Part 4b: foreign markets
+# ---------------------------------------------------------------------------
+# Real countries and cities; every company, exchange and central bank name is invented.
+# The three exchanges: (code, name, city, economy, time zone, currency, opens, closes (their own time), index code, index name).
+WORLD_EXCHANGES = (
+    ("HSE", "Hudson Stock Exchange", "New York", "US", "America/New_York", "USD", (9, 30), (16, 0), "HUD10", "Hudson 10"),
+    ("THX", "Thames Exchange", "London", "UK", "Europe/London", "GBP", (8, 0), (16, 30), "THM10", "Thames 10"),
+    ("RMX", "Rhine-Main Exchange", "Frankfurt", "EA", "Europe/Berlin", "EUR", (9, 0), (17, 30), "RMX10", "Rhine-Main 10"),
+)
+# The three economies: (code, name, central bank, trend growth, inflation target, opening growth, opening inflation,
+# opening interest rate, neutral rate above inflation), all a year, in basis points.
+WORLD_ECONOMIES = (
+    ("US", "the United States", "the Union Reserve", 200, 200, 210, 250, 400, 75),
+    ("UK", "the United Kingdom", "the Sterling Monetary Board", 140, 200, 120, 300, 425, 75),
+    ("EA", "the euro area", "the Continental Central Bank", 110, 200, 100, 220, 250, 25),
+)
+WORLD_OIL_WEIGHTS = {"US": 5_000, "EA": 3_000, "UK": 2_000}   # how much each economy's demand counts for the oil price
+WORLD_OIL_DEMAND_BPS = 600              # growth a point above trend abroad lifts the next oil price 6%
+WORLD_GROWTH_RETURN_BPS = 3_500         # each quarter growth moves 35% of the way back to its trend...
+WORLD_GROWTH_SHOCK_BPS = 60             # ...and swings with the world's common force and its own
+WORLD_INFLATION_RETURN_BPS = 2_500      # inflation moves a quarter of the way back to its target...
+WORLD_INFLATION_HEAT_BPS = 1_500        # ...rises with growth above trend...
+WORLD_INFLATION_OIL_BPS = 300           # ...and with dearer oil (a 10% rise adds 0.3 of a point)
+WORLD_INFLATION_SHOCK_BPS = 20
+WORLD_RATE_STEP_BPS = 25                # central banks move their rates in quarter points...
+WORLD_RATE_SPEED_BPS = 4_000            # ...40% of the way to where their rule says each quarter
+WORLD_RATE_LIMITS_BPS = (10, 1_200)
+WORLD_CROSS_RATE_BPS = 400              # a pound's (or a euro's) interest rate rising a point against the dollar's lifts it 4%
+WORLD_CROSS_GROWTH_BPS = 200            # and growth a point faster than America's lifts it 2%
+
+# Kinds of company abroad: (name, extra return investors want over the interest rate, growth they expect for ever), a year.
+WORLD_SECTORS = {
+    "technology": ("Technology", 300, 250), "pharmaceuticals": ("Medicines", 300, 250), "cars": ("Cars", 650, 100),
+    "oil_gas": ("Oil and gas", 650, 50), "banking": ("Banks", 600, 150), "food": ("Food", 350, 200),
+    "household": ("Household goods", 330, 200), "mining": ("Mining", 650, 100), "retail": ("Shops", 400, 200),
+    "drinks": ("Drinks", 350, 200), "telecoms": ("Telecoms", 500, 150), "insurance": ("Insurance", 500, 150),
+    "shipping": ("Shipping", 700, 100), "luxury": ("Luxury goods", 350, 250), "chemicals": ("Chemicals", 550, 150),
+    "utilities": ("Power", 400, 150),
+}
+# The companies: (ticker, name, exchange, city, kind, a quarter's sales (millions), shares (millions), usual profit on sales,
+# share of profit paid out, own growth a year, how much it swings with its market (10000 = as much), what it does).
+WORLD_COMPANIES = (
+    ("TSRN", "Tessarine Software", "HSE", "Seattle", "technology", 20_000, 7_500, 2_600, 2_000, 300, 12_000,
+     "Software and cloud computing for businesses and governments."),
+    ("MRWD", "Marrowind Devices", "HSE", "San Jose", "technology", 30_000, 15_000, 2_400, 2_500, 150, 12_500,
+     "Phones, laptops and the chips inside them."),
+    ("QLNT", "Quillon Therapeutics", "HSE", "Boston", "pharmaceuticals", 12_000, 2_500, 2_200, 4_500, 100, 7_000,
+     "Medicines for heart disease, cancer and diabetes."),
+    ("OSTM", "Ostrander Motors", "HSE", "Detroit", "cars", 45_000, 1_400, 600, 3_000, -50, 14_000,
+     "Cars, trucks and electric vehicles."),
+    ("MSQR", "Mesquite Ridge Oil", "HSE", "Houston", "oil_gas", 60_000, 4_000, 1_100, 4_500, -100, 9_000,
+     "Oil and gas from Texas to West Africa."),
+    ("LDGR", "Ledgerline Bank", "HSE", "New York", "banking", 40_000, 3_000, 2_500, 3_000, 0, 11_000,
+     "Lending, savings and investment banking."),
+    ("PRHF", "Prairie Harvest Foods", "HSE", "Chicago", "food", 15_000, 2_000, 1_200, 5_000, 0, 6_000,
+     "Cereals, snacks and frozen meals."),
+    ("HLGR", "Hollis & Grant", "HSE", "Cincinnati", "household", 21_000, 2_400, 1_800, 6_000, 50, 5_500,
+     "Soap, nappies, toothpaste and razors, sold in 180 countries."),
+    ("CPFM", "Copperfield Mining", "HSE", "Denver", "mining", 7_000, 1_500, 1_800, 4_000, 0, 13_000,
+     "Copper, gold and lithium mines."),
+    ("WBRK", "Westbrook Retail", "HSE", "Bentonville", "retail", 160_000, 2_700, 350, 3_500, 100, 8_000,
+     "Supermarkets and online shopping across the country."),
+    ("HRWB", "Harrowgate Brewers", "THX", "London", "drinks", 4_500, 2_300, 2_800, 5_500, 0, 7_000,
+     "Beers, stouts and spirits, with breweries in Africa and Asia."),
+    ("MRTA", "Meridian Telecom Africa", "THX", "London", "telecoms", 1_100, 3_700, 2_000, 4_500, 200, 9_500,
+     "Mobile phone networks and mobile money in fourteen African countries."),
+    ("CRMR", "Crownmoor Energy", "THX", "London", "oil_gas", 50_000, 15_000, 900, 4_500, -100, 9_500,
+     "Oil and gas from the North Sea to the Gulf of Guinea."),
+    ("ASHD", "Ashdown Pharma", "THX", "Cambridge", "pharmaceuticals", 8_000, 4_000, 2_200, 5_000, 50, 7_000,
+     "Vaccines and medicines."),
+    ("SLTM", "Saltmarsh Bank", "THX", "London", "banking", 7_000, 16_000, 2_600, 4_000, 0, 11_500,
+     "A bank for households and companies across Britain."),
+    ("PNNT", "Pennant Insurance", "THX", "Edinburgh", "insurance", 6_000, 2_500, 1_100, 6_000, 0, 9_000,
+     "Life insurance, pensions and savings."),
+    ("WXCM", "Wexcombe Mining", "THX", "London", "mining", 14_000, 1_700, 2_200, 5_500, 0, 13_000,
+     "Iron ore, copper and aluminium."),
+    ("HRTW", "Hartwell Stores", "THX", "Leeds", "retail", 17_000, 7_000, 400, 5_000, 0, 8_000,
+     "Supermarkets on Britain's high streets."),
+    ("TYNS", "Tyneside Shipping", "THX", "Newcastle", "shipping", 2_500, 900, 1_500, 5_000, 0, 14_000,
+     "Container ships between Europe, Africa and Asia."),
+    ("ELSM", "Ellesmere & Co", "THX", "London", "luxury", 800, 380, 1_700, 4_000, 300, 12_000,
+     "Coats, leather goods and fashion."),
+    ("RHWM", "Rheinwerk Motoren", "RMX", "Stuttgart", "cars", 38_000, 1_000, 800, 3_500, 0, 13_500,
+     "Luxury cars, vans and trucks."),
+    ("KLTC", "Kaltenbach Chemie", "RMX", "Ludwigshafen", "chemicals", 17_000, 900, 900, 5_000, 0, 12_000,
+     "Chemicals, plastics and fertiliser."),
+    ("SNEN", "Seine Energies", "RMX", "Paris", "oil_gas", 50_000, 2_300, 1_100, 5_000, -100, 9_000,
+     "Oil, gas, solar and wind power in 130 countries."),
+    ("PLDG", "Polder Dairy Group", "RMX", "Amsterdam", "food", 3_300, 800, 1_200, 5_500, 50, 6_000,
+     "Milk, cheese and baby food, made in the Netherlands and across Africa."),
+    ("VCLX", "Vauclair Luxe", "RMX", "Paris", "luxury", 21_000, 500, 2_400, 5_000, 300, 12_000,
+     "Handbags, perfume, watches and champagne."),
+    ("HNSF", "Hanseatic Freight", "RMX", "Hamburg", "shipping", 5_000, 175, 1_200, 4_500, 0, 14_000,
+     "Container shipping and ports."),
+    ("BRNB", "Brenner Bank", "RMX", "Frankfurt", "banking", 7_000, 2_000, 2_200, 3_500, 0, 12_000,
+     "Lending and investment banking across Europe."),
+    ("LMRA", "Lumora Pharma", "RMX", "Milan", "pharmaceuticals", 5_000, 1_200, 2_000, 4_500, 100, 7_000,
+     "Medicines and vaccines."),
+    ("ISRT", "Isar Technik", "RMX", "Munich", "technology", 9_000, 1_200, 2_300, 3_000, 250, 12_000,
+     "Software that runs factories, banks and shops."),
+    ("TGSP", "Tagus Power", "RMX", "Madrid", "utilities", 12_000, 6_500, 1_300, 6_500, 50, 6_000,
+     "Electricity from wind, sun and water in Spain and Portugal."),
+)
+# Nigerian companies whose founders' stake belongs to a company listed abroad: (Nigerian ticker, parent's ticker).
+WORLD_ARMS = (("AHP", "HLGR"), ("TMB", "HRWB"), ("SGN", "MRTA"), ("DCG", "SNEN"), ("AYD", "PLDG"))
+# The computer's ETFs of foreign shares on the Broad Street Exchange: (code, name, index, fee, households' first money in naira).
+WORLD_ETFS = (
+    ("HUDX", "Broad Street Hudson 10 ETF", "HUD10", 50, 1_500_000_000),
+    ("THMX", "Broad Street Thames 10 ETF", "THM10", 50, 1_000_000_000),
+    ("RMXX", "Broad Street Rhine-Main 10 ETF", "RMX10", 50, 1_000_000_000),
+)
+WORLD_STEP_MINUTES = 10                 # prices abroad move every ten minutes while an exchange is open
+WORLD_MARKET_DAY_BPS = 220              # a market's typical move in a day...
+WORLD_OWN_DAY_BPS = 250                 # ...and a company's own, on top
+WORLD_OVERNIGHT_SHARE_BPS = 4_000       # 40% of a day's move happens overnight (seen at the open)
+WORLD_FAIR_PULL_BPS = 500               # each day a price closes 5% of the way to what the share is worth
+WORLD_NEWS_PRICED_BPS = 8_000           # a quarter's results move the price 80% of the way at once (logarithmically)
+WORLD_REVENUE_SWING_BPS = 150           # a quarter's sales swing about 1.5% by themselves
+WORLD_MARGIN_SWING_BPS = 120
+WORLD_EARNINGS_YIELD_LIMITS_BPS = (250, 2_000)   # a share is never priced above 40 or below 5 times its profit
+WORLD_SPREAD_BPS = 15                   # the brokers abroad buy 0.15% below the price and sell 0.15% above
+WORLD_IMPACT_TIMES = 10                 # a deal worth 0.01% of a company moves its price 0.1%
+WORLD_MOST_DEAL_CENTS = 200_000_000     # at most $2 million (or its worth) in one deal
+WORLD_DAY_MOST_SHARES_BPS = 10          # and at most 0.1% of a company's shares a day, for each account
+WORLD_WITHHOLDING_BPS = 1_500           # 15% of a dividend is kept as tax abroad
+WORLD_ETF_DEAL_BPS = 50                 # an ETF of foreign shares changes its naira at 0.5% either side of the street's middle rate
+WORLD_ETF_CASH_FEE_BPS = 75             # and charges 0.75% for units made or unmade against cash (only cash, never a basket)
+WORLD_HOUSEHOLD_SHARE_BPS = 300         # households want 3% of what they hold in index vehicles in ETFs of foreign shares...
+WORLD_HOUSEHOLD_PREMIUM_TIMES = 5       # ...more when the street's premium is high (5 times it)...
+WORLD_HOUSEHOLD_STEP_BPS = 2_500        # ...and move a quarter of the way there each quarter
+WORLD_PARENT_ROOM_BPS = 600             # parents abroad may send home at most 6% of the reserves a quarter, between them...
+WORLD_PARENT_TRAPPED_YEARS = 2          # ...two years' dividends stuck here, or...
+WORLD_PARENT_NAIRA_FALL_BPS = 4_000     # ...the naira 40% weaker than two years ago, is a reason to leave...
+WORLD_PARENT_LEAVE_CHANCE_BPS = 1_500   # ...and in each quarter with a reason there is a 15% chance the parent decides to go
+WORLD_PARENT_SALE_QUARTERS = 2          # it sells for two quarters; what is left goes to the pension funds
+WORLD_PARENT_ASKING_BPS = 0             # empires may buy pieces of its stake at the market price (never below: that would be free money)
+WORLD_PARENT_FINAL_BPS = 2_000          # the pension funds take the rest at 20% below

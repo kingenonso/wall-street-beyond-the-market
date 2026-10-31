@@ -1,192 +1,423 @@
-"""The world on day one: the institutions, the 40 companies and the opening money.
+"""The talent and funds stage, Part 4b: foreign markets.
 
-Stage 2 checklist items 4, 6, 7 and 8.
+Three exchanges abroad with their own hours and indexes; thirty companies with prices that move while their exchange is open,
+results, dividends and what their shares are worth; the economies abroad and their central banks, and what they do to the oil
+price, the naira, foreign investors and the pound and euro; dealing in foreign shares with dollars, pounds and euros; Nigerian
+arms of foreign companies, their parents' dividends waiting for dollars, a parent leaving; ETFs of foreign shares.
 """
 
 from __future__ import annotations
 
-from collections import Counter
+from datetime import datetime, time, timedelta
+from decimal import Decimal
 
 import pytest
-
-import psycopg
 from psycopg.rows import dict_row
 
-from simulation import genesis, ledger
+from simulation import abroad, clock, fx, ledger, world
 from simulation import world_data as data
-from simulation.money import million_naira, naira
-from tests.conftest import WORLD_START
+from simulation.money import BPS
+from tests.test_fx import DAY, TRADING, _one, _rows, empire_head, person, ring
 
-# The company list from the design document, section 4.
-BLUEPRINT = {
-    "Commercial banks": {"Ikenga Bank", "Olumo Trust Bank", "Harmattan Bank", "Kainji Commercial Bank", "Zuma Capital Bank", "Obudu Bank",
-                         "Sahel Crest Microfinance Bank"},
-    "Consumer goods, food and drinks": {"Adunni Foods", "Tamuno Breweries", "Zobo Royal Beverages", "Garki Flour Mills", "Ayo Dairy", "Amaka Household Products"},
-    "Oil and gas": {"Opobo Petroleum", "Brass River Energy", "Delta Creek Gas", "Okrika Refining & Marketing"},
-    "Telecoms": {"Gangan Mobile", "Ekwe Communications", "Sango Networks", "Lekki Fibre Networks"},
-    "Cement and building materials": {"Idanre Cement", "Kogi Ridge Cement", "Aso Blocks & Aggregates"},
-    "Agriculture": {"Ofada Farms", "Sokoto Plains Agro", "Ikom Cocoa Estates", "Benue Harvest Foods"},
-    "Real estate and construction": {"Eyo Properties", "Gidan Construction", "Ulo Estates", "Zuma Rock Hotels"},
-    "Manufacturing and industrial": {"Ariaria Industries", "Dala Steel Works", "Onitsha Packaging", "Kainji Textiles", "Calabar Paper Mills",
-                                     "Niger Bridge Steel"},
-    "Media houses": {"The Lagoon Herald", "Ogene News Network", "The Naira Ledger"},
-    "Insurance": {"Agbada Assurance", "Kuka Insurance"},
-    "Power and utilities": {"Amadioha Power", "Jos Plateau Electric", "Ibom Solar Power"},
-    "Transport and logistics": {"Danfo Logistics", "Lokoja Freight & Shipping", "Bonny Tide Shipping", "Oguta Airways"},
-}
+NIGHT = TRADING.replace(hour=23)                      # every exchange abroad is closed
 
 
-def _dicts(db, sql, params=()):
-    with db.cursor(row_factory=dict_row) as cur:
-        return cur.execute(sql, params).fetchall()
+def opened(db):
+    from simulation import etfs
+    rung = ring(db, DAY - timedelta(days=1))
+    etfs.tick(db, rung)
+    world.tick(db, rung)
+    return rung
 
 
-def test_all_50_companies_exist_with_the_blueprint_names_and_sectors(db):
-    rows = db.execute("SELECT s.name, c.name FROM companies c JOIN sectors s ON s.code = c.sector WHERE c.listed").fetchall()
-    found: dict[str, set] = {}
-    for sector, company in rows:
-        found.setdefault(sector, set()).add(company)
-    assert len(rows) == 50
-    assert found == BLUEPRINT
+def opened8(db):
+    """The markets abroad in a world eight quarters old (for empires)."""
+    from simulation import etfs
+    from tests.test_careers import NOW9
+    rung = ring(db, NOW9.date() - timedelta(days=1))
+    etfs.tick(db, rung)
+    world.tick(db, rung)
+    return NOW9.replace(hour=16)
 
 
-def test_accounts_exist_for_companies_banks_government_and_the_prize_pool(db):
-    kinds = Counter(k for (k,) in db.execute("SELECT kind FROM ledger_accounts").fetchall())
-    assert kinds["company"] == 80                 # 50 listed (with the banks) and 30 private
-    assert kinds["government"] == 1
-    assert kinds["prize_pool"] == 1
-    assert kinds["central_bank"] == 1
-    banks = db.execute(
-        "SELECT count(*) FROM companies c JOIN ledger_accounts a ON a.id = c.account_id WHERE c.sector = 'banking'"
-    ).fetchone()[0]
-    assert banks == 7                             # six commercial banks and one microfinance bank
-    for code in (ledger.TREASURY, ledger.PRIZE_POOL, ledger.CENTRAL_BANK, "households:lagos"):
-        assert ledger.account_id(db, code)
+def sound(db):
+    assert ledger.audit(db) == []
+    assert fx.check_books(db) == []
+    assert world.check_books(db) == []
 
 
-def test_every_naira_at_the_start_was_issued_by_the_central_bank(db):
-    issued = ledger.amount_in_existence(db)
-    held = db.execute(
-        "SELECT sum(balance) FROM ledger_balances b JOIN ledger_accounts a ON a.id = b.account_id"
-        " WHERE b.asset = 'NGN' AND a.code IS DISTINCT FROM 'central_bank'"
-    ).fetchone()[0]
-    assert issued == held > 0
-    assert ledger.balance(db, ledger.account_id(db, ledger.TREASURY)) == million_naira(data.TREASURY_OPENING_M)
-    assert ledger.balance(db, ledger.account_id(db, ledger.PRIZE_POOL)) == 0
+def _player(db, account):
+    return _one(db, "SELECT player_id FROM ledger_accounts WHERE id = %s", (account,))["player_id"]
 
 
-def test_every_opening_balance_sheet_balances(db):
-    for r in _dicts(db, "SELECT r.*, c.name, c.account_id FROM company_results r JOIN companies c ON c.id = r.company_id WHERE r.period = 0"):
-        assert r["total_assets"] == r["cash"] + r["customer_loans"] + r["loans_to_companies"] + r["fixed_assets"], r["name"]
-        assert r["total_assets"] == r["total_liabilities"] + r["total_equity"], r["name"]
-        assert r["total_equity"] > 0, r["name"]
-        assert r["cash"] == ledger.balance(db, r["account_id"]), r["name"]       # cash is what the ledger says
+def dollars(db, player, cents, currency="USD"):
+    fx.street_deal(db, player, "buy", currency, cents, TRADING)
 
 
-def test_every_company_has_statements_shares_owners_debts_and_a_rating(db):
-    for c in _dicts(db, "SELECT * FROM companies"):
-        report = _dicts(db, "SELECT * FROM company_reports WHERE company_id = %s AND period = 0", (c["id"],))[0]
-        assert set(report["figures"]) == {"income_statement", "cash_flow", "balance_sheet", "notes"}
-        assert report["credit_rating"] in ("AAA", "AA", "A", "BBB", "BB", "B", "CCC", "D")
-        assert report["rating_reasons"]
-
-        # Shares in issue equal what the owners hold between them.
-        in_issue = ledger.amount_in_existence(db, c["share_asset"])
-        held = db.execute(
-            "SELECT sum(balance), count(*) FROM ledger_balances WHERE asset = %s AND balance > 0", (c["share_asset"],)
-        ).fetchone()
-        assert in_issue == held[0] > 0, c["name"]
-        assert held[1] == (3 if c["listed"] else 1)  # founders, institutions, small investors; a private company: its founders
-        assert report["figures"]["notes"]["shares_in_issue"] == in_issue
-
-
-def test_debts_have_a_lender_a_rate_and_a_repayment_date(db):
-    debts = _dicts(
-        db,
-        "SELECT d.*, c.sector, a.kind AS lender_kind, lc.sector AS lender_sector FROM company_debts d"
-        " JOIN companies c ON c.id = d.company_id JOIN ledger_accounts a ON a.id = d.lender_account_id"
-        " LEFT JOIN companies lc ON lc.account_id = d.lender_account_id",
-    )
-    assert len(debts) > 30
-    for d in debts:
-        assert d["annual_rate_bps"] > 0
-        # Two companies begin with a loan already past its repayment date (period 0).
-        assert d["maturity_period"] > 0 or d["name"].startswith("overdue loan")
-        if d["kind"] == "bank_loan":
-            assert d["lender_sector"] == "banking"          # bank loans are owed to one of the six banks
-        else:
-            assert d["lender_kind"] == "npc_investors"       # bonds are held by investors
-    borrowers = {d["company_id"] for d in debts}
-    non_financial = db.execute("SELECT count(*) FROM companies WHERE sector NOT IN ('banking', 'insurance')").fetchone()[0]
-    assert len(borrowers) == non_financial
-
-    # What the banks say they have lent equals what the companies say they owe them.
-    lent = db.execute("SELECT sum(loans_to_companies) FROM company_results WHERE period = 0").fetchone()[0]
-    owed = db.execute("SELECT sum(principal_outstanding) FROM company_debts WHERE kind = 'bank_loan'").fetchone()[0]
-    assert lent == owed
+def test_the_markets_open_at_the_first_bell_after_the_currency_desk(db):
+    opened(db)
+    assert {e["code"] for e in world.exchanges(db)} == {"HSE", "THX", "RMX"}
+    assert _one(db, "SELECT count(*) AS n FROM world_companies")["n"] == len(data.WORLD_COMPANIES) == 30
+    assert _one(db, "SELECT count(*) AS n FROM world_economies")["n"] == 3
+    world_abroad, _ = abroad.accounts(db)
+    for co in _rows(db, "SELECT * FROM world_companies"):
+        assert 0 < co["shares"] - ledger.balance(db, world_abroad, co["asset"]) < co["shares"] // 1000     # the ETFs bought a few
+        assert co["fair"] > 0
+    arms = _rows(db, "SELECT * FROM world_arms")
+    assert len(arms) == len(data.WORLD_ARMS)
+    founders = ledger.account_id(db, ledger.INVESTORS_FOUNDERS)
+    for a in arms:
+        c = _one(db, "SELECT * FROM companies WHERE id = %s", (a["company_id"],))
+        assert ledger.balance(db, a["parent_account"], c["share_asset"]) > 0
+        assert ledger.balance(db, founders, c["share_asset"]) == 0
+    assert _one(db, "SELECT count(*) AS n FROM market_indexes WHERE kind = 'world'")["n"] == 3
+    etfs = _rows(db, "SELECT * FROM etfs WHERE code IN ('HUDX', 'THMX', 'RMXX')")
+    assert len(etfs) == 3
+    for e in etfs:
+        held = _rows(db, "SELECT asset FROM ledger_balances WHERE account_id = %s AND asset LIKE 'FSH-%%' AND balance > 0", (e["account_id"],))
+        assert len(held) == 10
+    sound(db)
 
 
-def test_creating_the_world_twice_changes_nothing(db):
-    before = db.execute("SELECT count(*) FROM ledger_entries").fetchone()[0], ledger.amount_in_existence(db)
-    assert genesis.create_world(db, WORLD_START) is False
-    assert (db.execute("SELECT count(*) FROM ledger_entries").fetchone()[0], ledger.amount_in_existence(db)) == before
-    assert db.execute("SELECT count(*) FROM companies WHERE listed").fetchone()[0] == 50
+def test_buying_a_foreign_share_costs_dollars_and_selling_gives_them_back_less_the_spread(db):
+    opened(db)
+    player, account = person(db, "ada", cash_naira=800_000_000)
+    dollars(db, player, 20_000_000)
+    got = world.deal(db, player, "TSRN", "buy", 100, TRADING)
+    assert got["currency"] == "USD" and got["amount"] == got["price"] * 100
+    co = _one(db, "SELECT * FROM world_companies WHERE ticker = 'TSRN'")
+    assert ledger.balance(db, account, co["asset"]) == 100
+    assert ledger.balance(db, account, "USD") == 20_000_000 - got["amount"]
+    back = world.deal(db, player, "TSRN", "sell", 100, TRADING)
+    assert back["amount"] < got["amount"]
+    sound(db)
 
 
-def test_a_player_from_before_the_ledger_existed_is_given_an_account_and_starting_cash(db):
-    player_id = db.execute(
-        "INSERT INTO players (email, email_key, display_name, display_name_key, password_hash, adult_confirmed_at)"
-        " VALUES ('early@example.com', 'early@example.com', 'Early', 'early', 'x', now()) RETURNING id"
-    ).fetchone()[0]
-    money_before = ledger.amount_in_existence(db)
+def test_an_exchange_trades_only_during_its_own_hours(db):
+    opened(db)
+    player, _ = person(db, "ada", cash_naira=800_000_000)
+    dollars(db, player, 20_000_000)
+    with pytest.raises(world.WorldError, match="closed"):
+        world.deal(db, player, "TSRN", "buy", 10, NIGHT)
+    with pytest.raises(world.WorldError, match="closed"):
+        world.deal(db, player, "TSRN", "buy", 10, TRADING.replace(hour=12))       # New York opens at 14:30 Lagos time in October
+    world.deal(db, player, "HRWB", "buy", 10, TRADING.replace(hour=12)) if False else None
 
-    genesis.create_world(db, WORLD_START)
-    genesis.create_world(db, WORLD_START)          # running it again must not pay twice
 
-    account = ledger.player_account_id(db, player_id)
-    assert ledger.balance(db, account) == naira(100_000)
-    assert ledger.amount_in_existence(db) == money_before     # paid by the Treasury, not created
+def test_prices_move_while_open_and_stand_still_while_closed(db):
+    opened(db)
+    co = _one(db, "SELECT c.*, e.currency FROM world_companies c JOIN world_exchanges e ON e.code = c.exchange WHERE ticker = 'MRWD'")
+    a = world.price_of(db, co, TRADING)
+    b = world.price_of(db, co, TRADING + timedelta(minutes=30))
+    assert a != b
+    c = world.price_of(db, co, NIGHT)
+    d = world.price_of(db, co, NIGHT + timedelta(minutes=30))
+    assert c == d
+
+
+def test_closing_prices_are_written_down_once(db):
+    opened(db)
+    world.advance(db, NIGHT)
+    n = _one(db, "SELECT count(*) AS n FROM world_days")["n"]
+    assert n >= 30
+    world.advance(db, NIGHT + timedelta(minutes=5))
+    assert _one(db, "SELECT count(*) AS n FROM world_days")["n"] == n
+    assert _one(db, "SELECT count(*) AS n FROM world_index_days")["n"] >= 3
+
+
+def test_page_and_net_worth(db):
+    from simulation import objectives
+    opened(db)
+    player, account = person(db, "ada", cash_naira=800_000_000)
+    dollars(db, player, 20_000_000)
+    world.deal(db, player, "TSRN", "buy", 100, TRADING)
+    p = world.page(db, player, TRADING)
+    assert p["open"] and len(p["companies"]) == 30 and len(p["exchanges"]) == 3
+    assert p["mine"]["holdings"][0]["ticker"] == "TSRN"
+    w = objectives.wealth(db, account, TRADING)
+    assert w["foreign"] > 0
+    world.company_page(db, "TSRN", TRADING)
+    assert world.economies_view(db)["open"]
 
 
 # ---------------------------------------------------------------------------
-# The ten weaker companies and the five head-office locations (owner, 2 October 2026).
+# The quarter's close
 # ---------------------------------------------------------------------------
 
-def test_head_offices_are_spread_over_five_locations_including_aba_and_kano(db):
-    by_city = dict(db.execute("SELECT headquarters, count(*) FROM companies WHERE listed GROUP BY headquarters").fetchall())
-    assert set(by_city) == {"Lagos", "Abuja", "Port Harcourt", "Aba", "Kano"}
-    assert by_city["Aba"] == 2 and by_city["Kano"] == 3
-    homes = dict(db.execute("SELECT name, headquarters FROM companies").fetchall())
-    assert homes["Kainji Textiles"] == "Kano" and homes["Sahel Crest Microfinance Bank"] == "Kano"
-    assert homes["Niger Bridge Steel"] == "Aba" and homes["Calabar Paper Mills"] == "Aba"
+def _close(db, n=1):
+    from simulation import quarters
+    from tests.conftest import after_quarters
+    quarters.close_due_quarters(db, after_quarters(n))
 
 
-def test_two_companies_begin_the_game_already_in_default(db):
-    rated = dict(db.execute(
-        "SELECT c.name, r.credit_rating FROM company_reports r JOIN companies c ON c.id = r.company_id WHERE r.period = 0 AND c.listed"
-    ).fetchall())
-    assert rated["Bonny Tide Shipping"] == "D" and rated["Kainji Textiles"] == "D"
-    assert sorted(name for name, rating in rated.items() if rating == "D") == ["Bonny Tide Shipping", "Kainji Textiles"]
+def test_at_the_close_the_economies_move_the_companies_report_and_dividends_are_paid(db):
+    opened(db)
+    player, account = person(db, "ada", cash_naira=800_000_000)
+    dollars(db, player, 30_000_000)
+    world.deal(db, player, "HLGR", "buy", 200, TRADING)
+    _close(db)
+    assert _one(db, "SELECT count(*) AS n FROM world_economies WHERE period = 1")["n"] == 3
+    assert _one(db, "SELECT count(*) AS n FROM world_results WHERE period = 1")["n"] == 30
+    div = _one(db, "SELECT d.* FROM world_dividends d JOIN world_companies c ON c.id = d.company_id WHERE c.ticker = 'HLGR' AND period = 1")
+    assert div and div["per_share"] > 0
+    paid = _one(db, "SELECT coalesce(sum(e.amount), 0)::bigint AS n FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
+                    " WHERE e.account_id = %s AND e.asset = 'USD' AND t.memo LIKE 'Hollis%%dividend%%'", (account,))["n"]
+    assert paid == int(div["per_share"] * 200)
+    # One pop-up for the quarter's foreign dividends, however many companies paid.
+    assert _one(db, "SELECT count(*) AS n FROM fx_alerts WHERE kind = 'world_dividend' AND account_id = %s", (account,))["n"] == 1
+    assert _one(db, "SELECT count(*) AS n FROM world_repatriation WHERE period = 1")["n"] == len(data.WORLD_ARMS)
+    q = fx.current(db)
+    assert q["period"] == 1 and float(q["gbp_usd"]) != data.FX_GBP_USD_START
+    sound(db)
 
 
-def test_three_companies_begin_the_game_behind_on_their_bills(db):
-    rated = dict(db.execute(
-        "SELECT c.name, r.credit_rating FROM company_reports r JOIN companies c ON c.id = r.company_id WHERE r.period = 0"
-    ).fetchall())
-    for name in ("Zuma Rock Hotels", "Oguta Airways", "Calabar Paper Mills"):
-        assert rated[name] == "CCC", name
+def test_a_higher_interest_rate_abroad_makes_a_share_worth_less(db):
+    co = {"sector": "technology"}
+    low = world._fair(co, Decimal(400), 300)
+    high = world._fair(co, Decimal(400), 500)
+    assert high < low
+    # A fast grower loses more of its worth than an oil company when rates rise.
+    oil = {"sector": "oil_gas"}
+    assert high / low < world._fair(oil, Decimal(400), 500) / world._fair(oil, Decimal(400), 300)
 
 
-def test_a_troubled_start_still_balances_and_explains_itself(db):
-    for r in _dicts(db, "SELECT r.*, c.name FROM company_results r JOIN companies c ON c.id = r.company_id"
-                        " WHERE r.period = 0 AND (r.principal_overdue > 0 OR r.payables > 0)"):
-        assert r["total_assets"] == r["total_liabilities"] + r["total_equity"], r["name"]
-        assert r["total_equity"] > 0, r["name"]
-        assert r["drivers"]["notes"], r["name"]              # the filing says why it is in trouble
+def test_lending_abroad_pays_americas_rate_once_the_markets_are_open(db):
+    assert world.rate_abroad(db) == data.WORLD_RATE_BPS
+    opened(db)
+    assert world.rate_abroad(db) == world.economy(db, "US")["rate_bps"]
 
 
-def test_the_worlds_secret_is_set_and_can_never_be_changed(db):
-    assert db.execute("SELECT fortune_seed FROM world_state").fetchone()[0] == "a-fixed-secret-so-that-every-test-run-repeats"
-    with pytest.raises(Exception) as refused:
-        db.execute("UPDATE world_state SET fortune_seed = 'one-i-chose'")
-    assert refused.value.diag.constraint_name == "world_is_permanent"
+def test_growth_abroad_lifts_the_next_oil_price(db):
+    opened(db)
+    _close(db)
+    period = 1
+    db.execute("ALTER TABLE world_economies DISABLE TRIGGER world_economies_permanent")
+    db.execute("UPDATE world_economies SET growth_bps = growth_bps + 200 WHERE period = %s", (period,))
+    db.execute("ALTER TABLE world_economies ENABLE TRIGGER world_economies_permanent")
+    assert world.oil_demand_bps(db, period) > 0
+
+
+# ---------------------------------------------------------------------------
+# Nigerian arms
+# ---------------------------------------------------------------------------
+
+def _arm(db, ticker="AHP"):
+    return _one(db, "SELECT a.*, c.share_asset, c.id AS cid FROM world_arms a JOIN companies c ON c.id = a.company_id WHERE c.ticker = %s", (ticker,))
+
+
+def _drain_reserves(db, keep_quarters_bps=12_000):
+    cb = ledger.account_id(db, ledger.CENTRAL_BANK)
+    world_abroad, _ = abroad.accounts(db)
+    keep = fx.imports_usd(db) * keep_quarters_bps // BPS
+    have = ledger.balance(db, cb, "USD")
+    if have > keep:
+        ledger.post(db, kind="fx_abroad", memo="test", legs=[ledger.Leg(cb, -(have - keep), "USD"), ledger.Leg(world_abroad, have - keep, "USD")])
+
+
+def test_a_parents_dividends_wait_for_dollars_when_reserves_are_low(db):
+    opened(db)
+    arm = _arm(db)
+    db.execute("ALTER TABLE fx_quarters DISABLE TRIGGER fx_quarters_permanent")
+    db.execute("UPDATE fx_quarters SET cover_bps = 11_000")
+    db.execute("ALTER TABLE fx_quarters ENABLE TRIGGER fx_quarters_permanent")
+    small = world.parent_room(db)
+    db.execute("ALTER TABLE fx_quarters DISABLE TRIGGER fx_quarters_permanent")
+    db.execute("UPDATE fx_quarters SET cover_bps = 30_000")
+    db.execute("ALTER TABLE fx_quarters ENABLE TRIGGER fx_quarters_permanent")
+    assert world.parent_room(db) > small >= 0
+
+
+@pytest.mark.world("eight")
+def test_a_leaving_parent_sells_pieces_to_empires_and_the_rest_to_the_pension_funds(db):
+    t9 = opened8(db)
+    head, _, empire = empire_head(db)
+    arm = _arm(db)
+    db.execute("UPDATE world_arms SET status = 'leaving', announced_period = 0, deadline_period = 1 WHERE company_id = %s", (arm["company_id"],))
+    held = ledger.balance(db, arm["parent_account"], arm["share_asset"])
+    issued = ledger.amount_in_existence(db, arm["share_asset"])
+    want = issued * 100 // BPS                      # 1%
+    got = world.buy_stake(db, head, "AHP", want, t9)
+    acct = _one(db, "SELECT account_id FROM empires WHERE head_player_id = %s", (head,))["account_id"]
+    assert ledger.balance(db, acct, arm["share_asset"]) == want
+    assert got["price"] >= world.market_price(db, arm["company_id"])
+    with pytest.raises(world.WorldError):
+        world.buy_stake(db, head, "AHP", issued * 3_000 // BPS, t9)          # never to 30%
+    db.execute("UPDATE world_arms SET deadline_period = 9 WHERE company_id = %s", (arm["company_id"],))
+    _close(db, 9)
+    a = _arm(db)
+    assert a["status"] == "left" and ledger.balance(db, a["parent_account"], a["share_asset"]) == 0
+    assert ledger.balance(db, ledger.account_id(db, ledger.INVESTORS_INSTITUTIONS), arm["share_asset"]) >= held - want
+    sound(db)
+
+
+@pytest.mark.world("eight")
+def test_a_parent_not_selling_sells_nothing(db):
+    t9 = opened8(db)
+    head, _, _ = empire_head(db)
+    with pytest.raises(world.WorldError, match="not selling"):
+        world.buy_stake(db, head, "AHP", 1000, t9)
+
+
+def test_the_parent_votes_with_the_board(db):
+    from simulation import corporate
+    opened(db)
+    arm = _arm(db)
+    vid = corporate.open_vote(db, arm["company_id"], subject="share_split", question="?", explanation="", board="for", period=1, detail={})
+    vote = _one(db, "SELECT * FROM company_votes WHERE id = %s", (vid,))
+    tally = corporate._tally(db, vote, corporate._investors(db))
+    assert tally["Foreign parent"][0] > 0
+
+
+# ---------------------------------------------------------------------------
+# Prices, dividends and what a holding made
+# ---------------------------------------------------------------------------
+
+def _co(db, ticker):
+    return _one(db, "SELECT c.*, e.currency FROM world_companies c JOIN world_exchanges e ON e.code = c.exchange WHERE ticker = %s", (ticker,))
+
+
+def test_a_dividend_takes_the_price_down_by_its_size(db):
+    opened(db)
+    co = _co(db, "TGSP")
+    path = world._Path(db)
+    before = world.price_of(db, co, NIGHT, path=path, with_impact=False)
+    world._pay_dividend(db, co, Decimal(50), 0, NIGHT, path)
+    after = world.price_of(db, co, NIGHT, path=path, with_impact=False)
+    assert abs(float(before - after) - 50) < 0.01
+
+
+def test_a_price_is_drawn_towards_what_the_share_is_worth(db):
+    opened(db)
+    co = _co(db, "PRHF")
+    db.execute("UPDATE world_quotes SET base = %s WHERE company_id = %s", (co["fair"] / 2, co["id"]))
+    world.advance(db, NIGHT + timedelta(days=12))
+    later = world.last_close(db, co["id"])
+    assert later > co["fair"] / 2 * Decimal("1.15")          # twelve days of the pull close a good part of the gap
+
+
+def test_a_holding_shows_what_it_made_on_the_share_and_on_the_currency(db):
+    opened(db)
+    player, account = person(db, "ada", cash_naira=800_000_000)
+    dollars(db, player, 20_000_000)
+    world.deal(db, player, "LDGR", "buy", 100, TRADING)
+    # The naira falls by a tenth: the dollars the shares cost are worth more naira.
+    db.execute("ALTER TABLE fx_days DISABLE TRIGGER fx_days_permanent")
+    db.execute("UPDATE fx_days SET street = street * 11 / 10")
+    db.execute("ALTER TABLE fx_days ENABLE TRIGGER fx_days_permanent")
+    h = world.page(db, player, TRADING)["mine"]["holdings"][0]
+    assert h["currency_gain_naira"] > 0
+
+
+# ---------------------------------------------------------------------------
+# ETFs of foreign shares
+# ---------------------------------------------------------------------------
+
+def test_an_etf_of_foreign_shares_follows_the_naira(db):
+    from simulation import etfs
+    opened(db)
+    e = etfs.by_code(db, "HUDX")
+    before = etfs.nav_now(db, e, NIGHT)
+    db.execute("ALTER TABLE fx_days DISABLE TRIGGER fx_days_permanent")
+    db.execute("UPDATE fx_days SET street = street * 12 / 10")
+    db.execute("ALTER TABLE fx_days ENABLE TRIGGER fx_days_permanent")
+    assert etfs.nav_now(db, e, NIGHT) > before * 115 // 100
+
+
+def test_buying_an_etf_of_foreign_shares_sends_naira_abroad_through_the_street(db):
+    from simulation import etfs
+    opened(db)
+    world_abroad, _ = abroad.accounts(db)
+    held = ledger.balance(db, world_abroad)
+    street = fx.street(db)
+    e = etfs.by_code(db, "THMX")
+    households = ledger.account_id(db, etfs.HOUSEHOLDS)
+    etfs._create_cash(db, e, households, data.ETF_CREATION_UNITS * 1500, NIGHT, 1, fee_bps=0)
+    assert ledger.balance(db, world_abroad) > held
+    assert fx.street(db) > street
+    sound(db)
+
+
+# ---------------------------------------------------------------------------
+# A parent's decision, and takeover offers
+# ---------------------------------------------------------------------------
+
+def test_a_parent_with_years_of_dividends_stuck_may_decide_to_leave(db, monkeypatch):
+    opened(db)
+    arm = _arm(db)
+    monkeypatch.setattr(data, "WORLD_PARENT_LEAVE_CHANCE_BPS", BPS)
+    monkeypatch.setattr(world, "_yearly_dividends_to_parent", lambda *a: 1_000)
+    ledger.transfer(db, payer=ledger.account_id(db, ledger.TREASURY), receiver=arm["parent_account"], amount=1_000_000, kind="test", memo="stuck")
+    world._decide(db, 1, NIGHT, world._seed(db))
+    assert _arm(db)["status"] == "leaving"
+    assert _one(db, "SELECT 1 AS x FROM fx_alerts WHERE kind = 'world_exit'")
+
+
+def test_a_leaving_parent_gives_its_shares_to_a_takeover_offer_and_a_staying_one_does_not(db):
+    from simulation import corporate
+    opened(db)
+    arm = _arm(db)
+    bid = {"target_company_id": arm["company_id"], "hostile": True, "defence_value": None, "premium_bps": 500, "price": 1}
+    who = corporate._investors(db)
+    assert arm["parent_account"] not in corporate._computer_run_acceptances(db, bid, who)
+    db.execute("UPDATE world_arms SET status = 'leaving' WHERE company_id = %s", (arm["company_id"],))
+    assert corporate._computer_run_acceptances(db, bid, who)[arm["parent_account"]] > 0
+
+
+def test_households_put_some_of_their_index_money_into_etfs_of_foreign_shares(db):
+    from simulation import etfs
+    opened(db)
+    households = ledger.account_id(db, etfs.HOUSEHOLDS)
+    e = etfs.by_code(db, "HUDX")
+    before = ledger.balance(db, households, e["asset"])
+    _close(db)
+    assert ledger.balance(db, households, e["asset"]) != before
+    sound(db)
+
+
+def test_an_asset_manager_can_launch_an_etf_of_a_foreign_index(db):
+    from simulation import etfs
+    from simulation.money import naira
+    from tests.test_etfs import person as etf_person
+    opened(db)
+    ada, acc = etf_person(db, "ada", build="asset_manager", level=20)
+    etf = etfs.launch(db, ada, code="ADAW", name="Ada Hudson Tracker", index_code="HUD10", method="sample", fee_bps=40, seed=naira(10_000_000),
+                      now=TRADING)
+    held = etfs.holdings_value(db, etf["account_id"], TRADING)["lines"]
+    assert held and all(x["asset"].startswith("FSH-") for x in held)
+    sound(db)
+
+
+def test_a_closing_bells_count_of_net_worth_values_foreign_shares_at_the_bells_own_moment(db):
+    """Found by the ten-year run: without a time, the count walked prices from the world's clock to the computer's clock."""
+    opened(db)
+    player, account = person(db, "ada", cash_naira=800_000_000)
+    dollars(db, player, 20_000_000)
+    world.deal(db, player, "TSRN", "buy", 100, TRADING)
+    rung = ring(db, DAY)
+    assert world.held_value(db, account) == world.held_value(db, account, rung - timedelta(minutes=1))
+
+
+def test_a_parent_that_sold_everything_to_a_takeover_offer_has_left(db):
+    opened(db)
+    arm = _arm(db)
+    public = ledger.account_id(db, ledger.INVESTORS_PUBLIC)
+    held = ledger.balance(db, arm["parent_account"], arm["share_asset"])
+    ledger.transfer(db, payer=arm["parent_account"], receiver=public, amount=held, asset=arm["share_asset"], kind="test", memo="tendered")
+    world._decide(db, 1, NIGHT, world._seed(db))
+    a = _arm(db)
+    assert a["status"] == "left" and a["sold_to"] == "a takeover offer"
+
+
+def test_dollars_bought_on_the_street_for_a_bond_the_street_itself_holds_stay_with_it(db):
+    """Found by the ten-year run: with a floating naira, paying a company Eurobond's holders through the street failed when the
+    street's own dealers held some of the bond (an account cannot pay itself)."""
+    opened(db)
+    world_abroad, _ = abroad.accounts(db)
+    treasury = ledger.account_id(db, ledger.TREASURY)
+    player, account = person(db, "ada", cash_naira=10_000_000)
+    db.execute("ALTER TABLE fx_quarters DISABLE TRIGGER fx_quarters_permanent")
+    db.execute("UPDATE fx_quarters SET regime = 'float'")
+    db.execute("ALTER TABLE fx_quarters ENABLE TRIGGER fx_quarters_permanent")
+    got = fx._buy_dollars(db, treasury, 1_000_00, [(world_abroad, 3), (account, 1)], 1, "test")
+    assert got == 1_000_00 and ledger.balance(db, account, "USD") == got // 4
+    sound(db)

@@ -914,6 +914,21 @@ def _within_trade_limit(conn: Connection, seat: dict, state: dict, value: int, n
         raise EmpireError(f"That would pass your trading limit for the quarter: {_money(limit)}, of which {_money(used)} is used.")
 
 
+def foreign_deal(conn: Connection, player_id, value: int, what: str, now: datetime) -> None:
+    """Before a member deals in currencies or shares abroad for the empire (Parts 4a and 4b): the Risk Manager's freeze and
+    the member's trading limit for the quarter apply as they do on Broad Street, and the deal is counted against it."""
+    state = _open(conn, now)
+    seat = seat_of(conn, player_id, lock=True)
+    if seat is None or seat["empire_status"] != "active":
+        raise EmpireError("You hold no seat in an open empire.")
+    if seat.get("frozen"):
+        raise EmpireError("The Risk Manager has frozen your trading for the empire. Ask them, or the head, to lift it.")
+    conn.execute("SELECT 1 FROM empires WHERE id = %s FOR UPDATE", (seat["empire_id"],))
+    _within_trade_limit(conn, seat, state, value, now)
+    conn.execute("INSERT INTO empire_trades (empire_id, player_id, period, what, value, at) VALUES (%s, %s, %s, %s, %s, %s)",
+                 (seat["empire_id"], player_id, state["period"], what[:200], value, now))
+
+
 def fair_dealing(share: dict, side: str, kind: str, limit_price: int | None, whose: str) -> None:
     """Somebody dealing with money that is not theirs, and that no player watches over, must deal
     close to the market: within 2% of the last session's price, and never at "the best price

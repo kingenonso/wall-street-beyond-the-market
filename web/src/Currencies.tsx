@@ -408,6 +408,7 @@ export function FxAlerts({ onLoggedOut }: { onLoggedOut: () => void }) {
   }, [onLoggedOut]);
   if (shown.length === 0) return null;
   const a = shown[shown.length - 1];
+  const abroad = a.kind.startsWith("world");      // Part 4b: the markets abroad share these pop-ups
   const close = () => {
     try {
       const before = Number(window.localStorage.getItem("wsbm-fx-alerts") ?? "0");
@@ -418,11 +419,12 @@ export function FxAlerts({ onLoggedOut }: { onLoggedOut: () => void }) {
   return (
     <div className="bank-alert-region fund-alert-region fx-alert-region">
       <div className="bank-alert fund-alert" role="alertdialog" aria-labelledby={`fx-alert-${a.id}`}>
-        <div className="bank-alert-tag">● THE NAIRA</div>
+        <div className="bank-alert-tag">● {abroad ? "MARKETS ABROAD" : "THE NAIRA"}</div>
         <div className="bank-alert-headline" id={`fx-alert-${a.id}`}>{a.headline}</div>
         <p className="small">{a.words}</p>
         <div className="bank-alert-actions">
-          <a className="button-outline" href="#/currencies" onClick={close}>See the currency desk</a>
+          {abroad ? <a className="button-outline" href={a.kind === "world_rate" ? "#/economy" : "#/market/world"} onClick={close}>See the markets abroad</a>
+            : <a className="button-outline" href="#/currencies" onClick={close}>See the currency desk</a>}
           <button className="button-quiet" onClick={close}>Close{shown.length > 1 ? ` (${shown.length - 1} more)` : ""}</button>
         </div>
       </div>

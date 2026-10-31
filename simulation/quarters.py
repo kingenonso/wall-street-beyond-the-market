@@ -83,7 +83,7 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
                         + crashfund.check_books(conn) + instruments.check_books(conn)
                         + conveyancing.check_books(conn) + development.check_books(conn) + propfunds.check_books(conn)
                         + _crisis().check_books(conn) + _funds().check_books(conn)
-                        + _etfs().check_books(conn) + _fx().check_books(conn))
+                        + _etfs().check_books(conn) + _fx().check_books(conn) + _world().check_books(conn))
             if problems:
                 raise ledger.LedgerError("The ledger failed its end-of-quarter check: " + " ".join(problems))
             conn.execute("UPDATE world_state SET last_closed_period = %s", (period,))
@@ -221,6 +221,10 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
         population[location] * (response["spend_bps"] + moods.get(location, 0)) for location, response in responses.items()
     ) // BPS
     commodity_events = events.commodity_moves(happening)
+    # Part 4b: the economies abroad, their central banks' rates and the companies listed abroad close their quarter first
+    # (growth abroad moves the oil price; America's rate is what lending abroad pays).
+    from simulation import world as world_markets
+    world_markets.at_close(conn, period, now)
     # Next quarter's oil price; energy at home is the oil price in naira.
     oil_next = abroad.next_oil(conn, period, fortune_seed, commodity_events.get("energy", 0))
     measured = macro.close_quarter(
@@ -244,6 +248,8 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     # (After the oil price and the naira are set for the quarter, so a future settles at the new level, not one known all quarter.)
     # Part 4a: Eurobonds paid, the Central Bank's reserves and its next move (before currency forwards settle).
     fx.after_abroad(conn, period, now, abroad_now, imported)
+    # Part 4b: parents abroad send their Nigerian arms' dividends home if there are dollars; some decide to leave.
+    world_markets.after_fx(conn, period, now)
     derivatives.close(conn, period, now)
     swaps.close(conn, period, now)
     instruments.issue_preferred(conn, period, now)
@@ -305,6 +311,11 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
 def _fx():
     from simulation import fx
     return fx
+
+
+def _world():
+    from simulation import world
+    return world
 
 
 def _etfs():

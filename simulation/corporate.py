@@ -98,6 +98,18 @@ def _investors(conn: Connection) -> dict:
         ([ledger.INVESTORS_FOUNDERS, ledger.INVESTORS_INSTITUTIONS, ledger.INVESTORS_PUBLIC, "investors:foreign"],))}
 
 
+def _arm(conn: Connection, company_id) -> dict | None:
+    """A Nigerian arm of a company listed abroad (Part 4b), or None."""
+    if not _one(conn, "SELECT to_regclass('world_arms') IS NOT NULL AS ok")["ok"]:
+        return None
+    return _one(conn, "SELECT * FROM world_arms WHERE company_id = %s", (company_id,))
+
+
+def _parent_account(conn: Connection, company_id):
+    arm = _arm(conn, company_id)
+    return arm["parent_account"] if arm and arm["status"] != "left" else None
+
+
 def _bidder(conn: Connection, bid: dict) -> dict:
     """Who made a takeover offer: a company, or an empire run by players. Both have a name and an account."""
     if bid.get("bidder_company_id"):
@@ -161,12 +173,17 @@ def _tally(conn: Connection, vote: dict, who: dict) -> dict:
     owners = _owners(conn, vote["company_id"])
     ballots = {r["account_id"]: r["choice"] for r in _rows(conn, "SELECT account_id, choice FROM vote_ballots WHERE vote_id = %s", (vote["id"],))}
     kinds = {r["id"]: r["kind"] for r in _rows(conn, "SELECT id, kind FROM ledger_accounts WHERE id = ANY(%s)", (list(owners),))}
+    parent = _parent_account(conn, vote["company_id"])
     tally = {"Founders": [0, 0], "Pension funds": [0, 0], "Small investors": [0, 0], "Foreign investors": [0, 0], "Players": [0, 0],
              "Other companies": [0, 0]}
+    if parent:
+        tally["Foreign parent"] = [0, 0]
     with_board = 0 if vote["board"] == "for" else 1
     for account, shares in owners.items():
         if account == who[ledger.INVESTORS_FOUNDERS]:
             tally["Founders"][with_board] += shares                       # founders sit on the board
+        elif parent and account == parent:
+            tally["Foreign parent"][with_board] += shares                 # so does a Nigerian arm's parent abroad (Part 4b)
         elif account == who[ledger.INVESTORS_INSTITUTIONS]:
             tally["Pension funds"][0 if vote["detail"].get("institutions", "for") == "for" else 1] += shares
         elif account == who[ledger.INVESTORS_PUBLIC]:
@@ -307,7 +324,8 @@ def _complete_offers(conn: Connection, period: int, now: datetime) -> None:
         price, wanted = offer["price"], {account: sub["shares"] for account, sub in asked.items() if sub["shares"] > 0}
         valued = _one(conn, "SELECT value_per_share FROM company_valuations WHERE company_id = %s ORDER BY period DESC LIMIT 1", (company["id"],))
         worth = valued["value_per_share"] if valued else price
-        cash = {account: max(ledger.balance(conn, account), 0) for account in (founders, funds, public)}
+        parent = _parent_account(conn, company["id"])
+        cash = {account: max(ledger.balance(conn, account), 0) for account in (founders, funds, public) + ((parent,) if parent else ())}
         afford = lambda account, share_of_cash: cash[account] * share_of_cash // BPS // price            # noqa: E731
         allot: dict = {}
         if offer["kind"] == "rights":
@@ -320,6 +338,9 @@ def _complete_offers(conn: Connection, period: int, now: datetime) -> None:
                          (company["id"],))["total_equity"] > 0 and price <= worth
             if sound:
                 wanted[founders] = min(entitled.get(founders, 0), afford(founders, data.OFFER_CASH_BPS))
+                if parent and entitled.get(parent, 0):
+                    # A parent abroad takes up its rights with the naira it holds here (its dividends waiting for dollars).
+                    wanted[parent] = min(entitled[parent], afford(parent, BPS))
                 wanted[funds] = min(entitled.get(funds, 0), afford(funds, data.OFFER_CASH_BPS))
                 wanted[public] = min(entitled.get(public, 0) * data.SMALL_INVESTORS_TAKE_UP_BPS // BPS, afford(public, data.OFFER_CASH_BPS))
             for account, amount in wanted.items():
@@ -520,6 +541,11 @@ def _computer_run_acceptances(conn: Connection, bid: dict, who: dict) -> dict:
     foreign = who.get("investors:foreign")
     if foreign and funds in offered:
         offered[foreign] = owned.get(foreign, 0)
+    # A Nigerian arm's parent abroad (Part 4b): a parent that is leaving gives all its shares to any offer; one that is staying
+    # sells only for a price the pension funds would take.
+    arm = _arm(conn, bid["target_company_id"])
+    if arm and (arm["status"] == "leaving" or funds in offered):
+        offered[arm["parent_account"]] = owned.get(arm["parent_account"], 0)
     return {account: shares for account, shares in offered.items() if shares > 0}
 
 
