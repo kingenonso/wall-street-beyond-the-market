@@ -84,7 +84,20 @@ Tests at the end: [[TESTS]]
 
 ## The ten-year run (40 quarters, with the earlier stages running)
 
-[[RUN]]
+The run took 45 minutes. A shock to oil was staged in quarter 24, and two bank shocks were staged as before.
+
+- **The books:** the ledger audit was clean at the end, and the currency checks found nothing wrong in any quarter. The only two oddities were the staged bank shocks, as in earlier runs. The currency work at each closing bell took 0.02 seconds on average (0.05 at most).
+- **The naira:** the official rate went from ₦1,508 to ₦1,769 a dollar, and the market's from ₦1,506 to ₦1,872. The street's premium over the official rate peaked at 12.6% (quarter 39).
+- **The reserves:** they ranged between 1.3 and 4.1 quarters of imports. The Central Bank defended the naira 3 times.
+- **No devaluation or float happened on its own** in these ten years: reserves never fell low enough while the gap was wide enough. The tests force both, and both work. The staged oil shock actually strengthened the naira, because the model reacts to the change in the oil price from one quarter to the next, and the staged price came back up straight after. That is a quirk of how the shock was staged, not of the currency rules.
+- **The dollar backlog** built up 6 times, at most ₦12 billion (quarter 38).
+- **Eurobonds:** 6 were issued, none defaulted, and one government bond was repaid in full in quarter 37.
+- **Money sent home:** about $860 million was carried by 4 companies, one of them the player's own (Harbour Send).
+- **Bureaux:** about $43 million changed hands each way. 532 deals by households and 13 by players were reported to the regulator.
+- **The official window** filled 101 requests ($1.33 million).
+- **Currency forwards:** 202 were made, and 189 had ended by the last quarter.
+- **Currency losses:** about ₦1.38 billion each for the four companies with dollar debts (BRE, GGM, OPP and ORM) over the ten years, as the naira fell.
+- The fix that pulls the pound and the euro back towards their usual levels was made just before this run, and the run includes it.
 
 ## Screenshots (docs/screenshots/fx-4a/)
 
