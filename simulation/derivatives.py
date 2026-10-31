@@ -197,13 +197,19 @@ def black_scholes(kind: str, s: float, k: float, t: float, sigma: float, r: floa
     return k * math.exp(-r * t) * _cdf(-d2) - s * _cdf(-d1)
 
 
+def _rate_abroad(conn: Connection) -> int:
+    """Interest abroad, for the naira future's price: America's rate once the markets abroad are open (Part 4b)."""
+    from simulation import world
+    return world.rate_abroad(conn)
+
+
 def fair(conn: Connection, series: dict, now: datetime, level: int | None = None) -> int:
     """The market makers' own price for one contract, in kobo."""
     level = spot(conn, series, now) if level is None else level
     t = years_left(conn, series, now)
     r = policy_rate(conn) / BPS
     if series["kind"] == "future":
-        carry = r - data.WORLD_RATE_BPS / BPS if series["underlying"] == "NAIRA" else r
+        carry = r - _rate_abroad(conn) / BPS if series["underlying"] == "NAIRA" else r
         return round(value_of(conn, series, level) * (1 + carry * t))
     per_unit = black_scholes(series["kind"], level, series["strike"], t, volatility(conn, series), r)
     return round(per_unit * multiplier(series))
@@ -1003,7 +1009,7 @@ def explain(conn: Connection, series_id: int, now: datetime) -> dict:
     last = _one(conn, "SELECT price FROM derivative_trades WHERE series_id = %s ORDER BY id DESC LIMIT 1", (series_id,))
     out = {"name": describe(s), "fair": value, "last_trade": last["price"] if last else None}
     if s["kind"] == "future":
-        carry = r - data.WORLD_RATE_BPS / BPS if s["underlying"] == "NAIRA" else r
+        carry = r - _rate_abroad(conn) / BPS if s["underlying"] == "NAIRA" else r
         underlying = value_of(conn, s, level)
         out["plain"] = (f"A future fixes today the price of something you will settle at the quarter's end. Holding the thing itself "
                         f"until then would tie up money that could earn interest, so the future costs a little more than today's "

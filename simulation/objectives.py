@@ -232,6 +232,9 @@ def wealth(conn: Connection, account, now: datetime) -> dict:
     if _one(conn, "SELECT to_regclass('fx_quarters') IS NOT NULL AS ok")["ok"]:
         from simulation import fx
         foreign = fx.held_value(conn, account)                               # dollars, pounds, euros and Eurobonds (Part 4a)
+    if _one(conn, "SELECT to_regclass('world_exchanges') IS NOT NULL AS ok")["ok"]:
+        from simulation import world
+        foreign += world.held_value(conn, account, now)                      # shares listed abroad (Part 4b)
     return {"cash": cash, "shares": shares_value, "bonds": bonds_value, "property": property_value, "borrowing": -borrowing,
             "derivatives": contracts, "funds": in_funds, "foreign": foreign,
             "total": cash + shares_value + bonds_value + property_value - borrowing + contracts + in_funds + foreign,

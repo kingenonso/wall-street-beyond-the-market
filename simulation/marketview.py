@@ -306,6 +306,8 @@ def shareholders(conn: Connection, company_id, asset: str) -> list[dict]:
             groups["Small investors"] += owner["shares"]
         elif owner["code"] == "investors:foreign":
             groups["Foreign investors"] += owner["shares"]
+        elif (owner["code"] or "").startswith("parent:"):
+            groups["Foreign parent"] = groups.get("Foreign parent", 0) + owner["shares"]      # Part 4b
         elif owner["kind"] == "player":
             # While players are few, their shares are counted with the small investors, so that
             # no line shows one player's holding.

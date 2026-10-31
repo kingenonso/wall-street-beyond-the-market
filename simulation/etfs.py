@@ -108,6 +108,12 @@ def kind_of(etf: dict) -> str:
     return "index"
 
 
+def _foreign(conn: Connection, etf: dict) -> bool:
+    """An ETF copying an index of shares listed abroad (Part 4b)."""
+    from simulation import world
+    return world.is_world_index(conn, etf.get("index_code"))
+
+
 def special(etf: dict) -> bool:
     return kind_of(etf) in SPECIAL
 
@@ -182,6 +188,10 @@ def _dealers(conn: Connection, asset: str) -> list:
     """Who a fund copying an index buys from, in order: the pension funds, the small investors; then, for a share, the founders
     and insiders as a last resort (they sell into the funds' demand, at a price above the market); for a Government bond,
     the Treasury. Only the first two buy back."""
+    if asset.startswith("FSH-"):
+        # Part 4b: a share listed abroad comes from (and goes back to) the rest of the world, through the street.
+        from simulation import abroad
+        return [abroad.accounts(conn)[0]]
     out = [ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS), ledger.account_id(conn, ledger.INVESTORS_PUBLIC)]
     if asset.startswith("SHR-"):
         out.append(ledger.account_id(conn, ledger.INVESTORS_FOUNDERS))
@@ -192,6 +202,9 @@ def _dealers(conn: Connection, asset: str) -> list:
 
 def buy_from_dealers(conn: Connection, account, asset: str, units: int, price: int, period: int, memo: str) -> int:
     """Buy up to `units` at the price (plus the dealing cost) from whichever dealers have them. Returns the units bought."""
+    if asset.startswith("FSH-"):
+        from simulation import world
+        return world.etf_buy(conn, account, asset, units, price, period, memo)
     each = -(-price * (BPS + DEALING_COST_BPS) // BPS)
     got = 0
     treasury = ledger.account_id(conn, ledger.TREASURY)
@@ -212,6 +225,9 @@ def buy_from_dealers(conn: Connection, account, asset: str, units: int, price: i
 
 def sell_to_dealers(conn: Connection, account, asset: str, units: int, price: int, period: int, memo: str) -> int:
     """Sell up to `units` at the price (less the dealing cost) to whichever dealers can pay. Returns the units sold."""
+    if asset.startswith("FSH-"):
+        from simulation import world
+        return world.etf_sell(conn, account, asset, units, price, period, memo)
     each = max(price * (BPS - DEALING_COST_BPS) // BPS, 1)
     units = min(units, ledger.balance(conn, account, asset))
     done = 0
@@ -464,6 +480,11 @@ def create(conn: Connection, player_id, code: str, units: int, how: str, now: da
         if etf["status"] != "open":
             raise EtfError("That ETF is not making new units.")
         _gate(conn, player_id, etf, True)
+        if _foreign(conn, etf):
+            # Part 4b: units of an ETF of foreign shares are made only against cash (its naira go abroad through the street).
+            if how != "cash":
+                raise EtfError("Units of an ETF of foreign shares are made and unmade against cash only.")
+            return _create_cash(conn, etf, account, units, now, state["period"], fee_bps=data.WORLD_ETF_CASH_FEE_BPS)
         if how == "cash" or etf["method"] == "swap":
             return _create_cash(conn, etf, account, units, now, state["period"])
         if how != "basket":
@@ -502,6 +523,10 @@ def redeem(conn: Connection, player_id, code: str, units: int, how: str, now: da
         _units_ok(units)
         if ledger.balance(conn, account, etf["asset"]) < units:
             raise EtfError("The empire does not hold that many units.")
+        if _foreign(conn, etf):
+            if how != "cash":
+                raise EtfError("Units of an ETF of foreign shares are made and unmade against cash only.")
+            return _redeem(conn, etf, account, units, "cash", now, state["period"], fee_bps=data.WORLD_ETF_CASH_FEE_BPS)
         return _redeem(conn, etf, account, units, "cash" if etf["method"] == "swap" else how, now, state["period"])
 
 

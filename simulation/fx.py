@@ -781,6 +781,12 @@ def _sell_dollars_to_reserves(conn: Connection, account, cents: int, rate: int, 
     return kobo
 
 
+def _rate_abroad(conn: Connection) -> int:
+    """What lending abroad pays: America's interest rate once the markets abroad are open (Part 4b)."""
+    from simulation import world
+    return world.rate_abroad(conn)
+
+
 def _country_spread(conn: Connection) -> int:
     q = current(conn)
     cover = q["cover_bps"] if q else data.FX_COMFORT_COVER_BPS
@@ -791,7 +797,7 @@ def _issue_government(conn: Connection, period: int, now: datetime, *, first: bo
     treasury = ledger.account_id(conn, ledger.TREASURY)
     world_abroad, _ = abroad.accounts(conn)
     amount = max(apply_bps(imports_usd(conn), data.FX_GOVERNMENT_EUROBOND_BPS) // data.FX_EUROBOND_FACE_CENTS, 1) * data.FX_EUROBOND_FACE_CENTS
-    coupon = data.WORLD_RATE_BPS + _country_spread(conn)
+    coupon = _rate_abroad(conn) + _country_spread(conn)
     year, _ = clock.period_to_date(max(period, 1) + data.FX_EUROBOND_TERM_QUARTERS)
     eb = _new_eurobond(conn, name=f"Federal Government {coupon / 100:.2f}% dollar Eurobond, due Year {year}", issuer="government",
                        company=None, amount=amount, coupon_bps=coupon, period=period)
@@ -820,7 +826,7 @@ def _issue_companies(conn: Connection, period: int, now: datetime, *, rate: int)
             cents = cents // data.FX_EUROBOND_FACE_CENTS * data.FX_EUROBOND_FACE_CENTS
             if cents <= 0:
                 continue
-            coupon = data.WORLD_RATE_BPS + _country_spread(conn) + data.FX_EUROBOND_COMPANY_EXTRA_BPS
+            coupon = _rate_abroad(conn) + _country_spread(conn) + data.FX_EUROBOND_COMPANY_EXTRA_BPS
             year, _ = clock.period_to_date(max(period, 1) + data.FX_EUROBOND_TERM_QUARTERS)
             name = f"{c['name']} {coupon / 100:.2f}% dollar Eurobond, due Year {year}"
             kobo = to_naira(cents, rate)
@@ -838,7 +844,7 @@ def _issue_companies(conn: Connection, period: int, now: datetime, *, rate: int)
 
 def _yield_bps(conn: Connection, eb: dict) -> int:
     extra = data.FX_EUROBOND_COMPANY_EXTRA_BPS if eb["issuer"] == "company" else 0
-    return data.WORLD_RATE_BPS + _country_spread(conn) + extra
+    return _rate_abroad(conn) + _country_spread(conn) + extra
 
 
 def _elapsed(conn: Connection, now: datetime | None) -> float:
@@ -1112,11 +1118,17 @@ def after_abroad(conn: Connection, period: int, now: datetime, row: dict, import
         off = market
         if cover >= data.FX_REPEG_COVER_BPS:
             regime, event = "managed", "repegged"
-    # The pound and the euro wander against the dollar, pulled back a little each quarter towards their usual levels.
-    gbp = float(q["gbp_usd"]) + (data.FX_GBP_USD_START - float(q["gbp_usd"])) * data.FX_CROSS_RETURN_BPS / BPS
-    gbp *= 1 + stochastic.normal(seed, "fx", "gbp", period) * data.FX_CROSS_SWING_BPS / BPS
-    eur = float(q["eur_usd"]) + (data.FX_EUR_USD_START - float(q["eur_usd"])) * data.FX_CROSS_RETURN_BPS / BPS
-    eur *= 1 + stochastic.normal(seed, "fx", "eur", period) * data.FX_CROSS_SWING_BPS / BPS
+    # The pound and the euro against the dollar: once the markets abroad are open (Part 4b), they move with their interest rates
+    # and growth against America's; before that they wander, pulled back a little each quarter towards their usual levels.
+    from simulation import world
+    moved = world.cross_next(conn, period, float(q["gbp_usd"]), float(q["eur_usd"]))
+    if moved:
+        gbp, eur = moved
+    else:
+        gbp = float(q["gbp_usd"]) + (data.FX_GBP_USD_START - float(q["gbp_usd"])) * data.FX_CROSS_RETURN_BPS / BPS
+        gbp *= 1 + stochastic.normal(seed, "fx", "gbp", period) * data.FX_CROSS_SWING_BPS / BPS
+        eur = float(q["eur_usd"]) + (data.FX_EUR_USD_START - float(q["eur_usd"])) * data.FX_CROSS_RETURN_BPS / BPS
+        eur *= 1 + stochastic.normal(seed, "fx", "eur", period) * data.FX_CROSS_SWING_BPS / BPS
     words = _move_words(event, q["official"], off, market, cover, sold)
     conn.execute("INSERT INTO fx_quarters (period, official, market, regime, reserves, cover_bps, gbp_usd, eur_usd, sold, backlog, event, words, at)"
                  " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",

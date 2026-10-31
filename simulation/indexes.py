@@ -60,7 +60,7 @@ def _listed(conn: Connection, day: date) -> list[dict]:
     strategic = {}
     for r in _rows(conn, "SELECT h.company_id, sum(h.held)::bigint AS held FROM (SELECT o.company_id, o.account_id, sum(o.shares) AS held"
                          "  FROM share_owners o GROUP BY o.company_id, o.account_id) h JOIN ledger_accounts a ON a.id = h.account_id"
-                         " WHERE a.id = %s OR (a.kind IN ('player', 'empire', 'company')"
+                         " WHERE a.id = %s OR a.code LIKE 'parent:%%' OR (a.kind IN ('player', 'empire', 'company')"
                          "  AND h.held * %s >= %s * (SELECT r.shares_in_issue FROM company_results r WHERE r.company_id = h.company_id"
                          "                           ORDER BY r.period DESC LIMIT 1))"
                          " GROUP BY h.company_id", (founders, BPS, data.INDEX_STRATEGIC_HOLDER_BPS)):
@@ -123,6 +123,10 @@ def candidates(conn: Connection, index: dict, now: datetime) -> list[dict]:
         ylds = _dividend_yields(conn, listed)
         best = sorted([c for c in listed if c["id"] in ylds], key=lambda c: -ylds[c["id"]])[:data.INDEX_DIVIDEND_MEMBERS]
         return sorted(best, key=lambda x: -x["value"])
+    if rule.startswith("world:"):
+        # Part 4b: an exchange abroad's ten companies, counted in naira at the street's rate.
+        from simulation import world
+        return world.index_candidates(conn, rule.split(":", 1)[1], now)
     if rule == "custom":
         chosen = {m["ticker"] for m in _rows(conn, "SELECT ticker FROM index_members WHERE index_code = %s", (index["code"],))}
         return sorted([c for c in listed if c["ticker"] in chosen], key=lambda x: -x["value"])
@@ -199,7 +203,12 @@ def prices_now(conn: Connection, assets: list[str], now: datetime) -> dict:
                       AND t.id > coalesce((SELECT max(s.after_trade_id) FROM share_splits s WHERE s.company_id = m.company_id), 0))::bigint AS vwap
             FROM market_instruments m JOIN companies c ON c.id = m.company_id WHERE c.share_asset = ANY(%s)""", (now, shares)):
             out[r["asset"]] = r["vwap"] or r["reference_price"] or r["last_price"]
-    others = [a for a in assets if not a.startswith("SHR-")]
+    foreign = [a for a in assets if a.startswith("FSH-")]
+    if foreign:
+        # Part 4b: a share listed abroad, at its price now and the street's middle rate.
+        from simulation import world
+        out.update(world.naira_prices(conn, foreign, now))
+    others = [a for a in assets if not a.startswith("SHR-") and not a.startswith("FSH-")]
     if others:
         state = bonds.market(conn, now)
         for b in bonds._load(conn, "b.asset = ANY(%s)", (others,)):
@@ -266,7 +275,11 @@ def income_per_unit(conn: Connection, assets: list[str], after_period: int, thro
     interest and repayments."""
     out: dict = {a: Decimal(v) for a, v in dividends_per_share(conn, [a for a in assets if a.startswith("SHR-")], after_period,
                                                                 through_period).items()}
-    others = [a for a in assets if not a.startswith("SHR-")]
+    foreign = [a for a in assets if a.startswith("FSH-")]
+    if foreign:
+        from simulation import world
+        out.update(world.income_per_unit(conn, foreign, after_period, through_period))
+    others = [a for a in assets if not a.startswith("SHR-") and not a.startswith("FSH-")]
     if others:
         for r in _rows(conn, "SELECT asset, sum(amount::numeric / units) AS per FROM bond_cash WHERE asset = ANY(%s) AND period > %s"
                              " AND period <= %s GROUP BY asset", (others, after_period, through_period)):
@@ -305,6 +318,9 @@ def setup(conn: Connection, day: date, now: datetime) -> bool:
 
 
 def _rules_words(kind: str, words: str) -> str:
+    if kind == "world":
+        return (f"{words} Dividends count as if put back into the index. Each counted by the value of all its shares, none above 15% of"
+                " the index. It moves with the shares' prices abroad and with the naira: a weaker naira lifts it.")
     if kind == "bonds":
         return (f"{words} Interest and repayments count as if put back into the index. Reviewed every quarter; changes are announced"
                 " as the quarter closes and made at the third closing bell after.")

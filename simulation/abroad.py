@@ -157,8 +157,11 @@ def next_oil(conn: Connection, period: int, seed: str, energy_event_bps: int) ->
     drifted = now + (usual - now) * data.OIL_RETURN_BPS / BPS
     swing = stochastic.shock_bps(seed, "oil", period, "price", data.OIL_SWING_BPS, data.OIL_LOADINGS)
     jump = energy_event_bps * data.OIL_EVENT_MULTIPLE
+    # Part 4b: growth abroad above (or below) its usual pace lifts (or lowers) the demand for oil.
+    from simulation import world
+    demand = world.oil_demand_bps(conn, period)
     low, high = data.OIL_LIMITS_CENTS
-    return int(min(max(drifted * (BPS + swing) / BPS * (BPS + jump) / BPS, low), high))
+    return int(min(max(drifted * (BPS + swing) / BPS * (BPS + jump) / BPS * (BPS + demand) / BPS, low), high))
 
 
 def energy_index_bps(oil_cents: int, fx: int) -> int:
@@ -193,8 +196,11 @@ def close(conn: Connection, period: int, seed: str, *, oil_next: int, inflation_
     label = clock.period_label(period)
     fx = now["fx"]
     reserve = ledger.balance(conn, abroad)
+    # Part 4b: prices and interest abroad are America's, once the markets abroad are open (a fixed figure before).
+    from simulation import world
+    inflation_abroad, rate_abroad = world.inflation_abroad(conn), world.rate_abroad(conn)
     # 1. The exchange rate.
-    ppp = (inflation_bps - data.WORLD_INFLATION_BPS) / 4
+    ppp = (inflation_bps - inflation_abroad) / 4
     # Its usual value: where prices at home against prices abroad say it should be. It is pulled back towards it.
     usual_fx = data.FX_START * _price_index(conn, period) / BPS / world_prices(period + 1)
     anchor = (usual_fx - fx) / fx * data.FX_ANCHOR_BPS
@@ -212,8 +218,8 @@ def close(conn: Connection, period: int, seed: str, *, oil_next: int, inflation_
                               "reserve": reserve_effect, "rate": rate_effect, "swing": swing})
 
     # 2. The foreign investors. What they earn here over lending abroad, after the naira's expected fall.
-    expected_fall = (inflation_bps - data.WORLD_INFLATION_BPS) + (fx_next - fx) / fx * BPS * 4 / 2
-    carry = next_rate_bps - data.WORLD_RATE_BPS - expected_fall
+    expected_fall = (inflation_bps - inflation_abroad) + (fx_next - fx) / fx * BPS * 4 / 2
+    carry = next_rate_bps - rate_abroad - expected_fall
     usual = apply_bps(opening_reserve(_row0(conn)["export_base"]), data.FOREIGN_START_SHARE_BPS) * fx_next / data.FX_START * world_prices(period)
     want_bps = min(max(BPS + carry * data.FOREIGN_CARRY_BPS / 100, data.FOREIGN_WANT_LIMITS_BPS[0]), data.FOREIGN_WANT_LIMITS_BPS[1])
     want = round(usual * want_bps / BPS)
