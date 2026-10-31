@@ -41,7 +41,7 @@ from simulation.money import BPS, apply_bps
 
 INCOME_LINES = (
     "revenue", "interest_income", "cost_of_sales", "operating_expenses", "depreciation",
-    "operating_profit", "interest_expense", "profit_before_tax", "tax", "net_profit",
+    "operating_profit", "interest_expense", "currency_loss", "profit_before_tax", "tax", "net_profit",
 )
 CASH_FLOW_LINES = (
     "cash_opening", "cash_from_operations", "cash_from_investing", "cash_from_financing", "cash_closing",
@@ -468,9 +468,17 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     registration = paid_so_far("land_registration") + paid_so_far("shortfall_repayment")
     cost_of_sales += registration
 
+    # Part 4a: what its dollar debts grew (or shrank) by in naira this quarter, revalued at the official rate. It is a loss
+    # (or a gain) on its books; no cash moved (the debt itself grew).
+    from simulation import fx
+    currency_loss = fx.currency_loss(conn, company["id"], period)
+    if currency_loss:
+        notes.append(f"The naira's {'fall' if currency_loss > 0 else 'rise'} made its dollar debts {in_words(abs(currency_loss))}"
+                     f" {'larger' if currency_loss > 0 else 'smaller'} in naira: a currency {'loss' if currency_loss > 0 else 'gain'}.")
+
     operating_profit = (revenue + interest_income - cost_of_sales - operating_expenses - professional_fees
                         - depreciation - loan_losses - home_losses)
-    profit_before_tax = operating_profit - interest_expense
+    profit_before_tax = operating_profit - interest_expense - currency_loss
     tax = apply_bps(profit_before_tax, ctx.tax_bps) if profit_before_tax > 0 else 0
     # A tax assessment from years past that a private company's founders never disclosed falls due.
     back_tax = company.get("tax_bill", 0)
@@ -700,7 +708,8 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
     cash_from_investing = (
         (lent_before - lent["gross"]) + (prev["customer_loans"] - customer_loans) - paid("capital_spending") - invested + asset_sales
     )
-    cash_from_financing = -paid("dividend") - paid("preferred_dividend") - (prev["borrowings"] - borrowings - converted) + share_proceeds
+    cash_from_financing = (-paid("dividend") - paid("preferred_dividend") - (prev["borrowings"] - borrowings - converted) + share_proceeds
+                           - currency_loss)          # (a dollar debt revalued grew without any cash coming in)
     if keeps_savers:
         # Savers' money paid in, less what was drawn out (what was written down in a closure was never paid out in cash).
         cash_from_financing += customer_funds - prev["customer_funds"] + bailed_in
@@ -774,7 +783,7 @@ def close_company_quarter(conn: Connection, company: dict, period: int, ctx: Con
         "company_id": company["id"], "period": period,
         "revenue": revenue, "interest_income": interest_income, "cost_of_sales": cost_of_sales,
         "operating_expenses": operating_expenses + professional_fees, "depreciation": depreciation,
-        "operating_profit": operating_profit, "interest_expense": interest_expense,
+        "operating_profit": operating_profit, "interest_expense": interest_expense, "currency_loss": currency_loss,
         "profit_before_tax": profit_before_tax, "tax": tax, "net_profit": net_profit,
         "cash_opening": cash_opening, "cash_from_operations": cash_from_operations,
         "cash_from_investing": cash_from_investing, "cash_from_financing": cash_from_financing,
@@ -948,7 +957,7 @@ def build_figures(conn: Connection, company: dict, result: dict) -> dict:
     )
     return {
         "income_statement": {
-            **{line: result[line] for line in INCOME_LINES},
+            **{line: result.get(line, 0) for line in INCOME_LINES},
             # EBITDA: profit before interest paid, tax, and the wear on buildings and
             # machines. It shows what the business itself produces.
             "ebitda": result["operating_profit"] + result["depreciation"],

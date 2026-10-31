@@ -115,7 +115,11 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     they may sign for) into a fund or asks it back, dealt at the next bell through the ledger; a manager acts only on the fund
     they run, under its rules, and every naira moves through the ledger. Part 3 added indexes and ETFs (test_etfs*.py): a player
     buys and sells units with their own money (or the head with their empire's), an approved dealer's head makes and unmakes units
-    for the empire, a manager runs only their own ETF or index; units and money move only through the ledger."""
+    for the empire, a manager runs only their own ETF or index; units and money move only through the ledger. Part 4a added
+    the currency desk (test_fx*.py): a player changes their own money (or the head or Investment Banker their empire's) on the
+    street, at the official window or at a bureau, deals in Eurobonds, and the head runs the empire's own bureau or
+    money-transfer company; window dollars cannot be resold for two quarters, and every naira and dollar moves only through
+    the ledger."""
     from server.main import app
 
     writes = sorted(
@@ -271,6 +275,18 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/funds/{fund_id}/follow"),
         ("POST", "/api/funds/{fund_id}/invest"),
         ("POST", "/api/funds/{fund_id}/leave"),
+        ("POST", "/api/fx/bdc"),
+        ("POST", "/api/fx/bdc/close"),
+        ("POST", "/api/fx/bdc/prices"),
+        ("POST", "/api/fx/bdcs/{bdc_id}/deal"),
+        ("POST", "/api/fx/eurobonds/{eurobond_id}"),
+        ("POST", "/api/fx/remitter"),
+        ("POST", "/api/fx/remitter/close"),
+        ("POST", "/api/fx/remitter/terms"),
+        ("POST", "/api/fx/street"),
+        ("POST", "/api/fx/window"),
+        ("POST", "/api/fx/window/sell"),
+        ("POST", "/api/fx/window/{request_id}/cancel"),
         ("POST", "/api/indexes"),
         ("POST", "/api/indexes/{code}/change"),
         ("POST", "/api/instruments/exercises/{exercise_id}/cancel"),

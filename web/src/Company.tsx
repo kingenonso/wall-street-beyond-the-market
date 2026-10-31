@@ -37,6 +37,7 @@ export const STATEMENTS: Record<string, { title: string; section: "income_statem
       { key: "depreciation", label: "Depreciation", hint: "wear on buildings and machines", cost: true },
       { key: "operating_profit", label: "Operating profit", total: true },
       { key: "interest_expense", label: "Interest paid", hint: "on its borrowings", cost: true },
+      { key: "currency_loss", label: "Currency loss", hint: "its dollar debts, revalued as the naira moved (a gain when below zero)", cost: true, optional: true },
       { key: "profit_before_tax", label: "Profit before tax", total: true },
       { key: "tax", label: "Tax", cost: true },
       { key: "net_profit", label: "Net profit", hint: "what is left for the owners", total: true },

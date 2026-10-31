@@ -9,6 +9,7 @@ import type { LiveClock } from "./useClock";
 import { BankAlerts } from "./Crisis";
 import { FundAlerts } from "./Funds";
 import { EtfAlerts } from "./Etfs";
+import { FxAlerts } from "./Currencies";
 
 export function Wordmark() {
   return (
@@ -265,7 +266,7 @@ export function sectionsFor(player: Player): Section[] {
     { path: "empire", label: player.empire ? "Empire" : "Empires", ...(player.empire && !player.empire.forming ? { count: player.empire.waiting, countWords: "waiting" } : {}) },
     { path: "market", label: "Markets", tabs: [{ path: "market", label: "Trade shares" }, { path: "companies", label: "Companies" }, { path: "property", label: "Property" }] },
     { path: "portfolio", label: "Money", ...((player.margin_calls ?? 0) > 0 ? { count: player.margin_calls, countWords: "margin calls" } : {}),
-      tabs: [{ path: "portfolio", label: "Portfolio and savings" }, { path: "borrow", label: "Borrow" }] },
+      tabs: [{ path: "portfolio", label: "Portfolio and savings" }, { path: "borrow", label: "Borrow" }, { path: "currencies", label: "Currencies" }] },
     { path: "news", label: "News", tabs: [{ path: "news", label: "News" }, { path: "intel", label: "Intelligence" }] },
     { path: "economy", label: "Economy", tabs: [{ path: "economy", label: "The economy" }, { path: "charities", label: "Charities" }] },
   ];
@@ -446,6 +447,7 @@ export function Shell({ player, live, current, onLogout, onPlayer, work, rail, a
       <BankAlerts onLoggedOut={onLogout} />
       <FundAlerts onLoggedOut={onLogout} />
       <EtfAlerts onLoggedOut={onLogout} />
+      <FxAlerts onLoggedOut={onLogout} />
     </div>
   );
 }

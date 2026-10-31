@@ -1111,3 +1111,4 @@ fieldset.check-list .check-line { display: flex; gap: 6px; align-items: center; 
 
 /* Index funds and ETFs (the talent and funds stage, Part 3): their pop-ups sit at the top right, clear of the funds' */
 .etf-alert-region { inset: 76px 16px auto auto; }
+.fx-alert-region { inset: 76px auto auto 16px; }

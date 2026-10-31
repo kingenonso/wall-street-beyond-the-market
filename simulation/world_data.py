@@ -1402,3 +1402,70 @@ COMPUTER_INDEX_FUNDS = (
     ("Broad Street Top 30 Index Fund", "TOP30", 25, 5_000_000_000),
     ("Broad Street Bond Index Fund", "GOVBOND", 20, 3_000_000_000),
 )
+
+
+# ---------------------------------------------------------------------------
+# The talent and funds stage, Part 4a: the currency desk and money from abroad
+# ---------------------------------------------------------------------------
+FX_CURRENCIES = (("USD", "US dollar", "$"), ("GBP", "British pound", "£"), ("EUR", "Euro", "€"))
+FX_GBP_USD_START = 1.27                      # dollars for one pound when the desk opens
+FX_EUR_USD_START = 1.08                      # dollars for one euro
+FX_CROSS_RETURN_BPS = 1_500                  # and each quarter they move 15% of the way back to their usual level
+FX_CROSS_SWING_BPS = 300                     # each quarter the pound and the euro move by up to about 3% against the dollar
+FX_RESERVES_START_QUARTERS = 2               # the Central Bank opens with two quarters' imports in dollars (its first Eurobonds add more)
+FX_OIL_TO_RESERVES_BPS = 6_000               # 60% of oil sold abroad comes back as dollars to the Central Bank
+FX_IMPORTS_FROM_RESERVES_BPS = 3_500         # 35% of what companies buy abroad is paid with dollars from the official window
+FX_RESERVES_OTHER_BPS = 300                  # money from abroad and back (loans, aid, debts): 3% of the gap to usual reserves a quarter
+FX_COMFORT_COVER_BPS = 25_000                # 2.5 quarters of imports: comfortable reserves
+FX_DEFEND_COVER_BPS = 20_000                 # the Central Bank defends the naira while it has 2 quarters of imports or more...
+FX_DEFEND_GAP_BPS = 500                      # ...once the street is 5% or more above the official rate
+FX_DEFEND_MOST_BPS = 1_000                   # it sells at most a tenth of its reserves defending in one quarter
+FX_DEVALUE_GAP_BPS = 1_500                   # a gap of 15% with reserves under comfortable: it devalues to the market
+FX_FLOAT_COVER_BPS = 10_000                  # reserves under one quarter of imports: it lets the naira float
+FX_REPEG_COVER_BPS = 30_000                  # reserves back over three quarters of imports: it manages the rate again
+FX_CRAWL_BPS = 2_500                         # a managed rate moves a quarter of the way to the market each quarter
+FX_SHORTAGE_PREMIUM_BPS = 400                # the street's extra for each quarter of imports the reserves are short of comfortable
+FX_BACKLOG_PREMIUM_BPS = 300                 # and up to 3% more while foreign investors wait for dollars
+FX_FLOAT_PREMIUM_BPS = 50                    # a floating naira: the street is barely above the official rate
+FX_STREET_NOISE_BPS = 60                     # the street's daily swing
+FX_STREET_SPREAD_BPS = 150                   # the street buys 1.5% below its middle rate and sells 1.5% above
+FX_STREET_DEPTH_BPS = 1_000                  # a tenth of a quarter's imports bought on the street in a day moves it 1%
+FX_STREET_MOST_IMPACT_BPS = 800
+FX_STREET_MOST_DEAL_CENTS = 100_000_000      # $1 million in one street deal
+FX_WINDOW_DAILY_BPS = 20                     # the official window hands out 0.2% of the reserves at each bell...
+FX_WINDOW_LIMIT_PLAYER_CENTS = 5_000_000     # ...a player may have $50,000 from it a quarter
+FX_WINDOW_LIMIT_EMPIRE_CENTS = 50_000_000    # ...an empire $500,000
+FX_WINDOW_HOLD_EXTRA_BPS = 1_000             # naira held for a request: 10% over the official rate, in case it moves
+FX_WINDOW_BUYBACK_BPS = 100                  # the window buys dollars back 1% under the official rate...
+FX_WINDOW_KEEP_QUARTERS = 2                  # dollars from the window cannot be sold on the street for two quarters
+FX_LEAST_CENTS = 1_000                       # the smallest currency deal: $10
+FX_BDC_LICENCE_NAIRA = 25_000_000            # a bureau de change's licence (to the regulator)
+FX_BDC_LEAST_CAPITAL_NAIRA = 200_000_000     # and the money its empire must have to open one
+FX_BDC_REPORT_CENTS = 1_000_000              # every deal of $10,000 or more is reported to the regulator
+FX_BDC_MOST_DEAL_CENTS = 20_000_000          # a bureau deals at most $200,000 at a time
+FX_RETAIL_DAILY_BPS = 100                    # households buy and sell about 1% of a quarter's imports a day through the bureaux
+FX_RETAIL_TO_PLAYERS_MOST_BPS = 6_000        # players' bureaux win at most 60% of it
+FX_REMIT_IMPORTS_BPS = 4_000                 # Nigerians abroad send home about 40% of what the country buys abroad, a quarter
+FX_REMIT_FESTIVE = {2: 1.15, 4: 1.35}        # more at Easter and at Christmas
+FX_REMIT_CHEAP_BPS = 20_000                  # families abroad send more when the street pays more naira: twice the street premium
+FX_REMIT_GROWTH_BPS = 500                    # and 5% more each year
+FX_REMIT_LICENCE_NAIRA = 50_000_000
+FX_REMIT_COST_PER_FAST_DAY_BPS = 30          # each day faster than five costs a remitter 0.3% of what it carries
+FX_COMPUTER_REMITTERS = (("Diaspora Express", 300, 3), ("HomeLink Transfers", 450, 1), ("Kola Remit", 200, 5))
+FX_EUROBOND_SPREAD_BPS = 450                 # what Nigeria pays over lending abroad on dollar bonds...
+FX_EUROBOND_SHORT_SPREAD_BPS = 150           # ...and more for each quarter of imports its reserves are short of comfortable
+FX_EUROBOND_COMPANY_EXTRA_BPS = 150          # a company pays more than the Government
+FX_EUROBOND_DISTRESS_BPS = 1_500             # a bond in default is priced at 15% more yield...
+FX_EUROBOND_RECOVERY_BPS = 6_000             # ...and on 60% of what it promises
+FX_EUROBOND_DEAL_BPS = 50                    # the dealers buy 0.5% below the fair price and sell 0.5% above
+FX_EUROBOND_FACE_CENTS = 100_000             # one Eurobond: $1,000
+FX_EUROBOND_TERM_QUARTERS = 20
+FX_GOVERNMENT_EUROBOND_BPS = 10_000          # the Government borrows a quarter's imports in dollars when its reserves run low
+FX_COMPANY_EUROBONDS = (("oil_gas", 3), ("telecoms", 1))   # the largest companies of these kinds borrow in dollars (how many)
+FX_COMPANY_EUROBOND_SHARE_BPS = 1_000        # each borrows a tenth of a year's sales, in dollars...
+FX_COMPANY_EUROBOND_MOST_BPS = 1_500         # ...but at most 15% of a quarter's imports
+FX_HEDGE_SHARE_BPS = 3_000                   # companies with dollar debts hedge 30% of a year's interest with currency forwards
+FX_EXIT_FROM_RESERVES_BPS = 500              # foreign investors leaving get at most 5% of the reserves a quarter
+FX_BACKLOG_TILT_BPS = 200                    # a backlog of a quarter's foreign money makes them 2% keener to sell
+SWAP_BANK_FX_SPREAD_BPS = 150                # a bank prices a currency forward 1.5% in its favour
+SWAP_MOST_DOLLARS_CENTS = 10_000_000_000     # a currency forward on at most $100 million a quarter

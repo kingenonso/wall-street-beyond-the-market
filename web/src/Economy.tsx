@@ -450,6 +450,24 @@ function Body({ economy }: { economy: Economy }) {
   );
 }
 
+/** The Central Bank's dollar reserves and the two naira rates (Part 4a). */
+function ReservesPanel({ onLoggedOut }: { onLoggedOut: () => void }) {
+  const fx = useLoad(api.fx, "fx", onLoggedOut);
+  const d = fx.data;
+  if (!d || !d.open) return null;
+  const quarters = (bps: number) => `${(bps / 10000).toFixed(1)} quarters of imports`;
+  return (
+    <Panel title="The naira and the Central Bank's reserves" aside={d.regime === "managed" ? "managed" : "floating"}>
+      <p className="small">
+        Official rate {formatCompact(d.official)} a dollar, street {formatCompact(d.street)} ({(d.gap_bps / 100).toFixed(1)}% above). Reserves: $
+        {(Number(d.reserves) / 1e11).toFixed(2)} billion, {quarters(d.cover_bps)}. {d.words} <a href="#/currencies">The currency desk</a>
+      </p>
+      <SingleLine name="Reserves ($ billion)" format={(v) => `$${v.toFixed(2)}bn`}
+        data={d.quarters.map((q) => ({ label: q.label, value: Number(q.reserves) / 1e11 }))} />
+    </Panel>
+  );
+}
+
 export function EconomyWork({ onLoggedOut }: { onLoggedOut: () => void }) {
   const { data, error, loading, reload } = useLoad(api.economy, "economy", onLoggedOut);
   return (
@@ -461,6 +479,7 @@ export function EconomyWork({ onLoggedOut }: { onLoggedOut: () => void }) {
       {loading && !data && <Loading what="the economy" />}
       {error && <Failed message={error} onRetry={reload} />}
       {data && <Body economy={data} />}
+      <ReservesPanel onLoggedOut={onLoggedOut} />
       <WatchPanel onLoggedOut={onLoggedOut} />
     </>
   );
