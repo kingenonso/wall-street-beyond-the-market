@@ -119,7 +119,9 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     the currency desk (test_fx*.py): a player changes their own money (or the head or Investment Banker their empire's) on the
     street, at the official window or at a bureau, deals in Eurobonds, and the head runs the empire's own bureau or
     money-transfer company; window dollars cannot be resold for two quarters, and every naira and dollar moves only through
-    the ledger."""
+    the ledger. Part 4b added foreign markets (test_world*.py): a player deals in shares listed abroad with their own dollars,
+    pounds or euros (or the head, Investment Banker or Asset Manager with the empire's, within their limit), and the head buys
+    part of a leaving parent's stake; shares and money move only through the ledger."""
     from server.main import app
 
     writes = sorted(
@@ -400,6 +402,8 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/talent/sections"),
         ("POST", "/api/talent/share"),
         ("POST", "/api/what-could-happen"),
+        ("POST", "/api/world/arms/{ticker}/stake"),
+        ("POST", "/api/world/companies/{ticker}/deal"),
         ("PUT", "/api/blocks/{block_id}"),
         ("PUT", "/api/bookkeeping/{engagement_id}/rating"),
         ("PUT", "/api/career/bank"),
