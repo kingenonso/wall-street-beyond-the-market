@@ -350,7 +350,7 @@ export function ArmPanel({ ticker, onLoggedOut }: { ticker: string; onLoggedOut:
     <Panel title="Its parent abroad">
       <p className="small">
         {a.words} {a.status !== "left" && <>{a.parent} ({a.parent_ticker}, listed abroad) holds {pct(a.stake_bps)} of it.{" "}
-        {Number(a.trapped) > 0 ? `${naira(a.trapped)} of its dividends are waiting here for dollars to be sent home.` : "Its dividends go home as they are paid."}</>}
+        {a.status === "parent" && (Number(a.trapped) > 0 ? `${naira(a.trapped)} of its dividends are waiting here for dollars to be sent home.` : "Its dividends go home as they are paid.")}</>}
         {a.status === "leaving" && <> It is selling its stake at {a.asking ? naira(a.asking) : "–"} a share until {a.deadline}: see <a href="#/market/world">World markets</a>.</>}
       </p>
     </Panel>
