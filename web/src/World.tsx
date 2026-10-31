@@ -91,14 +91,14 @@ export function WorldWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void;
       }} />}
       <Arms d={d} run={run} busy={busy} said={said} />
       <EconomiesPanel economies={d.economies} />
-      <Panel title="Foreign shares in naira">
+      {d.etfs.length > 0 && <Panel title="Foreign shares in naira">
         <p className="small">
           Without dollars, pounds or euros you can still hold foreign shares: the{" "}
           {d.etfs.map((e, i) => <span key={e.code}>{i ? (i === d.etfs.length - 1 ? " and " : ", ") : ""}<span className="strong">{e.name}</span></span>)}{" "}
           trade in naira on the Broad Street Exchange (<a href="#/market/etfs">Indexes &amp; ETFs</a>). Their naira go abroad through the street to buy the
           shares, so their value moves with the shares and with the naira: a weaker naira lifts them.
         </p>
-      </Panel>
+      </Panel>}
     </>
   );
 }
@@ -224,7 +224,7 @@ function CompanyPanel({ ticker, d, wallet, forEmpire, run, busy, said, onLoggedO
         </form>
       )}
       {d.arms.filter((a) => a.parent_ticker === ticker).map((a) => (
-        <p key={a.ticker} className="small">It owns {pct(a.stake_bps)} of <a href={`#/company/${a.ticker}`}>{a.name}</a> on the Broad Street Exchange.</p>
+        <p key={a.ticker} className="small">It owns {pct(a.stake_bps)} of <a href={`#/companies/${a.ticker}`}>{a.name}</a> on the Broad Street Exchange.</p>
       ))}
     </Panel>
   );
@@ -273,7 +273,7 @@ function Arms({ d, run, busy, said }: { d: WorldPage; run: Run; busy: boolean; s
           <tbody>
             {d.arms.map((a) => (
               <tr key={a.ticker}>
-                <td><a href={`#/company/${a.ticker}`}><span className="mono">{a.ticker}</span> {a.name}</a></td>
+                <td><a href={`#/companies/${a.ticker}`}><span className="mono">{a.ticker}</span> {a.name}</a></td>
                 <td>{a.parent} <span className="muted small">({a.parent_ticker})</span></td>
                 <td className="num mono">{pct(a.stake_bps)}</td>
                 <td className="num mono">{naira(a.trapped)}</td>

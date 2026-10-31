@@ -100,7 +100,7 @@ def _closed_period(conn: Connection) -> int:
 # ---------------------------------------------------------------------------
 
 def exchanges(conn: Connection) -> list[dict]:
-    return _rows(conn, "SELECT * FROM world_exchanges ORDER BY opened_at, code")
+    return _rows(conn, "SELECT * FROM world_exchanges ORDER BY array_position(ARRAY['HSE', 'THX', 'RMX'], code), code")
 
 
 def _exchange(conn: Connection, code: str) -> dict:
@@ -278,7 +278,7 @@ def _big_day(conn: Connection, ex: dict, day: date, level: int, at: datetime) ->
     if not before:
         return
     move = (level - before["level"]) * BPS // max(before["level"], 1)
-    if abs(move) < 500:
+    if abs(move) < 600:
         return
     words = "falls" if move < 0 else "jumps"
     _alert(conn, kind="world_fall", now=at, headline=f"The {ex['index_name']} {words} {abs(move) / 100:.1f}% in a day",
@@ -402,7 +402,9 @@ def _setup_indexes_and_etfs(conn: Connection, now: datetime, period: int) -> Non
     if not etfs.ready(conn) or not _one(conn, "SELECT 1 AS x FROM market_indexes LIMIT 1"):
         return
     from simulation import exchange
-    day = exchange.session_of(now)[0]
+    # The bell's own trading day (a bell rung after 22:00 belongs to the day that just closed): the next bell counts the
+    # first day's move, so an ETF and its index start together.
+    day = exchange.session_of(now - timedelta(hours=1))[0]
     for code, name, city, country, zone, currency, opens, closes, index_code, index_name in data.WORLD_EXCHANGES:
         if _one(conn, "SELECT 1 AS x FROM market_indexes WHERE code = %s", (index_code,)):
             continue
@@ -1201,7 +1203,7 @@ def _companies_view(conn: Connection, now: datetime, path: _Path) -> list[dict]:
     out = []
     arms = {r["parent_id"]: r for r in _rows(conn, "SELECT a.parent_id, a.status, c.ticker, c.name FROM world_arms a JOIN companies c ON c.id = a.company_id")}
     exs = {e["code"]: e for e in exchanges(conn)}
-    for co in _rows(conn, "SELECT c.*, e.currency FROM world_companies c JOIN world_exchanges e ON e.code = c.exchange ORDER BY e.opened_at, c.exchange, c.ticker"):
+    for co in _rows(conn, "SELECT c.*, e.currency FROM world_companies c JOIN world_exchanges e ON e.code = c.exchange ORDER BY array_position(ARRAY['HSE', 'THX', 'RMX'], c.exchange), c.ticker"):
         ex = exs[co["exchange"]]
         p = price_of(conn, co, now, path=path, ex=ex)
         prev = last_close(conn, co["id"], local_day(ex, now))            # the day before's close: today's move

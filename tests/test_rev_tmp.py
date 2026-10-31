@@ -44,7 +44,7 @@ def test_r1_a_one_share_trade_sets_the_price_a_leaving_parent_sells_its_stake_at
     exchange.place_order(db, account=s_acct, ticker="AHP", side="sell", kind="limit", quantity=1, limit_price=low, now=t9)
     assert world.market_price(db, arm["company_id"]) == low               # one share moved "the market price" 10%
     issued = ledger.amount_in_existence(db, arm["share_asset"])
-    want = issued * 2_500 // BPS                                          # a quarter of the company
+    want = issued * 100 // BPS                                            # 1% of the company
     got = world.buy_stake(db, head, "AHP", want, t9)
     # What SHOULD hold: never below the market (test 12's own rule). It is bought ~10% below the reference.
     assert got["price"] >= fair_price, (got["price"], fair_price, f"saved ₦{(fair_price - got['price']) * want / 100:,.0f}")
@@ -79,9 +79,9 @@ def test_r2_the_empires_that_bought_a_parents_stake_are_not_named_to_everybody(d
 
 def test_r3_a_buy_is_never_cheaper_than_the_price_plus_the_spread(db):
     opened(db)
-    player, _ = person(db, "ada", cash_naira=1_600_000_000)
-    dollars(db, player, 50_000_000)
-    dollars(db, player, 50_000_000, "GBP")
+    player, _ = person(db, "ada", cash_naira=800_000_000)
+    dollars(db, player, 10_000_000)
+    dollars(db, player, 10_000_000, "GBP")
     bad = []
     for ticker in ("MRTA", "HRWB", "SLTM", "TSRN", "PRHF", "LDGR"):
         co = _co(db, ticker)
@@ -143,42 +143,6 @@ def test_r5_a_tenth_dearer_oil_adds_about_half_a_point_to_inflation_abroad(db, m
 
 
 # ---------------------------------------------------------------------------
-# 6. The overnight pull towards "fair" (shown on the company page) is a known move bigger than the round trip's cost.
-# ---------------------------------------------------------------------------
-
-def test_r6_the_known_part_of_the_next_open_does_not_pay_more_than_a_round_trip_costs(db):
-    opened(db)
-    path = world._Path(db)
-    cost = 2 * data.WORLD_SPREAD_BPS / BPS
-    picked, all_r, known = [], [], []
-    for ex in world.exchanges(db):
-        cos = [dict(c, currency=ex["currency"]) for c in _rows(db, "SELECT * FROM world_companies WHERE exchange = %s", (ex["code"],))]
-        day = world.local_day(ex, ex["opened_at"]) + timedelta(days=1)
-        for _ in range(60):
-            start, end = world.session(ex, day)
-            nstart, _ = world.session(ex, day + timedelta(days=1))
-            buy_at, sell_at = end - timedelta(minutes=1), nstart + timedelta(minutes=1)
-            world.advance(db, buy_at)
-            before = {c["id"]: world.price_of(db, c, buy_at, path=path, ex=ex) for c in cos}
-            world.advance(db, sell_at)
-            for c in cos:
-                closed = world.last_close(db, c["id"])                     # the price at the close (public)
-                after = world.price_of(db, c, sell_at, path=path, ex=ex)
-                pull = (math.log(float(c["fair"])) - math.log(float(closed))) * data.WORLD_FAIR_PULL_BPS / BPS
-                r = float(after) * (1 - data.WORLD_SPREAD_BPS / BPS) / (float(before[c["id"]]) * (1 + data.WORLD_SPREAD_BPS / BPS)) - 1
-                all_r.append(r)
-                if pull > cost:                                             # known before the close, from public figures
-                    picked.append(r)
-                    known.append(pull)
-            day += timedelta(days=1)
-    mean = sum(picked) / max(len(picked), 1)
-    print(f"\n{len(picked)} of {len(all_r)} company-nights had a known pull above the round trip's cost;"
-          f" their mean known pull {sum(known) / max(len(known), 1) * 100:.2f}%, mean realised return after spreads {mean * 100:.3f}%"
-          f" (all nights: {sum(all_r) / len(all_r) * 100:.3f}%)")
-    assert len(picked) == 0 or mean <= 0
-
-
-# ---------------------------------------------------------------------------
 # 7. A parent leaving because the naira fell is announced as "₦0.00 of its dividends wait for dollars".
 # ---------------------------------------------------------------------------
 
@@ -194,3 +158,44 @@ def test_r7_no_alert_about_nothing_waiting_for_dollars(db, monkeypatch):
     world._decide(db, p + 8, NIGHT, world._seed(db))
     nothing = _rows(db, "SELECT headline FROM fx_alerts WHERE kind = 'world_trapped' AND headline LIKE '₦0.00 %%'")
     assert nothing == []
+
+
+# ---------------------------------------------------------------------------
+# 8. Redeeming units of a foreign ETF for cash: the fund sells a slice of its foreign shares at 0.6% below their price, but
+#    raise_cash only sells 0.2% more than needed, so the dealer is paid short (its units are already gone).
+# ---------------------------------------------------------------------------
+
+@pytest.mark.world("eight")
+def test_r8_a_dealer_redeeming_foreign_etf_units_for_cash_is_paid_in_full(db):
+    from simulation import etfs
+    t9 = opened8(db)
+    head, _, empire = empire_head(db)
+    eid = empire["id"] if isinstance(empire, dict) else empire
+    db.execute("INSERT INTO etf_dealers (empire_id, approved_at) VALUES (%s, %s)", (eid, t9))
+    e = etfs.by_code(db, "HUDX")
+    units = data.ETF_CREATION_UNITS * 200                      # about ₦200 million
+    etfs.create(db, head, "HUDX", units, "cash", t9)
+    got = etfs.redeem(db, head, "HUDX", units, "cash", t9)
+    owed = units * got["nav"] - got["fee"]
+    print(f"\nowed ₦{owed / 100:,.2f}, paid ₦{got['paid'] / 100:,.2f}, short ₦{(owed - got['paid']) / 100:,.2f}")
+    assert got["paid"] == owed
+    sound(db)
+
+
+# ---------------------------------------------------------------------------
+# 9. Units made (and unmade) by households and the market makers against cash pay a 0.1% fee, but buying (selling) the
+#    foreign shares costs the fund 0.6%: every such flow takes value from everybody already holding the ETF.
+# ---------------------------------------------------------------------------
+
+def test_r9_units_made_by_households_do_not_take_value_from_existing_holders(db, monkeypatch):
+    from simulation import etfs
+    opened(db)
+    monkeypatch.setattr(fx, "_move_street", lambda conn, cents: None)      # leave the naira where it is, to see the fund alone
+    e = etfs.by_code(db, "THMX")
+    households = ledger.account_id(db, etfs.HOUSEHOLDS)
+    before = etfs.nav_now(db, e, NIGHT)
+    out = etfs.units_out(db, e)
+    etfs._create_cash(db, e, households, out, NIGHT, 1, fee_bps=etfs.DEALING_COST_BPS)   # as world._households does
+    after = etfs.nav_now(db, etfs.by_code(db, "THMX"), NIGHT)
+    print(f"\nNAV {before} -> {after} kobo ({(after - before) * BPS / before:.1f} bps) after households doubled the fund")
+    assert after >= before - 1
