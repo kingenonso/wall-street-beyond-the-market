@@ -18,7 +18,7 @@ currency, and both are shown. Dividends are paid in the currency, after tax kept
 Five Nigerian companies are the Nigerian arms of companies listed abroad: their founders' stake belongs to the parent.
 The parent's dividends wait in naira until there are dollars to send them home: when the Central Bank's reserves are low,
 they pile up. A parent with years of dividends stuck here, or a naira that has lost much of its value, may decide to leave:
-for two quarters empires may buy pieces of its stake below the market price (and any takeover offer gets its shares); what
+for two quarters empires may buy pieces of its stake at the market price (and any takeover offer gets its shares); what
 is left then goes to the pension funds at a deeper discount.
 
 ETFs of foreign shares trade on the Broad Street Exchange in naira: their naira go abroad (through the street) to buy the
@@ -942,7 +942,7 @@ def _announce_leaving(conn: Connection, arm: dict, company: dict, period: int, n
                   f"{parent['name']} is selling its stake and leaving Nigeria: {why}.", arm["company_id"]))
     held = ledger.balance(conn, arm["parent_account"], company["share_asset"])
     _alert(conn, kind="world_exit", now=now, headline=f"{parent['name']} is leaving Nigeria: its stake in {company['name']} is for sale",
-           words=f"For two quarters empires may buy pieces of its {held:,} shares at 10% below the market price (Markets, World markets),"
+           words=f"For two quarters empires may buy pieces of its {held:,} shares at the market price (Markets, World markets),"
                  " and any takeover offer gets them. What is left then goes to the pension funds.")
     _news(conn, "world_leaving", now, {"parent": parent["name"], "company": company["name"], "why": why, "ticker": company["ticker"]},
           key=company["ticker"], tickers=[company["ticker"]])
@@ -982,7 +982,7 @@ def _deadlines(conn: Connection, period: int, now: datetime) -> None:
 
 
 def buy_stake(conn: Connection, player_id, ticker: str, shares: int, now: datetime) -> dict:
-    """The head of an empire buys part of a leaving parent's stake, at 10% below the market price, staying under 30%."""
+    """The head of an empire buys part of a leaving parent's stake, at the market price, staying under 30%."""
     from simulation import firm_dealmaking
     if not _whole(shares, 1, 10 ** 12):
         raise WorldError("Buy a whole number of shares.")
@@ -1195,7 +1195,7 @@ def _companies_view(conn: Connection, now: datetime, path: _Path) -> list[dict]:
     for co in _rows(conn, "SELECT c.*, e.currency FROM world_companies c JOIN world_exchanges e ON e.code = c.exchange ORDER BY e.opened_at, c.exchange, c.ticker"):
         ex = exs[co["exchange"]]
         p = price_of(conn, co, now, path=path, ex=ex)
-        prev = last_close(conn, co["id"], local_day(ex, now) if not is_open(ex, now) and now >= session(ex, local_day(ex, now))[1] else local_day(ex, now))
+        prev = last_close(conn, co["id"], local_day(ex, now))            # the day before's close: today's move
         prev = prev or co["fair"]
         arm = arms.get(co["id"])
         out.append({

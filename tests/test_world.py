@@ -237,7 +237,7 @@ def test_a_leaving_parent_sells_pieces_to_empires_and_the_rest_to_the_pension_fu
     got = world.buy_stake(db, head, "AHP", want, t9)
     acct = _one(db, "SELECT account_id FROM empires WHERE head_player_id = %s", (head,))["account_id"]
     assert ledger.balance(db, acct, arm["share_asset"]) == want
-    assert got["price"] < world.market_price(db, arm["company_id"])
+    assert got["price"] == world.market_price(db, arm["company_id"])
     with pytest.raises(world.WorldError):
         world.buy_stake(db, head, "AHP", issued * 3_000 // BPS, t9)          # never to 30%
     db.execute("UPDATE world_arms SET deadline_period = 9 WHERE company_id = %s", (arm["company_id"],))
@@ -264,3 +264,109 @@ def test_the_parent_votes_with_the_board(db):
     vote = _one(db, "SELECT * FROM company_votes WHERE id = %s", (vid,))
     tally = corporate._tally(db, vote, corporate._investors(db))
     assert tally["Foreign parent"][0] > 0
+
+
+# ---------------------------------------------------------------------------
+# Prices, dividends and what a holding made
+# ---------------------------------------------------------------------------
+
+def _co(db, ticker):
+    return _one(db, "SELECT c.*, e.currency FROM world_companies c JOIN world_exchanges e ON e.code = c.exchange WHERE ticker = %s", (ticker,))
+
+
+def test_a_dividend_takes_the_price_down_by_its_size(db):
+    opened(db)
+    co = _co(db, "TGSP")
+    path = world._Path(db)
+    before = world.price_of(db, co, NIGHT, path=path, with_impact=False)
+    world._pay_dividend(db, co, Decimal(50), 0, NIGHT, path)
+    after = world.price_of(db, co, NIGHT, path=path, with_impact=False)
+    assert abs(float(before - after) - 50) < 0.01
+
+
+def test_a_price_is_drawn_towards_what_the_share_is_worth(db):
+    opened(db)
+    co = _co(db, "PRHF")
+    db.execute("UPDATE world_quotes SET base = %s WHERE company_id = %s", (co["fair"] / 2, co["id"]))
+    world.advance(db, NIGHT + timedelta(days=12))
+    later = world.last_close(db, co["id"])
+    assert later > co["fair"] / 2 * Decimal("1.15")          # twelve days of the pull close a good part of the gap
+
+
+def test_a_holding_shows_what_it_made_on_the_share_and_on_the_currency(db):
+    opened(db)
+    player, account = person(db, "ada", cash_naira=800_000_000)
+    dollars(db, player, 20_000_000)
+    world.deal(db, player, "LDGR", "buy", 100, TRADING)
+    # The naira falls by a tenth: the dollars the shares cost are worth more naira.
+    db.execute("ALTER TABLE fx_days DISABLE TRIGGER fx_days_permanent")
+    db.execute("UPDATE fx_days SET street = street * 11 / 10")
+    db.execute("ALTER TABLE fx_days ENABLE TRIGGER fx_days_permanent")
+    h = world.page(db, player, TRADING)["mine"]["holdings"][0]
+    assert h["currency_gain_naira"] > 0
+
+
+# ---------------------------------------------------------------------------
+# ETFs of foreign shares
+# ---------------------------------------------------------------------------
+
+def test_an_etf_of_foreign_shares_follows_the_naira(db):
+    from simulation import etfs
+    opened(db)
+    e = etfs.by_code(db, "HUDX")
+    before = etfs.nav_now(db, e, NIGHT)
+    db.execute("ALTER TABLE fx_days DISABLE TRIGGER fx_days_permanent")
+    db.execute("UPDATE fx_days SET street = street * 12 / 10")
+    db.execute("ALTER TABLE fx_days ENABLE TRIGGER fx_days_permanent")
+    assert etfs.nav_now(db, e, NIGHT) > before * 115 // 100
+
+
+def test_buying_an_etf_of_foreign_shares_sends_naira_abroad_through_the_street(db):
+    from simulation import etfs
+    opened(db)
+    world_abroad, _ = abroad.accounts(db)
+    held = ledger.balance(db, world_abroad)
+    street = fx.street(db)
+    e = etfs.by_code(db, "THMX")
+    households = ledger.account_id(db, etfs.HOUSEHOLDS)
+    etfs._create_cash(db, e, households, data.ETF_CREATION_UNITS * 1500, NIGHT, 1, fee_bps=0)
+    assert ledger.balance(db, world_abroad) > held
+    assert fx.street(db) > street
+    sound(db)
+
+
+# ---------------------------------------------------------------------------
+# A parent's decision, and takeover offers
+# ---------------------------------------------------------------------------
+
+def test_a_parent_with_years_of_dividends_stuck_may_decide_to_leave(db, monkeypatch):
+    opened(db)
+    arm = _arm(db)
+    monkeypatch.setattr(data, "WORLD_PARENT_LEAVE_CHANCE_BPS", BPS)
+    monkeypatch.setattr(world, "_yearly_dividends_to_parent", lambda *a: 1_000)
+    ledger.transfer(db, payer=ledger.account_id(db, ledger.TREASURY), receiver=arm["parent_account"], amount=1_000_000, kind="test", memo="stuck")
+    world._decide(db, 1, NIGHT, world._seed(db))
+    assert _arm(db)["status"] == "leaving"
+    assert _one(db, "SELECT 1 AS x FROM fx_alerts WHERE kind = 'world_exit'")
+
+
+def test_a_leaving_parent_gives_its_shares_to_a_takeover_offer_and_a_staying_one_does_not(db):
+    from simulation import corporate
+    opened(db)
+    arm = _arm(db)
+    bid = {"target_company_id": arm["company_id"], "hostile": True, "defence_value": None, "premium_bps": 500, "price": 1}
+    who = corporate._investors(db)
+    assert arm["parent_account"] not in corporate._computer_run_acceptances(db, bid, who)
+    db.execute("UPDATE world_arms SET status = 'leaving' WHERE company_id = %s", (arm["company_id"],))
+    assert corporate._computer_run_acceptances(db, bid, who)[arm["parent_account"]] > 0
+
+
+def test_households_put_some_of_their_index_money_into_etfs_of_foreign_shares(db):
+    from simulation import etfs
+    opened(db)
+    households = ledger.account_id(db, etfs.HOUSEHOLDS)
+    e = etfs.by_code(db, "HUDX")
+    before = ledger.balance(db, households, e["asset"])
+    _close(db)
+    assert ledger.balance(db, households, e["asset"]) != before
+    sound(db)

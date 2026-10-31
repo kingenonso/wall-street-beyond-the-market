@@ -1112,3 +1112,15 @@ fieldset.check-list .check-line { display: flex; gap: 6px; align-items: center; 
 /* Index funds and ETFs (the talent and funds stage, Part 3): their pop-ups sit at the top right, clear of the funds' */
 .etf-alert-region { inset: 76px 16px auto auto; }
 .fx-alert-region { inset: 76px auto auto 16px; }
+
+/* Foreign markets (Part 4b) */
+.world-exchanges { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.world-exchange { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 12px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--raised); color: var(--text); font: inherit; cursor: pointer; }
+.world-exchange.current { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
+.world-exchange:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.dot-open, .dot-closed { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 2px; }
+.dot-open { background: var(--up); }
+.dot-closed { background: var(--muted); }
+.world-row-chosen td { background: var(--gold-soft); }
+.world-economies { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }

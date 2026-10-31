@@ -1215,6 +1215,11 @@ export const api = {
   etfAlerts: (mark: number | null) => request<{ mark: number; alerts: EtfAlert[] }>(`/etfs/alerts${mark === null ? "" : `?after=${mark}`}`),
   fx: () => request<FxPage>("/fx"),
   fxAct: (path: string, body?: unknown) => request<{ result: unknown }>(path, { method: "POST", body: JSON.stringify(body ?? {}) }),
+  world: () => request<WorldPage>("/world"),
+  worldCompany: (ticker: string) => request<WorldCompany>(`/world/companies/${ticker}`),
+  worldEconomies: () => request<WorldEconomies>("/world/economies"),
+  worldArm: (ticker: string) => request<{ arm: WorldArm | null }>(`/world/arms/${ticker}`),
+  worldAct: (path: string, body?: unknown) => request<{ result: unknown }>(path, { method: "POST", body: JSON.stringify(body ?? {}) }),
   fxAlerts: (mark: number | null) => request<{ mark: number; alerts: FxAlert[] }>(`/fx/alerts${mark === null ? "" : `?after=${mark}`}`),
   fundAlerts: (mark: number | null) => request<{ mark: number; alerts: FundAlert[] }>(`/funds/alerts${mark === null ? "" : `?after=${mark}`}`),
   pensionFund: (method: "POST" | "PUT" | "DELETE", path: string, body?: unknown) =>
@@ -1454,3 +1459,44 @@ export type FxPage = {
   licences: { bdc: string; bdc_capital: string; remitter: string; report: string };
 };
 export type FxAlert = { id: number; kind: string; headline: string; words: string; at: string };
+
+// Foreign markets (the talent and funds stage, Part 4b). Money in kobo and cents is text; prices abroad are numbers of cents.
+export type WorldCur = "USD" | "GBP" | "EUR";
+export type WorldExchange = {
+  code: string; name: string; city: string; currency: WorldCur; is_open: boolean; opens: string; closes: string; next_change: string;
+  index_name: string; index_code: string; level: number | string | null; close: number | string | null; days: { day: string; level: string }[];
+};
+export type WorldListed = {
+  ticker: string; name: string; exchange: string; city: string; sector: string; currency: WorldCur; price: number; bid: number; ask: number;
+  change_bps: number; pe: number | null; yield_bps: number; cap: string; arm: { ticker: string; name: string; status: string } | null;
+};
+export type WorldHolding = {
+  ticker: string; name: string; currency: WorldCur; shares: string; price: number; value: string; value_naira: string; cost: string;
+  cost_naira: string; share_gain_naira: string; currency_gain_naira: string;
+};
+export type WorldWallet = {
+  balances: Record<WorldCur, string>; holdings: WorldHolding[]; worth: string;
+  trades: { ticker: string; side: string; shares: string; price: number; amount: string; currency: WorldCur; at: string }[];
+};
+export type WorldEconomy = {
+  code: string; name: string; bank: string; trend_bps: number; target_bps: number;
+  latest: { period: number; growth_bps: number; inflation_bps: number; rate_bps: number; words: string };
+  history: { period: number; label: string; growth_bps: number; inflation_bps: number; rate_bps: number; words: string }[];
+};
+export type WorldArm = {
+  ticker: string; name: string; parent: string; parent_ticker: string; exchange: string; status: "parent" | "leaving" | "left";
+  stake_bps: number; shares: string; trapped: string; sent_last: string; asking: string | null; deadline: string | null; words: string;
+};
+export type WorldPage = {
+  open: boolean; exchanges: WorldExchange[]; companies: WorldListed[]; economies: WorldEconomy[];
+  mine: WorldWallet | null; empire: (WorldWallet & { name: string }) | null; is_head: boolean; arms: WorldArm[];
+  etfs: { code: string; name: string }[]; rules: { spread_bps: number; withholding_bps: number; most_deal_usd: string };
+};
+export type WorldCompany = WorldListed & {
+  about: string; shares: string; exchange_name: string; is_open: boolean; opens: string; closes: string; fair: number; eps_ttm: number; dps: number;
+  results: { period: number; label: string; revenue: number; profit: number; eps: number; dps: number; fair: number; pe: number; words: string }[];
+  days: { day: string; close: number }[];
+};
+export type WorldEconomies = {
+  open: boolean; economies?: WorldEconomy[]; gbp_usd?: number; eur_usd?: number; rate_abroad?: number; rules?: string;
+};

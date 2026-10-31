@@ -1,3 +1,4 @@
+import { WorldEconomiesPanel } from "./World";
 import { api, type AbroadSummary, type ConsumersSummary, type Economy, type MoneyWatch, type PropertySummary } from "./api";
 import { WatchPanel } from "./Crisis";
 import { changeBps, formatCompact, formatPercent } from "./format";
@@ -480,6 +481,7 @@ export function EconomyWork({ onLoggedOut }: { onLoggedOut: () => void }) {
       {error && <Failed message={error} onRetry={reload} />}
       {data && <Body economy={data} />}
       <ReservesPanel onLoggedOut={onLoggedOut} />
+      <WorldEconomiesPanel onLoggedOut={onLoggedOut} />
       <WatchPanel onLoggedOut={onLoggedOut} />
     </>
   );

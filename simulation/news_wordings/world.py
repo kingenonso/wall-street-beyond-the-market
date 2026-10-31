@@ -111,7 +111,7 @@ WORDINGS = {
         ],
         "ledger": [
             ("{parent} puts its {company} stake up for sale",
-             "The parent cites that {why}. Pieces go at a discount for two quarters, and the pension funds take what is left."),
+             "The parent cites that {why}. Empires may buy pieces for two quarters, and the pension funds take what is left at a discount."),
             ("Exit: {parent} to sell {company}",
              "Another foreign owner leaves as {why}. Any takeover offer for {company} will get its shares."),
             ("{company} ownership to change",

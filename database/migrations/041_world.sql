@@ -217,7 +217,7 @@ CREATE TABLE world_arms (
     pressure          integer NOT NULL DEFAULT 0,          -- quarters in a row the parent has had reason to leave
     announced_period  integer,
     deadline_period   integer,
-    asking_bps        integer NOT NULL DEFAULT 1000,       -- while leaving: how far below the market it sells its stake
+    asking_bps        integer NOT NULL DEFAULT 0,          -- while leaving: how far below the market it sells its stake (never, so far)
     sold_to           text,
     sold_period       integer,
     words             text NOT NULL DEFAULT ''
