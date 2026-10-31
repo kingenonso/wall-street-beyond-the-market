@@ -23,7 +23,13 @@ Nothing was dropped or put off. Following the owner's standing rule, nothing new
 
 The loophole tests found two holes and the independent review found nine problems. Every one was fixed and tested.
 
-Tests at the end: [[TESTS]]
+Tests at the end:
+- 1,532 server tests in 93 files, all passing. Part 4b added 49: 26 for the markets themselves, 13 loophole tests and 10 for the review's findings.
+- Five older tests were brought up to date because they count things Part 4b adds:
+  - the kinds of news and their wordings (one headline was reworded so none repeats);
+  - the kinds of holdings in net worth;
+  - the requests that change anything.
+- The engine's 13 tests and the website's 23 tests also pass.
 
 ## Things worth knowing, said plainly
 
@@ -98,6 +104,15 @@ Tests at the end: [[TESTS]]
 1. A leaving parent's stake at 10% below the market could be bought and sold straight back on the exchange. It now sells at the market price.
 2. With only half of a quarter's news in the price at once, the rest came in day after day for anyone to collect. Now 80% is priced at once, and the daily pull is gentler.
 
+**By the ten-year runs (each one fixed, most with a test):**
+1. A closing bell's count of everybody's net worth valued foreign shares by walking their prices to the computer's own clock, not the world's. In the run this slowed everything badly. In a live game it would only have cost time.
+2. A parent that sold everything to a takeover offer still counted as staying.
+3. Paying a company Eurobond through the street failed when the street's own dealers held some of it. This was a Part 4a fault, seen only with a floating naira.
+4. Parents could send home too little at first (all five left within ten years), then too much (none left). They may now send 6% of the reserves a quarter between them.
+5. Oil moved inflation abroad too hard, so America's rate fell almost to nothing. It is now calmer.
+6. A player was sent a pop-up for every dividend from every company, over 5,500 in one run. Now it is one a quarter.
+7. An oil company with a few bad quarters was valued at almost nothing. Shares are now valued on at least 40% of what the company earns at its usual margin.
+
 **By the independent review:**
 1. One small trade between two players could set the price a leaving parent sold its stake at. The price is now the highest of three measures.
 2. Dealing abroad for an empire skipped the trading limit and the Risk Manager's freeze. The currency desk's empire deals did too, a gap from Part 4a. Both are now guarded, and nobody can deal in a company abroad the other way to their own empire on the same day.
@@ -119,7 +134,34 @@ Tests at the end: [[TESTS]]
 
 ## The ten-year run (40 quarters, with the earlier stages running)
 
-[[RUN]]
+The final run took 57 minutes. A shock to oil was staged in quarter 24, and two bank shocks were staged as before. Two earlier runs found the problems listed above. The first of them had to be resumed from saved points because of a two-hour limit, which repeated part of quarter 12's trading.
+
+- **The books.**
+  - The ledger audit was clean at the end, and the foreign markets' own checks found nothing wrong in any quarter.
+  - The only two oddities were the staged bank shocks, as in earlier runs.
+  - The markets' work at each bell took 0.03 seconds on average (0.4 at most).
+- **The markets abroad.**
+  - Over ten years the Hudson 10 doubled (to 2,041). The Rhine-Main 10 ended at 1,623 and the Thames 10 at 1,534.
+  - They had falls and jumps of 6% or more in a day 27 times.
+- **The economies abroad.**
+  - Growth ran from −1.5% to 4.2% a year, and inflation between 0.2% and 3.3%.
+  - America's rate went from 4% down to 0.1% by the end, as its inflation fell. Britain's ranged from 1.25% to 4.75%, and the euro area's from 0.5% to 2.75%.
+  - The pound moved between $1.18 and $1.34, the euro between $0.94 and $1.18.
+- **The naira.**
+  - The Central Bank defended it once (quarter 13). It floated in quarter 35, when its reserves fell under one quarter of imports.
+  - The official rate ended at ₦2,092 a dollar, and the street's premium peaked at 9%.
+- **Players.** They made 465 purchases and 87 sales of foreign shares. Dividends paid out came to about £3.1 million, $2.3 million and €2.3 million.
+- **The Nigerian arms.**
+  - The parents sent home ₦661 billion of dividends.
+  - When reserves were low, up to ₦112 billion of one parent's money waited for dollars, and 77 pop-ups said so. The float let everything waiting go home at once.
+  - Two parents left:
+    - Hollis & Grant, from Amaka Household Products (quarters 18 to 20). The test empire bought a piece of its stake and the pension funds took the rest.
+    - Polder Dairy Group, from Ayo Dairy (quarters 33 to 35), to the pension funds.
+  - Three stayed.
+- **ETFs of foreign shares.**
+  - They tracked their naira indexes within 0.4% to 0.7% a quarter. Over ten years they ended between 9% behind and 4% ahead. A falling naira made the gap harder to keep small.
+  - Households held about ₦229 billion of them at the end (more as the street's premium rose).
+- **Money sent home** (from Part 4a) came to about $980 million, carried by four companies, one of them the player's own.
 
 ## Screenshots (docs/screenshots/world-4b/)
 
