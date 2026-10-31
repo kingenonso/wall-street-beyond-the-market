@@ -370,3 +370,16 @@ def test_households_put_some_of_their_index_money_into_etfs_of_foreign_shares(db
     _close(db)
     assert ledger.balance(db, households, e["asset"]) != before
     sound(db)
+
+
+def test_an_asset_manager_can_launch_an_etf_of_a_foreign_index(db):
+    from simulation import etfs
+    from simulation.money import naira
+    from tests.test_etfs import person as etf_person
+    opened(db)
+    ada, acc = etf_person(db, "ada", build="asset_manager", level=20)
+    etf = etfs.launch(db, ada, code="ADAW", name="Ada Hudson Tracker", index_code="HUD10", method="sample", fee_bps=40, seed=naira(10_000_000),
+                      now=TRADING)
+    held = etfs.holdings_value(db, etf["account_id"], TRADING)["lines"]
+    assert held and all(x["asset"].startswith("FSH-") for x in held)
+    sound(db)
