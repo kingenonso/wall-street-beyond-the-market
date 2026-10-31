@@ -1190,7 +1190,8 @@ def held_value(conn: Connection, account, now: datetime | None = None) -> int:
     """What an account's foreign shares are worth now (kobo): what the brokers would pay, at what the street pays for the currency."""
     if not opened(conn):
         return 0
-    now = now or _one(conn, "SELECT now() AS t")["t"]
+    # Without a time (a closing bell's count of everybody's worth): the moment of the last closing bell, the world's own clock.
+    now = now or (_one(conn, "SELECT max(rung_at) AS t FROM closing_bells")["t"] or _one(conn, "SELECT now() AS t")["t"])
     total = 0
     path = _Path(conn)
     for co in _rows(conn, "SELECT c.*, e.currency, b.balance::bigint AS held FROM world_companies c JOIN world_exchanges e ON e.code = c.exchange"
