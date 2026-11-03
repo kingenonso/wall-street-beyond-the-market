@@ -1,7 +1,9 @@
 # Part 4c checklist: new industries
 
-**Built on 3 November 2026. The closing report, `docs/STAGE_4C_NEW_INDUSTRIES.md`, is still to be
-written.**
+**Built in part on 3 November 2026, committed as `677c618`. Items 1 to 15 are built and tested; items 16
+to 32 are built or rely on machinery that already exists, but the tests this page names for them have not
+been written; items 33 to 38 are not done. `docs/STAGE_4C_NEW_INDUSTRIES.md` is a draft of the closing
+report that sets out exactly what is missing.**
 
 Written 3 November 2026, after the owner approved the company names in
 `docs/PART_4C_NEW_INDUSTRIES_PROPOSAL.md`.
