@@ -2,9 +2,10 @@
 
 **This is not yet the report working rule 7 asks for.** The stage is built in part and committed
 (`677c618`, 3 November 2026), but seventeen of its thirty-two build items have no test yet, and the
-loophole check, the independent review, the ten-year run and the screenshots have not been done. What
-follows records what is genuinely finished, what is built but untested, and what is still missing. It
-should be rewritten as a proper report once those are done.
+independent review, the ten-year run and the screenshots have not been done. The loophole check is now
+answered: its ten tests are written and read through against the code, though not yet run. What follows
+records what is genuinely finished, what is built but untested, and what is still missing. It should be
+rewritten as a proper report once those are done.
 
 The owner approved the six industries and the twenty-four company names on 3 November 2026 in
 `docs/PART_4C_NEW_INDUSTRIES_PROPOSAL.md`, and the item list sits in `docs/PART_4C_CHECKLIST.md`.
@@ -163,9 +164,11 @@ test runner available where this report was written.
 
 **Items 33 to 38 are not done.**
 
-33. **The loophole check.** Ten applicable questions are named in the checklist. None has an automated
-    test yet, and no second AI has been asked to break the feature. This is the largest piece of work
-    left.
+33. **The loophole check.** The ten applicable questions now have one automated test each, in
+    `tests/test_part4c_loopholes.py`: `test_q1_...` to `test_q10_...`, in the checklist's order. They
+    have not been run, only read through against the code they test. The answers are set out below, and
+    no question needed a change to the game's own code. No second AI has yet been asked to break the
+    feature (item 34).
 34. **The independent review.** Not run.
 35. **The ten-year run.** Not run. Nothing here reports a ledger audit, a market speed or the fate of the
     new companies over forty quarters.
@@ -175,12 +178,41 @@ test runner available where this report was written.
     have not been seen to pass together.
 38. **The report and the push.** This file is a draft of the report. Nothing has been pushed.
 
+## The loophole check, question by question
+
+Working rule 3 asks ten questions of every feature. Six are about the new industries themselves and four
+are about the money and the shops they touch. Every answer is "no", and each answer has a test in
+`tests/test_part4c_loopholes.py` that reads the same tables the game reads, so an answer cannot quietly
+stop being true without the test failing.
+
+The rule underneath all ten: a player may do damage to another player, never to the game. Cheating a
+rival out of a company is play; conjuring money, or reading a secret, is not.
+
+| # | The question | The answer, and what holds it | The test |
+|---|---|---|---|
+| 1 | Can a player see a private company's true figures before buying? | No. A private company is shut to both screens that could show one — its own page and its facts page both answer "there is no company with that code" — and it is left out of the market list itself, so the refusal is the whole of it and not a filter on one door. A buyer is shown the company's published worth and the papers in the data room, which are signed for first. | `test_q1_...` |
+| 2 | Can a player move value between a company they own and one they do not? | No, in either direction. Overpaying is refused at the bid: no price above 150% of what the company is worth and of its asking price (`firm_deals.OVERPAY_MOST_BPS`). Underpaying is refused at the close: the seller has a reserve — 85% of the asking price — beneath which no bid wins, and the bidder's money, held in escrow while the bid stood, comes back to the kobo. | `test_q2_...` |
+| 3 | Can a basket too thin to defend itself be gamed? | No, because there is nothing to lean on. The six new baskets carry no futures and no options — a settled contract on a three-name basket would let one player move everyone's settlement — and the weighting rule holds the largest name at half the index however much of it is bought. | `test_q3_...` |
+| 4 | Can a miner's dollar borrowing be used to dodge the naira? | No. The miner sells the dollars it borrows to the Central Bank at once, so it holds naira and cannot sit on the dollars; what it owes stays in dollars. When the naira falls, the quarter's revaluation is the miner's own loss in its own accounts. The currency risk cannot be handed to anybody else. | `test_q4_...` |
+| 5 | Can a film hit be forecast from anything a player is shown? | No. What happens in a quarter is drawn from the world's secret — no secret, no draw — and the draw is a fixed scramble of the secret, the quarter, the kind and the company, so it is the same answer every time it is asked and cannot be re-rolled by asking again. Across many worlds it lands both ways for the same company and the same quarter, which it could not do if it followed the ticker or the date. | `test_q5_...` |
+| 6 | Can the fertiliser-to-farm link be arbitraged? | No. The link is a published share of what farms spend, in the same table every industry uses, and the fertiliser maker's own cost runs back to gas. It is a chain of costs between two companies, not two prices to trade against each other, and neither end is something a player can buy into or out of at will. | `test_q6_...` |
+| 7 | Can wages be avoided by moving staff into a new industry? | No. All twenty-four pay wages out of their own running costs, and the employer's pension contribution rides on top at the same rate as everywhere else. There is no kind of company a player can be put in to escape them. | `test_q7_...` |
+| 8 | Can a private company be made to pay its owner twice? | No. A dividend is one transaction: what leaves the company is never less than what reaches its owners, the difference is kobo of rounding that stays with the company, and a second payment in the same quarter would have to be a second transaction, of which there is none. | `test_q8_...` |
+| 9 | Can a rescue of a new company be turned into free money? | No. A rescue fee is paid by the company being rescued, or owed by it, so it is a cost of that company and never money from nowhere. With a quarter closed over all of it, the ledger still balances, the crisis desk's own books still hold, and every naira that should exist does. | `test_q9_...` |
+| 10 | Can a new basket's index be moved single-handed? | No. Two limits bound it: the largest name is half the index, and no share may move more than a tenth in a session, both measured by the exchange's own rules rather than the test's. Together the most one player can pull a basket in a day is 5%. With no futures on the six, there is also no contract to lean on while moving it. | `test_q10_...` |
+
+One thing the tests turned up, worth knowing rather than fixing: the checklist's note on the futures
+decision does its arithmetic on a **four**-name basket (37.5% for one company). The baskets the build
+actually creates hold the **three** listed companies of each industry, so the ceiling is 50%, as items 3
+and 10 now check. The decision itself — no futures on these six — is untouched by that, and is if
+anything better supported by it.
+
 ## What is needed to close the stage
 
 In order, the shortest path:
 
-1. Write the seventeen missing tests the checklist names, starting with the loophole check (item 33),
-   because it may change the code and every other test with it.
+1. Write the seventeen missing tests the checklist names. Ten of them are the loophole check, now
+   written in `tests/test_part4c_loopholes.py`; the other seven cover items 16 to 32.
 2. Run the whole suite and fix what falls over, listing each older test brought up to date.
 3. Run the ten-year run with the staged oil shock and the two bank shocks, and fix what it finds.
 4. Take the screenshots, in dark and light theme, and on a phone for the markets and a company page.
@@ -191,7 +223,12 @@ In order, the shortest path:
 ## Honest limits
 
 - Nothing in this file has been seen to pass. The fifteen tests in `tests/test_part4c.py` were
-  byte-compiled, not run, when this was written.
+  byte-compiled, not run, when this was written, and the ten loophole tests have only been compiled and
+  read through against the code they test.
+- Reading the loophole tests against that code changed one of them: the test for moving value out of a
+  company first expected a bid far *below* the asking price to be refused at the bid, and it is not —
+  a low bid is allowed to stand and is refused at the close by the seller's reserve. The test now says
+  so. No game code was changed by the check.
 - The six industries appear in the game's data and machinery, but the screens have not been looked at.
   "Not checked" in the table means exactly that.
 - The private companies of Part 2A are owned by founders and bought through deals; these six follow the
