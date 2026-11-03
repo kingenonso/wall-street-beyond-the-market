@@ -13,12 +13,15 @@ from simulation.money import naira
 pytestmark = pytest.mark.world("eight")
 
 
-def test_the_list_shows_all_50_companies_in_their_12_sectors(client, player):
+def test_the_list_shows_all_68_companies_in_their_18_sectors(client, player):
     sectors = client.get("/api/companies").json()["sectors"]
     assert [s["name"] for s in sectors][:3] == ["Commercial banks", "Consumer goods, food and drinks", "Oil and gas"]
-    assert len(sectors) == 12
-    assert sum(len(s["companies"]) for s in sectors) == 50
-    assert [len(s["companies"]) for s in sectors] == [7, 6, 4, 4, 3, 4, 4, 6, 3, 2, 3, 4]
+    assert len(sectors) == 18
+    assert sum(len(s["companies"]) for s in sectors) == 68
+    # Part 4c added six industries of three listed companies each; the fourth in each is private and does not
+    # appear in a list of what may be bought. The last six are medicines, groceries, technology, film, mining
+    # and fertilisers, in that order.
+    assert [len(s["companies"]) for s in sectors] == [7, 6, 4, 4, 3, 4, 4, 6, 3, 2, 3, 4, 3, 3, 3, 3, 3, 3]
 
     ikenga = next(c for c in sectors[0]["companies"] if c["ticker"] == "IKB")
     assert ikenga["name"] == "Ikenga Bank"
@@ -86,7 +89,7 @@ def test_companies_need_a_login(client):
 
 def test_world_status_names_the_latest_closed_quarter(client, player):
     assert client.get("/api/world/status").json() == {
-        "companies": 50, "last_closed_period": 8, "last_closed_label": "Year 2 Q4",
+        "companies": 68, "last_closed_period": 8, "last_closed_label": "Year 2 Q4",
     }
 
 

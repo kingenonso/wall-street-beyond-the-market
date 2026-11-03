@@ -1309,6 +1309,7 @@ from simulation import (  # noqa: E402
     leagues,
     objectives_ceo,  # noqa: E402,F401   (adds the leadership work of the CEO track)
     objectives_gap,  # noqa: E402,F401   (the gap stage: the library brought to 350, Levels 41 to 100)
+    objectives_industries,  # noqa: E402,F401 (Part 4c: one piece for each of the six new industries, one to each build)
     objectives_intel,  # noqa: E402,F401 (Stage 10, Part 2: sources, investigations and economic intelligence)
     objectives_more,  # noqa: E402,F401  (adds the work of the other four builds to the library)
     objectives_news,  # noqa: E402,F401  (Stage 10: work about the news, and the editors who come back)

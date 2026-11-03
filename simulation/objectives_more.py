@@ -982,6 +982,9 @@ def _verify_submit(ctx, objective, answers):
 
 
 def _league_offer(ctx):
+    # An industry is offered once it has three listed companies, because a leader and its share of an industry
+    # of one or two says nothing. Part 4c's six have three listed each (the fourth is private and files nothing),
+    # so they are offered on the same rule as every other industry and never fall below it.
     sectors = [s for s in insight.industries(ctx["conn"], ctx["now"]) if len(s["companies"]) >= 3 and s["sales"] > 0]
     if not sectors:
         return None

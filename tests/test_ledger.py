@@ -306,7 +306,7 @@ def test_balances_always_agree_with_the_entries(db):
 @pytest.mark.world("eight")
 def test_everything_in_the_ledger_sums_to_zero(db):
     totals = db.execute("SELECT asset, sum(balance) FROM ledger_balances GROUP BY asset").fetchall()
-    companies = db.execute("SELECT count(*) FROM companies").fetchone()[0]                # 50 listed, 30 private, and start-ups
+    companies = db.execute("SELECT count(*) FROM companies").fetchone()[0]                # 68 listed, 36 private, and start-ups
     # (Since the gap stage, preferred shares and warrants are assets of their own too.)
     assert len([asset for asset, _ in totals if not asset.startswith(("BND-", "PRF-", "WRT-", "DEP-"))]) == 1 + companies >= 81      # naira and a share class each
     # (Since the crises stage, each bank's savings are an asset of their own too.)

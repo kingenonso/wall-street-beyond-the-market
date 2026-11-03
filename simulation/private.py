@@ -40,6 +40,11 @@ ASSETS: dict[str, tuple[str, str, int]] = {
     "real_estate": ("estate", "estates", 120), "manufacturing": ("factory line", "factory lines", 60),
     "media": ("studio", "studios", 60), "power": ("mini-grid", "mini-grids", 80), "transport": ("truck fleet", "truck fleets", 40),
     "banking": ("branch", "branches", 120), "insurance": ("office", "offices", 120),
+    # Part 4c: the six new industries, so a private one of theirs is described in its own words
+    # and wears out at its own pace, rather than falling back on "plant".
+    "pharma": ("medicine plant", "medicine plants", 80), "retail": ("store", "stores", 100),
+    "technology": ("data centre", "data centres", 60), "entertainment": ("sound stage", "sound stages", 100),
+    "mining": ("pit", "pits", 150), "fertiliser": ("urea plant", "urea plants", 100),
 }
 HANGAR_LIFE = 120
 HANGAR_SHARE_BPS = 1500           # an airline's hangars: this share of what it owns

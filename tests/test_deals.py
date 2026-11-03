@@ -122,7 +122,7 @@ def test_thirty_private_companies_trade_in_the_economy_but_are_not_on_the_exchan
     from tests.conftest import ADULT, join
     assert join(client, ADULT).status_code == 201
     listed = client.get("/api/companies").json()["sectors"]
-    assert sum(len(s["companies"]) for s in listed) == 50
+    assert sum(len(s["companies"]) for s in listed) == 68
     eks = private_ones[0]["ticker"]
     assert client.get(f"/api/companies/{eks}").status_code == 404
     names = {c["name"] for c in private_ones}

@@ -72,6 +72,25 @@ SECTORS: tuple[Sector, ...] = (
            fixed_assets_x=22000, cash_x=1000, debt_x=4500, loan_rate_bps=2200, payout_bps=3000),
     Sector("shipping", "Shipping and ports", 6000, 1600, 350, FLAT,
            fixed_assets_x=16000, cash_x=1200, debt_x=5000, loan_rate_bps=2000, payout_bps=3500),
+    # --- Talent and funds stage, part 4c: six new industries. ---
+    # Medicines: a high cost of sales because the ingredients are bought abroad, and steady demand all year.
+    Sector("pharma", "Medicines and healthcare", 5500, 2600, 450, (9900, 10000, 10000, 10100),
+           fixed_assets_x=7000, cash_x=1200, debt_x=2500, loan_rate_bps=1900, payout_bps=4000),
+    # Shops: the thinnest margin in the game (a shop keeps a tenth of what it takes), and a festive last quarter.
+    Sector("retail", "Groceries and retail", 7400, 2000, 380, (9500, 9800, 10000, 11000),
+           fixed_assets_x=4500, cash_x=900, debt_x=2500, loan_rate_bps=2000, payout_bps=4500),
+    # Technology: fast growing, little borrowing, and it pays out little because it puts its money back in.
+    Sector("technology", "Technology and payments", 4200, 3600, 800, FLAT,
+           fixed_assets_x=6000, cash_x=2500, debt_x=1500, loan_rate_bps=1800, payout_bps=1500),
+    # Film and music: a hit-or-nothing industry, with the year's takings weighed to the last quarter.
+    Sector("entertainment", "Film and entertainment", 5600, 2600, 500, (9400, 9900, 10000, 11100),
+           fixed_assets_x=5000, cash_x=1200, debt_x=2000, loan_rate_bps=2100, payout_bps=2500),
+    # Mining: heavy on machines and ground, so a large fixed-asset base and real borrowing.
+    Sector("mining", "Solid minerals and mining", 5800, 1900, 350, FLAT,
+           fixed_assets_x=16000, cash_x=1100, debt_x=4000, loan_rate_bps=2000, payout_bps=3000),
+    # Fertilisers: gas is most of the cost, and the money is made in the planting season.
+    Sector("fertiliser", "Fertilisers and agro-chemicals", 6400, 1800, 420, (9000, 10600, 10800, 9600),
+           fixed_assets_x=13000, cash_x=1100, debt_x=4000, loan_rate_bps=1950, payout_bps=3500),
 )
 
 # The same for every company (stand-ins until Stage 3).
@@ -231,6 +250,43 @@ COMPANIES: tuple[Company, ...] = (
     Company("OPS", "Onne Port Services", "shipping", PORT_HARCOURT, 30_000, lender="OBB", listed=False, trend_bps=150),
     Company("CCS", "Calabar Coastal Shipping", "shipping", PORT_HARCOURT, 14_000, lender="KCB", listed=False,
             overdue_bps=2_000, debt_times_bps=15_000, cash_times_bps=3_000),
+
+    # --- Talent and funds stage, part 4c: twenty-four companies in six new industries.
+    # Eighteen are listed and six are private, one in each industry. Names were approved
+    # by the owner on 3 November 2026; every one is invented. ---
+    # Medicines and healthcare.
+    Company("OGP", "Ogbomoso Pharma", "pharma", LAGOS, 95_000, lender="IKB"),
+    Company("OVP", "Osun Valley Pharmaceuticals", "pharma", LAGOS, 210_000, lender="HMB", bond_share_bps=4000),
+    Company("YBM", "Yaba Medicare", "pharma", ABUJA, 140_000, lender="ZCB", trend_bps=300),
+    Company("ILD", "Ilesa Diagnostics", "pharma", PORT_HARCOURT, 28_000, lender="OBB", listed=False, trend_bps=250),
+    # Groceries and retail.
+    Company("WSG", "Wuse Grocers", "retail", ABUJA, 260_000, lender="HMB", bond_share_bps=4000),
+    Company("GBF", "Gboko Fresh Markets", "retail", KANO, 75_000, lender="ZCB"),
+    Company("ADK", "Aduke Stores", "retail", LAGOS, 22_000, lender="OTB", listed=False, trend_bps=200),
+    Company("OTG", "Otukpo Grocers", "retail", ABA, 45_000, lender="KCB", cost_extra_bps=200),
+    # Technology and payments.
+    Company("ZGP", "Zanga Pay", "technology", LAGOS, 180_000, lender="IKB", bond_share_bps=4000, trend_bps=600),
+    Company("OJD", "Oja Digital", "technology", LAGOS, 120_000, lender="KCB", trend_bps=450, volatility_bps=900),
+    Company("NMS", "Nembe Softworks", "technology", ABUJA, 38_000, lender="ZCB"),
+    Company("IKS", "Ikere Cloud Services", "technology", LAGOS, 26_000, lender="IKB", listed=False,
+            trend_bps=350, cash_times_bps=2_500, debt_times_bps=13_000),
+    # Film and entertainment.
+    Company("GDS", "Gidi Screen", "entertainment", LAGOS, 88_000, lender="OTB", volatility_bps=1_100),
+    Company("ILP", "Ilorin Pictures", "entertainment", ABUJA, 34_000, lender="ZCB", volatility_bps=1_200),
+    Company("UFS", "Uyo Film Studios", "entertainment", PORT_HARCOURT, 15_000, lender="OBB"),
+    Company("OTS", "Otun Sounds", "entertainment", LAGOS, 9_000, lender="IKB", listed=False,
+            trend_bps=400, volatility_bps=1_400),
+    # Solid minerals and mining.
+    Company("KDG", "Kaduna Goldfields", "mining", ABUJA, 145_000, lender="HMB", bond_share_bps=4000,
+            volatility_bps=800),
+    Company("BTM", "Bauchi Tin Mines", "mining", KANO, 62_000, lender="ZCB"),
+    Company("ECM", "Enugu Coal Mines", "mining", ABA, 40_000, lender="KCB", trend_bps=-300, cost_extra_bps=500),
+    Company("OMM", "Omu Minerals", "mining", LAGOS, 18_000, lender="OTB", listed=False, volatility_bps=1_400),
+    # Fertilisers and agro-chemicals.
+    Company("WRU", "Warri Urea", "fertiliser", PORT_HARCOURT, 195_000, lender="OBB", bond_share_bps=4000),
+    Company("GMF", "Gombe Fertilisers", "fertiliser", KANO, 110_000, lender="HMB"),
+    Company("KAC", "Katsina Agro-Chemicals", "fertiliser", ABUJA, 30_000, lender="ZCB"),
+    Company("ICS", "Ijebu Crop Science", "fertiliser", ABA, 21_000, lender="KCB", listed=False, trend_bps=200),
 )
 
 # Whole sectors have good and bad quarters too: up to this far above or below trend.
@@ -279,6 +335,17 @@ SECTOR_FIT: dict[tuple[str, str], int] = {
     ("oil_gas", KANO): 800,
     ("power", KANO): 400,
     ("power", ABA): 300,
+    # Part 4c: the six new industries.
+    ("pharma", LAGOS): -200,               # near the ports the ingredients arrive at
+    ("retail", LAGOS): -300,               # the biggest market in the country
+    ("retail", KANO): -100,                # the northern trading centre
+    ("technology", LAGOS): -400,           # where the engineers are
+    ("technology", ABUJA): -150,
+    ("entertainment", LAGOS): -400,        # the creative centre
+    ("mining", KANO): -200,                # tin country
+    ("mining", ABUJA): -50,
+    ("fertiliser", PORT_HARCOURT): -300,   # the gas
+    ("fertiliser", KANO): -150,            # beside the farms that buy it
 }
 
 # What each kind of company buys from other kinds, as a share of its own sales
@@ -293,8 +360,11 @@ INPUTS: dict[str, dict[str, int]] = {
                       "media": 150, "insurance": 50},
     "cement":        {"oil_gas": 900, "power": 600, "transport": 600, "manufacturing": 300, "banking": 100,
                       "insurance": 50},
+    # Part 4c: the farms now buy crop chemicals and fertiliser, which is what gives the
+    # fertiliser makers a customer of flesh and blood rather than only the household till:
+    # a quarter of what a farm spends on supplies now goes to them.
     "agriculture":   {"oil_gas": 400, "transport": 500, "manufacturing": 500, "banking": 150, "insurance": 100,
-                      "power": 100},
+                      "power": 100, "fertiliser": 600},
     "real_estate":   {"cement": 2000, "manufacturing": 900, "transport": 300, "oil_gas": 200, "banking": 250,
                       "insurance": 100, "power": 100},
     "manufacturing": {"power": 700, "oil_gas": 500, "transport": 500, "agriculture": 400, "manufacturing": 600,
@@ -310,6 +380,23 @@ INPUTS: dict[str, dict[str, int]] = {
                       "insurance": 100, "banking": 100, "media": 150},
     "shipping":      {"oil_gas": 2000, "manufacturing": 700, "insurance": 300, "banking": 150, "power": 100,
                       "telecoms": 50},
+    # Part 4c. The medicine makers buy most of their ingredients from manufacturing, which is on the list of
+    # things paid for in dollars, so a weak naira raises their costs without any new machinery.
+    "pharma":        {"manufacturing": 3400, "power": 400, "transport": 300, "banking": 150, "telecoms": 100,
+                      "insurance": 50},
+    # The shops buy the goods they sell, and pay to move them.
+    "retail":        {"consumer": 3600, "agriculture": 1200, "transport": 500, "manufacturing": 300, "power": 300,
+                      "banking": 150, "telecoms": 50},
+    "technology":    {"power": 800, "telecoms": 700, "manufacturing": 400, "real_estate": 300, "banking": 150,
+                      "media": 100},
+    "entertainment": {"media": 400, "manufacturing": 700, "telecoms": 500, "real_estate": 300, "power": 300,
+                      "transport": 200, "banking": 100},
+    # The miners run machines on fuel and power, and move what they dig.
+    "mining":        {"oil_gas": 1200, "power": 700, "manufacturing": 700, "transport": 600, "cement": 200,
+                      "banking": 150, "insurance": 100},
+    # The fertiliser makers' cost is mostly gas.
+    "fertiliser":    {"oil_gas": 3600, "power": 600, "transport": 400, "manufacturing": 300, "banking": 150,
+                      "insurance": 50},
 }
 
 # Where the Government's purchases go, and where companies' spending on buildings
@@ -799,12 +886,17 @@ IMPORT_SHARE_BPS: dict[str, int] = {
     "manufacturing": 2_500, "aviation": 3_500, "telecoms": 3_000, "power": 2_000, "oil_gas": 1_500,
     "consumer": 1_500, "cement": 1_500, "shipping": 2_000, "transport": 2_000, "agriculture": 800,
     "real_estate": 1_200, "media": 1_500, "hospitality": 1_200, "banking": 800, "insurance": 500,
+    # Part 4c. The medicine makers buy most of their ingredients abroad, more than any other industry, which is
+    # what makes a weak naira their story. The miners buy their machines and spares abroad but sell for dollars,
+    # so the same fall in the naira costs them less than it earns them.
+    "pharma": 5_500, "retail": 2_000, "technology": 2_500, "entertainment": 1_500, "mining": 2_500,
+    "fertiliser": 800,
 }
 IMPORT_SWITCH_BPS = 8_000              # when goods abroad are 10% dearer, companies buy 8% less of them there (and more at home)
 EXPORT_SWITCH_BPS = 10_000             # and buyers abroad buy 10% more farm produce and factory goods when the naira is 10% cheaper
 IMPORT_PRICE_WEIGHT_BPS = 800          # imported goods are this much of what households pay for: a weaker naira raises prices
 OIL_EXPORT_SHARE_BPS = 7_500           # oil and gas earn three quarters of what the country sells abroad on day one...
-NON_OIL_EXPORTS = {"agriculture": 6_000, "manufacturing": 4_000}   # ...farms and factories the rest
+NON_OIL_EXPORTS = {"agriculture": 6_000, "manufacturing": 4_000, "mining": 3_000}   # ...farms, factories, and the mines the rest
 OIL_ROYALTY_BPS = 2_000                # the Government takes a fifth of what oil sold abroad brings in
 ABROAD_RESERVE_QUARTERS = 4            # the rest of the world starts with four quarters' imports in naira
 ABROAD_MOST_SPEND_BPS = 6_000          # and spends at most 60% of what it holds in naira in one quarter
@@ -909,6 +1001,10 @@ SECTOR_FACTOR_LOADINGS = {
     "media": {"economy": 0.5}, "banking": {"economy": 0.4, "money": 0.4}, "insurance": {"economy": 0.3, "money": 0.3},
     "oil_gas": {"energy": 0.8}, "power": {"economy": 0.3, "energy": 0.3}, "cement": {"building": 0.6, "economy": 0.3},
     "real_estate": {"building": 0.6, "economy": 0.3}, "agriculture": {"farming": 0.8}, "shipping": {"economy": 0.4, "energy": 0.2},
+    # Part 4c. Technology leans hardest of any industry on the money force, which is what makes a rise in the
+    # long interest rate hurt its shares most. Fertilisers lean on gas (energy) and on the farms that buy them.
+    "pharma": {"economy": 0.4}, "retail": {"economy": 0.7}, "technology": {"economy": 0.3, "money": 0.6},
+    "entertainment": {"economy": 0.6}, "mining": {"economy": 0.4, "energy": 0.3}, "fertiliser": {"energy": 0.6, "farming": 0.4},
 }
 COMPANY_SHARES_OF_SECTOR = 0.5         # a company carries half of its industry's lean; the rest of its luck is its own
 OIL_LOADINGS = {"energy": 0.9}
@@ -996,7 +1092,7 @@ SHORT_BAN_SHARE_FALL_BPS = 1500        # the Securities Regulator stops new shor
 SHORT_BAN_MARKET_FALL_BPS = 1000       # ...and in every share when the BSX 50 falls 10% in a day...
 SHORT_BAN_DAYS = 3                     # ...for three trading days
 HEDGE_SELLERS = ("OPP", "BRE", "DCG", "UGS")            # oil and gas producers sell oil futures for part of next quarter's output...
-HEDGE_BUYERS_SECTORS = ("aviation", "transport", "shipping", "power")   # ...and the big users of fuel buy them
+HEDGE_BUYERS_SECTORS = ("aviation", "transport", "shipping", "power", "mining", "fertiliser")   # ...and the big users of fuel buy them
 HEDGE_SELL_SHARE_BPS = 2500            # a producer hedges about a quarter of a quarter's sales...
 HEDGE_BUY_SHARE_BPS = 1000             # ...a user about a tenth
 HEDGE_MOST_CONTRACTS = 400             # and never more than this many contracts a company
@@ -1006,7 +1102,7 @@ SWAP_MOST_BARRELS = 100_000            # an oil swap on at most 100,000 barrels 
 SWAP_BANK_RATE_SPREAD_BPS = 50         # a bank's fixed rate: half a point in its favour
 SWAP_BANK_OIL_SPREAD_BPS = 200         # a bank's fixed oil price: 2% in its favour
 SWAP_MOST_TIMES_WORTH = 5              # swaps carry no collateral: all of an account's together on at most five times its worth
-PREFERRED_SECTORS = ("banking", "insurance", "telecoms", "power", "real_estate")   # who may sell preferred shares...
+PREFERRED_SECTORS = ("banking", "insurance", "telecoms", "power", "real_estate", "technology")   # who may sell preferred shares...
 PREFERRED_RATINGS = ("AAA", "AA", "A")  # ...if sound...
 PREFERRED_ONE_IN = 4                    # ...about one quarter in four for each such company
 PREFERRED_SIZE_BPS = 200                # 2% of what the company owns
@@ -1349,6 +1445,18 @@ INDEXES = (
     ("DIVIDEND", "BSX High Dividend", "shares", "dividend",
      "The ten listed companies that paid the most in dividends over the last year, for their size."),
     ("PROPERTY", "BSX Property", "shares", "sector:real_estate", "Every listed property and construction company."),
+    # --- Part 4c: a basket for each of the six new industries, so index funds and ETFs may copy them.
+    # The owner approved no futures on these: a basket of three is too thin for a contract, and a thin
+    # basket is the easiest place to move a price by hand. ---
+    ("PHARMA", "BSX Medicines", "shares", "sector:pharma",
+     "Every listed company that makes medicines, runs hospitals or does medical tests."),
+    ("RETAIL", "BSX Retail", "shares", "sector:retail", "Every listed grocery and retail company."),
+    ("TECH", "BSX Technology", "shares", "sector:technology", "Every listed technology and payments company."),
+    ("FILM", "BSX Film & Entertainment", "shares", "sector:entertainment",
+     "Every listed film, music and entertainment company."),
+    ("MINING", "BSX Mining", "shares", "sector:mining", "Every listed mining company."),
+    ("FERT", "BSX Fertilisers", "shares", "sector:fertiliser",
+     "Every listed maker of fertilisers and crop chemicals."),
     ("GOVBOND", "Federal Government Bond", "bonds", "govbond", "Every Federal Government bond and bill still to be repaid, by the amount owed."),
     ("CORPBOND", "Company Bond", "bonds", "corpbond", "Every company bond still to be repaid and not in default, by the amount owed."),
 )
@@ -1461,7 +1569,7 @@ FX_EUROBOND_DEAL_BPS = 50                    # the dealers buy 0.5% below the fa
 FX_EUROBOND_FACE_CENTS = 100_000             # one Eurobond: $1,000
 FX_EUROBOND_TERM_QUARTERS = 20
 FX_GOVERNMENT_EUROBOND_BPS = 10_000          # the Government borrows a quarter's imports in dollars when its reserves run low
-FX_COMPANY_EUROBONDS = (("oil_gas", 3), ("telecoms", 1))   # the largest companies of these kinds borrow in dollars (how many)
+FX_COMPANY_EUROBONDS = (("oil_gas", 3), ("telecoms", 1), ("mining", 2))   # the largest companies of these kinds borrow in dollars (how many)
 FX_COMPANY_EUROBOND_SHARE_BPS = 1_000        # each borrows a tenth of a year's sales, in dollars...
 FX_COMPANY_EUROBOND_MOST_BPS = 1_500         # ...but at most 15% of a quarter's imports
 FX_HEDGE_SHARE_BPS = 3_000                   # companies with dollar debts hedge 30% of a year's interest with currency forwards

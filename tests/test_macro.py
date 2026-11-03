@@ -665,7 +665,7 @@ def test_twenty_game_years_run_and_inflation_stays_in_its_band_for_the_first_fiv
     jobs = [j for (j,) in db.execute("SELECT sum(jobs) FROM household_results WHERE period >= 1 GROUP BY period ORDER BY period").fetchall()]
     assert min(jobs) > jobs[0] * 80 // 100
     # Every balance sheet balances, in every quarter, for every company.
-    assert db.execute("SELECT count(*) FROM company_results r JOIN companies c ON c.id = r.company_id WHERE c.listed").fetchone()[0] == 50 * 81
+    assert db.execute("SELECT count(*) FROM company_results r JOIN companies c ON c.id = r.company_id WHERE c.listed").fetchone()[0] == 68 * 81
     assert db.execute("SELECT count(*) FROM company_results WHERE total_assets <> total_liabilities + total_equity").fetchone()[0] == 0
     assert db.execute("SELECT count(*) FROM company_results WHERE cash < 0 OR staff < 0 OR revenue < 0").fetchone()[0] == 0
     # No naira without a recorded payer: every transaction adds up to zero, nobody but the

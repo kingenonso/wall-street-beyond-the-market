@@ -79,6 +79,13 @@ KINDS: tuple[NewsKind, ...] = (
                                   "companies": "Benue Harvest Foods and 2 other companies"}),
     NewsKind("network_outage", 60, _SECTOR),
     NewsKind("new_competition", 50, {**_SECTOR, "severity": "moderate"}),
+    # --- Part 4c: the six new industries ---
+    NewsKind("drug_shortage", 62, {**_SECTOR, "sector": "medicines",
+                                   "companies": "Osun Valley Pharmaceuticals and 3 other companies"}),
+    NewsKind("payments_outage", 60, {**_SECTOR, "sector": "technology",
+                                     "companies": "Zanga Pay and 3 other companies"}),
+    NewsKind("bumper_harvest", 54, {**_SECTOR, "sector": "fertilisers", "severity": "strong",
+                                    "companies": "Warri Urea and 3 other companies"}),
     # --- ...to one company ---
     NewsKind("company_strike", 60, _COMPANY),
     NewsKind("scandal", 70, _COMPANY),
@@ -86,6 +93,17 @@ KINDS: tuple[NewsKind, ...] = (
     NewsKind("factory_fire", 72, _COMPANY),
     NewsKind("product_recall", 60, _COMPANY),
     NewsKind("new_product", 50, {**_COMPANY, "severity": "strong"}),
+    # --- Part 4c: one company at a time, in the six new industries ---
+    NewsKind("bad_batch", 58, {**_COMPANY, "company": "Osun Valley Pharmaceuticals", "ticker": "OVP",
+                               "sector": "medicines"}),
+    NewsKind("mine_accident", 74, {**_COMPANY, "company": "Kaduna Goldfields", "ticker": "KDG",
+                                   "location": "Abuja", "sector": "mining"}),
+    NewsKind("seam_runs_out", 52, {**_COMPANY, "company": "Bauchi Tin Mines", "ticker": "BTM",
+                                   "sector": "mining"}),
+    NewsKind("film_flops", 53, {**_COMPANY, "company": "Gidi Screen", "ticker": "GDS",
+                                "sector": "film and entertainment"}),
+    NewsKind("film_hit", 56, {**_COMPANY, "company": "Ilorin Pictures", "ticker": "ILP",
+                              "location": "Abuja", "sector": "film and entertainment"}),
     # --- ...to the price of a commodity ---
     NewsKind("energy_price_jump", 70, _PRICE),
     NewsKind("energy_price_fall", 62, _PRICE),

@@ -344,7 +344,7 @@ def test_a_company_not_yet_on_the_exchange_lists_its_shares_by_selling_some_to_t
     assert 0 < got <= 2_000
     trading = datetime.fromisoformat("2026-10-13T13:00:00+01:00")
     assert place(db, player, "sell", got, 2_500, now=trading, ticker="ABA")["order"]["status"] == "open"     # it trades
-    assert len(marketview.overview(db, trading)["shares"]) == 50
+    assert len(marketview.overview(db, trading)["shares"]) == 68
     whole(db)
 
 
@@ -494,7 +494,7 @@ def test_over_two_years_companies_use_the_market_and_everything_is_settled_clean
 
 def test_who_controls_a_company_is_whoever_holds_more_than_half(db):
     rows = corporate.ownership(db)
-    assert len(rows) == 50
+    assert len(rows) == 68
     for row in rows:
         assert (row["controller"] is not None) == (row["share_bps"] > 5000)
         assert "Player" not in row["summary"] and "player" not in row["summary"]
@@ -535,7 +535,7 @@ def test_offers_votes_and_bids_through_the_server(db, client, monkeypatch):
     assert client.put("/api/corporate/offers/999999", json={"shares": 1}).status_code == 409
     assert client.put("/api/corporate/takeovers/999999", json={"shares": 1}).status_code == 409
     assert client.put(f"/api/corporate/offers/{offer_id}", json={"shares": 10**9}).status_code == 409         # more than the player's cash
-    assert len(client.get("/api/corporate/ownership").json()) == 50
+    assert len(client.get("/api/corporate/ownership").json()) == 68
     facts = client.get("/api/market/IDC/facts").json()
     assert facts["control"] and facts["notices"][0]["title"].endswith("rights issue")
     whole(db)

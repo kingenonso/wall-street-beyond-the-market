@@ -698,7 +698,7 @@ def test_the_build_screens_have_their_figures(db, client):
     client.put("/api/career/bank", json={"ticker": "IKB"})
     client.put("/api/career/job", json={"ticker": "IDC"})
     desk = client.get("/api/desk/accountant").json()
-    assert desk["ticker"] == "IDC" and desk["is_employer"] and len(desk["quarters"]) == 8 and len(desk["companies"]) == 50
+    assert desk["ticker"] == "IDC" and desk["is_employer"] and len(desk["quarters"]) == 8 and len(desk["companies"]) == 68
     latest = desk["quarters"][0]
     income = {k: int(v) for k, v in latest["income_statement"].items()}
     assert latest["ratios"]["Profit after tax ÷ sales (%)"] == round(income["net_profit"] * 100 / income["revenue"], 2)

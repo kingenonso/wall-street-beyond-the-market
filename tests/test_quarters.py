@@ -41,7 +41,7 @@ class TestStageTwo:
         assert db.execute("SELECT last_closed_period FROM world_state").fetchone()[0] == 8
         per_period = db.execute("SELECT r.period, count(*) FROM company_results r JOIN companies c ON c.id = r.company_id WHERE c.listed"
                                 " GROUP BY r.period ORDER BY r.period").fetchall()
-        assert per_period == [(p, 50) for p in range(9)]          # the opening position and eight quarters, for the 50 listed companies
+        assert per_period == [(p, 68) for p in range(9)]          # the opening position and eight quarters, for the 68 listed companies
 
     def test_every_balance_sheet_balances_from_independent_records(self, db):
         """Each figure is re-read from where it is truly kept, then the sheet is added up again."""
@@ -52,7 +52,8 @@ class TestStageTwo:
             assert r["total_equity"] == r["share_capital"] + r["retained_earnings"], r["name"]
             assert r["total_assets"] == r["total_liabilities"] + r["total_equity"], f"{r['name']} period {r['period']}"
             checked += 1
-        assert checked >= 450 + 30 * 9                             # the 50 listed and the 30 private companies, and any start-ups
+        # The 68 listed and the 36 private companies, and any start-ups: nine positions each since the world began.
+        assert checked >= 68 * 9 + 36 * 9
 
         # At the latest quarter, the sheet's figures match the ledger and the debt records.
         for r in _dicts(db, "SELECT r.*, c.name, c.id, c.account_id FROM company_results r JOIN companies c ON c.id = r.company_id WHERE r.period = 8"):
@@ -287,7 +288,7 @@ def test_two_servers_closing_at_the_same_instant_close_each_quarter_once(db, con
     [t.join() for t in threads]
 
     assert sorted(sum(closed, [])) == [1, 2]
-    assert db.execute("SELECT count(*) FROM company_results r JOIN companies c ON c.id = r.company_id WHERE r.period IN (1, 2) AND c.listed").fetchone()[0] == 100
+    assert db.execute("SELECT count(*) FROM company_results r JOIN companies c ON c.id = r.company_id WHERE r.period IN (1, 2) AND c.listed").fetchone()[0] == 68 * 2
     assert db.execute("SELECT count(*) FROM ledger_transactions WHERE kind = 'government_wages'").fetchone()[0] == 2
     assert db.execute("SELECT count(*) FROM household_results WHERE period IN (1, 2)").fetchone()[0] == 10
 
@@ -304,7 +305,7 @@ def test_nothing_closes_before_the_world_exists(db):
 @pytest.mark.world("eight")
 def test_every_company_files_a_report_every_quarter(db):
     listed = "SELECT id FROM companies WHERE listed"
-    assert db.execute(f"SELECT count(*), count(DISTINCT (company_id, period)) FROM company_reports WHERE company_id IN ({listed})").fetchone() == (450, 450)
+    assert db.execute(f"SELECT count(*), count(DISTINCT (company_id, period)) FROM company_reports WHERE company_id IN ({listed})").fetchone() == (68 * 9, 68 * 9)
     # Private companies keep their accounts too, every quarter: they are simply not published.
     assert db.execute("SELECT count(*) FROM companies c WHERE NOT listed AND NOT EXISTS (SELECT 1 FROM company_reports r WHERE r.company_id = c.id)"
                       ).fetchone()[0] == 0
@@ -469,7 +470,7 @@ def test_the_books_hold_together_over_a_long_run(db):
 
     assert ledger.amount_in_existence(db) == money_accounted_for(db) > money_before
     assert db.execute("SELECT sum(balance) FROM ledger_balances WHERE asset = 'NGN'").fetchone()[0] == 0
-    assert db.execute("SELECT count(*) FROM company_results r JOIN companies c ON c.id = r.company_id WHERE c.listed").fetchone()[0] == 50 * 35
+    assert db.execute("SELECT count(*) FROM company_results r JOIN companies c ON c.id = r.company_id WHERE c.listed").fetchone()[0] == 68 * 35
     unbalanced = db.execute("SELECT count(*) FROM company_results WHERE total_assets <> total_liabilities + total_equity").fetchone()[0]
     assert unbalanced == 0
     assert ledger.audit(db) == []

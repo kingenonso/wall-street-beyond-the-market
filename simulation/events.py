@@ -72,6 +72,11 @@ KINDS: tuple[Kind, ...] = (
          only_sectors=("agriculture",)),
     Kind("network_outage", "sector", 300, sales=(-600, -200), only_sectors=("telecoms",)),
     Kind("new_competition", "sector", 120, sales=(-500, -200), spares_financial=True),
+    # --- Part 4c: the six new industries ---
+    # A shortage of imported medicines makes the medicine makers' supplies dearer as well as thinner.
+    Kind("drug_shortage", "sector", 200, sales=(-400, -100), cost=(300, 800), only_sectors=("pharma",)),
+    Kind("payments_outage", "sector", 250, sales=(-800, -200), only_sectors=("technology",)),
+    Kind("bumper_harvest", "sector", 300, sales=(300, 800), only_sectors=("fertiliser",)),
     # --- One company ---
     Kind("company_strike", "company", 80, sales=(-1500, -500), spares_financial=True),
     Kind("scandal", "company", 60, sales=(-2000, -800)),
@@ -80,6 +85,12 @@ KINDS: tuple[Kind, ...] = (
     Kind("product_recall", "company", 50, sales=(-900, -300), cost=(200, 500),
          only_sectors=("consumer", "manufacturing", "agriculture")),
     Kind("new_product", "company", 80, sales=(400, 1200), spares_financial=True),
+    Kind("bad_batch", "company", 60, sales=(-900, -300), cost=(200, 500), only_sectors=("pharma",)),
+    Kind("mine_accident", "company", 40, sales=(-1500, -600), damage=(100, 300), severe=True,
+         only_sectors=("mining",)),
+    Kind("seam_runs_out", "company", 50, sales=(-1200, -400), cost=(100, 300), only_sectors=("mining",)),
+    Kind("film_flops", "company", 90, sales=(-1000, -400), only_sectors=("entertainment",)),
+    Kind("film_hit", "company", 90, sales=(500, 1500), only_sectors=("entertainment",)),
     # --- The whole country ---
     Kind("energy_price_jump", "national", 400, commodity="energy", price=(1000, 2500)),
     Kind("energy_price_fall", "national", 400, commodity="energy", price=(-2000, -800)),
@@ -237,6 +248,14 @@ _CAUSE = {
     "factory_fire": "A fire at one of its sites cut its sales by about {size}",
     "product_recall": "It recalled a product: its sales fell about {size}",
     "new_product": "A new product sold well: its sales rose about {size}",
+    "drug_shortage": "A drug shortage made its supplies dearer and cost it sales of about {size}",
+    "payments_outage": "A payments outage cut its sales by about {size}",
+    "bumper_harvest": "A bumper harvest lifted demand: its sales rose about {size}",
+    "bad_batch": "A bad batch forced a recall: its sales fell about {size}",
+    "mine_accident": "An accident at one of its mines cut its sales by about {size}",
+    "seam_runs_out": "A seam ran out and it moved to poorer ground: its sales fell about {size}",
+    "film_flops": "Its big release flopped: its sales fell about {size}",
+    "film_hit": "It released a hit: its sales rose about {size}",
 }
 
 

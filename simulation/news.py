@@ -37,6 +37,7 @@ from simulation.news_wordings import economy as _economy
 from simulation.news_wordings import etfs as _etfs
 from simulation.news_wordings import funds as _funds
 from simulation.news_wordings import fx as _fx
+from simulation.news_wordings import industries as _industries
 from simulation.news_wordings import world as _world_news
 from simulation.news_wordings import happenings as _happenings
 from simulation.news_wordings import media as _media
@@ -48,6 +49,7 @@ from simulation.news_wordings import results as _results
 WORDINGS: dict[str, dict[str, list[tuple[str, str]]]] = {
     **_abroad.WORDINGS, **_property.WORDINGS, **_property2.WORDINGS, **_places.WORDINGS, **_happenings.WORDINGS, **_economy.WORDINGS, **_results.WORDINGS, **_capital.WORDINGS, **_deals.WORDINGS, **_dealmaking.WORDINGS,
     **_media.WORDINGS, **_banks.WORDINGS, **_funds.WORDINGS, **_etfs.WORDINGS, **_fx.WORDINGS, **_world_news.WORDINGS,
+    **_industries.WORDINGS,
 }
 
 # How a kind of business reads in the middle of a sentence.
@@ -57,9 +59,15 @@ SECTOR_WORDS = {
     "real_estate": "real estate and construction", "manufacturing": "manufacturing", "media": "media",
     "insurance": "insurance", "power": "power and utilities", "transport": "transport and logistics",
     "aviation": "airlines", "hospitality": "hotels and leisure", "shipping": "shipping and ports",
+    # Part 4c: the six new industries. Every one of these must be here. Six places in the code read this
+    # table directly rather than asking whether an entry exists, so a missing industry would not fall back
+    # to a plain name: it would stop a takeover, a bond or a share offer with an error.
+    "pharma": "medicines", "retail": "groceries", "technology": "technology",
+    "entertainment": "film and entertainment", "mining": "mining", "fertiliser": "fertilisers",
 }
 COMMODITY_WORDS = {"energy": "energy", "metals": "metals", "agriculture": "farm produce", "materials": "building materials"}
-GOOD_NEWS = {"local_boom", "sector_demand_surge", "good_harvest", "contract_win", "new_product"}
+GOOD_NEWS = {"local_boom", "sector_demand_surge", "good_harvest", "contract_win", "new_product",
+             "bumper_harvest", "film_hit"}
 # How an earlier event is named when the wire comes back to it.
 EVENT_NAMES = {"flood": "the flood in {location}", "factory_fire": "the fire at {company}"}
 
