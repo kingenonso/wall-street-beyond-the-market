@@ -211,8 +211,9 @@ anything better supported by it.
 
 In order, the shortest path:
 
-1. Write the seventeen missing tests the checklist names. Ten of them are the loophole check, now
-   written in `tests/test_part4c_loopholes.py`; the other seven cover items 16 to 32.
+1. Write the seventeen missing tests the checklist names — the ones for items 16 to 32. The loophole
+   check, which is item 33 and sits outside those seventeen, is already written in
+   `tests/test_part4c_loopholes.py`.
 2. Run the whole suite and fix what falls over, listing each older test brought up to date.
 3. Run the ten-year run with the staged oil shock and the two bank shocks, and fix what it finds.
 4. Take the screenshots, in dark and light theme, and on a phone for the markets and a company page.
