@@ -17,16 +17,18 @@ from datetime import timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import careers, closingbell, corporate, derivatives, etfs, events, exchange, firm, firm_dealmaking
+from simulation import careers, closingbell, corporate, derivatives, empires, etfs, events, exchange, firm, firm_dealmaking
 from simulation import firm_deals, firm_owned, funds, indexes, insight, intel, ledger, marketview, objectives
-from simulation import objectives_industries, private, quarters
+from simulation import firm_practice, objectives_industries, private, quarters
 from simulation import news, news_kinds
 from simulation import world_data as data
-from simulation.money import BPS, apply_bps, naira
+from simulation.money import BPS, apply_bps, million_naira, naira
 from tests.conftest import after_quarters
 from tests.test_builds import pro, right_answers
 from tests.test_careers import NOW9, professional, sound
+from tests.test_dealmaking import cash, house, job_truth
 from tests.test_deals import LATER, _one, do_checks, fairness_if_needed, open_a_sale
+from tests.test_deals_more import own
 from tests.test_firm import firm_of
 
 pytestmark = pytest.mark.world("eight")
@@ -47,6 +49,14 @@ def _rows(db, sql, params=()):
 def in_sector(sector: str) -> str:
     """One listed company of that industry, by its code on the exchange."""
     return next(c.ticker for c in data.COMPANIES if c.sector == sector and c.listed)
+
+
+def still_with_founders(db) -> list[dict]:
+    """The private companies of the six that their founders still hold, so that one can be handed to an empire."""
+    founders = ledger.account_id(db, ledger.INVESTORS_FOUNDERS)
+    return [c for c in _rows(db, "SELECT * FROM companies WHERE NOT listed AND ticker = ANY(%s) ORDER BY ticker",
+                             (list(NEW_PRIVATE),))
+            if ledger.balance(db, founders, c["share_asset"]) > 0]
 
 
 def reaches(kind: str, ticker: str, *, sector=None, company_id=None) -> bool:
@@ -619,6 +629,30 @@ def test_a_company_page_names_its_industry(client, player, db):
         assert BPS - len(industry["companies"]) <= sum(c["share_bps"] for c in industry["companies"]) <= BPS
 
 
+def test_a_private_company_page_says_it_is_not_for_sale(client, player, db):
+    # A private company has no page of its own — its accounts are seen only in a data room — so the page a
+    # reader lands on says what it is instead, and gives no figure away: the answer is still a refusal.
+    for sector in NEW:
+        ticker = next(c.ticker for c in data.COMPANIES if c.sector == sector and not c.listed)
+        name = db.execute("SELECT name FROM companies WHERE ticker = %s", (ticker,)).fetchone()[0]
+        page = client.get(f"/api/companies/{ticker}")
+        words = page.json()["detail"]
+        assert page.status_code == 404                             # nothing inside it is shown, so nothing leaks
+        assert name in words and "data room" in words
+        assert "not for sale" in words or "for sale, but privately" in words
+        assert "There is no company" not in words                  # it exists; it is shut
+
+    # And when its owners put it up, the same page says the other thing: for sale, privately, behind the room.
+    founders = ledger.account_id(db, ledger.INVESTORS_FOUNDERS)
+    company = next((c for c in still_with_founders(db)
+                    if not _one(db, "SELECT 1 AS n FROM sale_processes WHERE company_id = %s AND status = 'open'", (c["id"],))), None)
+    assert company is not None, "no company of the six is still held by its founders, so none could be put up for sale"
+    private.start_sale(db, company["id"], founders, None, ledger.balance(db, founders, company["share_asset"]), 9,
+                       private._seed(db), LATER)
+    words = client.get(f"/api/companies/{company['ticker']}").json()["detail"]
+    assert "for sale, but privately" in words and "not for sale" not in words
+
+
 # ---------------------------------------------------------------------------
 # 28. The Markets page lists the six baskets
 # ---------------------------------------------------------------------------
@@ -768,6 +802,82 @@ def test_a_company_of_a_new_industry_can_be_taken_over(db):
     # Two quarters have closed over it, and still every naira that should exist does.
     sound(db)
     assert corporate.check_books(db) == []
+
+
+def test_a_company_of_a_new_industry_is_audited_and_the_fees_taken_from_it_are_found(db):
+    # The shadow side reaches a company of the six as it reaches any private company: money for "consulting
+    # fees", written into the empire's books as a cost of the company, and found by an independent audit firm.
+    empire, team = firm_of(db, n_cash=2_000_000_000)
+    other, them = house(db, "Delta Partners")
+    audit = firm_practice.found(db, them["accountant"], "audit", "Creek Audit", 0, LATER)["firm_id"]
+    held = still_with_founders(db)
+    assert held, "no company of the six is still held by its founders, so none could be bought and audited"
+    company = own(db, empire, held[0]["ticker"])
+    db.execute("UPDATE empire_seats SET signing_limit = %s WHERE player_id = %s", (million_naira(100), team["investment_banker"]))
+    company_cash = cash(db, company["account_id"])
+    amount = min(company_cash * firm_dealmaking.TAKE_MOST_BPS // BPS, million_naira(50))
+
+    # Nobody outside the empire that controls it may take from it, and what is taken leaves the company's cash.
+    with pytest.raises(empires.EmpireError, match="does not control"):
+        firm_dealmaking.take_from_company(db, them["investment_banker"], company["id"], amount, LATER)
+    taken = firm_dealmaking.take_from_company(db, team["investment_banker"], company["id"], amount, LATER)
+    assert cash(db, company["account_id"]) == company_cash - amount
+    book = _one(db, "SELECT * FROM empire_books WHERE id = %s", (taken["book_id"],))
+    assert not book["genuine"] and book["company_id"] == company["id"]
+
+    # An audit is commissioned on the same terms as at any other company, and it finds the fees.
+    job = firm_practice.commission_audit(db, team["head"], company["id"], audit, million_naira(2), LATER)["job_id"]
+    firm_practice.open_job(db, them["accountant"], job, LATER)
+    right = job_truth(db, job)
+    assert right["consulting"] == amount and right["opinion"] == "refused"
+    firm_practice.hand_in_job(db, them["accountant"], job, right, LATER + timedelta(hours=1))
+    case = _one(db, "SELECT * FROM empire_cases WHERE book_id = %s", (book["id"],))
+    assert case and case["player_id"] == team["investment_banker"]
+    assert ledger.audit(db) == []
+
+
+def test_a_company_of_a_new_industry_is_rescued_from_failure(db):
+    # A rescue runs on the same rules for the six as for every other private company: a doctor from outside
+    # the owning empire, a fee of at most 5% of a quarter's sales, the head's yes, and paid only if it works.
+    held = still_with_founders(db)
+    assert held, "no company of the six is still held by its founders, so none could be rescued"
+    trouble = next((c for c in held if firm_owned.failing(db, c["id"])), None)
+    if trouble is None:
+        # None of the six is in trouble at this quarter: put one there the way an unpaid bill does, so that
+        # the rule is proved rather than the test skipped.
+        trouble = held[0]
+        with db.transaction():
+            db.execute("UPDATE company_results SET payables = payables + %s WHERE company_id = %s"
+                       " AND period = (SELECT max(period) FROM company_results WHERE company_id = %s)",
+                       (million_naira(1), trouble["id"], trouble["id"]))
+        assert firm_owned.failing(db, trouble["id"])
+
+    empire, team = firm_of(db, n_cash=2_000_000_000)
+    company = own(db, empire, trouble["ticker"])
+    doctor, account = pro(db, "accountant", "new_industry_doctor")
+    sales = firm_owned._quarter_sales(db, company["id"])
+    with pytest.raises(empires.EmpireError, match="from outside"):
+        firm_owned.propose_rescue(db, team["accountant"], company["id"], ["cut_costs"], 0, LATER)
+    with pytest.raises(empires.EmpireError, match="5%"):
+        firm_owned.propose_rescue(db, doctor, company["id"], ["cut_costs"], sales, LATER)
+    plan = firm_owned.propose_rescue(db, doctor, company["id"], ["cut_costs"], sales * 2 // 100, LATER)
+
+    # The head of the empire that owns it has to say yes, as at any other company.
+    assert _one(db, "SELECT status FROM company_plans WHERE id = %s", (plan["id"],))["status"] == "proposed"
+    firm_owned.answer_rescue(db, team["head"], plan["id"], True, LATER)
+    assert _one(db, "SELECT status FROM company_plans WHERE id = %s", (plan["id"],))["status"] == "running"
+
+    before = ledger.balance(db, account)
+    for q in (9, 10, 11, 12):
+        assert quarters.close_due_quarters(db, after_quarters(q)) == [q]
+    row = _one(db, "SELECT * FROM company_plans WHERE id = %s", (plan["id"],))
+    assert row["status"] in ("done", "failed")
+    # Paid (or owed) only if it worked, and then exactly the fee, once.
+    paid = ledger.balance(db, account) - before
+    owed = _one(db, "SELECT coalesce(sum(amount_outstanding), 0)::bigint AS n FROM company_payables"
+                    " WHERE company_id = %s AND payee_account_id = %s", (company["id"], account))["n"]
+    assert (paid + owed == row["fee"]) if row["status"] == "done" else (paid == 0 and owed == 0)
+    sound(db)
 
 
 # ---------------------------------------------------------------------------

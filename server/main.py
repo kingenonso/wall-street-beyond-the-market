@@ -1275,13 +1275,29 @@ def get_company(
     conn: Connection = Depends(get_connection),
 ):
     company = None
+    held = None
     if len(ticker) == 3 and ticker.isascii() and ticker.isalpha():   # anything else cannot be a ticker
         company = conn.execute(
             "SELECT c.*, s.name AS sector_name FROM companies c JOIN sectors s ON s.code = c.sector"
             " WHERE c.ticker = %s AND c.listed",          # a private company's accounts are seen only in a data room
             (ticker.upper(),),
         ).fetchone()
+        if company is None:                               # held privately, or no such company: tell the reader which
+            held = conn.execute(
+                "SELECT c.name, EXISTS (SELECT 1 FROM sale_processes s WHERE s.company_id = c.id AND s.status = 'open') AS on_sale"
+                " FROM companies c WHERE c.ticker = %s",
+                (ticker.upper(),),
+            ).fetchone()
     if company is None:
+        if held is not None:
+            # A private company has no page of its own — its accounts are seen only in a data room — but the
+            # page a reader lands on still says what it is: shut, and for sale only once its owners put it up.
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                f"{held['name']} is for sale, but privately: its papers are seen only in a data room, after a buyer signs for them."
+                if held["on_sale"] else
+                f"{held['name']} is not for sale. It is held privately: its papers are seen only in a data room, once its owners put it up.",
+            )
         raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no company with that ticker.")
 
     filed = conn.execute(

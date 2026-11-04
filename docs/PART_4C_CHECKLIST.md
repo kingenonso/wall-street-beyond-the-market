@@ -1,9 +1,13 @@
 # Part 4c checklist: new industries
 
-**Built in part on 3 November 2026, committed as `677c618`. Items 1 to 15 are built and tested; items 16
-to 32 are built or rely on machinery that already exists, but the tests this page names for them have not
-been written; items 33 to 38 are not done. `docs/STAGE_4C_NEW_INDUSTRIES.md` is a draft of the closing
-report that sets out exactly what is missing.**
+**Built on 3 November 2026, committed as `677c618`. Every item from 1 to 33 now has a test written. Only
+part of that has been run: `tests/test_part4c_more.py` is green, 29 passed on 4 November 2026, and the
+fifteen tests of `tests/test_part4c.py` and the ten of `tests/test_part4c_loopholes.py` have never been
+run. Item 34's independent review is done: it found one real fault and one wrong sentence on this page,
+both fixed, with `tests/test_part4c_review.py` written and not yet run. Items 35 to 38 — the ten-year run,
+the screenshots, the whole suite, the report and the push — are not done.
+`docs/STAGE_4C_NEW_INDUSTRIES.md` is still the draft of the closing report, and its status table has not
+been brought up to date yet.**
 
 Written 3 November 2026, after the owner approved the company names in
 `docs/PART_4C_NEW_INDUSTRIES_PROPOSAL.md`.
@@ -113,7 +117,7 @@ exist.
 
 | # | What it does | The test that proves it |
 | --- | --- | --- |
-| 27 | A company page shows its industry, and for the private ones says it is not for sale until someone asks. | `test_a_company_page_names_its_industry` (the industry only: a private company has no page to say "not for sale" on, and nothing in the code says it) |
+| 27 | A company page shows its industry, and for the private ones says it is not for sale until someone asks. | `test_a_company_page_names_its_industry` for the industry; `test_a_private_company_page_says_it_is_not_for_sale` for the private six. A private company still has no page of its own — its accounts are seen only in a data room — so it is the refusal on that page that says so: it names the company, says it is not for sale, and says its papers are seen only in a data room; once its owners put it up, the same page says it is for sale, privately. Written after the review, not yet run. |
 | 28 | The Markets page lists the six new baskets beside the existing four. | `test_the_markets_page_lists_the_six_baskets` |
 | 29 | The Economy page's industry panel shows the six new industries with their sales and fortunes. | `test_the_economy_page_shows_the_six_industries` |
 | 30 | Proven Talent's investing record counts the new shares in net worth, and the older tests that count kinds of holding are brought up to date. | `test_net_worth_counts_the_new_shares` |
@@ -122,7 +126,7 @@ exist.
 
 | # | What it does | The test that proves it |
 | --- | --- | --- |
-| 31 | A new company can be audited, named in the shadow feature, taken over, and rescued from failure, on the same rules as the rest. Nothing about them is special-cased. | `test_a_company_of_a_new_industry_can_be_taken_over` (the takeover only: the audit, the shadow feature and the rescue are not yet proved) |
+| 31 | A new company can be audited, named in the shadow feature, taken over, and rescued from failure, on the same rules as the rest. Nothing about them is special-cased. | All four now: `test_a_company_of_a_new_industry_can_be_taken_over` for the takeover; `test_a_company_of_a_new_industry_is_audited_and_the_fees_taken_from_it_are_found` for the audit and the shadow side together, ending in the case the audit brings; `test_a_company_of_a_new_industry_is_rescued_from_failure` for the rescue. The three new ones were written after the review and have not been run. |
 | 32 | A private one of the six can be bought by an empire, run, and later listed. | `test_a_private_new_company_can_be_bought_and_listed` |
 
 ### H. The checks every feature gets
@@ -130,7 +134,7 @@ exist.
 | # | What it does |
 | --- | --- |
 | 33 | **The loophole check** (working rule 3, design section 19). The ten questions are answered for each feature, an automated test written for every question that applies, and the answers listed in the stage report. The applicable areas for this part: can a player see a private company's true figures before buying; can a player move value between a company they own and one they do not; can a new industry's basket be gamed by trading a thin four-company set; can a miner's dollar borrowing be used to dodge the naira; can a film company's "hit" be forecast from anything the player is shown; can the fertiliser-to-farm link be arbitraged; can wages be avoided by moving staff into a new industry; can a private company be made to pay its owner twice; can a rescue of a new company be turned into free money; can a new basket's index be moved single-handed. Written as ten tests in `tests/test_part4c_loopholes.py`, one per question, each named `test_q1_...` to `test_q10_...`; not yet run. |
-| 34 | **The independent review.** A second AI that did not write the code is told to break it. Every finding is fixed, given its own test, and listed in the report, as in Parts 1, 2, 3, 4a and 4b. |
+| 34 | **The independent review.** A second AI that did not write the code is told to break it. Every finding is fixed, given its own test, and listed in the report, as in Parts 1, 2, 3, 4a and 4b. **Done 4 November 2026.** Seven points were raised: one real fault — the non-oil export weights added to 13,000 of a 10,000 whole, now 4,600 / 3,100 / 2,300 so that no exporter's money moves but the shares are as published — and one wrong sentence on this page, the four-name basket arithmetic above, now three names and 50%; four points were checked against the code and are not faults, and the seventh is the running of the older suite, which is item 37. The two real ones are proved in `tests/test_part4c_review.py`, not yet run, and are to be listed in the report at item 38. |
 | 35 | **The ten-year run.** Forty quarters with all earlier stages running, a staged oil shock and two bank shocks, as in Part 4b. The books must pass the ledger audit at the end and the markets' work must stay quick. Every oddity found is fixed, and most get a test. |
 | 36 | **Screenshots and accessibility.** A screenshot of every new screen or panel, in dark and light theme, and on a phone for the markets and a company page. The accessibility check (axe) must find nothing. |
 | 37 | **The whole test suite.** Everything already passing must still pass (1,532 server tests in 93 files, the engine's 13, the website's 23). Older tests that count kinds of company, news wordings, holdings in net worth or requests that change something will need bringing up to date, and each such change is listed in the report. |
@@ -157,11 +161,13 @@ built that way. They are recorded here, with the reasoning, so that nobody reope
 1. **No futures and options on the six new baskets.** Only the Top 30, banks and oil and gas carry futures
    beside the BSX 50. The arithmetic decides it: the weighting rule lifts the 15% cap to one and a half
    times an equal share whenever a basket has fewer than seven members
-   (`simulation/indexes.py:141`), so in a four-name basket one company can be 37.5% of the index. A
-   contract settles at ₦100 a point, so a single player leaning on one name moves everyone's settlement —
-   which is the very loophole item 33 exists to catch. Nothing is lost: the six baskets still back index
-   funds and ETFs, and futures on a sector are already taught by oil and gas. The decision is recorded in
-   the code at `simulation/world_data.py:1448`.
+   (`simulation/indexes.py:141`), and each of the six baskets holds **three** companies, not four — the
+   private fourth files nothing and is not counted — so one company can be half the index, not 37.5% of
+   it. A contract settles at ₦100 a point, so a single player leaning on one name moves everyone's
+   settlement — which is the very loophole item 33 exists to catch, and it is worse at 50% than the 37.5%
+   first written here. Nothing is lost: the six baskets still back index funds and ETFs, and futures on a
+   sector are already taught by oil and gas. The decision is recorded in the code at
+   `simulation/world_data.py:1448`, which says "a basket of three".
 2. **Entertainment is a subject for the journalist, not an employer.** Film and music companies are
    natural subjects for a reporter and incoherent employers for one: a journalist employed by the studio
    he reports on is the conflict of interest the build exists to teach. Journalists keep the media houses

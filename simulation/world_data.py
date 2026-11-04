@@ -896,7 +896,12 @@ IMPORT_SWITCH_BPS = 8_000              # when goods abroad are 10% dearer, compa
 EXPORT_SWITCH_BPS = 10_000             # and buyers abroad buy 10% more farm produce and factory goods when the naira is 10% cheaper
 IMPORT_PRICE_WEIGHT_BPS = 800          # imported goods are this much of what households pay for: a weaker naira raises prices
 OIL_EXPORT_SHARE_BPS = 7_500           # oil and gas earn three quarters of what the country sells abroad on day one...
-NON_OIL_EXPORTS = {"agriculture": 6_000, "manufacturing": 4_000, "mining": 3_000}   # ...farms, factories, and the mines the rest
+NON_OIL_EXPORTS = {"agriculture": 4_600, "manufacturing": 3_100, "mining": 2_300}   # ...farms, factories, and the mines the rest
+# These three are shares of the non-oil quarter of exports, so they must add to 10,000: economy.split divides by
+# their sum, and weights that did not add up would quietly dilute every exporter's share instead of failing. They
+# were 6,000 and 4,000 before Part 4c put mining on the list at 3,000, which made 13,000 of 10,000 and left the
+# split at 6/13, 4/13, 3/13. The numbers above are those same shares written as they always should have been, so
+# no exporter's money moves: only the arithmetic in the test is now true.
 OIL_ROYALTY_BPS = 2_000                # the Government takes a fifth of what oil sold abroad brings in
 ABROAD_RESERVE_QUARTERS = 4            # the rest of the world starts with four quarters' imports in naira
 ABROAD_MOST_SPEND_BPS = 6_000          # and spends at most 60% of what it holds in naira in one quarter
