@@ -113,16 +113,16 @@ exist.
 
 | # | What it does | The test that proves it |
 | --- | --- | --- |
-| 27 | A company page shows its industry, and for the private ones says it is not for sale until someone asks. | `test_a_new_company_page_names_its_industry` |
-| 28 | The Markets page lists the six new baskets beside the existing four. | `test_the_markets_page_lists_the_new_baskets` |
-| 29 | The Economy page's industry panel shows the six new industries with their sales and fortunes. | `test_the_economy_page_shows_the_new_industries` |
+| 27 | A company page shows its industry, and for the private ones says it is not for sale until someone asks. | `test_a_company_page_names_its_industry` (the industry only: a private company has no page to say "not for sale" on, and nothing in the code says it) |
+| 28 | The Markets page lists the six new baskets beside the existing four. | `test_the_markets_page_lists_the_six_baskets` |
+| 29 | The Economy page's industry panel shows the six new industries with their sales and fortunes. | `test_the_economy_page_shows_the_six_industries` |
 | 30 | Proven Talent's investing record counts the new shares in net worth, and the older tests that count kinds of holding are brought up to date. | `test_net_worth_counts_the_new_shares` |
 
 ### G. Trouble, as for every other company
 
 | # | What it does | The test that proves it |
 | --- | --- | --- |
-| 31 | A new company can be audited, named in the shadow feature, taken over, and rescued from failure, on the same rules as the rest. Nothing about them is special-cased. | `test_a_new_company_can_be_taken_over` |
+| 31 | A new company can be audited, named in the shadow feature, taken over, and rescued from failure, on the same rules as the rest. Nothing about them is special-cased. | `test_a_company_of_a_new_industry_can_be_taken_over` (the takeover only: the audit, the shadow feature and the rescue are not yet proved) |
 | 32 | A private one of the six can be bought by an empire, run, and later listed. | `test_a_private_new_company_can_be_bought_and_listed` |
 
 ### H. The checks every feature gets

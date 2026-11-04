@@ -12,18 +12,22 @@ call was read back against the code it calls, as the loophole file's were.
 from __future__ import annotations
 
 import pathlib
+from datetime import timedelta
 
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import careers, derivatives, etfs, events, exchange, funds, indexes, insight, intel, objectives, objectives_industries
-from simulation import objectives_more
+from simulation import careers, closingbell, corporate, derivatives, etfs, events, exchange, firm, firm_dealmaking
+from simulation import firm_deals, firm_owned, funds, indexes, insight, intel, ledger, marketview, objectives
+from simulation import objectives_industries, private, quarters
 from simulation import news, news_kinds
 from simulation import world_data as data
-from simulation.money import BPS, naira
-from tests.conftest import ADULT, after_quarters, join, money_accounted_for
-from tests.test_builds import EMPLOYER, pro, right_answers
+from simulation.money import BPS, apply_bps, naira
+from tests.conftest import after_quarters
+from tests.test_builds import pro, right_answers
 from tests.test_careers import NOW9, professional, sound
+from tests.test_deals import LATER, _one, do_checks, fairness_if_needed, open_a_sale
+from tests.test_firm import firm_of
 
 pytestmark = pytest.mark.world("eight")
 
@@ -86,7 +90,9 @@ def test_every_industry_has_a_plain_english_word(db):
         db.execute("INSERT INTO events (period, day, kind, sector, sales_bps) VALUES (9, %s, 'sector_demand_surge', %s, 400)",
                    (20 + number, sector))
     news.for_events(db, [e for e in events.load(db, 9) if e["kind"] == "sector_demand_surge"])
-    printed = _rows(db, "SELECT * FROM news_items WHERE kind = 'sector_demand_surge'")
+    # This quarter's stories only: the world comes to the test eight quarters old, and it has printed
+    # demand surges of its own in the quarters before this one.
+    printed = _rows(db, "SELECT * FROM news_items WHERE kind = 'sector_demand_surge' AND period = 9")
     assert {p["facts"]["sector"] for p in printed} == {news.SECTOR_WORDS[s] for s in NEW}
     for p in printed:
         assert p["facts"]["sector"] in p["headline"] + p["body"]
@@ -174,15 +180,20 @@ def test_the_new_events_reach_the_news_and_the_player_once(db):
         news.for_events(db, one)
 
         # One story, dated the day it happened, written only from the facts that kind of news may use.
-        printed = _rows(db, "SELECT * FROM news_items WHERE kind = %s", (kind,))
+        # Beside those facts the paper keeps one more thing, `wording`: which of the nine ways of saying this
+        # kind of story it used, so that it does not use the same one twice running. Every kind carries it,
+        # so it is set aside here rather than counted against the kind's own list.
+        # This quarter's only: the world comes to the test eight quarters old, and a bumper harvest is one of
+        # the kinds the quarters before this one may already have printed.
+        printed = _rows(db, "SELECT * FROM news_items WHERE kind = %s AND period = 9", (kind,))
         assert len(printed) == 1, (kind, len(printed))
         assert (printed[0]["period"], printed[0]["day"]) == (9, 30 + number)
-        assert set(printed[0]["facts"]) <= set(news_kinds.BY_NAME[kind].fields)
+        assert set(printed[0]["facts"]) - {"wording"} <= set(news_kinds.BY_NAME[kind].fields)
         assert "{" not in printed[0]["headline"] and "{" not in printed[0]["body"]
 
         # Printing the same event again does not print a second story for it.
         news.for_events(db, one)
-        assert len(_rows(db, "SELECT * FROM news_items WHERE kind = %s", (kind,))) == 1, kind
+        assert len(_rows(db, "SELECT * FROM news_items WHERE kind = %s AND period = 9", (kind,))) == 1, kind
 
     # And the player sees them by the quiet pop-ups: a look from the start of the quarter carries the
     # stories of that quarter, and a look from the mark it hands back carries nothing again.
@@ -285,10 +296,12 @@ def test_a_player_can_run_a_fund_of_the_shops(db):
     assert (fund["strategy"], fund["index_code"], fund["method"]) == ("index", "RETAIL", "full")
     account = _rows(db, "SELECT account_id FROM investment_funds WHERE id = %s", (fund["id"],))[0]["account_id"]
 
-    # What it should hold is read from the basket's own rules, member by member, adding up to the whole fund.
+    # What it should hold is read from the basket's own rules, member by member, adding up to the whole fund —
+    # to the whole of it or a point or two short, because each weight is floored on its own and the floors
+    # cannot add back up to exactly ten thousand.
     target = etfs._target_basket(db, {"index_code": "RETAIL", "method": "full"}, NOW9)
     assert {t["asset"] for t in target} == {m["asset"] for m in indexes.members(db, "RETAIL")}
-    assert sum(t["weight_bps"] for t in target) == BPS
+    assert BPS - len(target) <= sum(t["weight_bps"] for t in target) <= BPS
 
     # And it holds the shops, and only shops: no share outside the basket was bought for it.
     held = etfs.holdings_value(db, account, NOW9)
@@ -396,3 +409,432 @@ def test_which_indexes_have_futures(db):
 
     # Nothing was lost by it: the six still back funds, which is what a basket is for here (item 21).
     assert set(NEW_BASKETS) <= {i["code"] for i in indexes.listing(db, NOW9)}
+
+
+# ---------------------------------------------------------------------------
+# 24. Every industry has work for every build
+# ---------------------------------------------------------------------------
+
+def test_every_industry_has_work_for_every_build(db):
+    work = objectives_industries.INDUSTRY_WORK
+    # One piece of work named for each new industry, and the six of them are the library's own list.
+    assert set(work) == set(NEW)
+    assert set(work.values()) == {t.code for t in objectives_industries.INDUSTRIES}
+    pieces = {industry: objectives.TEMPLATES[code] for industry, code in work.items()}
+
+    # One to each build, so no build is left out, and each opens at Level 5 — above the four modules a new
+    # player starts with, and below the bands that were already there.
+    assert sorted(t.build for t in pieces.values()) == sorted(careers.BUILDS)
+    for piece in pieces.values():
+        assert piece.level == 5 and piece.listed and piece.payer == "employer", piece.code
+        assert piece.module in {m["module"] for m in objectives.modules(piece.build)}, piece.code
+        # Three settings, as every piece has: alone, with the empire, and in the weekend challenge.
+        assert {t.setting for t in objectives.TEMPLATES.values() if t.root == piece.code} == {"solo", "empire", "live"}, piece.code
+        # And the "How to do this" card: the method the debrief will show afterwards, in words with no figure
+        # in them — which is what lets it be shown before the work is done.
+        card = objectives.how_to(piece)
+        assert card and card == piece.submit.method_text and not any(ch.isdigit() for ch in card), piece.code
+
+    # No exam body is named and no question paper appears, in the new work as in the old.
+    words = " ".join(f"{t.module} {t.title} {t.idea}" for t in pieces.values()).upper()
+    for body in ("CFA", "ACCA", "ICAN", "FRM", "CPA", "CRM", "EXAM"):
+        assert body not in words, body
+
+    # The builds that serve every company can serve the new ones too: every listed company of the six
+    # industries is on the list the accountants' and the lawyers' work is drawn from, which is chosen by no
+    # list of industries at all — only the banks and insurers, which already have work of their own, are left out.
+    served = [c for c in objectives._filed(db, 8) if c["sector"] not in ("banking", "insurance")]
+    assert set(NEW) == {c["sector"] for c in served if c["ticker"] in NEW_LISTED}
+    assert not ({c["ticker"] for c in served} & set(NEW_PRIVATE))     # a private company is seen only in a data room
+
+
+# ---------------------------------------------------------------------------
+# 25. One new piece of work per industry, with its own test
+# ---------------------------------------------------------------------------
+
+def sits(db, build, code, name="ada"):
+    """A player of that build takes the piece of work and hands in the right answers: a blank sheet fails,
+    the right ones pass, and the debrief is written at all three depths. Returns the figures, the answers,
+    and the verdict."""
+    player, _ = pro(db, build, name, level=5, cash_naira=1_000_000)
+    taken = objectives.accept(db, player, code, NOW9)
+    assert taken["state"] == "active" and taken["template"] == code
+    assert "figures" not in taken["terms"]                    # the figures behind the answers stay on the server
+    figures = objectives.TEMPLATES[code].offer(objectives._context(db, player, NOW9))["figures"]
+    with db.transaction(force_rollback=True):
+        assert objectives.submit(db, player, taken["id"], {}, NOW9)["state"] == "failed"
+    right = right_answers(db, taken["id"])
+    done = objectives.submit(db, player, taken["id"], right, NOW9)
+    assert done["state"] == "passed", (code, done["result"])
+    verdict = done["result"]                     # the verdict itself is kept under "result", as every hand-in's is
+    assert all(verdict["debrief"][depth] for depth in ("plain", "method", "maths")), code
+    return figures, right, verdict
+
+
+def test_objective_ib_mining_bond(db):
+    """The Investment Banker: a miner's bond in dollars, and what a weaker naira does to it."""
+    f, answers, verdict = sits(db, "investment_banker", "ib_mining_bond", "bond")
+    interest_dollars = f["borrowed"] * f["coupon"] / 100
+    assert abs(answers["naira_now"] - interest_dollars * f["fx"]) <= 0.011
+    assert abs(answers["naira_after"] - interest_dollars * f["fx"] * (1 + f["fall"] / 100)) <= 0.011
+    assert abs(answers["cover"] - f["dollars_in"] / interest_dollars) <= 0.011
+    assert answers["naira_after"] > answers["naira_now"]               # the fall costs the borrower in naira
+    assert "naira" in verdict["debrief"]["plain"].lower() and "currency" in verdict["debrief"]["method"].lower()
+
+    # It is locked below its level, as every piece is.
+    young, _ = pro(db, "investment_banker", "young", level=1, cash_naira=0)
+    with pytest.raises(objectives.ObjectiveError, match="opens at Level 5"):
+        objectives.accept(db, young, "ib_mining_bond", NOW9)
+
+
+def test_objective_am_growth_rates(db):
+    """The Asset Manager: a growth share when the long interest rate moves."""
+    f, answers, verdict = sits(db, "asset_manager", "am_growth_rates", "growth")
+    now = f["profit"] * (1 + f["growth"] / 100) / ((f["rate"] - f["growth"]) / 100)
+    after = f["profit"] * (1 + f["growth"] / 100) / ((f["rate"] + f["rise"] - f["growth"]) / 100)
+    assert abs(answers["value_now"] - now) <= 0.011 and abs(answers["value_after"] - after) <= 0.011
+    assert abs(answers["fall"] - (1 - after / now) * 100) <= 0.011
+    assert answers["value_after"] < answers["value_now"] and answers["fall"] > 0
+    # The point of the piece: a growth share falls further than the rate rose by, because the gap it is valued on is small.
+    assert answers["fall"] > f["rise"]
+    assert "rate" in verdict["debrief"]["plain"].lower()
+
+
+def test_objective_ac_retail_margin(db):
+    """The Accountant: a grocer's margin, and how little its sales may fall."""
+    f, answers, verdict = sits(db, "accountant", "ac_retail_margin", "grocer")
+    gross = f["sales"] * f["margin"] / 100
+    profit = gross * (1 - f["overhead"] / 100)
+    assert abs(answers["gross"] - gross) <= 0.011 and abs(answers["profit"] - profit) <= 0.011
+    # The room left is exactly what is not spent on rent, wages and vans: the costs that do not fall with sales.
+    assert abs(answers["fall"] - (100 - f["overhead"])) <= 0.011
+    assert 0 < answers["fall"] < 100 and answers["profit"] < answers["gross"]
+    assert "margin" in verdict["debrief"]["plain"].lower()
+
+
+def test_objective_jn_film_quarter(db):
+    """The Journalist: a studio's quarter, and what it looks like without the hit."""
+    f, answers, verdict = sits(db, "journalist", "jn_film_quarter", "film")
+    sales = f["hit"] + f["other"]
+    cost = sales * f["cost"] / 100
+    assert abs(answers["sales"] - sales) <= 0.011 and abs(answers["profit"] - (sales - cost)) <= 0.011
+    assert abs(answers["without"] - (f["other"] - cost)) <= 0.011
+    # The lesson of the piece: the hit is more than the quarter's profit, so a story that leaves it out tells the
+    # opposite of the truth. (The picture is sign, not the figure: the studio is reported on its slate.)
+    assert answers["without"] < answers["profit"]
+    assert "hit" in verdict["debrief"]["plain"].lower()
+    # Entertainment is a subject for the journalist, not an employer: this is the journalist's piece, and no
+    # build is given a film company to work for (decided 3 November 2026, in the checklist).
+    assert objectives.TEMPLATES["jn_film_quarter"].build == "journalist"
+
+
+def test_objective_rm_gas_cost(db):
+    """The Risk Manager: a cost that follows the gas price."""
+    f, answers, verdict = sits(db, "risk_manager", "rm_gas_cost", "gas")
+    bill = f["sales"] * f["cost"] / 100 * f["gas_share"] / 100
+    profit_now = f["sales"] * (1 - f["cost"] / 100)
+    profit_after = f["sales"] - (f["sales"] * f["cost"] / 100 + bill * f["rise"] / 100)
+    assert abs(answers["bill"] - bill) <= 0.011 and abs(answers["profit_now"] - profit_now) <= 0.011
+    assert abs(answers["profit_after"] - profit_after) <= 0.011
+    assert abs(answers["fall"] - (1 - profit_after / profit_now) * 100) <= 0.011
+    assert answers["profit_after"] < answers["profit_now"] and answers["fall"] > 0
+    # The rise is measured against profit, not sales: the same extra cost is a small share of sales and a large
+    # share of the profit it is taken out of.
+    against_sales = f["cost"] / 100 * f["gas_share"] / 100 * f["rise"]
+    assert answers["fall"] > against_sales > 0
+    assert "gas" in verdict["debrief"]["plain"].lower()
+
+
+def test_objective_lw_currency_clause(db):
+    """The Legal Counsel: a supply contract, and who carries the currency risk."""
+    f, answers, verdict = sits(db, "lawyer", "lw_currency_clause", "clause")
+    extra = f["order"] * f["fall"] / 100
+    assert abs(answers["extra"] - extra) <= 0.011
+    assert abs(answers["buyer_pays"] - extra * f["share"] / 100) <= 0.011
+    # The clause shares the rise; what the buyer does not pay, the seller does.
+    assert answers["buyer_pays"] < answers["extra"] and answers["who"] == "seller"
+    assert "clause" in verdict["debrief"]["plain"].lower()
+
+
+# ---------------------------------------------------------------------------
+# 26. The industry insight counts the four-company industries
+# ---------------------------------------------------------------------------
+
+def test_the_industry_insight_counts_the_new_industries(db):
+    sectors = {s["code"]: s for s in insight.industries(db, NOW9)}
+    # Every one of the six is in the insight, with its three listed companies ranked by their share of its sales.
+    assert set(NEW) <= set(sectors)
+    for code in NEW:
+        sector = sectors[code]
+        assert len(sector["companies"]) == 3
+        sold = [c["sales"] for c in sector["companies"]]
+        assert sold == sorted(sold, reverse=True) and all(s > 0 for s in sold)      # ranked by what each one sold
+        # The shares are floored one by one, so they add to the whole or a point or two short of it, never over.
+        assert sector["sales"] > 0 and BPS - len(sector["companies"]) <= sum(c["share_bps"] for c in sector["companies"]) <= BPS
+        assert [c["rank"] for c in sector["companies"]] == [1, 2, 3]
+
+    # The rule the work is offered on: an industry is offered once it has three listed companies and sales.
+    # The private fourth files nothing, so it is never counted — and the six still pass, every one of them.
+    offered = {s["code"] for s in insight.industries(db, NOW9) if len(s["companies"]) >= 3 and s["sales"] > 0}
+    assert set(NEW) <= offered
+    assert all(sum(1 for c in data.COMPANIES if c.sector == code and not c.listed) == 1 for code in NEW)
+
+    # And the work itself, worked on a new industry: the journalist's league table, for each of the six, marked right.
+    player, _ = pro(db, "journalist", "leader", level=5, cash_naira=1_000_000)
+    ctx = objectives._context(db, player, NOW9)
+    piece = objectives.TEMPLATES["jr_league"]
+    for code in NEW:
+        objective = {"terms": {"sector": code}, "progress": {}}
+        blank = piece.submit(ctx, objective, {})
+        assert blank["state"] == "failed", code
+        assert piece.submit(ctx, objective, blank["answers"])["state"] == "passed", code
+        leader = sectors[code]["companies"][0]
+        assert blank["answers"]["ticker"] == leader["ticker"] and blank["answers"]["count"] == 3
+
+
+# ---------------------------------------------------------------------------
+# 27. A company page names its industry
+# ---------------------------------------------------------------------------
+
+def test_a_company_page_names_its_industry(client, player, db):
+    # The company page and the facts page both say what industry the company is in, in the words a
+    # reader knows, and both say where it stands in it — the same place the Markets page shows.
+    shown = {s["code"]: s for s in insight.industries(db, NOW9)}
+    for sector in NEW:
+        ticker = in_sector(sector)
+        name = db.execute("SELECT name FROM sectors WHERE code = %s", (sector,)).fetchone()[0]
+        assert "_" not in name and name != sector        # a name, not the code the game keys on
+
+        page = client.get(f"/api/companies/{ticker}").json()
+        facts = client.get(f"/api/market/{ticker}/facts").json()
+        assert page["sector"] == facts["industry"]["sector"] == name
+
+        # Ranked among the industry's listed companies, by the same sales figures and by the same rule:
+        # the private fourth files nothing and is not counted, so the share is out of three and adds to
+        # what its two rivals hold.
+        place, industry = facts["industry"], shown[sector]
+        mine = next(c for c in industry["companies"] if c["ticker"] == ticker)
+        assert place["rank"] == mine["rank"] and place["of"] == len(industry["companies"]) == 3
+        assert place["share_bps"] == mine["share_bps"] and 0 < place["share_bps"] < BPS
+        assert BPS - len(industry["companies"]) <= sum(c["share_bps"] for c in industry["companies"]) <= BPS
+
+
+# ---------------------------------------------------------------------------
+# 28. The Markets page lists the six baskets
+# ---------------------------------------------------------------------------
+
+def test_the_markets_page_lists_the_six_baskets(client, player, db):
+    started(db)
+    listed = {i["code"]: i for i in client.get("/api/etfs").json()["indexes"]}
+    # All fourteen are on the page — the eight that were already there (six baskets of shares, two of bonds)
+    # and the six that are new — and nothing else.
+    assert set(listed) == {code for code, *_ in data.INDEXES}
+    for code in NEW_BASKETS:
+        basket = listed[code]
+        # Each is the provider's own share basket, published like the rest, with its level and its three companies.
+        assert basket["custom"] is False and basket["owner"] == "the index provider"
+        assert basket["kind"] == "shares" and basket["members"] == 3
+        assert basket["name"].startswith("BSX ") and int(basket["level"]) >= 1
+        assert basket["started"] is not None
+        # And each one opens from the same page as the older four, with its rules and its members weighed.
+        page = client.get(f"/api/indexes/{code}").json()
+        assert page["code"] == code and page["name"] == basket["name"]
+        assert page["rules"] and "sector:" not in page["rules"] and "_" not in page["rules"]
+        assert len(page["weights"]) == 3
+        assert {w["ticker"] for w in page["weights"]} == {
+            c.ticker for c in data.COMPANIES if c.sector == NEW[NEW_BASKETS.index(code)] and c.listed}
+        assert sum(w["weight_bps"] for w in page["weights"]) <= BPS
+        assert abs(sum(w["weight_bps"] for w in page["weights"]) - BPS) <= len(page["weights"])   # each weight is floored
+        # The weighting rule for three names: the largest is held at half the basket, however much is bought.
+        assert max(m["weight_bps"] for m in indexes.members(db, code)) <= BPS // 2
+        # The level travels as text, like every figure the exchange page sends, so it is read back as a number.
+        assert page["history"] and int(page["history"][-1]["level"]) >= 1
+
+
+# ---------------------------------------------------------------------------
+# 29. The Economy page shows the six industries
+# ---------------------------------------------------------------------------
+
+def test_the_economy_page_shows_the_six_industries(client, player, db):
+    body = client.get("/api/economy").json()
+    spending = {s["sector"]: s["share_bps"] for s in body["household_spending"]}
+    names = {code: db.execute("SELECT name FROM sectors WHERE code = %s", (code,)).fetchone()[0] for code in NEW}
+
+    # Every one of the six is on the page, with a share of households' spending like any other industry's.
+    assert set(names.values()) <= set(spending)
+    assert all(spending[n] > 0 for n in names.values())
+    # The shares are shares of one whole, and no industry is twice counted or left out.
+    assert 10_000 - len(spending) <= sum(spending.values()) <= 10_000
+    assert len(spending) == len(body["household_spending"])          # one line an industry, no industry twice
+    shares = [s["share_bps"] for s in body["household_spending"]]
+    assert shares == sorted(shares, reverse=True)
+
+    # Each share is what that industry's own companies sold to households in the quarter, so the six are
+    # on the page because they trade with households, not because the page was told to name them.
+    period = body["period"]
+    total = db.execute("SELECT coalesce(sum(r.sales_households), 0)::bigint FROM company_results r"
+                       " WHERE r.period = %s", (period,)).fetchone()[0]
+    for code, name in names.items():
+        sold = db.execute("SELECT coalesce(sum(r.sales_households), 0)::bigint FROM company_results r"
+                          " JOIN companies c ON c.id = r.company_id WHERE c.sector = %s AND r.period = %s",
+                          (code, period)).fetchone()[0]
+        assert sold > 0
+        assert spending[name] == sold * 10_000 // total
+
+
+# ---------------------------------------------------------------------------
+# 30. Net worth counts the new shares
+# ---------------------------------------------------------------------------
+
+def test_net_worth_counts_the_new_shares(client, player, db):
+    account = db.execute("SELECT id FROM ledger_accounts WHERE kind = 'player'").fetchone()[0]
+    ticker = in_sector("technology")
+    held = 500
+    before = objectives.wealth(db, account, NOW9)
+    ledger.transfer(db, payer=ledger.account_id(db, ledger.INVESTORS_PUBLIC), receiver=account, amount=held,
+                    asset=f"SHR-{ticker}", kind="test_shares", memo="Test: shares in a new company to hold")
+    price = int(db.execute("SELECT coalesce(m.last_price, m.reference_price) FROM market_instruments m"
+                           " JOIN companies c ON c.id = m.company_id WHERE c.ticker = %s", (ticker,)).fetchone()[0])
+
+    # What the player owns counts the shares at the market's price, and the same price in the total.
+    worth = objectives.wealth(db, account, NOW9)
+    line = next(line for line in worth["lines"] if line["ticker"] == ticker)
+    assert line["shares"] == held and line["price"] == price and line["value"] == held * price
+    assert line["sector"] == db.execute("SELECT name FROM sectors WHERE code = 'technology'").fetchone()[0]
+    # The shares are the only thing that changed, and they changed the worth by exactly what they are worth:
+    # nothing else it owns is counted differently for their being there.
+    assert worth["shares"] - before["shares"] == held * price
+    assert worth["total"] - before["total"] == held * price and worth["cash"] == before["cash"]
+
+    # What the closing bell writes down is the same: the share is in the investments it counts.
+    day = exchange.session_of(NOW9)[0]
+    closingbell.snapshot_net_worth(db, day)
+    cash, investments = marketview.net_worth_of_players(db)[account]
+    row = db.execute("SELECT cash, investments FROM net_worth_days WHERE account_id = %s AND session_date = %s",
+                     (account, day)).fetchone()
+    assert investments == held * price and int(row[1]) == investments
+    assert int(row[0]) == cash
+
+    # And the player's own holdings page shows the company, its shares and what they are worth.
+    mine = next(h for h in client.get("/api/market/holdings").json() if h["ticker"] == ticker)
+    assert mine["shares"] == held and mine["held_for_orders"] == 0
+    assert int(mine["value_kobo"]) == held * price
+
+
+# ---------------------------------------------------------------------------
+# 31. A company of a new industry can be taken over
+# ---------------------------------------------------------------------------
+
+def smallest_new_target(db) -> dict:
+    """The new industry's listed company that costs least to buy, so that a test empire can afford all of it."""
+    return _one(db, "SELECT c.*, m.reference_price FROM companies c JOIN market_instruments m ON m.company_id = c.id"
+                    " WHERE c.listed AND c.sector = ANY(%s) ORDER BY m.reference_price *"
+                    " (SELECT coalesce(sum(b.balance), 0) FROM ledger_balances b WHERE b.asset = c.share_asset) LIMIT 1",
+                (list(NEW),))
+
+
+def test_a_company_of_a_new_industry_can_be_taken_over(db):
+    empire, team = firm_of(db, n_cash=200_000_000_000)
+    target = smallest_new_target(db)
+    assert target is not None and next(c for c in data.COMPANIES if c.ticker == target["ticker"]).sector in NEW
+    issued = ledger.amount_in_existence(db, target["share_asset"])
+    price = target["reference_price"] * 12 // 10
+    shares = issued * 6 // 10
+
+    # An offer is made for it as for any company: the industry it is in plays no part in whether it may be bid for.
+    drafted = firm_dealmaking.draft_offer(db, team["investment_banker"], target["id"], price, shares, LATER)
+    held_before = ledger.balance(db, empire["account_id"])
+    firm.decide(db, team["head"], drafted["approval_id"], True, "Worth it.", LATER)
+    bid = corporate.bid_for(db, target["id"])
+    assert bid is not None and bid["bidder_empire_id"] == empire["id"]
+    # Its cash is set aside for the shares it has offered to buy, and the books still hold while it stands.
+    assert bid["reserved"] == price * shares
+    assert ledger.balance(db, empire["account_id"]) == held_before - price * shares
+    assert ledger.audit(db) == [] and corporate.check_books(db) == []
+
+    # It is decided at the close. Won, the empire holds what it bought; lost, the cash comes back untouched.
+    assert quarters.close_due_quarters(db, after_quarters(9)) == [9]
+    assert quarters.close_due_quarters(db, after_quarters(10)) == [10]
+    closed = _one(db, "SELECT * FROM takeovers WHERE id = %s", (bid["id"],))
+    assert closed["status"] in ("won", "failed") and closed["reserved"] == 0 and closed["outcome"]
+    if closed["status"] == "won":
+        assert closed["bought"] > 0 and closed["paid"] == closed["bought"] * closed["price"]
+        assert ledger.balance(db, empire["account_id"], target["share_asset"]) == closed["bought"]
+        # And it controls the company: more than half its shares, as the shareholder record shows.
+        assert corporate.control(db, target["id"])["share_bps"] > 5_000
+        assert corporate.control(db, target["id"])["controller"] is not None
+    else:
+        assert closed["bought"] == 0 and closed["paid"] == 0
+    # Two quarters have closed over it, and still every naira that should exist does.
+    sound(db)
+    assert corporate.check_books(db) == []
+
+
+# ---------------------------------------------------------------------------
+# 32. A private company of a new industry can be bought and listed
+# ---------------------------------------------------------------------------
+
+def listable_new_private(db) -> dict | None:
+    """A private company of the six new industries that can be listed: profitable, its debts not larger than
+    everything it owns, and paying its way as the exchange requires."""
+    for company in data.COMPANIES:
+        if company.sector not in NEW or company.listed:
+            continue
+        row = _one(db, "SELECT * FROM companies WHERE ticker = %s", (company.ticker,))
+        last = _one(db, "SELECT total_equity, net_profit FROM company_results WHERE company_id = %s ORDER BY period DESC LIMIT 1",
+                    (row["id"],))
+        if row["status"] == "trading" and last and last["total_equity"] > 0 and last["net_profit"] > 0 and not firm_owned.failing(db, row["id"]):
+            return row
+    return None
+
+
+def test_a_private_new_company_can_be_bought_and_listed(db):
+    company = listable_new_private(db)
+    assert company is not None, "No private company of the new industries has filed a profit, so none could be listed."
+
+    # Buying it: through the same file, checks and bid as any private company, with the price held in escrow.
+    empire, team = firm_of(db, n_cash=60_000_000_000)
+    sale = open_a_sale(db, company["ticker"], mode="sealed")
+    file_id = firm_deals.open_file(db, team["investment_banker"], sale["id"], LATER)["file_id"]
+    firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
+    do_checks(db, empire, team, file_id)
+    # Above what a computer-run buyer will offer (it bids no more than the company is worth), and inside the
+    # rule that no bid may be above 150% of what the company is worth or of the asking price.
+    in_issue = ledger.amount_in_existence(db, company["share_asset"])
+    worth = private.value_of(db, company["id"]) * sale["shares"] // max(in_issue, 1)
+    price = max(worth, sale["asking"]) * 14 // 10
+    fairness_if_needed(db, team, file_id, price)
+    firm_deals.place_bid(db, team["head"], file_id, price, 0, LATER)
+    assert quarters.close_due_quarters(db, after_quarters(9)) == [9]
+
+    owned = _one(db, "SELECT * FROM owned_companies WHERE company_id = %s", (company["id"],))
+    assert owned is not None and owned["empire_id"] == empire["id"]
+    assert ledger.balance(db, empire["account_id"], company["share_asset"]) == sale["shares"]
+    assert firm_deals.check_books(db) == [] and ledger.audit(db) == []
+
+    # Listing it: new shares are offered at a tenth below what the company is worth, and close at the next close.
+    when = after_quarters(9) + timedelta(hours=2)
+    announced = firm_owned.list_on_exchange(db, team["head"], company["id"], when)
+    offer = _one(db, "SELECT * FROM share_offers WHERE company_id = %s AND status = 'open'", (company["id"],))
+    assert offer["kind"] == "ipo" and offer["price"] == announced["price"] and offer["shares"] == announced["shares"]
+    # A tenth below what the company is worth, for new shares of a quarter of those in issue. (The shares are
+    # issued when the offer closes, so what is in issue now is still what the price is worked out over.)
+    shares_in_issue = ledger.amount_in_existence(db, company["share_asset"])
+    assert offer["price"] == apply_bps(private.value_of(db, company["id"]), firm_owned.LISTING_DISCOUNT_BPS) // shares_in_issue
+    assert offer["shares"] == apply_bps(shares_in_issue, firm_owned.LISTING_NEW_BPS)
+    assert quarters.close_due_quarters(db, after_quarters(10)) == [10]
+
+    # It trades on the exchange from then on, in its own industry, and the empire's stake is counted out at the
+    # listing price — the empire is no longer the company's owner, it is a shareholder like any other.
+    assert quarters.close_due_quarters(db, after_quarters(11)) == [11]
+    listed = _one(db, "SELECT * FROM companies WHERE id = %s", (company["id"],))
+    assert listed["listed"], _one(db, "SELECT outcome FROM share_offers WHERE id = %s", (offer["id"],))["outcome"]
+    instrument = _one(db, "SELECT * FROM market_instruments WHERE company_id = %s", (company["id"],))
+    assert instrument is not None and instrument["listing_price"] > 0
+    day, _ = exchange.session_of(after_quarters(11))
+    assert company["ticker"] in {s["ticker"] for s in marketview._shares(db, day)}
+    assert _one(db, "SELECT kind FROM deal_exits WHERE company_id = %s", (company["id"],))["kind"] == "listing"
+    assert not _one(db, "SELECT 1 FROM owned_companies WHERE company_id = %s", (company["id"],))
+    # Three quarters have closed over it, and still every naira that should exist does.
+    sound(db)
+    assert firm_deals.check_books(db) == []
