@@ -16,6 +16,7 @@ from datetime import timedelta
 
 import pytest
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from simulation import careers, closingbell, corporate, derivatives, empires, etfs, events, exchange, firm, firm_dealmaking
 from simulation import firm_deals, firm_owned, funds, indexes, insight, intel, ledger, marketview, objectives
@@ -842,33 +843,38 @@ def test_a_company_of_a_new_industry_is_rescued_from_failure(db):
     held = still_with_founders(db)
     assert held, "no company of the six is still held by its founders, so none could be rescued"
     trouble = next((c for c in held if firm_owned.failing(db, c["id"])), None)
+    when = LATER
     if trouble is None:
-        # None of the six is in trouble at this quarter: put one there the way an unpaid bill does, so that
-        # the rule is proved rather than the test skipped.
+        # None of the six is in trouble at this quarter, so one is put there by the game's own means: a tax
+        # assessment its founders never disclosed falls due in the next quarter's accounts (the `hidden_debt`
+        # secret, as `tests/test_deals_more.py` proves) — a real expense, so the books still balance, and larger
+        # than its cash, so the tax office is left owed and the company is in trouble. Its results cannot be
+        # rewritten (the record trigger refuses it), and a bill conjured by hand leaves the balance sheet adrift.
         trouble = held[0]
-        with db.transaction():
-            db.execute("UPDATE company_results SET payables = payables + %s WHERE company_id = %s"
-                       " AND period = (SELECT max(period) FROM company_results WHERE company_id = %s)",
-                       (million_naira(1), trouble["id"], trouble["id"]))
+        due = apply_bps(firm_owned._quarter_sales(db, trouble["id"]), 40_000)
+        db.execute("UPDATE private_profiles SET secrets = %s WHERE company_id = %s",
+                   (Jsonb([{"code": "hidden_debt", "bps": 0, "amount": due, "from_period": 9, "done": False}]), trouble["id"]))
+        assert quarters.close_due_quarters(db, after_quarters(9)) == [9]
         assert firm_owned.failing(db, trouble["id"])
+        when = after_quarters(9) + timedelta(hours=12)          # the ninth quarter has just begun
 
     empire, team = firm_of(db, n_cash=2_000_000_000)
     company = own(db, empire, trouble["ticker"])
     doctor, account = pro(db, "accountant", "new_industry_doctor")
     sales = firm_owned._quarter_sales(db, company["id"])
     with pytest.raises(empires.EmpireError, match="from outside"):
-        firm_owned.propose_rescue(db, team["accountant"], company["id"], ["cut_costs"], 0, LATER)
+        firm_owned.propose_rescue(db, team["accountant"], company["id"], ["cut_costs"], 0, when)
     with pytest.raises(empires.EmpireError, match="5%"):
-        firm_owned.propose_rescue(db, doctor, company["id"], ["cut_costs"], sales, LATER)
-    plan = firm_owned.propose_rescue(db, doctor, company["id"], ["cut_costs"], sales * 2 // 100, LATER)
+        firm_owned.propose_rescue(db, doctor, company["id"], ["cut_costs"], sales, when)
+    plan = firm_owned.propose_rescue(db, doctor, company["id"], ["cut_costs"], sales * 2 // 100, when)
 
     # The head of the empire that owns it has to say yes, as at any other company.
     assert _one(db, "SELECT status FROM company_plans WHERE id = %s", (plan["id"],))["status"] == "proposed"
-    firm_owned.answer_rescue(db, team["head"], plan["id"], True, LATER)
+    firm_owned.answer_rescue(db, team["head"], plan["id"], True, when)
     assert _one(db, "SELECT status FROM company_plans WHERE id = %s", (plan["id"],))["status"] == "running"
 
     before = ledger.balance(db, account)
-    for q in (9, 10, 11, 12):
+    for q in (10, 11, 12, 13):
         assert quarters.close_due_quarters(db, after_quarters(q)) == [q]
     row = _one(db, "SELECT * FROM company_plans WHERE id = %s", (plan["id"],))
     assert row["status"] in ("done", "failed")

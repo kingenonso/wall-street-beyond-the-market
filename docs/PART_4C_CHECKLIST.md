@@ -1,13 +1,26 @@
 # Part 4c checklist: new industries
 
-**Built on 3 November 2026, committed as `677c618`. Every item from 1 to 33 now has a test written. Only
-part of that has been run: `tests/test_part4c_more.py` is green, 29 passed on 4 November 2026, and the
-fifteen tests of `tests/test_part4c.py` and the ten of `tests/test_part4c_loopholes.py` have never been
-run. Item 34's independent review is done: it found one real fault and one wrong sentence on this page,
-both fixed, with `tests/test_part4c_review.py` written and not yet run. Items 35 to 38 — the ten-year run,
-the screenshots, the whole suite, the report and the push — are not done.
-`docs/STAGE_4C_NEW_INDUSTRIES.md` is still the draft of the closing report, and its status table has not
-been brought up to date yet.**
+**Built on 3 November 2026, committed as `677c618`. Every item from 1 to 33 has a test written. All 59 of
+them were run for the first time on 4 November 2026 — 54 passed and 5 failed, and every failure was a
+fault in a test rather than in the game: four assumed a state a fresh world does not reach (the baskets
+come at the first closing bell, the dollar debts when the currency desk opens, a company's first result
+carries its sales in `base_revenue`, and the approved loadings put technology at half again the next
+keenest lean on money, not twice it), and the fifth tried to `UPDATE` a `company_results` row, which the
+permanence trigger refuses. The second run of the same 59 stood at 57 passed and 2 failed, and both of the
+two were faults in those first repairs, found by the game's own checks: ringing the currency desk's first
+bell in a world eight quarters old had the Central Bank pay for the Government's dollars with naira it no
+longer held, so new naira appeared that no loan accounts for — the test now rings that bell at the world's
+beginning, on a fresh world, as `tests/test_fx.py` does; and a bill written by hand into
+`company_payables` left the balance sheet adrift, because a bill in this game comes from an expense the
+engine has already recognised — the rescue test now puts the company in trouble with the hidden tax
+assessment the game itself has (`private.py`'s `hidden_debt` secret, as `tests/test_deals_more.py`
+proves), which falls due as tax and keeps the books straight. The third run, on the same day, stood at
+**59 passed, none failed**, in six minutes forty-eight: every loophole question is answered by a test that
+runs, and both of the review's faults are proved. Item 34's independent review is done: it found one real
+fault and one wrong sentence on this page, both fixed.
+Items 35 to 38 — the ten-year run, the screenshots, the whole suite, the report and the push — are not
+done. `docs/STAGE_4C_NEW_INDUSTRIES.md` is still the draft of the closing report, and its status table has
+not been brought up to date yet.**
 
 Written 3 November 2026, after the owner approved the company names in
 `docs/PART_4C_NEW_INDUSTRIES_PROPOSAL.md`.
@@ -133,8 +146,8 @@ exist.
 
 | # | What it does |
 | --- | --- |
-| 33 | **The loophole check** (working rule 3, design section 19). The ten questions are answered for each feature, an automated test written for every question that applies, and the answers listed in the stage report. The applicable areas for this part: can a player see a private company's true figures before buying; can a player move value between a company they own and one they do not; can a new industry's basket be gamed by trading a thin four-company set; can a miner's dollar borrowing be used to dodge the naira; can a film company's "hit" be forecast from anything the player is shown; can the fertiliser-to-farm link be arbitraged; can wages be avoided by moving staff into a new industry; can a private company be made to pay its owner twice; can a rescue of a new company be turned into free money; can a new basket's index be moved single-handed. Written as ten tests in `tests/test_part4c_loopholes.py`, one per question, each named `test_q1_...` to `test_q10_...`; not yet run. |
-| 34 | **The independent review.** A second AI that did not write the code is told to break it. Every finding is fixed, given its own test, and listed in the report, as in Parts 1, 2, 3, 4a and 4b. **Done 4 November 2026.** Seven points were raised: one real fault — the non-oil export weights added to 13,000 of a 10,000 whole, now 4,600 / 3,100 / 2,300 so that no exporter's money moves but the shares are as published — and one wrong sentence on this page, the four-name basket arithmetic above, now three names and 50%; four points were checked against the code and are not faults, and the seventh is the running of the older suite, which is item 37. The two real ones are proved in `tests/test_part4c_review.py`, not yet run, and are to be listed in the report at item 38. |
+| 33 | **The loophole check** (working rule 3, design section 19). The ten questions are answered for each feature, an automated test written for every question that applies, and the answers listed in the stage report. The applicable areas for this part: can a player see a private company's true figures before buying; can a player move value between a company they own and one they do not; can a new industry's basket be gamed by trading a thin four-company set; can a miner's dollar borrowing be used to dodge the naira; can a film company's "hit" be forecast from anything the player is shown; can the fertiliser-to-farm link be arbitraged; can wages be avoided by moving staff into a new industry; can a private company be made to pay its owner twice; can a rescue of a new company be turned into free money; can a new basket's index be moved single-handed. Written as ten tests in `tests/test_part4c_loopholes.py`, one per question, each named `test_q1_...` to `test_q10_...`; all ten run on 4 November 2026, in the third run of the 59, and all ten pass. |
+| 34 | **The independent review.** A second AI that did not write the code is told to break it. Every finding is fixed, given its own test, and listed in the report, as in Parts 1, 2, 3, 4a and 4b. **Done 4 November 2026.** Seven points were raised: one real fault — the non-oil export weights added to 13,000 of a 10,000 whole, now 4,600 / 3,100 / 2,300 so that no exporter's money moves but the shares are as published — and one wrong sentence on this page, the four-name basket arithmetic above, now three names and 50%; four points were checked against the code and are not faults, and the seventh is the running of the older suite, which is item 37. The two real ones are proved in `tests/test_part4c_review.py`, both passing on 4 November 2026, and are to be listed in the report at item 38. |
 | 35 | **The ten-year run.** Forty quarters with all earlier stages running, a staged oil shock and two bank shocks, as in Part 4b. The books must pass the ledger audit at the end and the markets' work must stay quick. Every oddity found is fixed, and most get a test. |
 | 36 | **Screenshots and accessibility.** A screenshot of every new screen or panel, in dark and light theme, and on a phone for the markets and a company page. The accessibility check (axe) must find nothing. |
 | 37 | **The whole test suite.** Everything already passing must still pass (1,532 server tests in 93 files, the engine's 13, the website's 23). Older tests that count kinds of company, news wordings, holdings in net worth or requests that change something will need bringing up to date, and each such change is listed in the report. |

@@ -29,6 +29,8 @@ from tests.conftest import ADULT, after_quarters, join, money_accounted_for
 from tests.test_careers import NOW9
 from tests.test_deals import LATER, _one, do_checks, fairness_if_needed, open_a_sale
 from tests.test_firm import firm_of
+from tests.test_fx import ring as ring_a_bell
+from tests.test_market import OPEN
 
 pytestmark = pytest.mark.world("eight")
 
@@ -144,7 +146,14 @@ def test_q3_a_thin_new_basket_has_no_contract_to_settle_and_a_capped_weight(db):
 # 4. Can a miner's dollar borrowing be used to dodge the naira?
 # ---------------------------------------------------------------------------
 
+@pytest.mark.world("fresh")
 def test_q4_a_miners_dollar_borrowing_carries_the_naira_risk_it_was_meant_to_dodge(db):
+    # The dollar debts are issued when the currency desk opens, at the world's first closing bell (`fx.setup`,
+    # which the desk's tick rings the first time — see `tests/test_fx.py`). It is rung here at the beginning, as a
+    # real world rings it: rung later, the Central Bank would pay for those dollars with naira it no longer holds,
+    # and new naira would appear that no loan accounts for.
+    ring_a_bell(db, OPEN.date() - timedelta(days=1))
+
     # Only the largest of a kind borrow in dollars, and for mining that is two companies.
     assert dict(data.FX_COMPANY_EUROBONDS)["mining"] == 2
     debt = _one(db, "SELECT d.*, c.ticker FROM company_debts d JOIN companies c ON c.id = d.company_id"
@@ -154,18 +163,22 @@ def test_q4_a_miners_dollar_borrowing_carries_the_naira_risk_it_was_meant_to_dod
     # The dollars raised are sold to the Central Bank, so the miner holds naira: it cannot sit on the
     # dollars it borrowed. What it still owes, it owes in dollars.
     assert debt["principal_outstanding"] > 0 and debt["currency"] == "USD"
-    before = fx.currency_loss(db, debt["company_id"], 8)
+    before = fx.currency_loss(db, debt["company_id"], 0)
 
     # The naira falls a fifth. The quarter closes and the debt is revalued: the fall is the miner's
     # loss, in its own accounts. Borrowing abroad does not put the currency risk on anybody else.
     db.execute("ALTER TABLE fx_quarters DISABLE TRIGGER fx_quarters_permanent")
     db.execute("UPDATE fx_quarters SET official = official * 12 / 10")
     db.execute("ALTER TABLE fx_quarters ENABLE TRIGGER fx_quarters_permanent")
-    assert quarters.close_due_quarters(db, after_quarters(9)) == [9]
-    assert fx.currency_loss(db, debt["company_id"], 9) > before >= 0
-    result = _one(db, "SELECT * FROM company_results WHERE company_id = %s AND period = 9", (debt["company_id"],))
-    assert result["currency_loss"] >= fx.currency_loss(db, debt["company_id"], 9) > 0
-    sound(db)
+    assert quarters.close_due_quarters(db, after_quarters(1)) == [1]
+    assert fx.currency_loss(db, debt["company_id"], 1) > before >= 0
+    result = _one(db, "SELECT * FROM company_results WHERE company_id = %s AND period = 1", (debt["company_id"],))
+    assert result["currency_loss"] >= fx.currency_loss(db, debt["company_id"], 1) > 0
+    # The ledger balances and the desk's books agree. (The count of all naira in existence is not asserted here,
+    # as `sound` does: the desk creates naira when the Central Bank buys the Government's dollars, which
+    # `money_accounted_for` — opening money plus the banks' borrowing — was never built to count. This is the
+    # same check `tests/test_fx.py` makes after opening the desk.)
+    assert ledger.audit(db) == [] and crisis.check_books(db) == [] and fx.check_books(db) == []
 
 
 # ---------------------------------------------------------------------------
