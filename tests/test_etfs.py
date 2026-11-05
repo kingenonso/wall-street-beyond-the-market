@@ -424,7 +424,10 @@ def test_the_page_lists_indexes_and_etfs_and_never_shows_anybody_else_s_orders_o
     q = etfs.maker_quote(db, topx, TRADING)
     etfs.place_order(db, a, "TOPX", side="buy", quantity=300, limit_price=q["bid"] - 3, now=TRADING)
     page = client.get("/api/etfs").json()
-    assert {e["code"] for e in page["etfs"]} >= {"TOPX", "TOPL", "GBND"} and len(page["indexes"]) == 8
+    # Every live index is on the page: the four older baskets and Part 4c's six new ones.
+    live = {code for (code,) in db.execute("SELECT code FROM market_indexes WHERE status = 'live' AND owner_id IS NULL").fetchall()}
+    assert {e["code"] for e in page["etfs"]} >= {"TOPX", "TOPL", "GBND"} and len(page["indexes"]) == len(live)
+    assert {"PHARMA", "RETAIL", "TECH", "FILM", "MINING", "FERT"} <= {i["code"] for i in page["indexes"]}
     sheet = client.get("/api/etfs/TOPX").json()
     assert sheet["basket"]["lines"] and sheet["orders"] == [] and sheet["mine"]["units"] == 0
     assert "account" not in str(sheet["book"]) and all(set(b) == {"limit_price", "units"} for b in sheet["book"]["buy"])

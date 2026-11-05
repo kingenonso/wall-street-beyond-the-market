@@ -18,8 +18,17 @@ proves), which falls due as tax and keeps the books straight. The third run, on 
 **59 passed, none failed**, in six minutes forty-eight: every loophole question is answered by a test that
 runs, and both of the review's faults are proved. Item 34's independent review is done: it found one real
 fault and one wrong sentence on this page, both fixed.
-Items 35 to 38 — the ten-year run, the screenshots, the whole suite, the report and the push — are not
-done. `docs/STAGE_4C_NEW_INDUSTRIES.md` is still the draft of the closing report, and its status table has
+Item 37, the whole suite, was run on 4 November 2026: 1,569 passed, 20 failed and 2 skipped, in two and a
+half hours. Of the twenty, two were faults in this part — Zanga Pay grew at 6% a quarter against a pull
+of 5%, so its market share would never have stopped growing, and the six new modules sat at Level 5,
+which the library had never used; the level is now allowed and the growth is 4.8%. One was a fault older
+than this part: `clock.next_quarter_end` added days to the world's start without first moving to Lagos
+time, so on a machine whose clocks change the quarter ended an hour out. The other seventeen were tests
+asserting what the world used to be — a private company the founders no longer hold, eight indexes where
+there are now fourteen, fifty option underlyings across two expiries, a reward rounded to the nearest
+thousand, and one investor trade that is the market working rather than churn. All twenty now pass.
+Items 35, 36 and 38 — the ten-year run, the screenshots, the report and the push — are not done.
+`docs/STAGE_4C_NEW_INDUSTRIES.md` is still the draft of the closing report, and its status table has
 not been brought up to date yet.**
 
 Written 3 November 2026, after the owner approved the company names in

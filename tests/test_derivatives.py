@@ -78,8 +78,14 @@ def test_options_and_futures_are_listed_for_this_quarter_and_the_next(db):
     assert expiries == {9, 10}
     futures = {r["underlying"] for r in _dicts(db, "SELECT underlying FROM derivative_series WHERE kind = 'future'")}
     assert futures == set(derivatives.FUTURES)
+    # Fifty shares at a time, the largest: but an expiry is listed once, and a share that has since fallen out of
+    # the largest keeps the series it was given until they expire, so two expiries can name more than fifty between
+    # them. Each expiry names no more than fifty.
+    for expiry in (9, 10):
+        listed = {r["underlying"] for r in _dicts(db, "SELECT underlying FROM derivative_series WHERE company_id IS NOT NULL"
+                                                     " AND expiry_period = %s", (expiry,))}
+        assert 0 < len(listed) <= 50
     shares = {r["underlying"] for r in _dicts(db, "SELECT underlying FROM derivative_series WHERE company_id IS NOT NULL")}
-    assert 0 < len(shares) <= 50
     per = _dicts(db, "SELECT count(*) AS n FROM derivative_series WHERE underlying = %s AND expiry_period = 9", (sorted(shares)[0],))[0]["n"]
     assert per == len(data.OPTION_STRIKES_BPS) * 2
     derivatives.ensure(db, OPEN)                             # asking again adds nothing

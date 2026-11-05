@@ -87,8 +87,13 @@ def in_closing_rush(moment: datetime) -> bool:
 
 
 def next_quarter_end(moment: datetime, world_start: datetime) -> datetime:
-    """The moment the game quarter now running ends: when every company files its results."""
-    return world_start + timedelta(days=REAL_DAYS_PER_QUARTER) * (max(periods_completed(moment, world_start), 0) + 1)
+    """The moment the game quarter now running ends: when every company files its results.
+
+    Counted in Lagos time, as the world is. Adding days to a moment in a zone that keeps summer time
+    moves the clock by an hour across the change, so a world start read back from the database in the
+    server's own zone would put the quarter's end an hour out. Lagos keeps no summer time, so the
+    arithmetic is the same every quarter of the year."""
+    return to_lagos(world_start) + timedelta(days=REAL_DAYS_PER_QUARTER) * (max(periods_completed(moment, world_start), 0) + 1)
 
 
 def next_change(moment: datetime) -> tuple[MarketState, datetime]:

@@ -21,9 +21,21 @@ AFTER9 = after_quarters(9) + timedelta(hours=2)
 
 
 def own(db, empire, ticker, *, cost=million_naira(1_000)):
-    """Hand an empire a private company outright (as if bought), for tests of running one."""
+    """Hand an empire a private company outright (as if bought), for tests of running one.
+
+    The founders hold a private company until `private.open_sales` puts it up for sale, and the pension
+    funds hold what they buy. Part 4c's six new private companies changed which ones are sold in the
+    eight quarters this world has run, so the named company may no longer be in the founders' hands.
+    The helper then takes the nearest one of the same industry that is, so that a test about running a
+    company is not a test about which company happened to be sold."""
     company = _one(db, "SELECT * FROM companies WHERE ticker = %s", (ticker,))
     founders = ledger.account_id(db, ledger.INVESTORS_FOUNDERS)
+    if ledger.balance(db, founders, company["share_asset"]) <= 0:
+        company = _one(db, """SELECT c.* FROM companies c WHERE NOT c.listed AND c.status = 'trading'
+                              AND EXISTS (SELECT 1 FROM ledger_balances b WHERE b.asset = c.share_asset
+                                          AND b.account_id = %s AND b.balance > 0)
+                              ORDER BY (c.sector = %s) DESC, c.ticker LIMIT 1""", (founders, company["sector"]))
+        assert company, "the founders hold no private company to hand over"
     with db.transaction():
         ledger.transfer(db, payer=founders, receiver=empire["account_id"], amount=ledger.balance(db, founders, company["share_asset"]),
                         asset=company["share_asset"], kind="company_sale", memo="test", period=9)

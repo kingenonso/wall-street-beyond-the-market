@@ -265,7 +265,7 @@ COMPANIES: tuple[Company, ...] = (
     Company("ADK", "Aduke Stores", "retail", LAGOS, 22_000, lender="OTB", listed=False, trend_bps=200),
     Company("OTG", "Otukpo Grocers", "retail", ABA, 45_000, lender="KCB", cost_extra_bps=200),
     # Technology and payments.
-    Company("ZGP", "Zanga Pay", "technology", LAGOS, 180_000, lender="IKB", bond_share_bps=4000, trend_bps=600),
+    Company("ZGP", "Zanga Pay", "technology", LAGOS, 180_000, lender="IKB", bond_share_bps=4000, trend_bps=480),
     Company("OJD", "Oja Digital", "technology", LAGOS, 120_000, lender="KCB", trend_bps=450, volatility_bps=900),
     Company("NMS", "Nembe Softworks", "technology", ABUJA, 38_000, lender="ZCB"),
     Company("IKS", "Ikere Cloud Services", "technology", LAGOS, 26_000, lender="IKB", listed=False,

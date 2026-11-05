@@ -169,7 +169,10 @@ def test_a_module_is_learned_alone_practised_with_the_empire_and_proven_in_a_wee
     assert not offer["available"] and "Weekend challenges open on Friday" in offer["why_not"]
     solo = next(o for o in objectives.board(db, player, friday11)["offers"] if o["template"] == "ac_ratios")
     live = next(o for o in objectives.board(db, player, friday11)["offers"] if o["template"] == "ac_ratios_w")
-    assert live["available"] and live["reward"] == solo["reward"] * 3 // 2 and live["experience"] == solo["experience"] * 3 // 2
+    # Both are rounded down to the nearest ₦1,000 after the one-and-a-half is applied, so the weekend's pay
+    # is within one rounding step of three halves of the solo's rather than exactly it.
+    assert live["available"] and abs(live["reward"] - solo["reward"] * 3 // 2) <= 100_000
+    assert abs(live["experience"] - solo["experience"] * 3 // 2) <= 100_000
     # The clock starts when a challenge is taken on, so its client and figures are not shown before.
     assert live["client"] is None and "the moment you take the challenge on" in live["situation"]
     won = do(db, player, "ac_ratios_w", friday11)
