@@ -4,10 +4,11 @@ import { useState } from "react";
 import { api, ApiError, type Order } from "./api";
 import { formatCompact, formatNaira } from "./format";
 import { useLoad } from "./hooks";
-import { Change, Failed, Loading, Panel } from "./Shell";
+import { Change, Failed, Gain, Loading, Panel } from "./Shell";
 import { shortDate } from "./Market";
 import { SingleLine } from "./TrendChart";
 import { CompareChart, MixBar } from "./Charts";
+import { NumberTile } from "./Parts";
 import { Term } from "./Term";
 
 /** The starting grant, paid in parts as the player does real things. Asking also collects any part that is due. */
@@ -46,18 +47,74 @@ function ShareBar({ part, whole }: { part: string; whole: string }) {
   );
 }
 
-/** A gain or a loss in naira, with an arrow so that it reads without colour. */
-function Gain({ kobo }: { kobo: string }) {
-  const value = BigInt(kobo);
-  if (value === 0n) return <span className="mono muted">₦0</span>;
-  const up = value > 0n;
-  return <span className={`mono change-${up ? "up" : "down"}`}>{up ? "▲" : "▼"} {formatNaira((up ? value : -value).toString())}</span>;
-}
-
 function describe(order: Order): string {
   const price = order.limit_price_kobo ? `at ${formatNaira(order.limit_price_kobo)}` : "at the best price";
   const done = order.quantity - order.remaining;
   return `${order.side === "buy" ? "Buy" : "Sell"} ${shares(order.quantity)} ${order.name} ${price}${done > 0 ? ` · ${shares(done)} done` : ""}`;
+}
+
+/** The empire's shares, for a member: what they cost, what they are worth, and the gain or loss. */
+function EmpireSharesPanel({ onLoggedOut }: { onLoggedOut: () => void }) {
+  const { data } = useLoad(api.empireShares, "empire-shares", onLoggedOut);
+  if (!data || !data.empire) return null;
+  const e = data;
+  return (
+    <Panel title={`${e.empire}'s shares`} aside={`${e.holdings.length} ${e.holdings.length === 1 ? "company" : "companies"}`}>
+      {e.holdings.length === 0 ? (
+        <p className="muted small">
+          The empire owns no shares yet. Its Asset Manager buys them from the <a href="#/market">Market</a> with the empire's money.
+        </p>
+      ) : (
+        <>
+          <div className="tiles">
+            <NumberTile label="Worth" value={formatCompact(e.shares_value_kobo)} />
+            <NumberTile label="They cost" value={formatCompact(e.cost_kobo)} />
+            <NumberTile label="Gain or loss" value={<Gain kobo={e.gain_kobo} />} />
+            <NumberTile label="Dividends" value={formatCompact(e.dividends_kobo)} />
+          </div>
+          <div className="scroll" tabIndex={0}>
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Company</th>
+                  <th scope="col" className="num">Shares</th>
+                  <th scope="col" className="num">Price</th>
+                  <th scope="col" className="num">Today</th>
+                  <th scope="col" className="num">Worth</th>
+                  <th scope="col" className="num">They cost</th>
+                  <th scope="col" className="num">Gain or loss</th>
+                  <th scope="col" className="num">Dividends</th>
+                  <th scope="col"><Term word="Concentration">Share of the empire's shares</Term></th>
+                </tr>
+              </thead>
+              <tbody>
+                {e.holdings.map((h) => (
+                  <tr key={h.ticker}>
+                    <th scope="row">
+                      <a href={`#/companies/${h.ticker}`}>{h.name}</a> <span className="ticker mono">{h.ticker}</span>
+                    </th>
+                    <td className="num mono">{shares(h.shares)}</td>
+                    <td className="num mono">{formatNaira(h.price_kobo)}</td>
+                    <td className="num"><Change bps={h.change_bps} /></td>
+                    <td className="num mono">{formatNaira(h.value_kobo)}</td>
+                    <td className="num mono">{formatNaira(h.cost_kobo)}</td>
+                    <td className="num"><Gain kobo={h.gain_kobo} /></td>
+                    <td className="num mono">{formatNaira(h.dividends_kobo)}</td>
+                    <td><ShareBar part={h.value_kobo} whole={e.shares_value_kobo} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      <p className="muted small">
+        These shares belong to the empire, not to you, so they are not counted in what you are worth above. "They cost" is
+        what the empire paid for the shares it still holds, fees included; when some are sold, the average cost of those
+        shares comes off. Shares that came to the empire other than through the Market have no purchase cost on record.
+      </p>
+    </Panel>
+  );
 }
 
 export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void; onChanged: () => void }) {
@@ -192,6 +249,8 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
           cost of those shares comes off.
         </p>
       </Panel>
+
+      <EmpireSharesPanel onLoggedOut={onLoggedOut} />
 
       <Panel title="Your orders waiting" aside={waiting.length > 0 ? `${waiting.length} of 50` : undefined}>
         {problem && <div className="error" role="alert">{problem}</div>}

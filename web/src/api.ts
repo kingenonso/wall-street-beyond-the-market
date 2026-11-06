@@ -726,12 +726,21 @@ export type BookEntry = { id: number; period: number; period_label: string; cate
 export type EmpireOrder = {
   id: number; ticker: string; name: string; side: "buy" | "sell"; kind: string; limit_price_kobo?: Kobo; quantity: number; remaining: number; status: string;
 };
+/** One share the empire holds, and how it has done: what it cost, what it is worth, the gain or loss. */
+export type EmpireShare = {
+  ticker: string; name: string; shares: number; price_kobo: Kobo; change_bps: number;
+  value_kobo: Kobo; cost_kobo: Kobo; gain_kobo: Kobo; dividends_kobo: Kobo;
+};
+/** The empire's shares, for the Portfolio and savings page. `empire` is null when the player belongs to none. */
+export type EmpireShares = {
+  empire: string | null; holdings: EmpireShare[]; shares_value_kobo: Kobo; cost_kobo: Kobo; gain_kobo: Kobo; dividends_kobo: Kobo;
+};
 export type EmpireRoom = {
   id: number; name: string; kind: string; status: "forming" | "active" | "closed"; trust: number; run_by_computer: boolean; is_head: boolean;
   /** Stage 10: the empire's public reputation (0 to 100) and why it last moved. */
   reputation?: number; reputation_history?: { change: number; after: number; why: string; label: string }[];
   your_build: BuildCode; place: number | null; empires: number; worth_kobo: Kobo; cash_kobo: Kobo; shares_value_kobo: Kobo; bonds_value_kobo: Kobo;
-  holdings: { ticker: string; shares: number; value_kobo: Kobo }[];
+  holdings: EmpireShare[];
   bond_holdings: { code: string; name: string; units: number; value_kobo: Kobo }[];
   orders: EmpireOrder[]; seats: Seat[]; humans: number; can_trade: boolean; trade_limit_kobo: Kobo; trade_used_kobo: Kobo;
   fair_dealing: boolean; bonus_limit_kobo: Kobo;
@@ -1202,6 +1211,7 @@ export const api = {
   setExtraSaving: (extra_bps: number) => request<Career>("/career/extra-saving", { method: "PUT", body: JSON.stringify({ extra_bps }) }),
   beginPension: (early = false) => request<Career>("/career/retirement/pension", { method: "POST", body: JSON.stringify({ early }) }),
   empires: () => request<EmpireView>("/empires"),
+  empireShares: () => request<EmpireShares>("/empire/shares"),
   empire: (method: "POST" | "PUT" | "DELETE", path: string, body?: unknown) =>
     request<EmpireView>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) }),
   pensionFunds: () => request<PensionFunds>("/pension-funds"),

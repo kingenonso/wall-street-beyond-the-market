@@ -492,6 +492,14 @@ export function Change({ bps }: { bps: number | null }) {
   return <span className={`mono change-${direction}`}>{arrow} {size}%</span>;
 }
 
+/** A gain or a loss in naira, with an arrow so that it reads without colour. */
+export function Gain({ kobo }: { kobo: string }) {
+  const value = BigInt(kobo);
+  if (value === 0n) return <span className="mono muted">₦0</span>;
+  const up = value > 0n;
+  return <span className={`mono change-${up ? "up" : "down"}`}>{up ? "▲" : "▼"} {formatNaira((up ? value : -value).toString())}</span>;
+}
+
 export function Rating({ value }: { value: string }) {
   const tier = ["AAA", "AA", "A"].includes(value) ? "strong" : ["BBB", "BB"].includes(value) ? "middle" : "weak";
   return <span className={`rating rating-${tier}`} title="Credit rating">{value}</span>;

@@ -318,6 +318,30 @@ def test_asset_managers_trade_the_empires_money_within_the_limit_the_head_set(db
     sound(db)
 
 
+def test_the_empires_shares_show_what_they_cost_and_how_they_have_done(db):
+    """A member sees how the shares the Asset Manager bought have done: what they cost, what they are worth, the gain."""
+    empire, (head, _), partners = founded(db)
+    seller = partners["journalist"][1]
+    ticker = "IDC"
+    price = next(s["price"] for s in marketview._shares(db, exchange.session_of(NOW9)[0]) if s["ticker"] == ticker)
+    give_shares(db, seller, ticker, 1_000_000)
+    exchange.place_order(db, account=seller, ticker=ticker, side="sell", kind="limit", quantity=100, limit_price=price, now=NOW9)
+    exchange.place_order(db, account=empire["account_id"], ticker=ticker, side="buy", kind="limit", quantity=100, limit_price=price, now=NOW9)
+
+    lines = empires.share_performance(db, empire, NOW9)
+    line = next(l for l in lines if l["ticker"] == ticker)
+    assert line["shares"] == 100
+    assert line["cost"] >= price * 100                       # what the empire paid, fees included
+    assert line["gain"] == line["value"] - line["cost"]      # the gain is what it is worth less what it cost
+    assert line["dividends"] == 0
+
+    # The War Room carries the same figures, so the two pages cannot disagree.
+    room = empires.war_room(db, head, NOW9)
+    held = next(h for h in room["holdings"] if h["ticker"] == ticker)
+    assert (held["shares"], held["cost"], held["value"], held["gain"]) == (line["shares"], line["cost"], line["value"], line["gain"])
+    sound(db)
+
+
 # ---------------------------------------------------------------------------
 # The shadow feature, audits, and what follows
 # ---------------------------------------------------------------------------

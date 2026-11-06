@@ -8,7 +8,7 @@ import { api, ApiError, type EmpireRoom, type EmpireView, type Player } from "./
 import { formatCompact, formatNaira, formatPercent } from "./format";
 import { useLoad } from "./hooks";
 import { NumberTile, ProgressTracker } from "./Parts";
-import { Failed, Loading, Panel } from "./Shell";
+import { Failed, Gain, Loading, Panel } from "./Shell";
 import { BondOrderForm, ShareOrderForm } from "./TradeForm";
 
 type Props = { player: Player; onLoggedOut: () => void; onChanged: () => void };
@@ -387,13 +387,21 @@ function Treasury({ room, act, onLoggedOut }: { room: EmpireRoom; act: Act; onLo
       {(room.holdings.length > 0 || room.bond_holdings.length > 0) && (
         <div className="scroll" tabIndex={0}>
           <table>
-            <thead><tr><th scope="col">Held</th><th scope="col" className="num">Number</th><th scope="col" className="num">Value</th></tr></thead>
+            <thead><tr><th scope="col">Held</th><th scope="col" className="num">Number</th><th scope="col" className="num">They cost</th><th scope="col" className="num">Value</th><th scope="col" className="num">Gain or loss</th><th scope="col" className="num">Dividends</th></tr></thead>
             <tbody>
-              {room.holdings.map((h) => <tr key={h.ticker}><th scope="row"><a href={`#/companies/${h.ticker}`}>{h.ticker}</a> shares</th><td className="num mono">{h.shares.toLocaleString("en-NG")}</td><td className="num mono">{formatCompact(h.value_kobo)}</td></tr>)}
-              {room.bond_holdings.map((b) => <tr key={b.code}><th scope="row">{b.name} <span className="ticker">{b.code}</span></th><td className="num mono">{b.units.toLocaleString("en-NG")}</td><td className="num mono">{formatCompact(b.value_kobo)}</td></tr>)}
+              {room.holdings.map((h) => <tr key={h.ticker}><th scope="row"><a href={`#/companies/${h.ticker}`}>{h.ticker}</a> shares</th><td className="num mono">{h.shares.toLocaleString("en-NG")}</td><td className="num mono">{formatCompact(h.cost_kobo)}</td><td className="num mono">{formatCompact(h.value_kobo)}</td><td className="num"><Gain kobo={h.gain_kobo} /></td><td className="num mono">{formatCompact(h.dividends_kobo)}</td></tr>)}
+              {room.bond_holdings.map((b) => <tr key={b.code}><th scope="row">{b.name} <span className="ticker">{b.code}</span></th><td className="num mono">{b.units.toLocaleString("en-NG")}</td><td className="num muted">—</td><td className="num mono">{formatCompact(b.value_kobo)}</td><td className="num muted">—</td><td className="num muted">—</td></tr>)}
             </tbody>
           </table>
         </div>
+      )}
+      {room.holdings.length > 0 && (
+        <p className="muted small">
+          The empire's shares have gained or lost{" "}
+          <Gain kobo={room.holdings.reduce((sum, h) => sum + BigInt(h.gain_kobo), 0n).toString()} /> since they were bought,
+          and have paid <span className="mono">{formatCompact(room.holdings.reduce((sum, h) => sum + BigInt(h.dividends_kobo), 0n).toString())}</span> in
+          dividends. "They cost" is what the empire paid for the shares it still holds, fees included.
+        </p>
       )}
       {room.orders.filter((o) => o.status === "open").map((order) => (
         <div key={order.id} className="row">

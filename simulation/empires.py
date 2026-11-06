@@ -174,6 +174,31 @@ def worth(conn: Connection, empire: dict, now: datetime) -> dict:
     return {**have, "owned": have["total"], "debt": owed, "total": have["total"] - owed}
 
 
+def share_performance(conn: Connection, empire: dict, now: datetime, have: dict | None = None) -> list[dict]:
+    """The empire's shares, and how they have done: what each cost, what it is worth now, and the gain or loss.
+
+    The cost is the average cost of the shares still held, fees included, worked out by the same rule
+    as a player's own portfolio, so the two pages never disagree. Shares that did not come through the
+    exchange (a private company's) have no purchase cost on record: they are shown at what they are
+    worth, as they are on a player's own page.
+    """
+    from simulation import marketview
+    have = have or objectives.wealth(conn, empire["account_id"], now)
+    priced = {h["ticker"]: h for h in marketview.portfolio(conn, empire["account_id"], now)["holdings"]}
+    lines = []
+    for line in have["lines"]:
+        seen = priced.get(line["ticker"])
+        if seen is not None:
+            lines.append({"ticker": line["ticker"], "name": seen["name"], "shares": seen["shares"],
+                          "price": seen["price"], "change_bps": seen["change_bps"], "value": seen["value"],
+                          "cost": seen["cost"], "gain": seen["gain"], "dividends": seen["dividends"]})
+        else:
+            lines.append({"ticker": line["ticker"], "name": line["ticker"], "shares": line["shares"],
+                          "price": line["price"], "change_bps": 0, "value": line["value"],
+                          "cost": 0, "gain": line["value"], "dividends": 0})
+    return lines
+
+
 def league(conn: Connection, now: datetime) -> list[dict]:
     """Every active empire, ranked by what it is worth. The table is public."""
     table = []
@@ -2207,7 +2232,7 @@ def war_room(conn: Connection, player_id, now: datetime) -> dict | None:
         "reputation": empire.get("reputation", 50), "reputation_history": _reputation_history(conn, empire["id"]),
         "run_by_computer": empire["head_player_id"] is None, "is_head": is_head, "your_build": seat["build"], "place": place,
         "empires": len(table), "worth": have["total"], "cash": have["cash"], "shares_value": have["shares"], "bonds_value": have["bonds"],
-        "holdings": [{"ticker": line["ticker"], "shares": line["shares"], "value": line["value"]} for line in have["lines"]],
+        "holdings": share_performance(conn, empire, now, have),
         "bond_holdings": [{"code": b["code"], "name": b["name"], "units": b["units"], "value": b["value"]} for b in have["bond_lines"]],
         "orders": exchange.orders_of(conn, empire["account_id"], limit=10),
         "seats": seats, "humans": sum(1 for s in seats if s["held"]),

@@ -36,6 +36,7 @@ Words = Annotated[str, AfterValidator(_plain)]
 router = app          # the routes are added to the one application, so that every route is in one list
 
 MONEY = {"worth", "cash", "shares_value", "bonds_value", "amount", "value", "fee", "repaid", "fine", "debt_left", "signing_limit",
+         "cost", "gain", "dividends", "price",
          "signing_used", "trade_limit", "trade_used", "expense_limit", "registration_fee", "ai_audit_fee", "your_value",
          "limit_price", "reserved", "value_filled", "fees_paid", "limit", "used", "moved", "reward", "bonus_limit", "bonus",
          "counter_offer_most"}
@@ -219,6 +220,25 @@ def the_empires(player: dict = Depends(current_player), conn: Connection = Depen
     """Every empire and the league table, and (for a member) their own War Room."""
     limits.allow("empire-read", str(player["id"]), attempts=90, per_seconds=60)
     return _view(conn, player)
+
+
+@router.get("/api/empire/shares")
+def the_empires_shares(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """The empire's shares and how they have done: what each cost, what it is worth now, and the gain or loss.
+
+    A player who belongs to no empire gets `empire: null`, and the page shows nothing.
+    """
+    limits.allow("empire-read", str(player["id"]), attempts=90, per_seconds=60)
+    now = _exchange_time(conn)
+    empire = empires.empire_of(conn, player["id"])
+    if empire is None:
+        return {"empire": None}
+    lines = empires.share_performance(conn, empire, now)
+    return wire({"empire": empire["name"], "holdings": lines,
+                 "shares_value": sum(line["value"] for line in lines),
+                 "cost": sum(line["cost"] for line in lines),
+                 "gain": sum(line["gain"] for line in lines),
+                 "dividends": sum(line["dividends"] for line in lines)})
 
 
 @router.post("/api/empires", status_code=status.HTTP_201_CREATED)

@@ -124,3 +124,21 @@ def test_the_new_build_screens_have_their_figures_and_show_nothing_hidden(db, cl
     for seen in (banker, lawyer, own, book, head):
         text = str(seen)
         assert "fortune" not in text and "account_id" not in text and "genuine" not in text
+
+
+def test_the_empires_shares_reach_the_portfolio_page_with_what_they_cost(db, client):
+    """The Portfolio and savings page asks for the empire's shares: it gets what each cost, what it is worth and the gain."""
+    assert join(client, ADULT).status_code == 201
+    assert client.get("/api/empire/shares").json() == {"empire": None}      # no seat, so nothing to show
+    assert client.put("/api/career/build", json={"build": "accountant"}).status_code == 200
+    first = client.get("/api/empires").json()["directory"]["league"][0]
+    assert client.post(f"/api/empires/{first['id']}/applications").status_code == 201
+    seen = client.get("/api/empire/shares").json()
+    assert seen["empire"] == first["name"] and isinstance(seen["holdings"], list)
+    # Amounts of money leave as text, like everywhere else.
+    for field in ("shares_value_kobo", "cost_kobo", "gain_kobo", "dividends_kobo"):
+        assert isinstance(seen[field], str), field
+    for line in seen["holdings"]:
+        assert isinstance(line["cost_kobo"], str) and isinstance(line["gain_kobo"], str)
+        assert int(line["gain_kobo"]) == int(line["value_kobo"]) - int(line["cost_kobo"])
+    assert "account_id" not in str(seen) and "genuine" not in str(seen)
