@@ -81,7 +81,7 @@ export function InvestmentBankerWork({ player, onLoggedOut }: Props) {
         {d.pipeline.map((deal, index) => (
           <div key={index} className="definition">
             <div className="row">
-              <span><span className="card-tag">{deal.kind.toUpperCase()}</span> <span className="strong">{deal.title}</span></span>
+              <span><span className="card-tag">{deal.kind}</span> <span className="strong">{deal.title}</span></span>
               <span className={deal.open ? "tag tag-active" : "tag"}>{deal.open ? "● " : ""}{deal.stage}</span>
             </div>
             <div className="muted small">{deal.price_kobo ? `${formatNaira(deal.price_kobo)} a share · ` : ""}{deal.deadline}. {deal.words} <a href="#/market/offers">Open it</a> · <button className="link-button" onClick={() => setTicker(deal.ticker)}>Analyse {deal.ticker}</button></div>
@@ -338,7 +338,7 @@ export function LawyerWork({ player, onLoggedOut }: Props) {
           </div>
         ))}
         {d.bid && <p className="small"><span className="card-tag">TAKEOVER</span> An offer of {formatNaira(d.bid.price_kobo)} a share is open{d.bid.hostile ? ", against the board's advice" : ""}. It closes with {d.bid.closes_label}. A buyer needs more than half the shares to take control.</p>}
-        <div className="why-title">RISKS: WHO IS PAID FIRST IF IT FAILS ({d.period_label.toUpperCase()}, AS FILED)</div>
+        <div className="why-title">Risks: who is paid first if it fails ({d.period_label}, as filed)</div>
         <div className="scroll" tabIndex={0}>
           <table>
             <thead><tr><th scope="col" className="num">Rank</th><th scope="col">Who</th><th scope="col" className="num">Owed</th><th scope="col">Why there</th></tr></thead>

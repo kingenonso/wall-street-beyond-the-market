@@ -2,7 +2,7 @@ import { ArmPanel } from "./World";
 import { WhatCouldHappenPanel } from "./WhatIf";
 import { BankPanel } from "./Crisis";
 import { useState } from "react";
-import { api, type Company, type FiledReport, type Kobo } from "./api";
+import { api, type Company, type FiledReport, type Kobo, type TradingDay } from "./api";
 import { AreaChart } from "./Charts";
 import { changeBps, formatCompact, formatLagosDate, formatMillions, formatNaira, formatPercent, periodLabel } from "./format";
 import { shortDate } from "./Market";
@@ -145,7 +145,7 @@ function WhySales({ latest, previous }: { latest: FiledReport; previous?: FiledR
   const steps = outcome ? [...causes, outcome] : causes;
   return (
     <div className="why">
-      <div className="why-title">WHY DID SALES MOVE IN {latest.period_label.toUpperCase()}?</div>
+      <div className="why-title">Why did sales move in {latest.period_label}?</div>
       <ol className="chain">
         {steps.map((step, index) => (
           <li key={step} className="chain-step">
@@ -208,11 +208,50 @@ function CompanyHeader({ company, onLoggedOut }: { company: Company; onLoggedOut
   );
 }
 
+/** That share's own tape: its last few sessions, each stamped in the margin the way the desk's tape is
+ *  stamped, so the company page speaks the same language as the desk rather than inventing a second one.
+ *  The page asks the server for the price history once and hands it to both the tape and the chart. */
+function ShareTape({ days }: { days: TradingDay[] }) {
+  const shown = days.slice(-4);
+  if (shown.length === 0) return null;
+  return (
+    <section className="tape" aria-label="This share’s tape">
+      <div className="tape-head">
+        <h2>This share’s tape</h2>
+        <span className="muted small">
+          The last {shown.length === 1 ? "session" : `${shown.length} sessions`}, the newest at the bottom
+        </span>
+      </div>
+      <div className="tape-band">
+        <p className="tape-gutter">day</p>
+        <div className="tape-lines">
+          {shown.map((d, i) => {
+            const before = i > 0 ? Number(shown[i - 1].close_kobo) : null;
+            const bps = before ? Math.round(((Number(d.close_kobo) - before) / before) * 10_000) : null;
+            return (
+              <div className="tape-row" key={d.session_date}>
+                <span className="tape-stamp">{shortDate(d.session_date)}</span>
+                <span className="tape-text">
+                  closed at <span className="tape-name">{formatNaira(d.close_kobo)}</span>
+                </span>
+                <span className="tape-figure">
+                  {d.volume > 0
+                    ? <>{d.volume.toLocaleString("en-NG")} shares {bps === null ? null : <Change bps={bps} />}</>
+                    : <span className="muted">nothing traded</span>}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /** The share price day by day, with how many shares traded, over a chosen stretch. */
-function PriceChartPanel({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: () => void }) {
-  const days = useLoad(() => api.priceHistory(ticker), `history:${ticker}`, onLoggedOut);
+function PriceChartPanel({ days }: { days: TradingDay[] }) {
   const [range, setRange] = useState(28);
-  const shown = (days.data ?? []).slice(-range);
+  const shown = days.slice(-range);
   const naira = (v: number) => `₦${v.toFixed(2)}`;
   return (
     <Panel>
@@ -279,6 +318,12 @@ function CompanyBody({ company, onLoggedOut, trade }: { company: Company; onLogg
   const yearAgo = trading.find((r) => r.period === latest.period - 4);
   const compare = yearAgo ?? previous;
   const against = yearAgo ? "on a year ago" : "on last quarter";
+  // The tape and the chart read the same price history: ask for it once, and only while the overview is open.
+  const overviewHistory = useLoad(
+    () => (view === "overview" ? api.priceHistory(company.ticker) : Promise.resolve([] as TradingDay[])),
+    `history:${company.ticker}:${view === "overview" ? "open" : "shut"}`,
+    onLoggedOut,
+  );
 
   return (
     <>
@@ -293,7 +338,8 @@ function CompanyBody({ company, onLoggedOut, trade }: { company: Company; onLogg
 
       {view === "overview" && (
         <>
-          <PriceChartPanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
+          <ShareTape days={overviewHistory.data ?? []} />
+          <PriceChartPanel days={overviewHistory.data ?? []} />
           <PlainFacts ticker={company.ticker} onLoggedOut={onLoggedOut} />
           <WhyPricePanel ticker={company.ticker} onLoggedOut={onLoggedOut} />
           <BankPanel ticker={company.ticker} onLoggedOut={onLoggedOut} />

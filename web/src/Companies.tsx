@@ -12,10 +12,15 @@ export function CompaniesWork({ onLoggedOut }: { onLoggedOut: () => void }) {
   return (
     <>
       <div className="work-head">
-        <h1>Companies</h1>
+        <div>
+          <h1>Companies</h1>
+          <div className="work-sub">
+            {all.length} listed companies, by industry
+          </div>
+        </div>
         {period && (
           <span className="muted small">
-            {all.length} companies · {opening ? "opening balance sheets" : `figures from the ${period} filings`}
+            {opening ? "opening balance sheets" : `figures from the ${period} filings`}
           </span>
         )}
       </div>

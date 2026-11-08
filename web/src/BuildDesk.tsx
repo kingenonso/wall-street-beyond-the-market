@@ -300,7 +300,7 @@ export function AccountantWork({ player, onLoggedOut }: Props) {
         <StatementTable name={statement} reports={reports} />
         {latest && latest.notes.length > 0 && (
           <>
-            <div className="why-title">NOTES TO THE ACCOUNTS, {latest.period_label.toUpperCase()}</div>
+            <div className="why-title">Notes to the accounts, {latest.period_label}</div>
             <ul className="reasons">{latest.notes.map((note) => <li key={note}>{note}</li>)}</ul>
           </>
         )}

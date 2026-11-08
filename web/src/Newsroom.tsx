@@ -124,7 +124,7 @@ export function PlayersStories({ onLoggedOut }: { onLoggedOut: () => void }) {
         {data.stories.map((s: PlayerStory) => (
           <article key={s.id} className="story">
             <div className="story-top">
-              <span className="card-tag">{s.outlet.toUpperCase()}{s.scoop ? " · SCOOP" : ""}{s.corrected ? " · CORRECTED" : ""}</span>
+              <span className="card-tag">{s.outlet}{s.scoop ? " · Scoop" : ""}{s.corrected ? " · Corrected" : ""}</span>
               <span className="mono muted">{s.label}, day {s.day}</span>
             </div>
             <h2 className="h3-look">{s.headline}</h2>

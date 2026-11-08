@@ -37,7 +37,7 @@ export function Story({ item, lead = false }: { item: NewsItem; lead?: boolean }
       <div className={lead ? "story-lead-grid" : undefined}>
         <div>
           <div className="story-top">
-            <span className="card-tag">{(item.byline ?? item.outlet).toUpperCase()}{lead ? " · LEAD STORY" : ""}{item.follows_up ? " · FOLLOW-UP" : ""}</span>
+            <span className="card-tag">{item.byline ?? item.outlet}{lead ? " · Lead story" : ""}{item.follows_up ? " · Follow-up" : ""}</span>
             <span className="mono muted">{newsDate(item)}</span>
           </div>
           <h2 className="h3-look">{item.headline}</h2>

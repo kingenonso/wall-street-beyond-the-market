@@ -119,21 +119,47 @@ function SharesWork({ onLoggedOut }: { onLoggedOut: () => void }) {
   return (
     <>
       <div className="work-head">
-        <h1>Market</h1>
-        <span className="muted small">
-          Broad Street Exchange · {m.paused_until ? "Trading paused after a sharp fall" : MARKET_LABEL[m.market_state]}
-        </span>
+        <div>
+          <h1>Market</h1>
+          <div className="work-sub">
+            Broad Street Exchange
+            <span className="dot-sep"> · </span>
+            {m.paused_until ? "trading paused after a sharp fall" : MARKET_LABEL[m.market_state]}
+            <span className="dot-sep"> · </span>
+            trading from 12:00 to 22:00 Lagos
+          </div>
+        </div>
+        <span className="muted small">{m.shares.length} listed shares</span>
       </div>
+
+      {/* The market's own numbers, ruled across the top exactly as the desk's position band is:
+          the same device, carrying the market's figures rather than the player's. */}
+      <section className="band band-4" aria-label="The market today">
+        <div className="band-cell">
+          <div className="band-label"><Term word="BSX 50">BSX 50</Term></div>
+          <div className="band-value">{points(m.index)}</div>
+          <div className="band-note"><Change bps={m.index_change_bps} /> today</div>
+        </div>
+        <div className="band-cell">
+          <div className="band-label">All companies are worth</div>
+          <div className="band-value">{formatCompact(m.market_value_kobo)}</div>
+          <div className="band-note">at today’s prices</div>
+        </div>
+        <div className="band-cell">
+          <div className="band-label">Shares traded today</div>
+          <div className="band-value">{shares(m.volume)}</div>
+          <div className="band-note">since the opening auction</div>
+        </div>
+        <div className="band-cell">
+          <div className="band-label">Trades today</div>
+          <div className="band-value">{shares(m.trades)}</div>
+          <div className="band-note">orders filled</div>
+        </div>
+      </section>
 
       <Panel>
         <div className="panel-head">
-          <div>
-            <h2><Term word="BSX 50" /></h2>
-            <div className="headline" style={{ margin: "4px 0 0" }}>
-              <span className="mono figure">{points(m.index)}</span>
-              <span className="small"><Change bps={m.index_change_bps} /> <span className="muted">today</span></span>
-            </div>
-          </div>
+          <h2>The index, over time</h2>
           <div className="range-buttons" role="group" aria-label="How far back">
             {RANGES.map(([label, days]) => <button key={days} aria-pressed={range === days} onClick={() => setRange(days)}>{label}</button>)}
           </div>
@@ -143,10 +169,6 @@ function SharesWork({ onLoggedOut }: { onLoggedOut: () => void }) {
                      baseline={history[0].level} baselineLabel={`where it stood on ${shortDate(history[0].session_date)}`}
                      label={`The BSX 50 went from ${points(history[0].level)} on ${shortDate(history[0].session_date)} to ${points(history[history.length - 1].level)}.`} height={180} />
         ) : <p className="muted small">The chart appears after two days of trading.</p>}
-        <div className="tiles" style={{ marginTop: 12, marginBottom: 0 }}>
-          <div className="tile"><div className="muted small"><Term word="Market value">All companies are worth</Term></div><div className="mono figure-small">{formatCompact(m.market_value_kobo)}</div></div>
-          <div className="tile"><div className="muted small">Shares traded today</div><div className="mono figure-small">{shares(m.volume)}</div><div className="small muted">in {shares(m.trades)} trades</div></div>
-        </div>
       </Panel>
 
       <Panel title="Today at a glance: every share, by industry" aside="▲ up · ▼ down · stronger colour = bigger move">
@@ -184,8 +206,8 @@ function SharesWork({ onLoggedOut }: { onLoggedOut: () => void }) {
           </label>
         </div>
         {problem && <div className="error" role="alert">{problem}</div>}
-        <div className="scroll" tabIndex={0}>
-          <table className="dense">
+        <div className="scroll scroll-sticky" tabIndex={0}>
+          <table className="dense tape-table">
             <thead>
               <tr>
                 {header("ticker")}
