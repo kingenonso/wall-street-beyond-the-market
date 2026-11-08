@@ -1,50 +1,67 @@
-/* The look of every screen (redesign, October 2026): dark by default, dense but labelled, one accent
-   colour per build. Rises and falls always carry an arrow or a shape as well as a colour.
-   These named colours are reused everywhere, so a change here changes the whole game. */
+/* The look of every screen (the desk-and-ledger look, November 2026).
+
+   The game's own rule is the reason for the look: money moves only through the ledger, and a record is
+   added, never rubbed out. So every screen is a working sheet from a Lagos broker's office: ink-dark
+   paper at night, green-bar ledger paper by day, brass for figures, and a crimson margin rule where a
+   thing must be answered. Rises and falls always carry an arrow or a shape as well as a colour.
+
+   These named colours are reused everywhere, so a change here changes the whole game.
+
+   --ink     the darkest ink (deepest green-black)
+   --panel   the sheet a panel is written on
+   --raised  a cell or block lifted off the sheet
+   --rule    the ruled line between rows and columns
+   --brass   the accent: headings' marks, totals, the current page
+   --margin  the crimson margin rule; used only where something is owed or overdue
+*/
 :root {
-  --bg: #070b12;
-  --panel: #0d1320;
-  --raised: #111a2b;
-  --border: #1b2539;
-  --border-strong: #2a364d;
-  --text: #e6ebf3;
-  --text-2: #c9d2e1;
-  --muted: #8d99ae;
-  --gold: #e3b65c;
-  --gold-soft: rgba(227, 182, 92, 0.13);
-  --on-accent: #0a0f18;
-  --up: #52d79a;
-  --down: #ff9b85;
-  --warn: #ff9f45;
-  --info: #6db3ff;
+  --bg: #0a0f0b;
+  --panel: #101811;
+  --raised: #172118;
+  --border: #26331f;
+  --border-strong: #3c4d33;
+  --text: #e9efe4;
+  --text-2: #c7d2c1;
+  --muted: #96a48f;
+  --gold: #d9a845;
+  --gold-soft: rgba(217, 168, 69, 0.12);
+  --on-accent: #14100a;
+  --up: #5fd39a;
+  --down: #ff8f7a;
+  --warn: #e7a63f;
+  --info: #86b8d8;
+  --margin: #8d3327;
+  --band: rgba(233, 239, 228, 0.045);
   --shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
   /* Each build's colour, used where a build is shown beside other builds (seats, cards, the mix of what is owned). */
-  --build-am: #a996ff; --build-ac: #4fc38a; --build-ib: #6db3ff; --build-rm: #ff9f45; --build-lc: #dfe5ee; --build-fj: #d08cf0;
+  --build-am: #b3a2f5; --build-ac: #57c78e; --build-ib: #85b6e6; --build-rm: #f09a55; --build-lc: #d5dbe2; --build-fj: #cf98e8;
   --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
   --sans: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
   --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
   color-scheme: dark;
 }
-/* Light mode, chosen from the menu under the profile picture. Same layout, darker greens and oranges
-   so every figure stays easy to read on white. */
+/* Light mode, chosen from the menu under the profile picture: the same sheet in daylight, printed on
+   green-bar ledger paper. Every figure is set in ink, never in a light grey, so it stays easy to read. */
 :root[data-theme="light"] {
-  --bg: #f4f6f9;
-  --panel: #ffffff;
-  --raised: #eef1f6;
-  --border: #d9dee7;
-  --border-strong: #b9c2d0;
-  --text: #111827;
-  --text-2: #2b3445;
-  --muted: #4b5565;
-  --gold: #7a560d;
-  --gold-soft: rgba(122, 86, 13, 0.10);
-  --on-accent: #ffffff;
-  --up: #086a40;
-  --down: #b4361e;
-  --warn: #9a4a00;
-  --info: #1f5fb8;
-  --shadow: 0 12px 30px rgba(17, 24, 39, 0.16);
-  --build-am: #5b47d6; --build-ac: #19714a; --build-ib: #1f5fb8; --build-rm: #a85200; --build-lc: #3d4757; --build-fj: #8a3fb0;
+  --bg: #e8eee0;
+  --panel: #f8fbf3;
+  --raised: #eef4e7;
+  --border: #c4d1b6;
+  --border-strong: #96a887;
+  --text: #10170e;
+  --text-2: #283423;
+  --muted: #4c5a46;
+  --gold: #78520c;
+  --gold-soft: rgba(120, 82, 12, 0.10);
+  --on-accent: #fffdf7;
+  --up: #0a6a3f;
+  --down: #a3281b;
+  --warn: #8f4a00;
+  --info: #1d5a8a;
+  --margin: #a8332a;
+  --band: #edf3e4;
+  --shadow: 0 12px 30px rgba(16, 23, 14, 0.16);
+  --build-am: #5040b8; --build-ac: #166b43; --build-ib: #1a5a94; --build-rm: #9c4a00; --build-lc: #3a4438; --build-fj: #8a3fb0;
   color-scheme: light;
 }
 
@@ -60,9 +77,10 @@ body {
   line-height: 1.5;
 }
 
-h1 { font-family: var(--sans); font-size: 24px; font-weight: 600; margin: 0; line-height: 1.25; letter-spacing: -0.005em; }
-h2 { font-size: 13px; font-weight: 600; margin: 0; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-h3 { font-size: 16px; font-weight: 600; margin: 0 0 6px; }
+h1 { font-family: var(--sans); font-size: 22px; font-weight: 600; margin: 0; line-height: 1.25; letter-spacing: -0.012em; }
+/* A panel's title is a ruled caption on the sheet: quiet, in sentence case, never a shouted label. */
+h2 { font-size: 12.5px; font-weight: 600; margin: 0; letter-spacing: 0.012em; color: var(--text-2); }
+h3 { font-size: 15px; font-weight: 600; margin: 0 0 6px; }
 /* A heading in the right place in the page's outline that looks like a small heading. */
 .h3-look { font-size: 16px; font-weight: 600; margin: 0 0 6px; letter-spacing: normal; text-transform: none; color: var(--text); }
 p { margin: 0 0 12px; }
@@ -87,10 +105,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, rect:focus-visible {
 .app { min-height: 100vh; display: flex; flex-direction: column; }
 
 .topbar {
-  display: flex; align-items: center; gap: 16px; flex-wrap: nowrap; min-height: 60px;
-  padding: 10px 20px;
+  display: flex; align-items: center; gap: 16px; flex-wrap: nowrap; min-height: 56px;
+  padding: 8px 20px;
   background: var(--panel);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-strong);
   position: relative; z-index: 30;
 }
 .topbar-clock { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; font-size: 13px; white-space: nowrap; flex: none; }
@@ -120,15 +138,17 @@ a:focus-visible, button:focus-visible, input:focus-visible, rect:focus-visible {
   align-items: start;
 }
 
-.sections { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 20px; }
+/* The sections menu is an index down the left of the sheet: the open page is marked in brass, not filled in. */
+.sections { display: flex; flex-direction: column; gap: 1px; position: sticky; top: 20px; }
 .section {
   display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left;
-  padding: 9px 12px; border-radius: 8px; border: 0;
+  padding: 6px 10px; border-radius: 2px; border: 0;
   background: transparent; color: var(--text-2); font-weight: 500;
+  box-shadow: inset 2px 0 0 transparent;
 }
-.section:hover { color: var(--text); background: var(--raised); text-decoration: none; }
-.section.current { color: var(--gold); background: var(--raised); font-weight: 600; }
-.section-button { margin-top: 16px; border-top: 1px solid var(--border); border-radius: 0 0 8px 8px; padding-top: 14px; }
+.section:hover { color: var(--text); background: var(--band); text-decoration: none; }
+.section.current { color: var(--text); background: var(--band); font-weight: 600; box-shadow: inset 2px 0 0 var(--gold); }
+.section-button { margin-top: 16px; border-top: 1px solid var(--border); border-radius: 0; padding-top: 14px; }
 
 .work, .rail { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 
@@ -138,11 +158,14 @@ a:focus-visible, button:focus-visible, input:focus-visible, rect:focus-visible {
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px;
+  border-radius: 3px;
+  padding: 12px 14px 14px;
   min-width: 0;
 }
-.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.panel-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  margin: 0 -14px 12px; padding: 0 14px 8px; border-bottom: 1px solid var(--border); flex-wrap: wrap;
+}
 
 /* ---------- "Needs you now" ---------- */
 
@@ -154,19 +177,19 @@ a:focus-visible, button:focus-visible, input:focus-visible, rect:focus-visible {
 .card-first { border-color: var(--gold); }
 .card p { flex: 1; }
 .card-top { display: flex; justify-content: space-between; gap: 8px; width: 100%; margin-bottom: 10px; font-size: 12px; }
-.card-tag { color: var(--gold); font-weight: 600; letter-spacing: 0.1em; font-size: 11px; }
+.card-tag { color: var(--gold); font-weight: 600; letter-spacing: 0.04em; font-size: 11px; }
 
 /* ---------- Buttons and forms ---------- */
 
 .button-primary, .button-outline, .button-quiet {
-  display: inline-block; padding: 9px 16px; border-radius: 8px; font-weight: 600; text-align: center;
+  display: inline-block; padding: 8px 14px; border-radius: 3px; font-weight: 600; text-align: center;
 }
 .button-primary { border: 1px solid var(--gold); background: var(--gold); color: var(--on-accent); }
 .button-primary:hover { filter: brightness(1.08); text-decoration: none; }
 .button-primary:disabled { opacity: 0.6; cursor: default; }
 .button-outline { border: 1px solid var(--gold); background: transparent; color: var(--gold); }
 .button-outline:hover { background: var(--gold-soft); text-decoration: none; }
-.button-quiet { padding: 5px 12px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-weight: 500; }
+.button-quiet { padding: 4px 11px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-weight: 500; border-radius: 3px; }
 .button-quiet:hover { color: var(--text); border-color: var(--muted); }
 .wide { width: 100%; }
 
@@ -224,8 +247,8 @@ input {
 .change-flat { color: var(--muted); }
 
 .rating {
-  display: inline-block; min-width: 44px; text-align: center; padding: 2px 8px; border-radius: 6px;
-  font-family: var(--mono); font-size: 12px; font-weight: 600; border: 1px solid;
+  display: inline-block; min-width: 44px; text-align: center; padding: 1px 7px; border-radius: 2px;
+  font-family: var(--mono); font-size: 11.5px; font-weight: 600; border: 1px solid;
 }
 .rating-strong { color: var(--up); border-color: color-mix(in srgb, var(--up) 45%, transparent); }
 .rating-middle { color: var(--gold); border-color: color-mix(in srgb, var(--gold) 45%, transparent); }
@@ -234,7 +257,7 @@ input {
 
 .pill {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  padding: 2px 8px; border-radius: 2px; font-size: 11.5px; font-weight: 600;
   border: 1px solid var(--border); background: var(--raised); white-space: nowrap;
 }
 .pill-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
@@ -248,12 +271,16 @@ input {
 .scroll { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
 caption { text-align: left; caption-side: bottom; padding-top: 10px; }
-th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: baseline; text-align: left; }
-thead th { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+/* Every table is a ruled page: a banded column heading, a rule under each row, figures set in tabular mono. */
+th, td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: baseline; text-align: left; }
+thead th { font-size: 11.5px; font-weight: 600; color: var(--muted); background: var(--band); border-bottom: 1px solid var(--border-strong); white-space: nowrap; }
 tbody th { font-weight: 500; color: var(--text); }
 tbody tr:last-child > * { border-bottom: 0; }
-tbody tr:hover > * { background: rgba(255, 255, 255, 0.02); }
-.num { text-align: right; white-space: nowrap; }
+tbody tr:hover > * { background: color-mix(in srgb, var(--gold) 6%, transparent); }
+/* Green-bar paper by day: the striped rows of a ledger sheet, kept faint enough to read through. */
+/* By day the tables are green-bar ledger paper: every other line sits on a pale green band. */
+:root[data-theme="light"] tbody tr:nth-child(even) > * { background: var(--band); }
+.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ticker { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; margin-left: 4px; vertical-align: middle; }
 h1 .ticker { font-size: 13px; }
 
@@ -264,16 +291,17 @@ h1 .ticker { font-size: 13px; }
 
 /* ---------- Tabs ---------- */
 
-.tabs { display: flex; gap: 4px; padding: 4px; margin-bottom: 18px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; }
+/* Tabs are the top rule of the page's section, with the open one marked in brass: no boxes. */
+.tabs { display: flex; gap: 2px; padding: 0; margin-bottom: 18px; background: transparent; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; }
 .tabs-inline { display: inline-flex; max-width: 100%; margin-bottom: 12px; flex-wrap: wrap; }
-.tab { flex: 1; padding: 7px 14px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.tab { flex: 1; padding: 8px 14px 9px; border: 0; border-radius: 0; background: transparent; color: var(--muted); font-weight: 500; white-space: nowrap; box-shadow: inset 0 -2px 0 transparent; }
 .tab:hover { color: var(--text); }
-.tab.active { background: var(--gold-soft); color: var(--gold); }
+.tab.active { background: transparent; color: var(--text); font-weight: 600; box-shadow: inset 0 -2px 0 var(--gold); }
 
 /* ---------- Company page ---------- */
 
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
-.tile { background: var(--raised); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+.tile { background: var(--raised); border: 1px solid var(--border); border-radius: 3px; padding: 10px 12px; }
 .tile .figure-small { margin: 2px 0; }
 
 .chart { margin: 0 0 16px; }
@@ -408,8 +436,9 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .advice .why-title:first-child { margin-top: 0; }
 
 /* --- The price ticker across the top of every screen --- */
-.ticker-bar { display: flex; align-items: stretch; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 12px; min-width: 0; }
-.ticker-index { display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 20px; border-right: 1px solid var(--border); color: var(--text); white-space: nowrap; flex: none; }
+.ticker-bar { display: flex; align-items: stretch; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 11.5px; min-width: 0; }
+.ticker-index { display: flex; align-items: center; gap: 8px; padding: 5px 14px 5px 20px; border-right: 1px solid var(--border); color: var(--text); white-space: nowrap; flex: none; }
+.ticker-index .strong { color: var(--gold); }
 .ticker-index:hover, .ticker-item:hover { text-decoration: none; background: var(--raised); }
 .ticker-window { overflow: hidden; flex: 1; min-width: 0; }
 .ticker-track { display: inline-flex; white-space: nowrap; animation: ticker-roll linear infinite; }
@@ -470,23 +499,23 @@ a.tab:hover { text-decoration: none; }
    Stage 5: builds, careers and professional objectives.
    Each build's screen uses the same layout in its own accent colour.
    ------------------------------------------------------------------ */
-.app[data-accent="violet"] { --gold: #a996ff; --gold-soft: rgba(169, 150, 255, 0.13); }
-.app[data-accent="green"] { --gold: #4fc38a; --gold-soft: rgba(79, 195, 138, 0.13); }
-/* Stage 6: the other four builds. The head's screen keeps the game's gold; the War Room is neutral. */
-.app[data-accent="purple"] { --gold: #d08cf0; --gold-soft: rgba(208, 140, 240, 0.13); }
-.app[data-accent="orange"] { --gold: #ff9f45; --gold-soft: rgba(255, 159, 69, 0.13); }
-.app[data-accent="silver"] { --gold: #dfe5ee; --gold-soft: rgba(223, 229, 238, 0.12); }   /* Legal Counsel: red is kept for losses and danger */
-.app[data-accent="blue"] { --gold: #6db3ff; --gold-soft: rgba(109, 179, 255, 0.13); }
-.app[data-accent="neutral"] { --gold: #c5cede; --gold-soft: rgba(197, 206, 222, 0.10); }
-:root[data-theme="light"] .app[data-accent="violet"] { --gold: #5b47d6; --gold-soft: rgba(91, 71, 214, 0.10); }
-:root[data-theme="light"] .app[data-accent="green"] { --gold: #19714a; --gold-soft: rgba(25, 113, 74, 0.10); }
+.app[data-accent="violet"] { --gold: #b3a2f5; --gold-soft: rgba(179, 162, 245, 0.13); }
+.app[data-accent="green"] { --gold: #57c78e; --gold-soft: rgba(87, 199, 142, 0.13); }
+/* Stage 6: the other four builds. The head's screen keeps the game's brass; the War Room is neutral. */
+.app[data-accent="purple"] { --gold: #cf98e8; --gold-soft: rgba(207, 152, 232, 0.13); }
+.app[data-accent="orange"] { --gold: #f09a55; --gold-soft: rgba(240, 154, 85, 0.13); }
+.app[data-accent="silver"] { --gold: #d5dbe2; --gold-soft: rgba(213, 219, 226, 0.12); }   /* Legal Counsel: red is kept for losses and danger */
+.app[data-accent="blue"] { --gold: #85b6e6; --gold-soft: rgba(133, 182, 230, 0.13); }
+.app[data-accent="neutral"] { --gold: #cdd4cb; --gold-soft: rgba(205, 212, 203, 0.10); }
+:root[data-theme="light"] .app[data-accent="violet"] { --gold: #5040b8; --gold-soft: rgba(80, 64, 184, 0.10); }
+:root[data-theme="light"] .app[data-accent="green"] { --gold: #166b43; --gold-soft: rgba(22, 107, 67, 0.10); }
 :root[data-theme="light"] .app[data-accent="purple"] { --gold: #8a3fb0; --gold-soft: rgba(138, 63, 176, 0.10); }
-:root[data-theme="light"] .app[data-accent="orange"] { --gold: #a85200; --gold-soft: rgba(168, 82, 0, 0.10); }
-:root[data-theme="light"] .app[data-accent="silver"] { --gold: #3d4757; --gold-soft: rgba(61, 71, 87, 0.10); }
-:root[data-theme="light"] .app[data-accent="blue"] { --gold: #1f5fb8; --gold-soft: rgba(31, 95, 184, 0.10); }
-:root[data-theme="light"] .app[data-accent="neutral"] { --gold: #3d4757; --gold-soft: rgba(61, 71, 87, 0.08); }
-.wordmark-main { color: #e3b65c; }                      /* the game's own name keeps its gold on every screen */
-:root[data-theme="light"] .wordmark-main { color: #8a6514; }
+:root[data-theme="light"] .app[data-accent="orange"] { --gold: #9c4a00; --gold-soft: rgba(156, 74, 0, 0.10); }
+:root[data-theme="light"] .app[data-accent="silver"] { --gold: #3a4438; --gold-soft: rgba(58, 68, 56, 0.10); }
+:root[data-theme="light"] .app[data-accent="blue"] { --gold: #1a5a94; --gold-soft: rgba(26, 90, 148, 0.10); }
+:root[data-theme="light"] .app[data-accent="neutral"] { --gold: #3a4438; --gold-soft: rgba(58, 68, 56, 0.08); }
+.wordmark-main { color: #d9a845; }                      /* the game's own name keeps its brass on every screen */
+:root[data-theme="light"] .wordmark-main { color: #78520c; }
 .build-badge { color: var(--gold); font-weight: 600; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
@@ -1124,3 +1153,168 @@ fieldset.check-list .check-line { display: flex; gap: 6px; align-items: center; 
 .dot-closed { background: var(--muted); }
 .world-row-chosen td { background: var(--gold-soft); }
 .world-economies { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+
+/* Stage 11: the courts. A docket, not a courtroom: a claim, a number, and the lines that prove it. */
+.court-case { align-items: flex-start; }
+.court-evidence { margin-top: 4px; }
+.court-evidence summary { cursor: pointer; color: var(--gold); font-size: 12px; font-weight: 600; }
+.court-evidence ul { margin: 6px 0 0 16px; padding: 0; }
+.court-evidence li { margin: 2px 0; }
+
+/* ==================================================================
+   The desk (November 2026)
+
+   The player's own page is a broker's sheet. Down the middle runs the
+   day's tape: what moved, what was written, what you were paid, each
+   line stamped in the margin. The queue sits to its left in the leaf
+   margin, where a thing that must be answered is marked in crimson.
+   Everything here is built from the same rules as the rest of the
+   game, so the desk is denser, but not a different game.
+   ================================================================== */
+
+/* --- Square the sheet: the round corners the game had before become ruled corners --- */
+.card, .story, .build-card, .wait-item, .work-card, .lot, .seat, .district, .fact, .sum,
+.debrief, .callout, .how-card, .article-text, .shadow, .bubble, .tracker-step, .seg,
+.calc-key, .unit-input input, .unit-input .unit, .profile-dropdown, .command-list,
+.news-toast, .bank-alert, .section-tabs, .section-tab, .filter-chip, .filter-select select,
+.range-buttons button, .field, input, select, textarea, .icon-button, .empire-badge,
+.fund-alert, .story-moves, .district, .world-exchange, .lot, .request, .vote, .paper {
+  border-radius: 3px;
+}
+.chip, .tag, .status, .filter-chip, .range-buttons button, .command-key, .ticker {
+  border-radius: 2px;
+}
+.tracker-mark, .pip { border-radius: 2px; }
+
+/* --- The head of the desk: who you are, and how long is left --- */
+.desk { display: grid; gap: 14px; min-width: 0; }
+.desk-head {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 14px 24px; flex-wrap: wrap;
+  padding-bottom: 10px; border-bottom: 1px solid var(--border-strong);
+}
+.desk-head h1 { margin: 0; }
+.desk-who { display: flex; align-items: baseline; gap: 8px 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+.desk-who .mono { color: var(--text-2); }
+.desk-who .dot-sep { color: var(--border-strong); }
+.desk-clock { text-align: right; font-size: 12.5px; color: var(--muted); }
+.desk-clock .mono { color: var(--text); font-size: 13px; }
+.desk-clock .strong { color: var(--text); }
+
+/* --- The position band: six figures in one ruled row, like a dealer's position --- */
+.band {
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+  border: 1px solid var(--border); border-radius: 3px; background: var(--panel); overflow: hidden;
+}
+.band-cell { padding: 9px 12px 10px; border-left: 1px solid var(--border); min-width: 0; }
+.band-cell:first-child { border-left: 0; }
+.band-label { font-size: 11px; color: var(--muted); }
+.band-value {
+  font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 600;
+  font-size: 16px; letter-spacing: -0.01em; color: var(--text); margin-top: 1px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.band-note { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.band-note .mono { color: var(--text-2); }
+.band-spark { display: flex; align-items: center; min-width: 0; }
+.band-spark svg { max-width: 100%; height: auto; }
+
+/* --- The two columns of the desk: the queue in the leaf margin, the tape down the middle --- */
+.desk-grid { display: grid; grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.5fr); gap: 14px; align-items: start; }
+.desk-col { display: grid; gap: 14px; min-width: 0; }
+
+/* --- Needs you now: a queue written as ledger lines, the first one ruled in crimson --- */
+.needs { border: 1px solid var(--border); border-radius: 3px; background: var(--panel); min-width: 0; }
+.needs-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 10px 12px 8px; border-bottom: 1px solid var(--border);
+}
+.needs-count { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.needs-lead { padding: 11px 12px 12px; border-bottom: 1px solid var(--border); box-shadow: inset 3px 0 0 var(--margin); }
+.needs-lead .h3-look { font-size: 15px; margin: 0 0 4px; }
+.needs-lead p { margin: 0 0 9px; }
+.needs-lines { list-style: none; margin: 0; padding: 0; }
+.needs-lines li {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: baseline;
+  padding: 7px 12px 7px 14px; border-bottom: 1px solid var(--border);
+}
+.needs-lines li:last-child { border-bottom: 0; }
+.needs-lines a { color: var(--text); font-weight: 500; font-size: 13px; }
+.needs-lines a:hover { color: var(--gold); }
+.needs-tag {
+  grid-column: 1 / -1; color: var(--muted); font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em;
+}
+.needs-when { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+/* --- The day's tape: a ruled stream with a brass margin for the stamps --- */
+.tape { border: 1px solid var(--border-strong); border-radius: 3px; background: var(--panel); min-width: 0; }
+.tape-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px 18px; flex-wrap: wrap;
+  padding: 9px 12px 8px; border-bottom: 1px solid var(--border-strong); background: var(--band);
+}
+.tape-quote { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.tape-quote b { font-family: var(--mono); font-weight: 600; font-size: 14px; color: var(--text); }
+.tape-quote .mono { color: var(--text-2); }
+.tape-band { display: grid; grid-template-columns: 58px minmax(0, 1fr); border-top: 1px solid var(--border); }
+.tape-band:first-child { border-top: 0; }
+.tape-gutter {
+  margin: 0; padding: 8px 6px 8px 11px; border-right: 1px solid color-mix(in srgb, var(--gold) 45%, transparent);
+  font-family: var(--mono); font-size: 10.5px; line-height: 1.35; color: var(--muted); letter-spacing: 0.02em;
+}
+.tape-lines { min-width: 0; }
+.tape-row {
+  display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 10px; align-items: baseline;
+  padding: 5px 12px 5px 10px; border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  font-size: 12.5px;
+}
+.tape-row:first-child { border-top: 0; }
+.tape-stamp { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+a.tape-stamp:hover { color: var(--gold); text-decoration: none; }
+.tape-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.tape-text .tape-name { color: var(--muted); }
+.tape-figure { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 12px; text-align: right; white-space: nowrap; color: var(--text); }
+/* The wire reads in the serif of a printed story; the exchange reads in the machine's mono. */
+/* A wire line gets two lines and no more, so the columns keep a steady rhythm down the page. */
+.tape-row.wire .tape-text {
+  white-space: normal; font-family: var(--serif); font-size: 13px; line-height: 1.35; color: var(--text);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+a.tape-text:hover { text-decoration: underline; text-underline-offset: 2px; }
+.tape-row.wire .tape-figure { font-family: var(--sans); font-size: 10.5px; color: var(--muted); max-width: 108px; overflow: hidden; text-overflow: ellipsis; }
+.tape-empty { padding: 9px 12px; margin: 0; font-size: 12.5px; color: var(--muted); }
+.tape-foot {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  padding: 7px 12px; border-top: 1px solid var(--border); background: var(--band); font-size: 12px; color: var(--muted);
+}
+
+/* --- The book: what you are watching, one ruled line each --- */
+/* The sortable headings of the board: a word, not a browser button. */
+.sort-head { background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; }
+.sort-head:hover { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+th[aria-sort="ascending"] .sort-head, th[aria-sort="descending"] .sort-head { color: var(--gold); }
+
+/* --- Smaller desks: the tape drops under the queue, and the band folds in threes and twos --- */
+@media (max-width: 1180px) {
+  .band { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .band-cell:nth-child(4) { border-left: 0; }
+  .band-cell:nth-child(n + 4) { border-top: 1px solid var(--border); }
+}
+@media (max-width: 980px) {
+  .desk-grid { grid-template-columns: minmax(0, 1fr); }
+  .desk-clock { text-align: left; }
+}
+@media (max-width: 700px) {
+  .band { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .band-cell:nth-child(3) { border-left: 0; }
+  .band-cell:nth-child(n + 3) { border-top: 1px solid var(--border); }
+  .band-value { font-size: 15px; }
+  /* On a phone the identity line runs four deep before the first figure: drop the bank and close up. */
+  .desk-who { gap: 4px 8px; font-size: 12px; }
+  .desk-who-bank { display: none; }
+  /* On a phone a tag and its deadline sit one under the other, not at opposite ends of a wide line. */
+  .card-top { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .tape-band { grid-template-columns: 44px minmax(0, 1fr); }
+  .tape-gutter { font-size: 10px; padding-left: 8px; }
+  .tape-row { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 6px; padding: 6px 10px 6px 8px; }
+  .tape-row .tape-name { display: none; }
+  .book-spark { display: none; }
+}
