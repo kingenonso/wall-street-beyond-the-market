@@ -168,6 +168,36 @@ class WorldStatusResponse(BaseModel):
     last_closed_label: str | None      # e.g. "Year 2 Q4". None until the first quarter closes.
 
 
+class Indicator(BaseModel):
+    """One line of the always-on market readout."""
+    name: str                          # a true short name, never cut to a letter or an ellipsis
+    value: str                         # written here with its unit, so no screen has to invent one
+    change: str | None                 # what the arrow says, in the figure's own units ("2.4%", "0.25 pt")
+    change_bps: int | None             # the size of the move, for the bar and its colour; None when there is no "before"
+
+
+class IndicatorGroup(BaseModel):
+    title: str                         # sentence case: the panel's bar is what sets it in capitals
+    indicators: list[Indicator]
+
+
+class ReadoutPoint(BaseModel):
+    """One recorded close of the player's own money."""
+    session_date: date
+    total_kobo: Kobo
+
+
+class ReadoutResponse(BaseModel):
+    """The left column that never moves: the market's indicators, and the player's own money over time."""
+    period: int
+    period_label: str | None           # the quarter the indicators are for
+    since: str                         # what every move in the panel is measured against, in words
+    groups: list[IndicatorGroup]
+    net_worth: list[ReadoutPoint]      # one point per recorded close, oldest first; empty for a world's first day
+    net_worth_unit: str                # what the chart's scale and title say the figures are
+    my_tickers: list[str]              # the companies whose shares the player holds: what makes a story "my news"
+
+
 class CompanySummary(BaseModel):
     ticker: str
     name: str

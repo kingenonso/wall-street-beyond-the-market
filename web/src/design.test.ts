@@ -200,3 +200,80 @@ describe("the strip across the top", () => {
     expect(shell).toMatch(/<div className="work-bar"><CommandBar/);
   });
 });
+
+describe("the column that never moves", () => {
+  const shell = readFileSync(new URL("./Shell.tsx", import.meta.url), "utf8");
+  const column = readFileSync(new URL("./LeftColumn.tsx", import.meta.url), "utf8");
+  const phone = css.slice(css.indexOf("@media (max-width: 760px)"));
+
+  it("stands at the left edge of every screen, wide or narrow", () => {
+    // One call, outside the `!wide` condition that drops the right-hand rail: the column is not a rail.
+    expect(shell.match(/<LeftColumn/g)?.length, "the column is drawn more than once, or not at all").toBe(1);
+    const left = shell.indexOf("<LeftColumn");
+    const rail = shell.indexOf("{!wide && <aside");
+    expect(left, "no column in the shell").toBeGreaterThan(-1);
+    expect(rail, "the rail's condition has moved").toBeGreaterThan(-1);
+    expect(left, "the column has been put behind the rail's condition, so a focused screen loses it").toBeLessThan(rail);
+    expect(rule(".column")).toMatch(/position:\s*sticky/);
+    expect(rule(".shell")).toMatch(/grid-template-columns:\s*260px/);
+  });
+
+  it("is the reference's three panels, in the reference's order", () => {
+    for (const name of ["Net worth history", "Market indicators", "Quotes and news"]) {
+      expect(column, `the column has lost its ${name} panel`).toContain(`<Panel title="${name}"`);
+    }
+  });
+
+  it("lies down at the foot of the page on a phone rather than dropping out of it", () => {
+    // Working rule 2: nothing is dropped for a phone. The column stops being sticky and takes its turn after the
+    // page's own work, so a phone player keeps the chart and the indicators at the cost of one scroll.
+    const at = phone.indexOf(".column {");
+    expect(at, "no column in the phone block").toBeGreaterThan(-1);
+    const laid = phone.slice(at, phone.indexOf("}", at));
+    expect(laid, "a phone hides the readout entirely").not.toMatch(/display:\s*none/);
+    expect(laid).toMatch(/position:\s*static/);
+    expect(laid).toMatch(/order:\s*2/);
+    expect(phone, "the page's own work must still come first on a phone").toMatch(/\.work \{ order: 1;/);
+    // And the rail last: without an order of its own it sorts before the work it sits beside on a desk, and the
+    // page opens on a rail panel with the work underneath it.
+    expect(phone, "the rail has crept above the page on a phone").toMatch(/\.rail \{ grid-column: 1; order: 3; \}/);
+  });
+
+  /**
+   * The sections menu is not down the page any more: it is behind the strip's Menu, which is what frees the left
+   * edge for a readout. The dot is the loophole check — a count that only exists inside a closed menu is a count
+   * nobody finds, so the menu says when one of its sections is waiting.
+   */
+  it("carries no navigation, and the strip's menu says when a section is waiting", () => {
+    expect(shell, "the sections menu has crept back down the page").not.toContain('className="sections"');
+    expect(css, "styles.css still lays out a page-level sections menu").not.toMatch(/\n\.sections \{/);
+    expect(shell).toMatch(/className="waiting-dot"/);
+  });
+
+  it("never cuts a figure's name, and never lets a list rule squeeze a headline", () => {
+    // A name loses letters only by ellipsis or by being held on one line, so neither is allowed here.
+    const name = rule(".indicator-name");
+    expect(name).not.toMatch(/ellipsis/);
+    expect(name).not.toMatch(/white-space:\s*nowrap/);
+    expect(name).not.toMatch(/overflow:\s*hidden/);
+    // The list's own rule is more specific than .news-line: without the :not(), a headline is set beside its
+    // own outlet in half the column, which is how this fault was first found — in the look book's pixels.
+    expect(css).toMatch(/\.column-list li:not\(\.news-line\)/);
+  });
+
+  it("fills the chart under its line, and anchors the first and last month inward", () => {
+    // The fill runs from the zero line, so the colour is where the money is; and a month centred on the plot's
+    // edge loses its first letter — "Mar" came out as "lar" in the first look book.
+    expect(column).toMatch(/points=\{`\$\{PLOT\.left\},\$\{y\(0\)\}/);
+    expect(column).toMatch(/textAnchor=\{p\.i === 0 \? "start"/);
+  });
+
+  it("reads every figure from the server and computes none of them on this side", () => {
+    expect(column).toMatch(/useLoad\(api\.readout/);
+    // The indicator's value and its move are printed as the server wrote them, not rebuilt from a number.
+    expect(column).toMatch(/\{item\.value\}/);
+    expect(column).toMatch(/\{item\.change\}/);
+    // The quotes are read the first time somebody asks for them, not on every screen in the game.
+    expect(column).toMatch(/quotesSeen/);
+  });
+});

@@ -6,6 +6,7 @@ import { ProfilePicture } from "./icons";
 import { PriceTicker } from "./Ticker";
 import { play } from "./sound";
 import type { LiveClock } from "./useClock";
+import { LeftColumn } from "./LeftColumn";
 import { BankAlerts } from "./Crisis";
 import { FundAlerts } from "./Funds";
 import { EtfAlerts } from "./Etfs";
@@ -109,10 +110,14 @@ function Strip({ player, current, onLogout, onPlayer }: {
 }) {
   const here = sectionOf(player, current);
   const viewing = viewingLabel(player, current);
+  // The sections moved into this menu when the left edge became the market's readout, so the menu says whether
+  // anything there is waiting: otherwise a count would be a thing you only find by opening a menu to look.
+  const waiting = player.rank_waiting || player.unread_messages > 0 || (player.talent_waiting ?? 0) > 0
+    || sectionsFor(player).some((section) => (section.count ?? 0) > 0);
   return (
     <header className="topbar">
       <div className="strip-left">
-        <StripMenu label={<><span aria-hidden="true">☰</span> Menu</>} menuLabel="Sections">
+        <StripMenu label={<><span aria-hidden="true">☰</span> Menu{waiting && <span className="waiting-dot" aria-hidden="true" />}</>} menuLabel="Sections">
           <nav className="strip-links" aria-label="Sections">
             {sectionsFor(player).map((section) => (
               <a key={section.path} href={`#/${section.path}`} className={section.path === (here?.path ?? "") ? "current" : ""}>
@@ -386,32 +391,6 @@ function SectionTabs({ player, current }: { player: Player; current: string }) {
   );
 }
 
-/** Zone 2: the sections menu. Only sections that exist are listed. On a phone it becomes the bar at the bottom. */
-function SectionsMenu({ player, current }: { player: Player; current: string }) {
-  const here = sectionOf(player, current)?.path;
-  return (
-    <nav className="sections" aria-label="Sections">
-      {sectionsFor(player).map((section) => (
-        <a
-          key={section.path}
-          href={`#/${section.path}`}
-          className={section.path === here ? "section current" : "section"}
-          aria-current={section.path === here ? (section.path === current ? "page" : "true") : undefined}
-        >
-          {section.label}
-          {(section.count ?? 0) > 0 && <span className="count" aria-label={`${section.count} ${section.countWords}`}>{section.count}</span>}
-        </a>
-      ))}
-      {player.empire && (
-        <a href="#/empire" className="empire-badge plain-link">
-          <span className="strong">{player.empire.name}</span>
-          <span className="muted small">{player.empire.forming ? "being founded" : player.empire.place ? `place ${player.empire.place} in the league` : ""}</span>
-        </a>
-      )}
-    </nav>
-  );
-}
-
 const BAR_ICONS: Record<string, ReactNode> = {
   "": <path d="M3 11l9-7 9 7v9H3z" />,
   market: <path d="M3 17l6-6 4 4 8-8" />,
@@ -571,7 +550,7 @@ export function Shell({ player, live, current, onLogout, onPlayer, work, rail, a
       <Strip player={player} current={current} onLogout={onLogout} onPlayer={onPlayer} />
       <PriceTicker live={live} />
       <div className={wide ? "shell shell-wide" : "shell"}>
-        <SectionsMenu player={player} current={current} />
+        <LeftColumn player={player} live={live} onLoggedOut={onLogout} />
         <main className="work" id="main" tabIndex={-1}>
           <div className="work-bar"><CommandBar player={player} /></div>
           <SectionTabs player={player} current={current} />{work}</main>

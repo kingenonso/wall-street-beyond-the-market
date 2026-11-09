@@ -54,6 +54,7 @@ from server.schemas import (
     SignUpRequest,
     display_name_key,
     WorldStatusResponse,
+    Indicator, IndicatorGroup, ReadoutPoint, ReadoutResponse,
     CommodityPrice, MacroQuarter, MoneyWatch, NewsItem, NewsResponse, PricesAndRates,
     Holding, OrderRequest, OrderResponse, PlacedOrderResponse, PriceLevel, PublicTrade, QuoteResponse, WhyResponse,
     AnalysisResponse, IndexPoint, MarketResponse, MarketShare, NpvYear, PortfolioHolding, PortfolioResponse,
@@ -618,6 +619,102 @@ def world_status(_: dict = Depends(current_player), conn: Connection = Depends(g
         companies=count,
         last_closed_period=last,
         last_closed_label=clock.period_label(last) if last else None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# The readout: the left column that never moves.
+#
+# It is on every screen, so it is one cheap read, not a dozen: the quarter that has closed, the people the
+# companies employ, and the player's own recorded closes. It computes no share prices — the tape across the
+# top already carries the index and every price, live — and it invents nothing, so the figures on it are the
+# same figures the economy page shows, written the same way.
+# ---------------------------------------------------------------------------
+
+# The commodity indices the panel names. True short names, never cut to a letter or an ellipsis: the panel's
+# narrowest column holds "Building materials" at 13 pixels.
+_COMMODITY_READOUT = (
+    ("Oil and gas", "energy_bps"),
+    ("Farm produce", "agriculture_bps"),
+    ("Metals", "metals_bps"),
+    ("Building materials", "materials_bps"),
+)
+
+# How many of the player's closes the chart keeps: enough for months along its foot.
+READOUT_SESSIONS = 180
+
+
+def _move(now: int, before: int | None, unit: str) -> tuple[str | None, int | None]:
+    """How a figure has moved since the last close: written in its own units, and its size in basis points.
+
+    A price index or a count moves by a percentage of itself; a rate or a confidence reading moves by points,
+    because "the rate rose half a per cent" and "the rate rose half a point" are two different sentences and
+    only one of them is true."""
+    if not before:
+        return None, None
+    bps = round((now - before) * 10_000 / before)
+    if unit == "pt":
+        return f"{abs(now - before) / 100:.2f} pt", bps
+    return f"{abs(bps) / 100:.1f}%", bps
+
+
+def _line(name: str, value: str, now: int, before: int | None, unit: str) -> Indicator:
+    change, bps = _move(now, before, unit)
+    return Indicator(name=name, value=value, change=change, change_bps=bps)
+
+
+@app.get("/api/readout", response_model=ReadoutResponse)
+def readout(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """The market's indicators and the player's own money over time, for the left column of every screen."""
+    world = _world(conn)
+    period = world["last_closed_period"] if world else 0
+    groups: list[IndicatorGroup] = []
+
+    state = conn.execute("SELECT * FROM economy_results WHERE period = %s", (period,)).fetchone() if period else None
+    if state:
+        before = conn.execute("SELECT * FROM economy_results WHERE period = %s", (period - 1,)).fetchone() if period > 1 else None
+        groups.append(IndicatorGroup(title="Commodities", indicators=[
+            _line(name, f"{state[column] / 100:.2f}", state[column], (before or {}).get(column), "%")
+            for name, column in _COMMODITY_READOUT
+        ]))
+        # The people the companies employ, and the Central Bank's three published readings.
+        jobs_now = conn.execute("SELECT coalesce(sum(jobs), 0)::bigint AS n FROM household_results WHERE period = %s",
+                                (period,)).fetchone()["n"]
+        jobs_before = conn.execute("SELECT coalesce(sum(jobs), 0)::bigint AS n FROM household_results WHERE period = %s",
+                                   (period - 1,)).fetchone()["n"]
+        groups.append(IndicatorGroup(title="Macroeconomic", indicators=[
+            _line("Jobs", f"{jobs_now:,}", jobs_now, jobs_before, "%"),
+            _line("Policy rate", f"{state['next_policy_rate_bps'] / 100:.2f}%",
+                  state["next_policy_rate_bps"], state["policy_rate_bps"], "pt"),
+            _line("Inflation", f"{state['inflation_bps'] / 100:.2f}%",
+                  state["inflation_bps"], (before or {}).get("inflation_bps"), "pt"),
+            _line("Confidence", f"{state['confidence_bps'] / 100:.2f}",
+                  state["confidence_bps"], (before or {}).get("confidence_bps"), "pt"),
+        ]))
+
+    # The player's own closes. A new player has none until the first bell, which the panel says in words.
+    account = ledger.player_account_id(conn, player["id"])
+    mine = [] if account is None else [
+        r["ticker"] for r in conn.execute(
+            "SELECT c.ticker FROM ledger_balances b JOIN market_instruments m ON m.asset = b.asset"
+            " JOIN companies c ON c.id = m.company_id WHERE b.account_id = %s AND b.balance > 0 ORDER BY c.ticker",
+            (account,)).fetchall()
+    ]
+    points = [] if account is None else [
+        ReadoutPoint(session_date=r["session_date"], total_kobo=r["cash"] + r["investments"])
+        for r in conn.execute(
+            "SELECT * FROM (SELECT session_date, cash, investments FROM net_worth_days WHERE account_id = %s"
+            " ORDER BY session_date DESC LIMIT %s) d ORDER BY session_date", (account, READOUT_SESSIONS)).fetchall()
+    ]
+
+    return ReadoutResponse(
+        period=period,
+        period_label=clock.period_label(period) if period else None,
+        since=f"since the close of {clock.period_label(period)}" if period else "no quarter has closed yet",
+        groups=groups,
+        net_worth=points,
+        net_worth_unit="naira",
+        my_tickers=mine,
     )
 
 

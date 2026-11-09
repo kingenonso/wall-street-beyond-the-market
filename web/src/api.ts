@@ -601,6 +601,20 @@ export type Ticker = {
   shares: { ticker: string; name: string; sector: string; price_kobo: Kobo; change_bps: number; traded_today: boolean }[];
 };
 
+/** One line of the always-on readout: a figure, its move, and the size of that move for the bar under it. */
+export type Indicator = { name: string; value: string; change: string | null; change_bps: number | null };
+export type IndicatorGroup = { title: string; indicators: Indicator[] };
+/** The left column that never moves: the market's indicators, the player's money over time, what they hold. */
+export type Readout = {
+  period: number;
+  period_label: string | null;
+  since: string;
+  groups: IndicatorGroup[];
+  net_worth: { session_date: string; total_kobo: Kobo }[];
+  net_worth_unit: string;
+  my_tickers: string[];
+};
+
 export type BellMover = { ticker: string; name: string; close_kobo: Kobo; change_bps: number };
 export type ClosingBell = {
   in_rush: boolean;
@@ -1082,6 +1096,7 @@ export const api = {
   clearConversation: (name: string) => request<Conversations>("/messages/clear", { method: "POST", body: JSON.stringify({ name }) }),
   clock: () => request<Clock>("/world/clock"),
   worldStatus: () => request<WorldStatus>("/world/status"),
+  readout: () => request<Readout>("/readout"),
   companies: () => request<{ sectors: Sector[] }>("/companies"),
   economy: () => request<Economy>("/economy"),
   property: () => request<PropertyMarket>("/property"),

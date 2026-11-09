@@ -293,18 +293,18 @@ This is the register that matters most to you. Every control in your three scree
 | Help | Explains how the game works | No help screen |
 | The lightbulb | Tips and hints | No |
 | About | The game's credits and rules | No game-level About page |
-| The menu button | Opens the section list | A list of build screens exists; a rail menu does not |
+| The menu button | Opens the section list | Built 9 November: the sections left the page for the strip's **Menu**, which carries a dot when something in it is waiting |
 | My Corps | A shortcut to the companies you control | The empire pages cover this; nothing in the strip |
 | Viewing: chooser | Says what you are looking at, and switches it | No such control |
 | Command line on the page | Typing a page, a code or an action | Built, but only behind Ctrl-K in the top bar |
 | Date, play, speed, step | Drives time forward | The date is built and sits on the tape row (9 November); the transport has no server endpoint, so it is not built |
-| Player net worth history chart | Your money over time | An empire's history is charted; the player's is not |
+| Player net worth history chart | Your money over time | Built 9 November as the first panel of the always-on left column, read from `/api/readout` |
 | Net worth: assets, debt, worth, with dots | Three figures and a verdict | The desk shows cash and standing, not these three |
 | Borrowing: rate, unused credit, debt/equity, gains | Your borrowing state in four figures | A loans page exists; not these four in one box |
 | Personal profile: name, country, status, bank, rating, trend | Your identity and standing | A profile page exists; a credit rating *for you* is not built |
 | Advisory summary: your finances and your tax | Prose judgement of you | Nothing; a tax bill for the player is not a thing |
-| Market indicators with bars | An always-on market readout | The economy page has indicators; not always-on, and no bars |
-| Quotes and News tabs in the rail | Watchlist and headlines always visible | A news page exists; not in a rail |
+| Market indicators with bars | An always-on market readout | Built 9 November, in two groups — commodities and the macroeconomic lines. The screenshot's third group, crypto, is **not** built and is not stubbed: this game has no crypto market to price. A third group appears the day one exists |
+| Quotes and News tabs in the rail | Watchlist and headlines always visible | Built 9 November as the third panel of the left column: the search that takes comma-separated terms, the My news filter, and the companies each headline names picked out by their move |
 | Buy Stock | Buys a share | Built |
 | Buy Corp Bond | Buys a company's bond | Partial — company bonds sit in the book, but there is no market to buy them on |
 | Buy Long Govt Bonds | Buys long-dated government debt | Built |
