@@ -282,9 +282,15 @@ input {
 /* ---------- Tables ---------- */
 
 /* A table that scrolls across keeps a little air at its left and right, and says so when a keyboard
-   lands on it. */
-.scroll { overflow-x: auto; padding: 0 8px; }
+   lands on it. The air is taken off the table's own edges rather than added round it, because the
+   brass rule and the sticky heading are drawn on the container's edges and gap under it. */
+.scroll { overflow-x: auto; }
+.scroll > table > thead > tr > :first-child { padding-left: 9px; }
+.scroll > table > tbody > tr > :first-child { padding-left: 9px; }
 .scroll:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+/* Only a table given a height can hold its headings still; one that scrolls inside a page
+   along with everything else must let them travel, or they float over other rows. */
+.no-sticky thead th { position: static; box-shadow: none; }
 table { width: 100%; border-collapse: collapse; }
 caption { text-align: left; caption-side: bottom; padding-top: 10px; }
 /* Every table is a ruled page: a banded column heading, a rule under each row, figures set in tabular mono. */
@@ -915,9 +921,9 @@ table.dense th, table.dense td { vertical-align: middle; }
 .trade-rail { display: grid; gap: 14px; }
 .trade-for-block { display: grid; gap: 6px; margin-bottom: 12px; }
 @media (max-width: 760px) { .company-actions { margin-left: 0; } .company-price .figure { font-size: 26px; } }
-.summary-moves { display: flex; gap: 22px; flex-wrap: wrap; font-size: 13px; }
-.share-of { display: inline-flex; align-items: center; gap: 8px; }
-.share-of-track { display: inline-block; width: 90px; height: 8px; border-radius: 4px; background: var(--raised); overflow: hidden; }
+/* In a column of figures the bar comes after the number, quietly, giving the eye a second way to read it. */
+.share-of { display: inline-flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.share-of-track { display: inline-block; width: 52px; height: 6px; border-radius: 3px; background: var(--raised); overflow: hidden; }
 .share-of-track span { display: block; height: 8px; background: var(--info); }
 .money-tiles { margin-bottom: 0; }
 .money-tiles .tile { background: transparent; }
@@ -1234,6 +1240,11 @@ fieldset.check-list .check-line { display: flex; gap: 6px; align-items: center; 
 }
 /* The band carries whatever four to six figures a page opens with, so its count is set by the page. */
 .band-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+/* A band that opens a page earns its box. One inside a section is part of that section's ruled sheet,
+   so it loses the box and keeps only the rules between its figures. */
+.panel > .band { border: 0; background: transparent; border-radius: 0; }
+.panel > .band .band-cell:first-child { padding-left: 0; }
+.panel > .band .band-cell:last-child { padding-right: 0; }
 .band-cell { padding: 9px 12px 10px; border-left: 1px solid var(--border); min-width: 0; }
 .band-cell:first-child { border-left: 0; }
 .band-label { font-size: 11px; color: var(--muted); }

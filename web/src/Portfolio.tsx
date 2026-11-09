@@ -224,7 +224,7 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
         )}
       </Panel>
 
-      <Panel title="Your shares" aside={p.holdings.length > 0 ? <><Term word="Concentration">Share of your shares</Term> shown beside each</> : undefined}>
+      <Panel title="Your shares" aside={p.holdings.length > 0 ? <><Term word="Concentration">Share of your shares</Term> shown beside each company</> : undefined}>
         {p.holdings.length === 0 ? (
           <p className="muted">
             You own no shares yet. Open the <a href="#/market">Market</a>, pick a company and place a buy order.
