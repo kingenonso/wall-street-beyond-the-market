@@ -283,7 +283,7 @@ export function TradePanel({ ticker, onLoggedOut, onTraded, layout = "wide" }: {
           )}
           {q.trades.length > 0 && (
             <>
-              <div className="why-title">LATEST TRADES</div>
+              <div className="why-title">Latest trades</div>
               {q.trades.slice(0, 5).map((trade, index) => (
                 <div key={index} className="row">
                   <span className="mono">{shares(trade.quantity)} at {formatNaira(trade.price_kobo)}</span>

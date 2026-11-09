@@ -160,32 +160,42 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
             {p.holdings.length > 0 && <><span className="dot-sep"> · </span>{p.holdings.length} {p.holdings.length === 1 ? "company" : "companies"} · {shares(p.holdings.reduce((n, h) => n + h.shares, 0))} shares</>}
           </div>
         </div>
-        {waiting.length > 0 && <a href="#/portfolio" className="muted small">{waiting.length} {waiting.length === 1 ? "order" : "orders"} waiting</a>}
+        {waiting.length > 0 && (
+          <a href="#/portfolio" className="muted small"
+             onClick={(e) => {
+               // The orders wait on this same page, below — so the link goes down the page, not to the page it is on.
+               e.preventDefault();
+               const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+               document.getElementById("orders-waiting")?.scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "start" });
+             }}>
+            {waiting.length} {waiting.length === 1 ? "order" : "orders"} waiting
+          </a>
+        )}
       </div>
 
       <section className="band band-4" aria-label="What you own">
         <div className="band-cell">
           <div className="band-label"><Term word="Net worth">Everything you own</Term></div>
-          <div className="band-value">{formatCompact(p.total_kobo)}</div>
+          <div className="band-value">{formatNaira(p.total_kobo)}</div>
           <div className="band-note">
             {lastTwo ? <><Gain kobo={(BigInt(p.total_kobo) - BigInt(lastTwo)).toString()} /> since the last Closing Bell</> : "written down at each Closing Bell"}
           </div>
         </div>
         <div className="band-cell">
           <div className="band-label">Shares</div>
-          <div className="band-value">{formatCompact(p.shares_value_kobo)}</div>
+          <div className="band-value">{formatNaira(p.shares_value_kobo)}</div>
           <div className="band-note">at today’s prices</div>
         </div>
         <div className="band-cell">
           <div className="band-label">Cash you can use now</div>
-          <div className="band-value">{formatCompact(p.cash_kobo)}</div>
+          <div className="band-value">{formatNaira(p.cash_kobo)}</div>
           <div className="band-note">
-            {BigInt(p.held_for_orders_kobo) > 0n ? `plus ${formatCompact(p.held_for_orders_kobo)} held for your buy orders` : "nothing held for orders"}
+            {BigInt(p.held_for_orders_kobo) > 0n ? `plus ${formatNaira(p.held_for_orders_kobo)} held for your buy orders` : "nothing held for orders"}
           </div>
         </div>
         <div className="band-cell">
           <div className="band-label">Dividends received</div>
-          <div className="band-value">{formatCompact(p.dividends_kobo)}</div>
+          <div className="band-value">{formatNaira(p.dividends_kobo)}</div>
           <div className="band-note">cash paid to you by the companies you own</div>
         </div>
       </section>
@@ -272,10 +282,17 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
           “They cost you” is what you paid for the shares you still hold, fees included. When you sell some, the average
           cost of those shares comes off. Inside the market’s trading hours, a figure can change before you finish reading it.
         </p>
+        {BigInt(p.realised_kobo) !== 0n && (
+          <p className="muted small">
+            On shares sold: <Gain kobo={p.realised_kobo} />. This is money already made or lost, so it is not in the gain
+            or loss on what you still hold.
+          </p>
+        )}
       </Panel>
 
       <EmpireSharesPanel onLoggedOut={onLoggedOut} />
 
+      <div id="orders-waiting">
       <Panel title="Your orders waiting" aside={waiting.length > 0 ? `${waiting.length} of 50` : undefined}>
         {problem && <div className="error" role="alert">{problem}</div>}
         {waiting.length === 0 && <p className="muted small">No orders are waiting.</p>}
@@ -302,6 +319,7 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
           </>
         )}
       </Panel>
+      </div>
     </>
   );
 }

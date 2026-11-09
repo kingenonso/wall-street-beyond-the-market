@@ -417,7 +417,7 @@ function Treasury({ room, act, onLoggedOut }: { room: EmpireRoom; act: Act; onLo
             belongs to the empire, not to you. Buying what the empire's task calls for is outside your limit.
             {room.fair_dealing && " An empire run by the computer deals within 2% of the last session's price."} You cannot deal with the empire yourself.
           </p>
-          <div className="why-title">SHARES</div>
+          <div className="why-title">Shares</div>
           <ShareOrderForm whose="The empire" busy={act.busy} held={room.holdings} fairDealing={room.fair_dealing} onLoggedOut={onLoggedOut}
                           onPlace={(order) => act.run("POST", "/empire/orders", { ...order, kind: "limit" })} />
           <div className="why-title">Bonds and bills</div>
@@ -463,7 +463,7 @@ function Books({ room, act }: { room: EmpireRoom; act: Act }) {
         report that proves groundless costs you a little reputation. Three reports a quarter.
       </p>
       <div className="definition shadow">
-        <div className="why-title">THE SHADOW SIDE</div>
+        <div className="why-title">The shadow side</div>
         <p className="small">
           You may sign for a cost that is not real, and the money comes to you. In the books it reads "{room.disguise}". It
           leaves a trail: if an audit proves it, you repay it with a fine of the same amount again, lose your seat and
@@ -517,7 +517,7 @@ function Audits({ room, act }: { room: EmpireRoom; act: Act }) {
           <span className="mono small">{audit.examined} entries · {audit.reported} called false</span>
         </div>
       ))}
-      {room.cases.length > 0 && <div className="why-title">PROVED THEFTS</div>}
+      {room.cases.length > 0 && <div className="why-title">Proved thefts</div>}
       {room.cases.map((item) => (
         <div key={item.id} className="definition">
           <div className="row">
@@ -570,7 +570,7 @@ function Pacts({ room, act }: { room: EmpireRoom; act: Act }) {
           event.preventDefault();
           act.run("POST", "/empire/pacts", { to_empire: Number(to), kind, terms }).then((ok) => ok && setTerms(""));
         }}>
-          <div className="why-title">DRAFT A PACT</div>
+          <div className="why-title">Draft a pact</div>
           <label className="answer"><span className="field-label">With</span>
             <select value={to} onChange={(event) => setTo(event.target.value)}><option value="">Choose an empire…</option>{room.others.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select></label>
           <label className="answer"><span className="field-label">Kind of agreement</span>
@@ -730,11 +730,11 @@ function needs(room: EmpireRoom) {
   }
   if (room.resignation?.offer) cards.push({ tag: "Offer to stay", title: "The head has made you an offer", text: "Accept it and stay, or let your letter stand. See Leaving the empire, below." });
   for (const letter of room.resignations.filter((r) => !r.offer)) cards.push({ tag: "Resignation", title: `${letter.name} has handed in a letter`, text: "Make an offer to stay, let them go now, or let the notice run." });
-  if (room.open_audit) cards.push({ tag: "AUDIT", title: "File your audit report", text: `${room.open_audit.findings.length} false entries found. Decide what goes in the report.` });
+  if (room.open_audit) cards.push({ tag: "Audit", title: "File your audit report", text: `${room.open_audit.findings.length} false entries found. Decide what goes in the report.` });
   if (room.is_head) {
     for (const item of room.cases.filter((c) => c.status === "open")) cards.push({ tag: "Proved theft", title: `${item.who} took ${formatNaira(item.amount_kobo)}`, text: "An audit proved it. Decide what follows." });
     if (room.applications.length > 0) cards.push({ tag: "Applications", title: `${room.applications.length} asking for a seat`, text: "Accept or refuse them under Seats." });
-    for (const pact of room.pacts.filter((p) => (p.ours && p.status === "drafted") || (!p.ours && p.status === "proposed"))) cards.push({ tag: "PACT", title: `A pact with ${pact.with} needs your signature`, text: pact.kind });
+    for (const pact of room.pacts.filter((p) => (p.ours && p.status === "drafted") || (!p.ours && p.status === "proposed"))) cards.push({ tag: "Pact", title: `A pact with ${pact.with} needs your signature`, text: pact.kind });
   }
   return cards.slice(0, 3);
 }

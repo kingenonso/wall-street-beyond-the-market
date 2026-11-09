@@ -34,7 +34,7 @@ export function urgent(board: ObjectiveBoard | null, career: Career | null, play
                  action: "See the work on offer", href: "#/work" });
   }
   if (career.career && career.career.at_cap && career.career.level < career.career.top_level) {
-    cards.push({ tag: "RANK", when: `Level ${career.career.gate}`, title: `You are at the Level ${career.career.gate} gate`,
+    cards.push({ tag: "Rank", when: `Level ${career.career.gate}`, title: `You are at the Level ${career.career.gate} gate`,
                  text: "Work alone goes no further. Mastery across your modules and a rank case open the levels above. Experience you earn meanwhile is kept.",
                  action: "See what the rank case needs", href: "#/rank" });
   }
@@ -66,7 +66,7 @@ export function urgent(board: ObjectiveBoard | null, career: Career | null, play
                  action: "See the work on offer", href: "#/work" });
   }
   if (!career.job) {
-    cards.unshift({ tag: "CAREER", when: "Three steps", title: career.bank ? "Find an employer" : "Choose your bank and find an employer",
+    cards.unshift({ tag: "Career", when: "Three steps", title: career.bank ? "Find an employer" : "Choose your bank and find an employer",
                     text: "Work and salary come through an employer.", action: "Go to your career", href: "#/career" });
   }
   return cards.slice(0, 3);

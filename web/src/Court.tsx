@@ -18,14 +18,30 @@ const STATUS_WORDS: Record<string, string> = { open: "Open", settled: "Settled",
 const pct = (bps: number) => `${(bps / 100).toFixed(1).replace(/\.0$/, "")}%`;
 const day = (at: string) => new Date(at).toLocaleDateString("en-NG", { timeZone: "Africa/Lagos", day: "numeric", month: "short", year: "numeric" });
 
+/** A figure the server may leave out. "null" is not a number, and BigInt("null") throws — which, with no error
+ * boundary on the page, would take the whole game down rather than one line of a case. */
+function money(kobo: unknown): string {
+  if (kobo === null || kobo === undefined || kobo === "") return "—";
+  try {
+    return formatNaira(String(kobo));
+  } catch {
+    return "—";
+  }
+}
+
+/** A count or a rate the server may leave out. */
+function count(value: unknown): string {
+  return value === null || value === undefined || value === "" ? "—" : String(value);
+}
+
 function line(l: Record<string, string | number | null>): string {
   const what = String(l.what ?? "");
-  if (what === "trade") return `${l.side === "bought" ? "Bought" : "Sold"} ${l.quantity} at ${formatNaira(String(l.price))}`;
-  if (what === "wash trade") return `Traded with itself: ${l.quantity} at ${formatNaira(String(l.price))}`;
-  if (what === "bought") return `Bought ${l.quantity} at ${formatNaira(String(l.price))}`;
-  if (what === "sold") return `Sold ${l.quantity} at ${formatNaira(String(l.price))}`;
-  if (what === "holding") return `Held ${pct(Number(l.held_bps))} of ${l.ticker}, made public ${pct(Number(l.disclosed_bps))}`;
-  if (what === "short") return `${l.shares} shares of ${l.ticker}, bought in at ${formatNaira(String(l.bought_in_at))}`;
+  if (what === "trade") return `${l.side === "bought" ? "Bought" : "Sold"} ${count(l.quantity)} at ${money(l.price)}`;
+  if (what === "wash trade") return `Traded with itself: ${count(l.quantity)} at ${money(l.price)}`;
+  if (what === "bought") return `Bought ${count(l.quantity)} at ${money(l.price)}`;
+  if (what === "sold") return `Sold ${count(l.quantity)} at ${money(l.price)}`;
+  if (what === "holding") return `Held ${pct(Number(l.held_bps ?? 0))} of ${l.ticker}, made public ${pct(Number(l.disclosed_bps ?? 0))}`;
+  if (what === "short") return `${count(l.shares)} shares of ${l.ticker}, bought in at ${money(l.bought_in_at)}`;
   return what;
 }
 
@@ -54,9 +70,9 @@ function CaseCard({ c, mine, act }: { c: CourtCase; mine: boolean; act: Run }) {
         </div>
         <div className="small">{c.words}</div>
         <div className="small muted">
-          {c.claimant} against {c.defendant} · claim {formatNaira(c.amount)}
-          {c.status === "open" ? ` · settling costs ${formatNaira(c.settle_price)}` : ""}
-          {c.owed !== "0" ? ` · still owed ${formatNaira(c.owed)}` : ""}
+          {c.claimant} against {c.defendant} · claim {money(c.amount)}
+          {c.status === "open" ? ` · settling costs ${money(c.settle_price)}` : ""}
+          {c.owed !== "0" ? ` · still owed ${money(c.owed)}` : ""}
           {c.ban_quarters ? ` · banned from trading for ${c.ban_quarters} quarters` : ""}
         </div>
         <Evidence c={c} />
@@ -65,7 +81,7 @@ function CaseCard({ c, mine, act }: { c: CourtCase; mine: boolean; act: Run }) {
         <div className="intel-actions">
           <button className="button-outline" disabled={act.busy}
                   onClick={() => act.run(async () => ({ result: await api.courtAnswer(c.id, "settle") }), "Settled.")}>
-            Settle for {formatNaira(c.settle_price)}
+            Settle for {money(c.settle_price)}
           </button>
           <button className="button-quiet" disabled={act.busy}
                   onClick={() => act.run(async () => ({ result: await api.courtAnswer(c.id, "fight") }), "Judged.")}>
@@ -83,7 +99,7 @@ function ClaimCard({ claim, act }: { claim: CourtClaim; act: Run }) {
       <div>
         <div className="strong">{KIND_WORDS[claim.kind] ?? claim.kind} <span className="muted small">· {claim.ticker ?? "the market"}</span></div>
         <div className="small">{claim.words}</div>
-        <div className="small muted">Against {claim.defendant} · claim {formatNaira(claim.amount)} · bond {formatNaira(claim.bond)}</div>
+        <div className="small muted">Against {claim.defendant} · claim {money(claim.amount)} · bond {money(claim.bond)}</div>
       </div>
       <div className="intel-actions">
         <button className="button-outline" disabled={act.busy}
@@ -97,18 +113,46 @@ function ClaimCard({ claim, act }: { claim: CourtClaim; act: Run }) {
   );
 }
 
+/** The page's head, the same ruled head every other screen opens with. */
+function CourtHead({ aside }: { aside?: React.ReactNode }) {
+  return (
+    <div className="work-head">
+      <div>
+        <h1>The court</h1>
+        <div className="work-sub">The regulator brings a case, the defendant settles or fights it, and the court finds the number from the record</div>
+      </div>
+      {aside && <span className="muted small">{aside}</span>}
+    </div>
+  );
+}
+
+/** A server that has the website but not the court yet answers "Not Found" here. That is the stage not being built,
+ * not the player's connection, so it is said plainly instead of being shown as a fault with a Try again button. */
+function OpensLater() {
+  return (
+    <>
+      <CourtHead />
+      <Panel title="The courts">
+        <p className="muted">The courts open with the next stage. Until then no case is brought, and nothing here is owed.</p>
+      </Panel>
+    </>
+  );
+}
+
 export function CourtWork({ onLoggedOut }: { onLoggedOut: () => void }) {
   const { data, error, loading, reload } = useLoad(api.court, "court", onLoggedOut);
   const act = useRun(reload, onLoggedOut);
   if (loading && !data) return <Loading what="the docket" />;
-  if (error && !data) return <Failed message={error} onRetry={reload} />;
-  if (!data) return null;
-  if (!data.ready) {
-    return <Panel title="The courts"><p className="muted">The courts open with the next stage.</p></Panel>;
+  if (error && !data) {
+    if (/not found/i.test(error)) return <OpensLater />;
+    return <Failed message={error} onRetry={reload} />;
   }
+  if (!data) return null;
+  if (!data.ready) return <OpensLater />;
   const defending = data.mine.defending.filter((c) => c.status === "open");
   return (
     <>
+      <CourtHead aside={data.docket.length > 0 ? `${data.docket.length} open` : "nothing open"} />
       <Notices act={act} />
       {data.mine.banned_until !== null && (
         <p className="error" role="alert">You are banned from trading until quarter {data.mine.banned_until}: the court's order.</p>

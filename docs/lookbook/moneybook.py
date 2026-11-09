@@ -38,10 +38,10 @@ HOLDINGS = [
 def band():
     return '''
       <section class="band band-4" aria-label="What you own">
-        <div class="band-cell"><div class="band-label">Everything you own</div><div class="band-value">₦9.81m</div><div class="band-note"><span class="mono change-up">▲ 0.6%</span> since the last Closing Bell</div></div>
-        <div class="band-cell"><div class="band-label">Shares</div><div class="band-value">₦6.42m</div><div class="band-note">at today’s prices</div></div>
-        <div class="band-cell"><div class="band-label">Cash you can use now</div><div class="band-value">₦2.10m</div><div class="band-note">plus ₦180,400 held for your buy orders</div></div>
-        <div class="band-cell"><div class="band-label">Dividends received</div><div class="band-value">₦1.29m</div><div class="band-note">cash paid to you by the companies you own</div></div>
+        <div class="band-cell"><div class="band-label">Everything you own</div><div class="band-value">₦9,812,345</div><div class="band-note"><span class="mono change-up">▲ ₦58,700</span> since the last Closing Bell</div></div>
+        <div class="band-cell"><div class="band-label">Shares</div><div class="band-value">₦6,420,880</div><div class="band-note">at today’s prices</div></div>
+        <div class="band-cell"><div class="band-label">Cash you can use now</div><div class="band-value">₦2,104,300</div><div class="band-note">plus ₦180,400 held for your buy orders</div></div>
+        <div class="band-cell"><div class="band-label">Dividends received</div><div class="band-value">₦1,287,165</div><div class="band-note">cash paid to you by the companies you own</div></div>
       </section>'''
 
 
@@ -55,7 +55,7 @@ def shares_table():
         for t, name, q, p, ch, worth, cost, gain, div, pct in HOLDINGS)
     return f'''
       <section class="panel">
-        <div class="panel-head"><h2>Your shares</h2><span class="muted small">Share of your shares shown beside each</span></div>
+        <div class="panel-head"><h2>Your shares</h2><span class="muted small">Share of your shares shown beside each company</span></div>
         <div class="scroll scroll-sticky" tabindex="0">
           <table class="dense tape-table">
             <thead><tr><th scope="col" class="sr-only">Code</th><th scope="col">Company</th><th scope="col" class="num">Shares</th>
@@ -66,6 +66,7 @@ def shares_table():
           </table>
         </div>
         <p class="muted small">“They cost you” is what you paid for the shares you still hold, fees included. When you sell some, the average cost of those shares comes off. Inside the market’s trading hours, a figure can change before you finish reading it.</p>
+        <p class="muted small">On shares sold: <span class="mono change-up">▲ ₦243,000</span>. This is money already made or lost, so it is not in the gain or loss on what you still hold.</p>
       </section>'''
 
 

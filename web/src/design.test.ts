@@ -96,8 +96,10 @@ describe("tables stay usable", () => {
     expect(rule(".scroll:focus-visible")).toMatch(/outline/);
   });
 
-  it("holds headings still only in a table with a height of its own", () => {
-    expect(css).toMatch(/\.no-sticky thead th \{ position: static/);
+  it("holds a long table's headings still inside its own window, and lets them travel on a phone", () => {
+    // The headings hold still only where the table has a window of its own, which the phone block takes away.
+    expect(css).toMatch(/\.scroll-sticky thead th \{ position: sticky/);
+    expect(css).not.toMatch(/\.no-sticky/);
   });
 });
 

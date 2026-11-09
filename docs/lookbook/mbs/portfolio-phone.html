@@ -288,9 +288,6 @@ input {
 .scroll > table > thead > tr > :first-child { padding-left: 9px; }
 .scroll > table > tbody > tr > :first-child { padding-left: 9px; }
 .scroll:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
-/* Only a table given a height can hold its headings still; one that scrolls inside a page
-   along with everything else must let them travel, or they float over other rows. */
-.no-sticky thead th { position: static; box-shadow: none; }
 table { width: 100%; border-collapse: collapse; }
 caption { text-align: left; caption-side: bottom; padding-top: 10px; }
 /* Every table is a ruled page: a banded column heading, a rule under each row, figures set in tabular mono. */
@@ -1359,6 +1356,8 @@ th[aria-sort="ascending"] .sort-head, th[aria-sort="descending"] .sort-head { co
   .band-cell:nth-child(3) { border-left: 0; }
   .band-cell:nth-child(n + 3) { border-top: 1px solid var(--border); }
   .band-value { font-size: 15px; }
+  /* A band cell on a phone is half a screen wide, so its note runs on to a second line rather than losing its tail. */
+  .band-note { white-space: normal; }
   /* On a phone the identity line runs four deep before the first figure: drop the bank and close up. */
   .desk-who { gap: 4px 8px; font-size: 12px; }
   .desk-who-bank { display: none; }
@@ -1391,14 +1390,14 @@ th[aria-sort="ascending"] .sort-head, th[aria-sort="descending"] .sort-head { co
       </div>
 
       <section class="band band-4" aria-label="What you own">
-        <div class="band-cell"><div class="band-label">Everything you own</div><div class="band-value">₦9.81m</div><div class="band-note"><span class="mono change-up">▲ 0.6%</span> since the last Closing Bell</div></div>
-        <div class="band-cell"><div class="band-label">Shares</div><div class="band-value">₦6.42m</div><div class="band-note">at today’s prices</div></div>
-        <div class="band-cell"><div class="band-label">Cash you can use now</div><div class="band-value">₦2.10m</div><div class="band-note">plus ₦180,400 held for your buy orders</div></div>
-        <div class="band-cell"><div class="band-label">Dividends received</div><div class="band-value">₦1.29m</div><div class="band-note">cash paid to you by the companies you own</div></div>
+        <div class="band-cell"><div class="band-label">Everything you own</div><div class="band-value">₦9,812,345</div><div class="band-note"><span class="mono change-up">▲ ₦58,700</span> since the last Closing Bell</div></div>
+        <div class="band-cell"><div class="band-label">Shares</div><div class="band-value">₦6,420,880</div><div class="band-note">at today’s prices</div></div>
+        <div class="band-cell"><div class="band-label">Cash you can use now</div><div class="band-value">₦2,104,300</div><div class="band-note">plus ₦180,400 held for your buy orders</div></div>
+        <div class="band-cell"><div class="band-label">Dividends received</div><div class="band-value">₦1,287,165</div><div class="band-note">cash paid to you by the companies you own</div></div>
       </section>
 
       <section class="panel">
-        <div class="panel-head"><h2>Your shares</h2><span class="muted small">Share of your shares shown beside each</span></div>
+        <div class="panel-head"><h2>Your shares</h2><span class="muted small">Share of your shares shown beside each company</span></div>
         <div class="scroll scroll-sticky" tabindex="0">
           <table class="dense tape-table">
             <thead><tr><th scope="col" class="sr-only">Code</th><th scope="col">Company</th><th scope="col" class="num">Shares</th>
@@ -1409,6 +1408,7 @@ th[aria-sort="ascending"] .sort-head, th[aria-sort="descending"] .sort-head { co
           </table>
         </div>
         <p class="muted small">“They cost you” is what you paid for the shares you still hold, fees included. When you sell some, the average cost of those shares comes off. Inside the market’s trading hours, a figure can change before you finish reading it.</p>
+        <p class="muted small">On shares sold: <span class="mono change-up">▲ ₦243,000</span>. This is money already made or lost, so it is not in the gain or loss on what you still hold.</p>
       </section>
     </main>
     <aside class="rail" aria-label="Context"></aside>

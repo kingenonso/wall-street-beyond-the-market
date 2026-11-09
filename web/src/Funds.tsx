@@ -125,7 +125,7 @@ function Mine({ data, busy, run, onOpen }: { data: FundsPage; busy: boolean; run
   if (!lines.length && !waiting.length) return <p className="muted small">You hold no funds yet. Open a fund below to put money in.</p>;
   return (
     <>
-      <div className="why-title">YOUR FUNDS</div>
+      <div className="why-title">Your funds</div>
       {lines.map((l) => (
         <div key={`${l.whose}-${l.id}`} className="row">
           <span><button className="link-button strong" onClick={() => onOpen(l.id)}>{l.name}</button>{l.whose === "empire" && <span className="muted small"> · your empire's</span>}
@@ -186,7 +186,7 @@ function FundSheetView({ id, onBack, onLoggedOut, onChanged }: { id: number; onB
         <button className="button-quiet" disabled={busy} onClick={() => run(`/${f.id}/follow`, { on: !f.following })}>{f.following ? "✓ Following: stop" : "Follow this fund (its news pops up)"}</button>
         {error && <p className="error" role="alert">{error}</p>}
         {done && <p className="small tag-good" role="status">{done}</p>}
-        {f.orders.length > 0 && <div className="why-title">YOUR ORDERS</div>}
+        {f.orders.length > 0 && <div className="why-title">Your orders</div>}
         {f.orders.map((o) => (
           <div key={o.id} className="row small"><span>{o.side === "in" ? `${formatNaira(o.amount)} in` : `${units(o.units)} units out`} · {o.status}{o.words ? ` · ${o.words}` : ""}</span>
             <span className="mono">{o.side === "out" && o.status !== "waiting" ? formatNaira(o.paid) : o.side === "in" && o.status === "dealt" ? `${units(o.units_done)} units` : ""}</span></div>
@@ -218,7 +218,7 @@ function FundSheetView({ id, onBack, onLoggedOut, onChanged }: { id: number; onB
       </Panel>
       <Panel title="The rules it keeps">
         <ul className="plain-list small">{f.rules.map((r) => <li key={r}>{r}</li>)}</ul>
-        {f.recent.length > 0 && <div className="why-title">LATELY</div>}
+        {f.recent.length > 0 && <div className="why-title">Lately</div>}
         {f.recent.map((r, i) => <div key={i} className="small"><span className="strong">{r.headline}</span> <span className="muted">· {day(r.at)}</span></div>)}
       </Panel>
     </>
@@ -295,11 +295,11 @@ function ManagerDesk({ fund, funds, onLoggedOut, onChanged, reload }: { fund: Fu
           <button className="button-quiet" disabled={busy} onClick={() => run(`/manage/shares/${o.id}/cancel`)}>Cancel</button></div>
       ))}
       {fund.strategy !== "bonds" && (<>
-        <div className="why-title">SHARES</div>
+        <div className="why-title">Shares</div>
         <ShareOrderForm whose="The fund" busy={busy} held={fund.lines} fairDealing onLoggedOut={onLoggedOut} onPlace={(o) => run("/manage/shares", o)} />
       </>)}
       {fund.strategy !== "shares" && fund.strategy !== "banks" && (<>
-        <div className="why-title">BONDS AND BILLS</div>
+        <div className="why-title">Bonds and bills</div>
         <BondOrderForm whose="The fund" busy={busy} held={fund.bond_lines} onLoggedOut={onLoggedOut} onPlace={(o) => run("/manage/bonds", o)} />
       </>)}
       <div className="why-title">Running the fund</div>
@@ -320,7 +320,7 @@ function ManagerDesk({ fund, funds, onLoggedOut, onChanged, reload }: { fund: Fu
         </form>
       )}
       <div className="definition shadow">
-        <div className="why-title">THE SHADOW SIDE</div>
+        <div className="why-title">The shadow side</div>
         <p className="small">
           You may sign for a cost that is not real, and the money comes to you. In the fund's books it reads "Custody and dealing
           costs". The regulator audits every fund's books each quarter. If it is proved, you repay it with a fine of half as much

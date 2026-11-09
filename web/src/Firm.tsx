@@ -899,26 +899,26 @@ function Seats({ roster, seats }: { roster: Any[]; seats?: Any[] }) {
 
 function needsYou(f: Any): { tag: string; title: string; tab: Tab }[] {
   const out: { tag: string; title: string; tab: Tab }[] = [];
-  for (const h of f.work.events) for (const d of h.desks) if (d.yours) out.push({ tag: "EVENT", title: `${h.title}: answer for the ${d.name}`, tab: "work" });
+  for (const h of f.work.events) for (const d of h.desks) if (d.yours) out.push({ tag: "Event", title: `${h.title}: answer for the ${d.name}`, tab: "work" });
   for (const r of f.approvals.to_decide) out.push({ tag: "Request", title: r.title, tab: "requests" });
-  for (const p of f.papers.papers) if (p.yours_to_read) out.push({ tag: "PAPER", title: `Read: ${p.title}`, tab: "requests" });
-  for (const v of f.resolutions.votes) if (v.status === "open" && v.your_vote === null && !v.about_you) out.push({ tag: "VOTE", title: v.title, tab: "requests" });
-  for (const o of f.people.approaches) out.push({ tag: "OFFER", title: `${o.from} wants you`, tab: "people" });
-  for (const o of f.people.to_match) out.push({ tag: "MATCH", title: `${o.from} has approached ${o.member}`, tab: "people" });
+  for (const p of f.papers.papers) if (p.yours_to_read) out.push({ tag: "Paper", title: `Read: ${p.title}`, tab: "requests" });
+  for (const v of f.resolutions.votes) if (v.status === "open" && v.your_vote === null && !v.about_you) out.push({ tag: "Vote", title: v.title, tab: "requests" });
+  for (const o of f.people.approaches) out.push({ tag: "Offer", title: `${o.from} wants you`, tab: "people" });
+  for (const o of f.people.to_match) out.push({ tag: "Match", title: `${o.from} has approached ${o.member}`, tab: "people" });
   for (const c of f.people.contracts) if (c.yours && c.status === "offered") out.push({ tag: "Contract", title: "A contract is waiting for your signature", tab: "people" });
-  for (const d of f.duties.desks) for (const duty of d.duties) if (duty.yours) out.push({ tag: "DUTY", title: duty.title, tab: "desks" });
+  for (const d of f.duties.desks) for (const duty of d.duties) if (duty.yours) out.push({ tag: "Duty", title: duty.title, tab: "desks" });
   for (const s of f.deals?.sales ?? []) {
-    if (s.file?.can_sign_nda) out.push({ tag: "DEAL", title: `Sign the confidentiality agreement: ${s.company}`, tab: "deals" });
-    for (const step of s.file?.steps ?? []) if (step.yours) out.push({ tag: "CHECK", title: `${step.title}: ${s.company}`, tab: "deals" });
+    if (s.file?.can_sign_nda) out.push({ tag: "Deal", title: `Sign the confidentiality agreement: ${s.company}`, tab: "deals" });
+    for (const step of s.file?.steps ?? []) if (step.yours) out.push({ tag: "Check", title: `${step.title}: ${s.company}`, tab: "deals" });
   }
   for (const i of f.deals?.invitations ?? []) if (i.status === "invited") out.push({ tag: "Partner", title: `${i.from} asks you to co-invest in ${i.company}`, tab: "deals" });
-  for (const r of f.owned?.rescues_waiting ?? []) out.push({ tag: "RESCUE", title: `A rescue plan for ${r.company}`, tab: "companies" });
-  for (const c of f.owned?.companies ?? []) if (c.loan?.broken?.length) out.push({ tag: "LOAN", title: `${c.name}: a promise to the bank is broken`, tab: "companies" });
-  for (const j of f.practice?.mine?.jobs ?? []) if (j.status === "open") out.push({ tag: "CLIENT", title: `${f.practice.mine.name}: ${j.company ?? "a job"} is waiting`, tab: "firms" });
-  for (const o of f.practice?.loan_offers ?? []) out.push({ tag: "LOAN", title: `${o.bank} offers the empire a loan`, tab: "firms" });
-  for (const b of f.dealmaking?.blocks ?? []) if (b.status === "offered" && !b.selling && f.is_head) out.push({ tag: "BLOCK", title: `${b.seller} offers a block of ${b.company} shares`, tab: "takeovers" });
+  for (const r of f.owned?.rescues_waiting ?? []) out.push({ tag: "Rescue", title: `A rescue plan for ${r.company}`, tab: "companies" });
+  for (const c of f.owned?.companies ?? []) if (c.loan?.broken?.length) out.push({ tag: "Loan", title: `${c.name}: a promise to the bank is broken`, tab: "companies" });
+  for (const j of f.practice?.mine?.jobs ?? []) if (j.status === "open") out.push({ tag: "Client", title: `${f.practice.mine.name}: ${j.company ?? "a job"} is waiting`, tab: "firms" });
+  for (const o of f.practice?.loan_offers ?? []) out.push({ tag: "Loan", title: `${o.bank} offers the empire a loan`, tab: "firms" });
+  for (const b of f.dealmaking?.blocks ?? []) if (b.status === "offered" && !b.selling && f.is_head) out.push({ tag: "Block", title: `${b.seller} offers a block of ${b.company} shares`, tab: "takeovers" });
   for (const o of f.dealmaking?.offers ?? []) if (o.can_defend && !o.defence) out.push({ tag: "Defence", title: `${o.bidder} is bidding for ${o.target}: write the board's defence`, tab: "takeovers" });
-  for (const c of f.dealmaking?.combinations ?? []) if (c.joining_us && c.status === "voting" && f.is_head) out.push({ tag: "MERGER", title: `${c.with} has voted to merge with your empire`, tab: "takeovers" });
+  for (const c of f.dealmaking?.combinations ?? []) if (c.joining_us && c.status === "voting" && f.is_head) out.push({ tag: "Merger", title: `${c.with} has voted to merge with your empire`, tab: "takeovers" });
   return out;
 }
 

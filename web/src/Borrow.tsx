@@ -153,10 +153,12 @@ function ShortsTab({ b, act, forEmpire = false, book, initialTicker }: { b: Borr
         </div>
         <div className="band-cell">
           <div className="band-label">Gain if bought back now</div>
-          <div className={`band-value${book.shorts.length === 0 ? " muted" : gain < 0n ? " change-down" : " change-up"}`}>
-            {book.shorts.length === 0 ? "—" : `${gain < 0n ? "▼" : "▲"} ${formatCompact(gain.toString().replace("-", ""))}`}
+          <div className={`band-value${book.shorts.length === 0 || gain === 0n ? " muted" : gain < 0n ? " change-down" : " change-up"}`}>
+            {book.shorts.length === 0 ? "—" : `${gain < 0n ? "▼ " : gain > 0n ? "▲ " : ""}${formatCompact(gain.toString().replace("-", ""))}`}
           </div>
-          <div className="band-note">{book.shorts.length === 0 ? "nothing to buy back yet" : "on paper, until you give the shares back"}</div>
+          <div className="band-note">
+            {book.shorts.length === 0 ? "nothing to buy back yet" : gain === 0n ? "the price has not moved since they were borrowed" : "on paper, until you give the shares back"}
+          </div>
         </div>
       </section>
       <Panel title="Sell short: borrow shares to sell" aside={`fee ${formatPercent(book.rates.short_fee_bps)} a year`}>
@@ -175,7 +177,7 @@ function ShortsTab({ b, act, forEmpire = false, book, initialTicker }: { b: Borr
               <div className="row small"><span><strong>{s.ticker}</strong> · {s.shares.toLocaleString("en-NG")} shares borrowed at {formatNaira(s.opened_price)}</span>
                 <span className={`tag tag-${s.margin_call || s.recalled ? "missed" : "open"}`}>{s.recalled ? "▲ recalled" : s.margin_call ? "▲ margin call" : "open"}</span></div>
               <div className="row small"><span>Price now</span><span className="mono">{formatNaira(s.price)}</span></div>
-              <div className="row small"><span>Gain if bought back now</span><span className={`mono ${BigInt(s.gain) >= 0n ? "change-up" : "change-down"}`}>{BigInt(s.gain) >= 0n ? "▲" : "▼"} {formatNaira(s.gain.replace("-", ""))}</span></div>
+              <div className="row small"><span>Gain if bought back now</span><span className={`mono ${BigInt(s.gain) > 0n ? "change-up" : BigInt(s.gain) < 0n ? "change-down" : "muted"}`}>{BigInt(s.gain) > 0n ? "▲ " : BigInt(s.gain) < 0n ? "▼ " : ""}{formatNaira(s.gain.replace("-", ""))}</span></div>
               <div className="row small"><span>Collateral held</span><span className="mono">{formatNaira(s.collateral)} · {pct(s.cover_bps)} of their value</span></div>
               <div className="inline-form">
                 <button className="button-outline" disabled={act.busy} onClick={() => act.run(`/shorts/${s.id}/close`, { for_empire: forEmpire }, "Given back, and the collateral returned.")}>Give the shares back</button>
@@ -189,7 +191,7 @@ function ShortsTab({ b, act, forEmpire = false, book, initialTicker }: { b: Borr
       )}
       <Panel title="What can be borrowed" aside="short interest: lent out as a share of all shares (never who)">
         <div className="scroll scroll-sticky" tabIndex={0}>
-          <table className="dense tape-table no-sticky">
+          <table className="dense tape-table">
             <thead><tr><th scope="col">Share</th><th scope="col">Company</th><th scope="col" className="num">Price</th><th scope="col" className="num">Can be borrowed</th><th scope="col" className="num">Short interest</th></tr></thead>
             <tbody>
               {b.lendable.map((l) => (

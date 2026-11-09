@@ -224,7 +224,7 @@ export function RiskManagerWork({ player, onLoggedOut }: Props) {
 
       <Panel title="Risk by category">
         <div className="two-columns">
-          <div><div className="why-title">BY KIND</div><Wheel slices={d.categories} total={d.total_kobo} /></div>
+          <div><div className="why-title">By kind</div><Wheel slices={d.categories} total={d.total_kobo} /></div>
           <div>
             <div className="why-title">Shares by industry</div>
             {d.sectors.length === 0 && <p className="muted small">No shares are held.</p>}

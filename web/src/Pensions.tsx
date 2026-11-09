@@ -28,15 +28,15 @@ function Managing({ fund, busy, run, onLoggedOut }: { fund: ManagedFund; busy: b
         <div key={order.id} className="row"><span>{order.side === "buy" ? "Buying" : "Selling"} {order.remaining.toLocaleString("en-NG")} {order.ticker} <span className="muted small">· waiting</span></span>
           <button className="button-quiet" disabled={busy} onClick={() => run("DELETE", `/pension-fund/orders/${order.id}`)}>Cancel</button></div>
       ))}
-      <div className="why-title">INVEST THE SAVERS' MONEY</div>
-      <div className="why-title">SHARES</div>
+      <div className="why-title">Invest the savers' money</div>
+      <div className="why-title">Shares</div>
       <ShareOrderForm whose="The fund" busy={busy} held={fund.holdings} fairDealing onLoggedOut={onLoggedOut}
                       onPlace={(order) => run("POST", "/pension-fund/orders", { ...order, kind: "limit" })} />
-      <div className="why-title">BONDS AND BILLS</div>
+      <div className="why-title">Bonds and bills</div>
       <BondOrderForm whose="The fund" busy={busy} held={fund.bond_holdings} onLoggedOut={onLoggedOut}
                      onPlace={(order) => run("POST", "/pension-fund/bonds", order)} />
       <div className="definition shadow">
-        <div className="why-title">THE SHADOW SIDE</div>
+        <div className="why-title">The shadow side</div>
         <p className="small">
           You may sign for a cost that is not real, and the money comes to you. In the fund's books it reads "Custody and
           dealing costs". The regulator audits every fund each quarter, and any saver may hire the AI audit in an audit season.
@@ -45,7 +45,7 @@ function Managing({ fund, busy, run, onLoggedOut }: { fund: ManagedFund; busy: b
         <AmountForm label={`Sign for a cost (limit ${formatNaira(fund.signing_limit_kobo)} a quarter, ${formatNaira(fund.signing_used_kobo)} used)`}
                     button="Sign for it" busy={busy} onSubmit={(kobo) => run("POST", "/pension-fund/costs", { amount_kobo: kobo })} />
       </div>
-      {fund.books.length > 0 && <div className="why-title">THE FUND'S BOOKS</div>}
+      {fund.books.length > 0 && <div className="why-title">The fund's books</div>}
       {fund.books.slice(0, 8).map((entry) => <div key={entry.id} className="row"><span>{entry.period_label} · {entry.category}</span><span className="mono">{formatNaira(entry.amount_kobo)}{entry.found && <span className="change-down small"> ✕ proved false</span>}</span></div>)}
       {fund.fee_bps > 0 && <button className="button-quiet" disabled={busy} onClick={() => run("PUT", "/pension-fund/fee", { fee_bps: Math.max(fund.fee_bps - 5, 0) })}>Lower the fee by 0.05%</button>}
     </Panel>

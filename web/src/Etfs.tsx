@@ -71,7 +71,7 @@ export function EtfsWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void; 
           the gap, and earn the difference. Each quarter's changes to an index are announced three closing bells ahead.
         </p>
         {data.mine.length > 0 && <>
-          <div className="why-title">YOUR ETFS</div>
+          <div className="why-title">Your ETFs</div>
           {data.mine.map((m) => (
             <div key={m.code} className="row">
               <span><button className="link-button strong" onClick={() => setOpen({ kind: "etf", code: m.code })}>{m.code}</button> <span className="muted small">{m.name} · {units(m.held)} units</span></span>
@@ -166,7 +166,7 @@ function IndexView({ code, onBack, onLoggedOut }: { code: string; onBack: () => 
           <NumberTile label="Members" value={i.members} />
         </div>
         <AreaChart label={`${i.name}, at each closing bell`} format={(v) => level(v)} points={i.history.map((h) => ({ label: day(h.session_date), value: Number(h.level) }))} />
-        <div className="why-title">THE RULES</div>
+        <div className="why-title">The rules</div>
         <p className="small">{i.rules}</p>
       </Panel>
       <Panel title="Who is in it" aside="share of the index at today's prices">
@@ -202,7 +202,7 @@ function EtfView({ code, onBack, onLoggedOut, onChanged }: { code: string; onBac
       <Panel title={`${e.code} · ${e.name}`} aside={e.computer ? "Broad Street Asset Management" : `managed by ${e.manager}`}>
         <p className="small">{e.kind_words}: <span className="strong">{e.tracks}</span>{e.method === "sample" ? ", by holding its largest members" : ""}.</p>
         {e.words && <p className="small muted">“{e.words}”</p>}
-        {e.warning && <div className="definition shadow" role="note"><div className="why-title">READ THIS FIRST</div><p className="small">{e.warning}</p></div>}
+        {e.warning && <div className="definition shadow" role="note"><div className="why-title">Read this first</div><p className="small">{e.warning}</p></div>}
         <div className="tiles">
           <NumberTile label="Price" value={naira(e.price)} change={e.day_bps} note="the last trade (or the last bell)" />
           <NumberTile label="Value now (iNAV)" value={naira(e.nav)} note="what its holdings are worth, per unit" />

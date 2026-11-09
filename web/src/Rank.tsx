@@ -44,7 +44,7 @@ function TrackPanel({ track, busy, onBegin, hours, retryDays }: { track: RankTra
       <Requirements track={track} />
       {!track.ceo?.case_passed && (
         <>
-          <div className="why-title">THE CASE</div>
+          <div className="why-title">The case</div>
           <p className="small">{track.what}. It has {track.parts.length} parts ({track.parts.join(", ").toLowerCase()}), all made from the world as it stands at the moment you begin, so no two cases are alike.</p>
           <div className="row"><span className="muted">Fee, paid when you begin</span><span className="mono">{track.fee_kobo ? formatNaira(track.fee_kobo) : "—"}</span></div>
           <div className="row"><span className="muted">To pass</span><span>{track.pass_mark} marks in the hundred, across the result and the working</span></div>
@@ -97,7 +97,7 @@ function CaseInHand({ rankCase, busy, onHandIn, onError }: {
               ))}
             </>
           )}
-          <div className="why-title">YOUR WORK</div>
+          <div className="why-title">Your work</div>
           <div className="answers">
             {part.terms.fields.map((field) => (
               <AnswerField key={field.key} field={field} value={typed[part.template]?.[field.key]}
@@ -134,7 +134,7 @@ function PastCase({ rankCase }: { rankCase: RankCase }) {
               <h3>{part.title} <span className="muted small">· {part.module} · {part.score} of 100</span></h3>
               <p className="small">{part.summary}</p>
               <ProgressTracker steps={part.milestones.map((m) => ({ label: m.label, done: m.earned, note: `${m.points} points` }))} />
-              {part.debrief.plain && <><div className="why-title">IN PLAIN WORDS</div><p>{part.debrief.plain}</p></>}
+              {part.debrief.plain && <><div className="why-title">In plain words</div><p>{part.debrief.plain}</p></>}
               {part.debrief.method && <><div className="why-title">The professional method</div><p>{part.debrief.method}</p></>}
               {part.debrief.maths && <><div className="why-title">The arithmetic</div><p className="mono small">{part.debrief.maths}</p></>}
             </div>

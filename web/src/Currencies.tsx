@@ -150,7 +150,7 @@ function Rates({ d }: { d: FxPage }) {
           <li>Under one quarter of imports it lets the naira <span className="strong">float</span>: the official rate follows the street. Back over three quarters, it manages it again.</li>
           <li>When reserves run low the Government borrows dollars abroad with a Eurobond.</li>
         </ul>
-        <div className="scroll"><table className="dense small">
+        <div className="scroll" tabIndex={0}><table className="dense small">
           <thead><tr><th scope="col">Quarter</th><th scope="col">Official</th><th scope="col">Market</th><th scope="col">Reserves</th><th scope="col">What happened</th></tr></thead>
           <tbody>
             {d.quarters.slice(-8).reverse().map((q) => (
@@ -168,7 +168,7 @@ function Rates({ d }: { d: FxPage }) {
 function Balances({ d, wallet }: { d: FxPage; wallet: FxWallet }) {
   return (
     <Panel title="Money in other currencies" aside={`worth ${naira(wallet.worth)} at the street's buying price`}>
-      <div className="scroll"><table className="dense">
+      <div className="scroll" tabIndex={0}><table className="dense">
         <thead><tr><th scope="col">Currency</th><th scope="col" className="num">Held</th><th scope="col" className="num">Street buys at</th><th scope="col" className="num">Street sells at</th></tr></thead>
         <tbody>
           {d.quotes.map((q) => (
@@ -185,7 +185,7 @@ function Balances({ d, wallet }: { d: FxPage; wallet: FxWallet }) {
       {wallet.trades.length > 0 && (
         <details>
           <summary className="small">Recent deals</summary>
-          <div className="scroll"><table className="dense small">
+          <div className="scroll" tabIndex={0}><table className="dense small">
             <thead><tr><th scope="col">When</th><th scope="col">Where</th><th scope="col">Deal</th><th scope="col" className="num">Rate</th><th scope="col" className="num">Naira</th></tr></thead>
             <tbody>{wallet.trades.map((t, i) => (
               <tr key={i}><td>{day(t.at)}</td><td>{t.venue === "bdc" ? "bureau" : t.venue}</td>
@@ -248,7 +248,7 @@ function Window({ d, wallet, run, busy, forEmpire, said }: Part & { wallet: FxWa
       </div>
       {said}
       {wallet.requests.length > 0 && (
-        <div className="scroll"><table className="dense small">
+        <div className="scroll" tabIndex={0}><table className="dense small">
           <thead><tr><th scope="col">Asked</th><th scope="col" className="num">Dollars</th><th scope="col" className="num">Filled</th><th scope="col">Status</th><th scope="col"><span className="sr-only">Action</span></th></tr></thead>
           <tbody>{wallet.requests.map((r) => (
             <tr key={r.id}><td>{day(r.placed_at)}</td><td className="num mono">{cash(r.amount)}</td><td className="num mono">{cash(r.filled)}</td><td>{r.status}</td>
@@ -270,7 +270,7 @@ function Bureaux({ d, run, busy, forEmpire, said }: Part) {
   const ok = chosen !== null && Number.isFinite(cents) && cents >= 1000;
   return (
     <Panel title="Bureaux de change" aside="run by empires, at their own prices">
-      <div className="scroll"><table className="dense">
+      <div className="scroll" tabIndex={0}><table className="dense">
         <thead><tr><th scope="col">Bureau</th><th scope="col">Run by</th><th scope="col" className="num">Buys a dollar at</th><th scope="col" className="num">Sells a dollar at</th><th scope="col"><span className="sr-only">Choose</span></th></tr></thead>
         <tbody>{d.bdcs.map((b) => (
           <tr key={b.id}><th scope="row">{b.name}</th><td>{b.empire}</td><td className="num mono">{naira(b.buy)}</td><td className="num mono">{naira(b.sell)}</td>
@@ -294,7 +294,7 @@ function Eurobonds({ d, run, busy, forEmpire, said }: Part) {
   return (
     <Panel title="Eurobonds" aside="dollar bonds of the Government and the largest companies">
       <p className="small">Bought and sold with dollars. Interest is paid in dollars every quarter, and the face ($1,000 a bond) when it is due. Prices fall when lenders see more risk in Nigeria.</p>
-      <div className="scroll"><table className="dense">
+      <div className="scroll" tabIndex={0}><table className="dense">
         <thead><tr><th scope="col">Bond</th><th scope="col" className="num">Interest</th><th scope="col" className="num">Yield</th><th scope="col" className="num">Buy at</th><th scope="col" className="num">Sell at</th><th scope="col" className="num">Yours</th><th scope="col">Bonds</th></tr></thead>
         <tbody>{d.eurobonds.map((b) => {
           const n = Number(units[b.id] ?? "");
@@ -324,7 +324,7 @@ function Remitters({ d }: { d: FxPage }) {
   return (
     <Panel title="Money sent home" aside="carried by money-transfer companies">
       <p className="small">Nigerians abroad send dollars home every day, more at Easter and Christmas, and more when the street pays more naira. Families choose the cheapest and fastest companies.</p>
-      <div className="scroll"><table className="dense">
+      <div className="scroll" tabIndex={0}><table className="dense">
         <thead><tr><th scope="col">Company</th><th scope="col" className="num">Fee</th><th scope="col" className="num">Days to arrive</th><th scope="col" className="num">Share of the last day</th></tr></thead>
         <tbody>{d.remitters.map((r) => (
           <tr key={r.id}><th scope="row">{r.name}{r.computer ? "" : " (an empire's)"}</th><td className="num mono">{pct(r.fee_bps)}</td>
@@ -389,7 +389,7 @@ function EmpireBusinesses({ d, run, busy, said }: { d: FxPage; run: Run; busy: b
             <button className="button-quiet" disabled={busy} onClick={() => run("/fx/remitter/close")}>Close it</button>
           </div>
           {d.my_remitter.days_record.length > 0 && (
-            <div className="scroll"><table className="dense small"><thead><tr><th scope="col">Day</th><th scope="col" className="num">Carried</th><th scope="col" className="num">Fees</th><th scope="col" className="num">Cost of speed</th></tr></thead>
+            <div className="scroll" tabIndex={0}><table className="dense small"><thead><tr><th scope="col">Day</th><th scope="col" className="num">Carried</th><th scope="col" className="num">Fees</th><th scope="col" className="num">Cost of speed</th></tr></thead>
               <tbody>{d.my_remitter.days_record.map((r) => <tr key={r.session_date}><td>{day(r.session_date)}</td><td className="num mono">{cash(r.dollars)}</td><td className="num mono">{naira(r.fee)}</td><td className="num mono">{naira(r.cost)}</td></tr>)}</tbody>
             </table>
             </div>

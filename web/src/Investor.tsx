@@ -99,7 +99,7 @@ function Verdict({ a }: { a: Analysis }) {
         {mark && <span className="small muted"> · {mark}</span>}
       </p>
       <ul className="reasons">{a.reasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul>
-      <div className="why-title">WHAT COULD GO WRONG</div>
+      <div className="why-title">What could go wrong</div>
       <ul className="reasons">{a.risks.map((risk, i) => <li key={i}>{risk}</li>)}</ul>
       <p className="small muted">
         This note is worked out from public figures: the company's filed accounts, its credit rating, the Central Bank's
@@ -134,7 +134,7 @@ export function InvestorPanel({ ticker, onLoggedOut }: { ticker: string; onLogge
 
       {history.length >= 2 && (
         <>
-          <div className="why-title">SHARE PRICE, DAY BY DAY</div>
+          <div className="why-title">Share price, day by day</div>
           <SingleLine name="Closing price" format={(value) => `₦${value.toFixed(2)}`}
                       data={history.map((d) => ({ label: shortDate(d.session_date), value: Number(d.close_kobo) / 100 }))} />
         </>

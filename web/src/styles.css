@@ -287,9 +287,6 @@ input {
 .scroll > table > thead > tr > :first-child { padding-left: 9px; }
 .scroll > table > tbody > tr > :first-child { padding-left: 9px; }
 .scroll:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
-/* Only a table given a height can hold its headings still; one that scrolls inside a page
-   along with everything else must let them travel, or they float over other rows. */
-.no-sticky thead th { position: static; box-shadow: none; }
 table { width: 100%; border-collapse: collapse; }
 caption { text-align: left; caption-side: bottom; padding-top: 10px; }
 /* Every table is a ruled page: a banded column heading, a rule under each row, figures set in tabular mono. */
@@ -1358,6 +1355,8 @@ th[aria-sort="ascending"] .sort-head, th[aria-sort="descending"] .sort-head { co
   .band-cell:nth-child(3) { border-left: 0; }
   .band-cell:nth-child(n + 3) { border-top: 1px solid var(--border); }
   .band-value { font-size: 15px; }
+  /* A band cell on a phone is half a screen wide, so its note runs on to a second line rather than losing its tail. */
+  .band-note { white-space: normal; }
   /* On a phone the identity line runs four deep before the first figure: drop the bank and close up. */
   .desk-who { gap: 4px 8px; font-size: 12px; }
   .desk-who-bank { display: none; }

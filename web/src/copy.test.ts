@@ -30,6 +30,11 @@ const ALLOWED = new Set([
   "EBITDA", "UTC", "POST", "PUT", "DELETE", "GET", "P/E", "CEO", "CFO", "COO", "ETF", "ETFs", "PIN", "ID", "SWIFT",
   // Abbreviations an officer of the firm would write that way in a sentence.
   "US", "AI", "PDF", "NPV",
+  // The contracts the derivatives desk writes on. They are codes the server sends and the desk matches by name; what
+  // the player sees is the plan-English label in Derivatives.tsx ("BSX Banks", "Naira ($)"), never the code.
+  "TOP30", "BANKS", "OILGAS", "OIL", "NAIRA", "FARM", "METALS",
+  // The game's own name, set in capitals in the masthead and nowhere else.
+  "WALL STREET", "BEYOND THE MARKET",
 ]);
 
 /** Letters, digits and the underscore: after one of these a quote is prose ("company's"), not a string. */
@@ -311,9 +316,15 @@ function strings(source: string): { value: string; line: number }[] {
   return found;
 }
 
-/** True when a string is nothing but capitals, codes, digits and punctuation — "GGM", "AA, AA, A", "BSX 50". */
+/**
+ * True when a string is a code and not a word a screen says: a share code with a digit in it ("BSX50", "Q1"), or a run of
+ * at most three capitals ("GGM", "AA, AA, A", "BSX 50"). The length matters. A first version of this let any word of six
+ * capitals through, which is the shape of nearly every shouted label — "RANK", "NEXT", "SHARES" all passed, and the guard
+ * was blind to the very thing it exists to catch. Three letters is the longest that is reliably a code and not a word.
+ */
 function isBareCode(value: string): boolean {
-  return value.trim().split(/\s+/).every((word) => /^[A-Z0-9][A-Z0-9&\-/.,:'’()]*$/.test(word) && word.replace(/[^A-Z]/g, "").length <= 6);
+  return value.trim().split(/\s+/).every((word) => /^[A-Z0-9][A-Z0-9&\-/.,:'’()]*$/.test(word)
+    && (/\d/.test(word) || word.replace(/[^A-Z]/g, "").length <= 3));
 }
 
 /** A literal that is only a colour — "#8B7CF6" — is code, not a label. */
@@ -327,24 +338,43 @@ function onlyAllowedCapitals(value: string): boolean {
   return runs.every((word) => ALLOWED.has(word));
 }
 
+/** True when this is a word a screen shows in capitals, and therefore a fault. */
+function shouted(value: string): boolean {
+  const trimmed = value.trim();
+  // Code a template carries but the screen never shows: a locale ("en-NG"), a field name, a route ("market-offers").
+  if (/^(?:[a-z]{2}-[A-Z]{2}|[a-z0-9]+(?:-[a-z0-9]+)+)$/.test(trimmed)) return false;
+  if (trimmed.length < 4 || ALLOWED.has(trimmed) || isBareCode(trimmed) || isColour(trimmed)) return false;
+  return trimmed.split(/[^A-Za-z]+/).some((w) => w.length > 1 && w === w.toUpperCase()) && !onlyAllowedCapitals(trimmed);
+}
+
 describe("the words every screen says", () => {
   for (const file of files) {
     it(`${file} says nothing in capitals`, () => {
-      const shouted = strings(readFileSync(new URL(file, here), "utf8"))
-        .filter(({ value }) => {
-          const trimmed = value.trim();
-          // Code a template carries but the screen never shows: a locale, a field name, a route.
-          if (/^(?:en-NG|[a-z0-9]+(?:-[a-z0-9]+)+)$/.test(trimmed)) return false;
-          if (trimmed.length < 4 || ALLOWED.has(trimmed) || isBareCode(trimmed) || isColour(trimmed)) return false;
-          return trimmed.split(/[^A-Za-z]+/).some((w) => w.length > 1 && w === w.toUpperCase()) && !onlyAllowedCapitals(trimmed);
-        })
+      const found = strings(readFileSync(new URL(file, here), "utf8"))
+        .filter(({ value }) => shouted(value))
         .map(({ value, line }) => `line ${line}: ${value.trim().replace(/\s+/g, " ").slice(0, 80)}`);
-      expect(shouted).toEqual([]);
+      expect(found).toEqual([]);
     });
   }
 
   it("reads every screen, not only some", () => {
     expect(files.length).toBeGreaterThan(30);
+  });
+
+  // A guard that cannot be caught being blind stays blind. This one waved through every word of up to six capitals —
+  // the shape of almost every shouted heading — and so missed them all for a whole sitting. These two tests feed it.
+  it("would catch a shout if a screen still wrote one", () => {
+    for (const label of ["RANK", "NEXT", "SHARES", "CAREER", "FORCED SALE", "THE SHADOW SIDE", "YOUR ETFS", "● BREAKING",
+                         "READ THIS FIRST", "BONDS AND BILLS", "WHAT COULD GO WRONG", "Now the market SHUTS"]) {
+      expect(shouted(label), label).toBe(true);
+    }
+  });
+
+  it("leaves codes, market figures and the game's own name alone", () => {
+    for (const code of ["GGM", "BSX 50", "BSX50", "AA, AA, A", "MATERIALS", "EBITDA", "WALL STREET", "en-GB", "#8B7CF6",
+                        "₦12,345,678", "+2.4%", "Q1", "IDC"]) {
+      expect(shouted(code), code).toBe(false);
+    }
   });
 
   it("reads the words out of the code, not the code as words", () => {
