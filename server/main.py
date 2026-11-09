@@ -1852,3 +1852,4 @@ from server import fund_routes  # noqa: E402,F401
 from server import etf_routes  # noqa: E402,F401
 from server import fx_routes  # noqa: E402,F401
 from server import world_routes  # noqa: E402,F401
+from server import court_routes  # noqa: E402,F401

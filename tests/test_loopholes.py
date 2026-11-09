@@ -121,7 +121,10 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     money-transfer company; window dollars cannot be resold for two quarters, and every naira and dollar moves only through
     the ledger. Part 4b added foreign markets (test_world*.py): a player deals in shares listed abroad with their own dollars,
     pounds or euros (or the head, Investment Banker or Asset Manager with the empire's, within their limit), and the head buys
-    part of a leaving parent's stake; shares and money move only through the ledger."""
+    part of a leaving parent's stake; shares and money move only through the ledger. Stage 11 added the courts (test_courts*.py):
+    a player brings a case and posts a bond, and a defendant settles or fights it; the court finds the number itself from the
+    record, so a player cannot name one, and every naira it moves — a bond, a settlement, a judgment paid down — moves only
+    through the ledger."""
     from server.main import app
 
     writes = sorted(
@@ -182,6 +185,8 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/combinations/join"),
         ("POST", "/api/combinations/merger"),
         ("POST", "/api/combinations/spinoff"),
+        ("POST", "/api/court/cases"),
+        ("POST", "/api/court/cases/{case_id}/answer"),
         ("POST", "/api/deals/files/{file_id}/bid"),
         ("POST", "/api/deals/files/{file_id}/nda"),
         ("POST", "/api/deals/files/{file_id}/partners"),

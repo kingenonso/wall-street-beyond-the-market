@@ -1721,3 +1721,25 @@ WORLD_PARENT_LEAVE_CHANCE_BPS = 1_500   # ...and in each quarter with a reason t
 WORLD_PARENT_SALE_QUARTERS = 2          # it sells for two quarters; what is left goes to the pension funds
 WORLD_PARENT_ASKING_BPS = 0             # empires may buy pieces of its stake at the market price (never below: that would be free money)
 WORLD_PARENT_FINAL_BPS = 2_000          # the pension funds take the rest at 20% below
+
+# ---------------------------------------------------------------------------
+# Stage 11: the courts, as a docket
+# ---------------------------------------------------------------------------
+COURT_REGULATOR_START_NAIRA = 250_000_000   # the Government's first budget for the market regulator
+COURT_CASE_COST_NAIRA = 5_000_000           # what it costs the regulator to prove one case (paid to the Treasury)
+COURT_MIN_CLAIM_NAIRA = 100_000             # a claim worth less than this is not worth a case
+COURT_BOND_BPS = 1_000                      # a player bringing a case posts a tenth of the claim...
+COURT_BOND_FLOOR_NAIRA = 1_000_000          # ...but never less than ₦1 million
+COURT_SETTLE_BPS = 6_000                    # settling costs six tenths of the claim, paid at once
+COURT_FINE_BPS = {"insider": 10_000, "manipulation": 1_000, "undisclosed_stake": 5_000, "naked_short": 5_000}
+COURT_COSTS_BPS = 500                       # the loser pays a twentieth of the claim as the winner's costs
+COURT_BAN_QUARTERS = {"manipulation": 4, "naked_short": 4}   # a judgment that bans trading, and for how long
+COURT_ENFORCE_BPS = {"insider": 2_500, "manipulation": 2_000, "undisclosed_stake": 3_000, "naked_short": 2_500}
+COURT_FINE_TO_REGULATOR_BPS = 5_000         # half of every fine funds the regulator; the rest goes to the Treasury
+COURT_PAYMENT_BPS = 2_500                   # a judgment is paid down a quarter at a time, as much as the defendant has
+COURT_REPUTATION = 5                        # a judgment costs the defendant five points of reputation
+COURT_WINDOW_QUARTERS = 8                   # a wrong is looked at for two years after it is recorded
+COURT_WASH_TRADES = 3                       # this many trades with itself in a quarter is a pattern
+COURT_RAMP_BUYS = 3                         # this many buys before sales into the rise is a ramp
+COURT_STAKE_STEP_BPS = 500                  # every 5% step in a listed company must be made public
+COURT_SHORT_PREMIUM_BPS = 500               # a forced buy-in costs 5% above the close (the same as the buy-in itself)

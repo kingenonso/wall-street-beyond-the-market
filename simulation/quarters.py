@@ -288,6 +288,10 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     # The crises stage: a bank whose losses ate its owners' funds is closed; the Government's promise is lifted once trust
     # is back; a bank a year in public hands goes on sale again; the Crisis Watch takes its reading.
     crisis.at_close(conn, period, now)
+    # Stage 11: the court's quarter. The regulator brings what it will, cases left unanswered are judged, and what is
+    # owed is paid down.
+    from simulation import courts
+    courts.at_close(conn, period, now)
     news.for_events(conn, events.generate(conn, period + 1, fortune_seed))
     # Private companies after the close: wear, morale, secrets, rivals' prices, failures, sales and start-ups.
     private.after_close(conn, period, results, measured["wage_index_bps"], fortune_seed, now)

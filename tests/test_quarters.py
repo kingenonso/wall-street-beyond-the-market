@@ -123,6 +123,9 @@ class TestStageTwo:
         market |= {"title_revenue", "title_sale", "auction_hold", "auction_release"}
         # The crises stage: households moving savings into or out of a bank, as trust in it moves (only when it does).
         market |= {"deposit_placed", "deposit_withdrawn"}
+        # Stage 11: the court's budget, the cost of proving a case, a bond posted and returned, a settlement, and a
+        # judgment paid down a quarter at a time.
+        market |= {"court_budget", "court_cost", "court_bond", "court_bond_return", "court_settlement", "court_payment"}
         assert kinds - market == {
             "opening_balance", "share_issue", "customer_revenue", "business_purchase", "cost_of_sales", "wages",
             "debt_interest", "company_tax", "debt_repayment", "capital_spending", "dividend",

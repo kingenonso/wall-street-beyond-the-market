@@ -382,6 +382,8 @@ def place_order(conn: Connection, *, account: UUID | str, ticker: str, side: str
                 newsroom,  # Stage 10: no trading around one's own story
             )
             newsroom.check_trade(conn, account, share["company_id"], now)
+            from simulation import courts  # Stage 11: a trading ban is a court order
+            courts.check_trade(conn, account, now)
         _bring_up_to_date(conn, share, now, accounts)
         _, state = session_of(now)
         low, high = price_limits(share["reference_price"])
