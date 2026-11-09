@@ -182,8 +182,8 @@ function CompanyHeader({ company, onLoggedOut }: { company: Company; onLoggedOut
     <div className="company-head">
       <nav aria-label="Breadcrumb" className="small muted"><a href="#/companies">Companies</a> › {company.sector} › {company.name}</nav>
       <div className="company-title">
-        <h1>{company.name}</h1>
-        <span className="ticker mono">{company.ticker}</span>
+        {/* The code comes first, as it does on a terminal: it is what a player says when they mean this company. */}
+        <h1><span className="company-code">{company.ticker}</span> — {company.name}</h1>
         <Rating value={latest.credit_rating} />
         <span className="muted small">{company.sector} · head office in {company.headquarters}</span>
       </div>

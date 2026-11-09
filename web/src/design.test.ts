@@ -44,22 +44,38 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-describe("sentence case everywhere", () => {
-  it("never shouts a label in capitals", () => {
-    expect(css).not.toMatch(/text-transform:\s*uppercase/);
+describe("the terminal's lettering", () => {
+  /**
+   * The one way this design shouts. A terminal sets a panel's name and a table's headings in capitals; the
+   * words themselves stay in sentence case, which is copy.test.ts's job. So capitals are allowed to come from
+   * the stylesheet — but only on the handful of rules that are labels, so the allowance cannot spread.
+   */
+  const MAY_SHOUT = /^(\.panel-head h2|\.panel-head h3|thead th|\.group-label|\.why-title|\.tape-table thead th)$/;
+
+  it("shouts only on a label, and never on anything else", () => {
+    const shouting = [...css.matchAll(/\n([^\n{}]+)\{[^}]*text-transform:\s*uppercase[^}]*\}/g)]
+      .flatMap((found) => found[1].split(",").map((selector) => selector.trim()));
+    expect(shouting.length, "nothing shouts: the panel bars and table headings have lost their capitals").toBeGreaterThan(0);
+    for (const selector of shouting) expect(selector, `a rule that is not a label shouts: ${selector}`).toMatch(MAY_SHOUT);
   });
 });
 
-describe("the sheet is ruled, not boxed", () => {
-  it("gives a panel no box and no fill", () => {
+describe("the terminal is boxed", () => {
+  it("gives every panel a box, a ground and a bar across its top", () => {
     const panel = rule(".panel");
-    expect(panel).toMatch(/border:\s*0/);
-    expect(panel).toMatch(/background:\s*transparent/);
+    expect(panel).toMatch(/border:\s*1px solid var\(--border\)/);
+    expect(panel).toMatch(/background:\s*var\(--panel\)/);
+    expect(panel).toMatch(/border-radius:\s*3px/);
+    // The bar is what makes a panel look like a panel here, so it must be there and must bleed to the edges.
+    expect(rule(".panel-head")).toMatch(/background:\s*var\(--head\)/);
+    expect(rule(".panel-head")).toMatch(/margin:\s*-10px -12px/);
+    expect(panel).toMatch(/padding:\s*10px 12px/);
   });
 
-  it("marks a panel that must stand out in the margin, not with a box round it", () => {
-    expect(rule(".panel-urgent")).toMatch(/box-shadow:\s*inset/);
-    expect(rule(".panel-warn")).toMatch(/box-shadow:\s*inset/);
+  it("marks a panel that must stand out with a coloured edge, not by unboxing it", () => {
+    expect(rule(".panel-urgent")).toMatch(/border-left:\s*3px solid/);
+    expect(rule(".panel-warn")).toMatch(/border-left:\s*3px solid/);
+    expect(rule(".panel-yours")).toMatch(/border-left:\s*3px solid/);
   });
 });
 
