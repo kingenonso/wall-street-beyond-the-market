@@ -11,8 +11,8 @@ import { StatementTable } from "./Company";
 import { formatCompact, formatMillions, formatNaira, formatPercent } from "./format";
 import { useLoad } from "./hooks";
 import { WatchlistPanel } from "./Market";
-import { LevelPanel, NumberTile, ObjectivesPanel, PayPanel, SkillTree, StateTag, Wheel, progressWords } from "./Parts";
-import { Change, Failed, Loading, Panel, Rating } from "./Shell";
+import { LevelPanel, ObjectivesPanel, PayPanel, SkillTree, StateTag, Wheel, progressWords } from "./Parts";
+import { Band, BandCell, Change, Failed, Loading, PageHead, Panel, Rating } from "./Shell";
 import { TradePanel } from "./Trade";
 import { LineChart, naira } from "./TrendChart";
 
@@ -130,16 +130,21 @@ export function AssetManagerWork({ player, onLoggedOut, onChanged }: Props) {
 
   return (
     <>
+      <PageHead title="Asset manager"
+                sub="What you are looking after, how it is divided, and the console to trade it"
+                aside={`${d.companies_held} companies · ${d.industries_held} industries`} />
+
+      <Band label="What you are looking after">
+        <BandCell label="Total value" value={formatCompact(d.total_kobo)} note={<><Change bps={d.change_today_bps} /> against yesterday's close</>} />
+        <BandCell label="Over the last game year" value={d.change_year_bps === null ? "n/a" : formatPercent(d.change_year_bps)}
+                  note={d.index_change_year_bps === null ? "needs a few Closing Bells" : `BSX 50: ${formatPercent(d.index_change_year_bps)}`} />
+        <BandCell label="Against the BSX 50" value={ahead === null ? "n/a" : <Change bps={ahead} />} note="includes money paid in" />
+        <BandCell label="Largest single share" value={formatPercent(d.largest_bps)} note="of everything you own" />
+      </Band>
+
       <NeedsYouNow cards={urgent(board.data, career.data, player)} />
 
-      <Panel title="Portfolio" aside="Everything you own, at today's prices">
-        <div className="tiles">
-          <NumberTile label="Total value" value={formatCompact(d.total_kobo)} change={d.change_today_bps} note="against yesterday's close" />
-          <NumberTile label="Over the last game year" value={d.change_year_bps === null ? "n/a" : formatPercent(d.change_year_bps)}
-                      note={d.index_change_year_bps === null ? "needs a few Closing Bells" : `BSX 50: ${formatPercent(d.index_change_year_bps)}`} />
-          <NumberTile label="Against the BSX 50" value={ahead === null ? "n/a" : <Change bps={ahead} />} note="includes money paid in" />
-          <NumberTile label="Largest single share" value={formatPercent(d.largest_bps)} note={`${d.companies_held} companies · ${d.industries_held} industries`} />
-        </div>
+      <Panel title="How your money is divided">
         <div className="two-columns">
           <div>
             <div className="why-title">Allocation</div>
@@ -275,23 +280,30 @@ export function AccountantWork({ player, onLoggedOut }: Props) {
 
   return (
     <>
+      <PageHead title="Accountant"
+                sub="The statements a company files, what they say quarter by quarter, and what waits on an audit"
+                aside={d.is_employer ? "Your employer" : d.sector} />
+
+      {latest && (
+        <Band label={`${d.name}, as it filed`}>
+          <BandCell label={`Sales, ${latest.period_label}`} value={formatCompact(latest.income_statement.revenue)}
+                    note={<><Change bps={change("revenue")} /> on the quarter before</>} />
+          <BandCell label="Profit after tax" value={formatCompact(latest.income_statement.net_profit)}
+                    note={<><Change bps={change("net_profit")} /> on the quarter before</>} />
+          <BandCell label="Cash" value={formatCompact(latest.balance_sheet.cash)} note={`${latest.staff?.toLocaleString("en-NG") ?? "?"} staff`} />
+          <BandCell label="Credit rating" value={<Rating value={latest.credit_rating} />} note={<a href={`#/companies/${d.ticker}`}>Company page</a>} />
+        </Band>
+      )}
+
       <NeedsYouNow cards={urgent(board.data, career.data, player)} />
 
-      <Panel title="The books" aside={d.is_employer ? "Your employer" : d.sector}>
+      <Panel title="The books">
         <label className="answer">
           <span className="field-label">Company</span>
           <select value={d.ticker} onChange={(event) => setTicker(event.target.value)}>
             {d.companies.map((c) => <option key={c.ticker} value={c.ticker}>{c.name} ({c.ticker}) · {c.sector}</option>)}
           </select>
         </label>
-        {latest && (
-          <div className="tiles">
-            <NumberTile label={`Sales, ${latest.period_label}`} value={formatCompact(latest.income_statement.revenue)} change={change("revenue")} note="on the quarter before" />
-            <NumberTile label="Profit after tax" value={formatCompact(latest.income_statement.net_profit)} change={change("net_profit")} note="on the quarter before" />
-            <NumberTile label="Cash" value={formatCompact(latest.balance_sheet.cash)} note={`${latest.staff?.toLocaleString("en-NG") ?? "?"} staff`} />
-            <NumberTile label="Credit rating" value={<Rating value={latest.credit_rating} />} note={<a href={`#/companies/${d.ticker}`}>Company page</a>} />
-          </div>
-        )}
         <div className="tabs tabs-inline" role="tablist">
           {([["income", "Income statement"], ["balance", "Balance sheet"], ["cash", "Cash flow"]] as const).map(([key, label]) => (
             <button key={key} role="tab" aria-selected={statement === key} className={statement === key ? "tab active" : "tab"} onClick={() => setStatement(key)}>{label}</button>

@@ -81,6 +81,13 @@ describe("a rule is drawn once and on the right side", () => {
     const fold = css.slice(wide, narrow);
     expect(fold).toMatch(/\.band-4 \{ grid-template-columns: repeat\(2,/);
   });
+
+  it("takes the rule off every figure that starts a row when a band folds into twos on a phone", () => {
+    // A band of six wraps three times, so the reset belongs on the odd figures. Resetting only the third left a
+    // stray rule down the left of the fifth, which is the figure that starts the third row.
+    const fold = css.slice(css.lastIndexOf("@media (max-width: 700px)"));
+    expect(fold).toMatch(/\.band-cell:nth-child\(odd\) \{ border-left: 0/);
+  });
 });
 
 describe("tables stay usable", () => {

@@ -17,7 +17,7 @@ import { useLoad } from "./hooks";
 import { WatchlistPanel } from "./Market";
 import { Story } from "./News";
 import { NumberTile, ProgressTracker, StateTag, Wheel } from "./Parts";
-import { Change, Failed, Loading, Panel, Rating } from "./Shell";
+import { Band, BandCell, Change, Failed, Loading, PageHead, Panel, Rating } from "./Shell";
 import { SingleLine } from "./TrendChart";
 
 type Props = { player: Player; onLoggedOut: () => void; onChanged: () => void };
@@ -75,6 +75,17 @@ export function InvestmentBankerWork({ player, onLoggedOut }: Props) {
   const price = Number(BigInt(d.price_kobo));
   return (
     <>
+      <PageHead title="Investment banker"
+                sub="What a company is worth on the numbers, every deal open in the market, and the file behind each"
+                aside={d.is_employer ? "Your employer" : d.headquarters} />
+
+      <Band label={`${d.name}, priced`}>
+        <BandCell label="Share price" value={formatNaira(d.price_kobo)} note={<><Change bps={d.change_bps} /> today</>} />
+        <BandCell label="Value of all its shares" value={formatCompact(d.market_value_kobo)} note={`${d.shares_in_issue.toLocaleString("en-NG")} shares`} />
+        <BandCell label={`Profit, ${d.period_label}`} value={formatCompact(d.net_profit_kobo)} note={`on sales of ${formatCompact(d.revenue_kobo)}`} />
+        <BandCell label="Credit rating" value={<Rating value={d.rating} />} note={<a href={`#/companies/${d.ticker}`}>Company page</a>} />
+      </Band>
+
       <NeedsYouNow cards={urgent(board.data, career.data, player)} />
       <Panel title="Deal pipeline" aside="Every deal open in the market, by stage">
         {d.pipeline.length === 0 && <p className="muted small">No takeover, share sale or vote is open at the moment. Deals are proposed as quarters close.</p>}
@@ -89,14 +100,8 @@ export function InvestmentBankerWork({ player, onLoggedOut }: Props) {
         ))}
       </Panel>
 
-      <Panel title="Company analysis" aside={d.is_employer ? "Your employer" : `${d.sector} · ${d.headquarters}`}>
+      <Panel title="Company analysis" aside={d.sector}>
         <CompanyPicker value={d.ticker} companies={d.companies} onChange={setTicker} />
-        <div className="tiles">
-          <NumberTile label="Share price" value={formatNaira(d.price_kobo)} change={d.change_bps} note="today" />
-          <NumberTile label="Value of all its shares" value={formatCompact(d.market_value_kobo)} note={`${d.shares_in_issue.toLocaleString("en-NG")} shares`} />
-          <NumberTile label={`Profit, ${d.period_label}`} value={formatCompact(d.net_profit_kobo)} note={`on sales of ${formatCompact(d.revenue_kobo)}`} />
-          <NumberTile label="Credit rating" value={<Rating value={d.rating} />} note={<a href={`#/companies/${d.ticker}`}>Company page</a>} />
-        </div>
         <div className="scroll" tabIndex={0}>
           <table>
             <thead><tr><th scope="col">Valuation multiple</th><th scope="col" className="num">{d.ticker}</th><th scope="col" className="num">Companies like it (middle)</th><th scope="col" className="num">Price that would imply</th></tr></thead>
@@ -197,20 +202,27 @@ export function RiskManagerWork({ player, onLoggedOut }: Props) {
   const worstLoss = d.scenarios.reduce((most, s) => (BigInt(s.loss_kobo) > most ? BigInt(s.loss_kobo) : most), 0n);
   return (
     <>
-      <NeedsYouNow cards={urgent(board.data, career.data, player)} />
-      <Panel title="Risk exposure" aside={d.book_name}>
-        {d.in_empire && (
-          <div className="tabs tabs-inline" role="tablist">
-            <button role="tab" aria-selected={d.book === "empire"} className={d.book === "empire" ? "tab active" : "tab"} onClick={() => setBook("auto")}>The empire's book</button>
-            <button role="tab" aria-selected={d.book === "own"} className={d.book === "own" ? "tab active" : "tab"} onClick={() => setBook("own")}>Your own</button>
-          </div>
-        )}
-        <div className="tiles">
-          <NumberTile label="Total exposure" value={formatCompact(d.at_risk_kobo)} note={`of ${formatCompact(d.total_kobo)} in all: shares and company bonds`} />
-          <NumberTile label="Value-at-risk, one day" value={lost(d.var_kobo)} note={d.var_bps === null ? `needs 10 Closing Bells (${d.days_of_history} so far)` : `${formatPercent(d.var_bps, 2)} of the shares`} />
-          <NumberTile label="Expected shortfall" value={lost(d.shortfall_kobo)} note={d.shortfall_bps === null ? "needs 10 Closing Bells" : "the average of the worst days"} />
-          <NumberTile label="Largest fall on record" value={lost(d.worst_kobo)} note={d.worst_bps === null ? "needs 10 Closing Bells" : `a day of ${formatPercent(d.worst_bps, 2)}`} />
+      <PageHead title="Risk manager"
+                sub="What the book could lose on a bad day, and the trades that would punch through its limits"
+                aside={d.book_name} />
+
+      {d.in_empire && (
+        <div className="tabs tabs-inline" role="tablist">
+          <button role="tab" aria-selected={d.book === "empire"} className={d.book === "empire" ? "tab active" : "tab"} onClick={() => setBook("auto")}>The empire's book</button>
+          <button role="tab" aria-selected={d.book === "own"} className={d.book === "own" ? "tab active" : "tab"} onClick={() => setBook("own")}>Your own</button>
         </div>
+      )}
+
+      <Band label="What the book could lose">
+        <BandCell label="Total exposure" value={formatCompact(d.at_risk_kobo)} note={`of ${formatCompact(d.total_kobo)} in all: shares and company bonds`} />
+        <BandCell label="Value-at-risk, one day" value={lost(d.var_kobo)} note={d.var_bps === null ? `needs 10 Closing Bells (${d.days_of_history} so far)` : `${formatPercent(d.var_bps, 2)} of the shares`} />
+        <BandCell label="Expected shortfall" value={lost(d.shortfall_kobo)} note={d.shortfall_bps === null ? "needs 10 Closing Bells" : "the average of the worst days"} />
+        <BandCell label="Largest fall on record" value={lost(d.worst_kobo)} note={d.worst_bps === null ? "needs 10 Closing Bells" : `a day of ${formatPercent(d.worst_bps, 2)}`} />
+      </Band>
+
+      <NeedsYouNow cards={urgent(board.data, career.data, player)} />
+
+      <Panel title="Risk exposure">
         <details className="why">
           <summary>Why these figures?</summary>
           <p className="small">
@@ -309,6 +321,20 @@ export function LawyerWork({ player, onLoggedOut }: Props) {
   const room = empire.data?.room ?? null;
   return (
     <>
+      <PageHead title="Legal counsel"
+                sub="A company's parties and the order they are paid in, and the companies the rules are closing in on"
+                aside={d.headquarters} />
+
+      <Band label={`${d.name}, as it stands`}>
+        <BandCell label="Owed in all" value={formatCompact(d.total_owed_kobo)} note="staff and the tax office first, owners last" />
+        <BandCell label="Credit rating" value={<Rating value={d.rating} />}
+                  note={d.overdue ? "debt past its date: its lenders may act" : "nothing it owes is past its date"} />
+        <BandCell label="Takeover offer" value={d.bid ? formatNaira(d.bid.price_kobo) : "None open"}
+                  note={d.bid ? `${d.bid.hostile ? "hostile, " : ""}closes with ${d.bid.closes_label}` : "no bid in the market today"} />
+        <BandCell label="Under watch" value={d.watch.length === 0 ? "No company" : String(d.watch.length)}
+                  note="in default, behind on debt, or under offer" />
+      </Band>
+
       <NeedsYouNow cards={urgent(board.data, career.data, player)} />
       <Panel title="Active legal matters" aside={<a href="#/work">All your work</a>}>
         <Matters objectives={mine} empty="No matters in hand." />
@@ -327,7 +353,7 @@ export function LawyerWork({ player, onLoggedOut }: Props) {
         {room?.cases.map((item) => <div key={item.id} className="row"><span>{item.who} <span className="muted small">· {item.category}</span></span><span className="mono">{formatNaira(item.amount_kobo)} · {item.status}</span></div>)}
       </Panel>
 
-      <Panel title="Case workspace" aside={`${d.sector} · ${d.headquarters}`}>
+      <Panel title="Case workspace" aside={d.sector}>
         <CompanyPicker value={d.ticker} companies={d.companies} onChange={setTicker} />
         <div className="why-title">Parties: who controls it</div>
         <p className="small">{d.control}</p>
@@ -419,6 +445,22 @@ export function JournalistWork({ player, onLoggedOut, onChanged }: Props) {
   }
   return (
     <>
+      <PageHead title="Financial journalist"
+                sub={<>The wire, the investigations open to you, and the economy the stories are written against. <a href="#/economy">Macro research</a></>}
+                aside={economy.data?.period_label ?? undefined} />
+
+      <Band label="The economy you report on">
+        <BandCell label="Growth, on the quarter" value={growth === null ? "n/a" : <Change bps={growth} />} note="companies' sales" />
+        <BandCell label="Inflation, over the year" value={prices ? formatPercent(prices.inflation_bps) : "n/a"}
+                  note={prices ? `target ${formatPercent(prices.inflation_target_bps)}` : undefined} />
+        <BandCell label="Jobs, on the quarter" value={jobs === null ? "n/a" : <Change bps={jobs} />}
+                  note={last ? `${last.jobs.toLocaleString("en-NG")} in work` : undefined} />
+        <BandCell label="The Central Bank's rate" value={prices ? formatPercent(prices.policy_rate_bps, 2) : "n/a"}
+                  note={prices ? <Change bps={prices.policy_rate_bps - prices.previous_rate_bps} /> : undefined} />
+        <BandCell label="Confidence" value={prices ? (prices.confidence_bps / 100).toFixed(0) : "n/a"} note="100 is normal" />
+        <BandCell label="Biggest move today" value={movers[0] ? <Change bps={movers[0].change_bps} /> : "n/a"} note={movers[0]?.name} />
+      </Band>
+
       <NeedsYouNow cards={urgent(board.data, career.data, player)} />
       <Panel title="Newsroom: top stories" aside={<a href="#/news">The whole wire</a>}>
         {stories.length === 0 && <p className="muted small">The wire is quiet.</p>}
@@ -446,18 +488,6 @@ export function JournalistWork({ player, onLoggedOut, onChanged }: Props) {
           <div key={index} className="row"><span>{pact.one} and {pact.other}</span><span className={pact.legal ? "muted small" : "small change-down"}>{pact.kind}{pact.legal ? "" : " · unlawful"}</span></div>
         ))}
         <p className="muted small">Sources with a status of their own arrive with the stage that brings election and court reporting.</p>
-      </Panel>
-
-      <Panel title="Economic indicators" aside={economy.data?.period_label ?? undefined}>
-        <div className="tiles">
-          <NumberTile label="Growth: companies' sales, on the quarter" value={growth === null ? "n/a" : <Change bps={growth} />} />
-          <NumberTile label="Inflation, over the year" value={prices ? formatPercent(prices.inflation_bps) : "n/a"} note={prices ? `target ${formatPercent(prices.inflation_target_bps)}` : undefined} />
-          <NumberTile label="Jobs, on the quarter" value={jobs === null ? "n/a" : <Change bps={jobs} />} note={last ? `${last.jobs.toLocaleString("en-NG")} in work` : undefined} />
-          <NumberTile label="The Central Bank's rate" value={prices ? formatPercent(prices.policy_rate_bps, 2) : "n/a"} note={prices ? <Change bps={prices.policy_rate_bps - prices.previous_rate_bps} /> : undefined} />
-          <NumberTile label="Confidence" value={prices ? (prices.confidence_bps / 100).toFixed(0) : "n/a"} note="100 is normal" />
-          <NumberTile label="Housing index" value="n/a" note="arrives with property" />
-        </div>
-        <p className="small"><a href="#/economy">Macro research: the economy and the Central Bank's rule</a></p>
       </Panel>
 
       <Panel title="Market intelligence" aside="Today's largest moves">

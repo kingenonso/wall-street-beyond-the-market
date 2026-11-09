@@ -473,6 +473,35 @@ export function Panel({ title, aside, children, className = "" }: {
   );
 }
 
+/** The head every screen opens with: its name, one line saying what the page is for, and a figure or a label set right. */
+export function PageHead({ title, sub, aside }: { title: string; sub?: ReactNode; aside?: ReactNode }) {
+  return (
+    <div className="work-head">
+      <div>
+        <h1>{title}</h1>
+        {sub && <div className="work-sub">{sub}</div>}
+      </div>
+      {aside && <span className="muted small">{aside}</span>}
+    </div>
+  );
+}
+
+/** The band of figures a page opens with, under its head. Four cells unless the page has more to say. */
+export function Band({ label, children, columns }: { label: string; children: ReactNode; columns?: 4 | 6 }) {
+  return <section className={`band${columns === 6 ? "" : " band-4"}`} aria-label={label}>{children}</section>;
+}
+
+/** One figure of a band: what it is, the figure itself, and a line under it saying what it means. */
+export function BandCell({ label, value, note }: { label: ReactNode; value: ReactNode; note?: ReactNode }) {
+  return (
+    <div className="band-cell">
+      <div className="band-label">{label}</div>
+      <div className="band-value">{value}</div>
+      {note && <div className="band-note">{note}</div>}
+    </div>
+  );
+}
+
 export function Loading({ what }: { what: string }) {
   return <p className="muted">Loading {what}…</p>;
 }
