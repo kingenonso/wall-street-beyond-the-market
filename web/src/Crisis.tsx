@@ -267,7 +267,7 @@ export function BankAlerts({ onLoggedOut }: { onLoggedOut: () => void }) {
   return (
     <div className="bank-alert-region">
       <div className={`bank-alert${a.yours ? " bank-alert-yours" : ""}`} role="alertdialog" aria-labelledby={`bank-alert-${a.id}`}>
-        <div className="bank-alert-tag">● BREAKING · {KIND_WORDS[a.kind] ?? "The banks"}</div>
+        <div className="bank-alert-tag">● Breaking · {KIND_WORDS[a.kind] ?? "The banks"}</div>
         <div className="bank-alert-headline" id={`bank-alert-${a.id}`}>{a.headline}</div>
         <p className="small">{a.body}</p>
         {a.yours && <p className="small strong">You keep savings at {a.company}{a.yours === "empire" ? " (your empire does)" : ""}. Only the first ₦5 million at each bank is guaranteed.</p>}

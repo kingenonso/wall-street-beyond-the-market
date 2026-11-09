@@ -273,7 +273,17 @@ export function RiskWork({ onLoggedOut }: { onLoggedOut: () => void }) {
   const rows = [...data.shares].sort((a, b) => sort === "ticker" ? a.ticker.localeCompare(b.ticker)
     : sort === "vol" ? (b.volatility_bps ?? 0) - (a.volatility_bps ?? 0) : sort === "beta" ? (b.beta ?? 0) - (a.beta ?? 0) : b.short_interest_bps - a.short_interest_bps);
   return (
-    <Panel title="Every share's risk" aside={`from its last 60 trading days · a game year is ${data.year_sessions} trading days`}>
+    <>
+    <div className="work-head">
+      <div>
+        <h1>Risk</h1>
+        <div className="work-sub">
+          How far each share swings, and how much it moves with the market
+          <span className="dot-sep"> · </span>from its last 60 trading days; a game year is {data.year_sessions} trading days
+        </div>
+      </div>
+    </div>
+    <Panel title="Every share’s risk">
       <p className="small"><Term word="Volatility">Swing</Term>: how far the price moves in a year, on a typical reckoning. <Term word="Beta">Beta</Term>: how much it moves with the BSX 50 (1 = with it, above 1 more, below 1 less). Short interest: shares lent to short sellers, as a share of all shares. A share with too short a record is given the usual figures, marked "usual".</p>
       <div className="filter-row" role="group" aria-label="Sort by">
         {(["vol", "beta", "short", "ticker"] as const).map((k) => <button key={k} className={sort === k ? "chip chip-on" : "chip"} aria-pressed={sort === k} onClick={() => setSort(k)}>{k === "vol" ? "Swing" : k === "beta" ? "Beta" : k === "short" ? "Short interest" : "Code"}</button>)}
@@ -294,5 +304,6 @@ export function RiskWork({ onLoggedOut }: { onLoggedOut: () => void }) {
         </table>
       </div>
     </Panel>
+    </>
   );
 }

@@ -1125,6 +1125,11 @@ export const api = {
   charities: () => request<{ charities: Charity[] }>("/charities"),
   savings: () => request<SavingsView>("/savings"),
   crisis: () => request<CrisisPage>("/crisis"),
+  court: () => request<CourtPage>("/court"),
+  courtBring: (body: { kind: string; defendant_id: string; company_id?: string }) =>
+    request<CourtPage>("/court/cases", { method: "POST", body: JSON.stringify(body) }),
+  courtAnswer: (id: number, choice: "settle" | "fight") =>
+    request<CourtPage>(`/court/cases/${id}/answer`, { method: "POST", body: JSON.stringify({ choice }) }),
   talent: () => request<TalentPage>("/talent"),
   talentPost: (path: string, body: unknown = {}) => request<TalentPage & { dealt?: { price: Kobo; fee: Kobo; cash: Kobo } }>(path, { method: "POST", body: JSON.stringify(body) }),
   sharedRecord: (slug: string) => request<TalentView>(`/talent/shared/${encodeURIComponent(slug)}`),
@@ -1509,4 +1514,36 @@ export type WorldCompany = WorldListed & {
 };
 export type WorldEconomies = {
   open: boolean; economies?: WorldEconomy[]; gbp_usd?: number; eur_usd?: number; rate_abroad?: number; rules?: string;
+};
+
+// Stage 11: the courts. Money is sent as text (kobo), so no figure is rounded on the way.
+export type CourtLine = Record<string, string | number | null>;
+export type CourtCase = {
+  id: number; kind: string; status: "open" | "settled" | "judged" | "withdrawn";
+  defendant: string; claimant: string; ticker: string | null;
+  amount: Kobo; bond: Kobo; words: string;
+  evidence: { key?: string; total?: Kobo; lines: CourtLine[] };
+  opened_period: number; opened_at: string; outcome: string | null;
+  disgorgement: Kobo; damages: Kobo; fine: Kobo; costs: Kobo; paid: Kobo; owed: Kobo;
+  ban_quarters: number; settle_price: Kobo;
+};
+export type CourtClaim = {
+  kind: string; defendant_id: string; defendant: string; company_id: string | null; ticker: string | null;
+  amount: Kobo; bond: Kobo; words: string;
+};
+export type CourtPage = {
+  ready: boolean;
+  docket: CourtCase[];
+  claims: CourtClaim[];
+  mine: {
+    defending: CourtCase[]; brought: CourtCase[];
+    record: { kind: string; words: string; at: string }[]; banned_until: number | null;
+  };
+  regulator: { budget: Kobo; cost: Kobo; brought: number; won: number; settled: number; fines: Kobo };
+  fund: Kobo;
+  kinds: { kind: string; name: string; who: string }[];
+  rules: {
+    bond_bps: number; bond_floor: Kobo; settle_bps: number; costs_bps: number; min_claim: Kobo; case_cost: Kobo;
+    fines: Record<string, number>; bans: Record<string, number>; reputation: number;
+  };
 };

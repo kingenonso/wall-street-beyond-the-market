@@ -24,12 +24,12 @@ export function urgent(board: ObjectiveBoard | null, career: Career | null, play
   const cards: Card[] = [];
   if (!career || !board) return cards;
   if (player?.empire && player.empire.waiting > 0) {
-    cards.push({ tag: "WAR ROOM", when: player.empire.name, title: `${player.empire.waiting} waiting for you in the War Room`,
+    cards.push({ tag: "War Room", when: player.empire.name, title: `${player.empire.waiting} waiting for you in the War Room`,
                  text: "A step in the empire's task, an approval, or a report to file. Your colleagues cannot go on until it is done.",
                  action: "Open the War Room", href: "#/empire" });
   }
   if (career.career?.review) {
-    cards.push({ tag: "PERFORMANCE REVIEW", when: `${career.career.review.passes} passed of ${career.career.review.finished}`,
+    cards.push({ tag: "Performance review", when: `${career.career.review.passes} passed of ${career.career.review.finished}`,
                  title: "Your work is under review", text: `${career.career.review.why} ${career.career.review.how_to_recover}`,
                  action: "See the work on offer", href: "#/work" });
   }
@@ -39,21 +39,21 @@ export function urgent(board: ObjectiveBoard | null, career: Career | null, play
                  action: "See what the rank case needs", href: "#/rank" });
   }
   if (board.weekend.open && board.offers.some((offer) => offer.setting === "live" && offer.available)) {
-    cards.push({ tag: "WEEKEND CHALLENGE", when: "Open now", title: "The weekend challenge is open",
+    cards.push({ tag: "Weekend challenge", when: "Open now", title: "The weekend challenge is open",
                  text: "Work passed in it makes a module proven, and pays and teaches one and a half times as much. It closes on Sunday at 22:00, Lagos time.",
                  action: "See the challenge", href: "#/work" });
   }
   for (const objective of board.active) {
     const waiting = objective.can_hand_in && objective.terms.fields.length > 0;
     cards.push({
-      tag: waiting ? "HAND IN" : "IN HAND", when: formatNaira(objective.reward_kobo),
+      tag: waiting ? "Hand in" : "In hand", when: formatNaira(objective.reward_kobo),
       title: objective.title,
       text: `${progressWords(objective) ?? ""} Deadline: ${objective.terms.deadline} ${objective.payer} is waiting for it.`,
       action: waiting ? "Do the work" : "Open it", href: "#/work",
     });
   }
   if (career.job && career.pay && !career.pay.worked_this_quarter) {
-    cards.push({ tag: "PAY DAY", when: "This quarter", title: "No work finished yet this quarter",
+    cards.push({ tag: "Pay day", when: "This quarter", title: "No work finished yet this quarter",
                  text: `${career.job.name} pays a quarter's salary only to staff who finished at least one piece of work in it.`,
                  action: board.active.length ? "Open your work" : "Take work on", href: "#/work" });
   }
@@ -61,7 +61,7 @@ export function urgent(board: ObjectiveBoard | null, career: Career | null, play
   if (board.ready && board.active.length < board.limit && free.length > 0) {
     const again = free.find((offer) => offer.practise_again);
     const offer = again ?? free[0];
-    cards.push({ tag: again ? "PRACTISE AGAIN" : "WORK ON OFFER", when: formatNaira(offer.reward_kobo), title: offer.title,
+    cards.push({ tag: again ? "Practise again" : "Work on offer", when: formatNaira(offer.reward_kobo), title: offer.title,
                  text: `${offer.idea} ${free.length} piece${free.length === 1 ? "" : "s"} of work on offer.`,
                  action: "See the work on offer", href: "#/work" });
   }
@@ -142,11 +142,11 @@ export function AssetManagerWork({ player, onLoggedOut, onChanged }: Props) {
         </div>
         <div className="two-columns">
           <div>
-            <div className="why-title">ALLOCATION</div>
+            <div className="why-title">Allocation</div>
             <Wheel slices={d.allocation} total={d.total_kobo} />
           </div>
           <div>
-            <div className="why-title">TOP INDUSTRIES IN YOUR SHARES</div>
+            <div className="why-title">Top industries in your shares</div>
             {d.sectors.length === 0 && <p className="muted small">You hold no shares yet.</p>}
             {d.sectors.slice(0, 6).map((sector) => (
               <div key={sector.label} className="bar-row">

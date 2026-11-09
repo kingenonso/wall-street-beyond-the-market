@@ -91,7 +91,7 @@ function CaseInHand({ rankCase, busy, onHandIn, onError }: {
           <ul className="reasons">{part.terms.task.map((line) => <li key={line}>{line}</li>)}</ul>
           {part.terms.given.length > 0 && (
             <>
-              <div className="why-title">FROM THE RECORDS</div>
+              <div className="why-title">From the records</div>
               {part.terms.given.map((line) => (
                 <div key={line.label} className="row"><span>{line.label}</span><span className="mono">{line.kobo !== undefined ? `${inMillions(line.kobo)} m` : line.text}</span></div>
               ))}
@@ -135,8 +135,8 @@ function PastCase({ rankCase }: { rankCase: RankCase }) {
               <p className="small">{part.summary}</p>
               <ProgressTracker steps={part.milestones.map((m) => ({ label: m.label, done: m.earned, note: `${m.points} points` }))} />
               {part.debrief.plain && <><div className="why-title">IN PLAIN WORDS</div><p>{part.debrief.plain}</p></>}
-              {part.debrief.method && <><div className="why-title">THE PROFESSIONAL METHOD</div><p>{part.debrief.method}</p></>}
-              {part.debrief.maths && <><div className="why-title">THE ARITHMETIC</div><p className="mono small">{part.debrief.maths}</p></>}
+              {part.debrief.method && <><div className="why-title">The professional method</div><p>{part.debrief.method}</p></>}
+              {part.debrief.maths && <><div className="why-title">The arithmetic</div><p className="mono small">{part.debrief.maths}</p></>}
             </div>
           ))}
           <ReportMarking what={{ case_id: rankCase.id }} />

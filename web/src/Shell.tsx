@@ -269,6 +269,8 @@ export function sectionsFor(player: Player): Section[] {
       tabs: [{ path: "portfolio", label: "Portfolio and savings" }, { path: "borrow", label: "Borrow" }, { path: "currencies", label: "Currencies" }] },
     { path: "news", label: "News", tabs: [{ path: "news", label: "News" }, { path: "intel", label: "Intelligence" }] },
     { path: "economy", label: "Economy", tabs: [{ path: "economy", label: "The economy" }, { path: "charities", label: "Charities" }] },
+    // Stage 11: the courts, a page of their own (the owner's answer, 6 November 2026).
+    { path: "court", label: "Court" },
   ];
 }
 

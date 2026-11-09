@@ -39,7 +39,7 @@ function MoneyWatchPanel({ watch, quarter }: { watch: MoneyWatch; quarter: strin
       <p className="small">{reading.meaning}</p>
       <div className="row"><span>Money, over the past year</span><Change bps={watch.money_growth_bps} /></div>
       <div className="row"><span>The economy's sales, over the past year</span><Change bps={watch.output_growth_bps} /></div>
-      <div className="why-title">WHY THIS READING?</div>
+      <div className="why-title">Why this reading?</div>
       <ul className="reasons">{watch.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
       <p className="muted small">{watch.action}</p>
       <p className="muted small">
@@ -171,9 +171,9 @@ function AbroadPanel({ abroad }: { abroad: AbroadSummary }) {
       </div>
       <p className="small">{abroad.reason}</p>
       <div className="two-charts">
-        <SingleLine name="Oil, US dollars a barrel" format={(v) => `$${v.toFixed(0)}`}
+        <SingleLine name="Oil, in dollars a barrel" format={(v) => `$${v.toFixed(0)}`}
                     data={abroad.history.map((h) => ({ label: h.period_label, value: h.oil_cents / 100 }))} />
-        <SingleLine name="Naira to one US dollar" format={(v) => `₦${Math.round(v).toLocaleString("en-NG")}`}
+        <SingleLine name="Naira to one dollar" format={(v) => `₦${Math.round(v).toLocaleString("en-NG")}`}
                     data={abroad.history.map((h) => ({ label: h.period_label, value: h.fx / 100 }))} />
       </div>
       {abroad.trade.length > 0 && (
@@ -249,7 +249,7 @@ function ConsumersPanel({ consumers }: { consumers: ConsumersSummary }) {
           </tbody>
         </table>
       </div>
-      <div className="why-title">SPENDING BY MINDSET</div>
+      <div className="why-title">Spending by mindset</div>
       {byMind.map((m) => {
         const value = Number(BigInt(m.spending) / 100n);
         return (
@@ -262,7 +262,7 @@ function ConsumersPanel({ consumers }: { consumers: ConsumersSummary }) {
           </div>
         );
       })}
-      <div className="why-title">PEOPLE MOVING</div>
+      <div className="why-title">People moving</div>
       {consumers.moved === 0 ? (
         <p className="small muted">No groups moved last quarter. {consumers.moved_total} have moved since the world began.</p>
       ) : (

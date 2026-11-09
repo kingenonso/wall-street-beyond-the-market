@@ -59,7 +59,7 @@ function Watch({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: () => voi
 
   return (
     <form className="watch-form" onSubmit={save}>
-      <div className="why-title">{mine ? "★ ON YOUR WATCHLIST" : "KEEP AN EYE ON IT"}</div>
+      <div className="why-title">{mine ? "★ On your watchlist" : "Keep an eye on it"}</div>
       {mine && (mine.alert_above_kobo || mine.alert_below_kobo) && (
         <p className="small muted">
           You will be told when the price
@@ -93,7 +93,7 @@ function Verdict({ a }: { a: Analysis }) {
   const mark = tone === "up" ? "▼ price below worth" : tone === "down" ? "▲ price above worth" : "";
   return (
     <div className="advice">
-      <div className="why-title">ADVISORY SUMMARY</div>
+      <div className="why-title">Advisory summary</div>
       <p className="advice-head">
         <span className={`verdict verdict-${tone}`}>{a.name} {a.verdict}</span>
         {mark && <span className="small muted"> · {mark}</span>}
@@ -142,7 +142,7 @@ export function InvestorPanel({ ticker, onLoggedOut }: { ticker: string; onLogge
 
       <div className="trade-grid">
         <div>
-          <div className="why-title">WHAT ITS PROFITS ARE WORTH TODAY (NPV)</div>
+          <div className="why-title">What its profits are worth today (NPV)</div>
           <div className="row"><span>Worth, by this sum</span><span className="mono strong">{formatNaira(a.npv_per_share_kobo)} a share</span></div>
           <div className="row"><span>Price on the exchange</span><span className="mono">{formatNaira(a.price_kobo)} a share</span></div>
           <div className="row">
@@ -204,7 +204,7 @@ export function InvestorPanel({ ticker, onLoggedOut }: { ticker: string; onLogge
 
       <div className="trade-grid">
         <div>
-          <div className="why-title">SHARES IN CIRCULATION</div>
+          <div className="why-title">Shares in circulation</div>
           <div className="row"><span>Shares in issue</span><span className="mono strong">{count(a.shares_in_issue)}</span></div>
           {a.shareholders.map((holder) => (
             <div key={holder.holder} className="bar-row">

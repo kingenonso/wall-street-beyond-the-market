@@ -73,6 +73,15 @@ export function WorldWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void;
   const said = <Said error={error} done={done} />;
   return (
     <>
+      <div className="work-head">
+        <div>
+          <h1>World markets</h1>
+          <div className="work-sub">
+            Shares listed in other countries, priced in their own money
+            <span className="dot-sep"> · </span>{d.exchanges.length} exchanges
+          </div>
+        </div>
+      </div>
       <Exchanges d={d} exchange={exchange} onPick={(code) => { setExchange(code); setChosen(null); }} />
       <Listed rows={listed} chosen={chosen} onPick={setChosen} />
       {chosen && (

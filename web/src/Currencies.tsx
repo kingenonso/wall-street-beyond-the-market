@@ -8,7 +8,6 @@ import { api, ApiError, type FxAlert, type FxPage, type FxWallet } from "./api";
 import { AreaChart } from "./Charts";
 import { formatCompact } from "./format";
 import { useLoad } from "./hooks";
-import { NumberTile } from "./Parts";
 import { Failed, Loading, Panel } from "./Shell";
 import { SingleLine } from "./TrendChart";
 
@@ -72,8 +71,11 @@ export function CurrenciesWork({ onLoggedOut, onChanged }: { onLoggedOut: () => 
   return (
     <>
       <div className="work-head">
-        <h1>Currencies</h1>
-        <span className="muted small">Dollars, pounds and euros; the naira's two rates; Eurobonds</span>
+        <div>
+          <h1>Currencies</h1>
+          <div className="work-sub">Dollars, pounds and euros; the naira’s two rates; Eurobonds</div>
+        </div>
+        <span className="muted small">{d.regime === "managed" ? "the naira is managed by the Central Bank" : "the naira floats"}</span>
       </div>
       <Rates d={d} />
       {d.empire && (
@@ -102,13 +104,29 @@ export function CurrenciesWork({ onLoggedOut, onChanged }: { onLoggedOut: () => 
 function Rates({ d }: { d: FxPage }) {
   const gapWide = d.gap_bps >= 1000;
   return (
-    <Panel title="The naira" aside={d.regime === "managed" ? "managed by the Central Bank" : "floating"}>
-      <div className="tiles">
-        <NumberTile label="Official rate (a dollar)" value={naira(d.official)} note="at the Central Bank's window" />
-        <NumberTile label="Street rate (a dollar)" value={naira(d.street)} note="buy or sell at once" />
-        <NumberTile label="Gap" value={<span className={gapWide ? "change-down" : ""}>{pct(d.gap_bps)}</span>} note="the street over the official rate" />
-        <NumberTile label="Central Bank's reserves" value={bigUsd(d.reserves)} note={`${(d.cover_bps / 10000).toFixed(1)} quarters of imports`} />
-      </div>
+    <Panel title="The naira">
+      <section className="band band-4" aria-label="The naira today">
+        <div className="band-cell">
+          <div className="band-label">Official rate (a dollar)</div>
+          <div className="band-value">{naira(d.official)}</div>
+          <div className="band-note">at the Central Bank’s window</div>
+        </div>
+        <div className="band-cell">
+          <div className="band-label">Street rate (a dollar)</div>
+          <div className="band-value">{naira(d.street)}</div>
+          <div className="band-note">buy or sell at once</div>
+        </div>
+        <div className="band-cell">
+          <div className="band-label">The gap</div>
+          <div className={`band-value${gapWide ? " change-down" : ""}`}>{gapWide ? "▲ " : ""}{pct(d.gap_bps)}</div>
+          <div className="band-note">the street over the official rate</div>
+        </div>
+        <div className="band-cell">
+          <div className="band-label">Central Bank’s reserves</div>
+          <div className="band-value">{bigUsd(d.reserves)}</div>
+          <div className="band-note">{(d.cover_bps / 10000).toFixed(1)} quarters of imports</div>
+        </div>
+      </section>
       <p className="small">{d.words}{BigInt(d.backlog) > 0n ? ` Foreign investors have ${formatCompact(d.backlog)} waiting for dollars to leave.` : ""}</p>
       {d.days.length >= 2 && (
         <>
@@ -132,7 +150,7 @@ function Rates({ d }: { d: FxPage }) {
           <li>Under one quarter of imports it lets the naira <span className="strong">float</span>: the official rate follows the street. Back over three quarters, it manages it again.</li>
           <li>When reserves run low the Government borrows dollars abroad with a Eurobond.</li>
         </ul>
-        <table className="table small">
+        <div className="scroll"><table className="dense small">
           <thead><tr><th scope="col">Quarter</th><th scope="col">Official</th><th scope="col">Market</th><th scope="col">Reserves</th><th scope="col">What happened</th></tr></thead>
           <tbody>
             {d.quarters.slice(-8).reverse().map((q) => (
@@ -141,6 +159,7 @@ function Rates({ d }: { d: FxPage }) {
             ))}
           </tbody>
         </table>
+        </div>
       </details>
     </Panel>
   );
@@ -149,7 +168,7 @@ function Rates({ d }: { d: FxPage }) {
 function Balances({ d, wallet }: { d: FxPage; wallet: FxWallet }) {
   return (
     <Panel title="Money in other currencies" aside={`worth ${naira(wallet.worth)} at the street's buying price`}>
-      <table className="table">
+      <div className="scroll"><table className="dense">
         <thead><tr><th scope="col">Currency</th><th scope="col" className="num">Held</th><th scope="col" className="num">Street buys at</th><th scope="col" className="num">Street sells at</th></tr></thead>
         <tbody>
           {d.quotes.map((q) => (
@@ -161,17 +180,19 @@ function Balances({ d, wallet }: { d: FxPage; wallet: FxWallet }) {
           ))}
         </tbody>
       </table>
+      </div>
       {BigInt(wallet.kept) > 0n && <p className="small">{cash(wallet.kept)} came from the official window in the last two quarters. It can be sold back to the window, not on the street.</p>}
       {wallet.trades.length > 0 && (
         <details>
           <summary className="small">Recent deals</summary>
-          <table className="table small">
+          <div className="scroll"><table className="dense small">
             <thead><tr><th scope="col">When</th><th scope="col">Where</th><th scope="col">Deal</th><th scope="col" className="num">Rate</th><th scope="col" className="num">Naira</th></tr></thead>
             <tbody>{wallet.trades.map((t, i) => (
               <tr key={i}><td>{day(t.at)}</td><td>{t.venue === "bdc" ? "bureau" : t.venue}</td>
                 <td>{t.side === "buy" ? "bought" : "sold"} {cash(t.amount, t.currency as Cur)}</td><td className="num mono">{naira(t.rate)}</td><td className="num mono">{naira(t.naira)}</td></tr>
             ))}</tbody>
           </table>
+          </div>
         </details>
       )}
     </Panel>
@@ -227,13 +248,14 @@ function Window({ d, wallet, run, busy, forEmpire, said }: Part & { wallet: FxWa
       </div>
       {said}
       {wallet.requests.length > 0 && (
-        <table className="table small">
+        <div className="scroll"><table className="dense small">
           <thead><tr><th scope="col">Asked</th><th scope="col" className="num">Dollars</th><th scope="col" className="num">Filled</th><th scope="col">Status</th><th scope="col"><span className="sr-only">Action</span></th></tr></thead>
           <tbody>{wallet.requests.map((r) => (
             <tr key={r.id}><td>{day(r.placed_at)}</td><td className="num mono">{cash(r.amount)}</td><td className="num mono">{cash(r.filled)}</td><td>{r.status}</td>
               <td>{r.status === "waiting" && <button className="button-quiet" disabled={busy} onClick={() => run(`/fx/window/${r.id}/cancel`, { for_empire: forEmpire })}>Withdraw</button>}</td></tr>
           ))}</tbody>
         </table>
+        </div>
       )}
       {waiting.length > 0 && <p className="small muted">The window hands out a share of the reserves at each closing bell. Requests are filled oldest first.</p>}
     </Panel>
@@ -248,13 +270,14 @@ function Bureaux({ d, run, busy, forEmpire, said }: Part) {
   const ok = chosen !== null && Number.isFinite(cents) && cents >= 1000;
   return (
     <Panel title="Bureaux de change" aside="run by empires, at their own prices">
-      <table className="table">
+      <div className="scroll"><table className="dense">
         <thead><tr><th scope="col">Bureau</th><th scope="col">Run by</th><th scope="col" className="num">Buys a dollar at</th><th scope="col" className="num">Sells a dollar at</th><th scope="col"><span className="sr-only">Choose</span></th></tr></thead>
         <tbody>{d.bdcs.map((b) => (
           <tr key={b.id}><th scope="row">{b.name}</th><td>{b.empire}</td><td className="num mono">{naira(b.buy)}</td><td className="num mono">{naira(b.sell)}</td>
             <td><button className={chosen === b.id ? "button-outline" : "button-quiet"} aria-pressed={chosen === b.id} onClick={() => setChosen(b.id)}>Deal here</button></td></tr>
         ))}</tbody>
       </table>
+      </div>
       <div className="form-row"><label>Dollars ($)<input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></label></div>
       <div className="row-gap">
         <button className="button" disabled={busy || !ok} onClick={() => run(`/fx/bdcs/${chosen}/deal`, { side: "buy", amount: cents, for_empire: forEmpire })}>Buy dollars</button>
@@ -271,7 +294,7 @@ function Eurobonds({ d, run, busy, forEmpire, said }: Part) {
   return (
     <Panel title="Eurobonds" aside="dollar bonds of the Government and the largest companies">
       <p className="small">Bought and sold with dollars. Interest is paid in dollars every quarter, and the face ($1,000 a bond) when it is due. Prices fall when lenders see more risk in Nigeria.</p>
-      <table className="table">
+      <div className="scroll"><table className="dense">
         <thead><tr><th scope="col">Bond</th><th scope="col" className="num">Interest</th><th scope="col" className="num">Yield</th><th scope="col" className="num">Buy at</th><th scope="col" className="num">Sell at</th><th scope="col" className="num">Yours</th><th scope="col">Bonds</th></tr></thead>
         <tbody>{d.eurobonds.map((b) => {
           const n = Number(units[b.id] ?? "");
@@ -291,6 +314,7 @@ function Eurobonds({ d, run, busy, forEmpire, said }: Part) {
           );
         })}</tbody>
       </table>
+      </div>
       {said}
     </Panel>
   );
@@ -300,13 +324,14 @@ function Remitters({ d }: { d: FxPage }) {
   return (
     <Panel title="Money sent home" aside="carried by money-transfer companies">
       <p className="small">Nigerians abroad send dollars home every day, more at Easter and Christmas, and more when the street pays more naira. Families choose the cheapest and fastest companies.</p>
-      <table className="table">
+      <div className="scroll"><table className="dense">
         <thead><tr><th scope="col">Company</th><th scope="col" className="num">Fee</th><th scope="col" className="num">Days to arrive</th><th scope="col" className="num">Share of the last day</th></tr></thead>
         <tbody>{d.remitters.map((r) => (
           <tr key={r.id}><th scope="row">{r.name}{r.computer ? "" : " (an empire's)"}</th><td className="num mono">{pct(r.fee_bps)}</td>
             <td className="num mono">{r.days}</td><td className="num mono">{pct(r.share_bps)}</td></tr>
         ))}</tbody>
       </table>
+      </div>
     </Panel>
   );
 }
@@ -364,9 +389,10 @@ function EmpireBusinesses({ d, run, busy, said }: { d: FxPage; run: Run; busy: b
             <button className="button-quiet" disabled={busy} onClick={() => run("/fx/remitter/close")}>Close it</button>
           </div>
           {d.my_remitter.days_record.length > 0 && (
-            <table className="table small"><thead><tr><th scope="col">Day</th><th scope="col" className="num">Carried</th><th scope="col" className="num">Fees</th><th scope="col" className="num">Cost of speed</th></tr></thead>
+            <div className="scroll"><table className="dense small"><thead><tr><th scope="col">Day</th><th scope="col" className="num">Carried</th><th scope="col" className="num">Fees</th><th scope="col" className="num">Cost of speed</th></tr></thead>
               <tbody>{d.my_remitter.days_record.map((r) => <tr key={r.session_date}><td>{day(r.session_date)}</td><td className="num mono">{cash(r.dollars)}</td><td className="num mono">{naira(r.fee)}</td><td className="num mono">{naira(r.cost)}</td></tr>)}</tbody>
             </table>
+            </div>
           )}
         </>
       ) : (
@@ -419,7 +445,7 @@ export function FxAlerts({ onLoggedOut }: { onLoggedOut: () => void }) {
   return (
     <div className="bank-alert-region fund-alert-region fx-alert-region">
       <div className="bank-alert fund-alert" role="alertdialog" aria-labelledby={`fx-alert-${a.id}`}>
-        <div className="bank-alert-tag">● {abroad ? "MARKETS ABROAD" : "THE NAIRA"}</div>
+        <div className="bank-alert-tag">● {abroad ? "Markets abroad" : "The naira"}</div>
         <div className="bank-alert-headline" id={`fx-alert-${a.id}`}>{a.headline}</div>
         <p className="small">{a.words}</p>
         <div className="bank-alert-actions">

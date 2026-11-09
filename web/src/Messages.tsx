@@ -196,7 +196,7 @@ export function MessagesWork({ with: other, onLoggedOut, onChanged }: { with?: s
           {other && <p className="small"><a href="#/messages">+ Write to someone new</a></p>}
           {data.blocked.length > 0 && (
             <>
-              <div className="why-title">BLOCKED</div>
+              <div className="why-title">Blocked</div>
               <ul className="plain-list small">
                 {data.blocked.map((name) => (
                   <li key={name} className="row">

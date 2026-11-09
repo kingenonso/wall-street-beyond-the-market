@@ -134,8 +134,8 @@ function Debrief({ objective }: { objective: Objective }) {
         <p className="muted small">Nothing was paid. A piece of work not passed costs the reward and nothing else.</p>
       )}
       {result.debrief.plain && <><div className="why-title">IN PLAIN WORDS</div><p>{result.debrief.plain}</p></>}
-      {result.debrief.method && <><div className="why-title">THE PROFESSIONAL METHOD</div><p>{result.debrief.method}</p></>}
-      {result.debrief.maths && <><div className="why-title">THE ARITHMETIC</div><p className="mono small">{result.debrief.maths}</p></>}
+      {result.debrief.method && <><div className="why-title">The professional method</div><p>{result.debrief.method}</p></>}
+      {result.debrief.maths && <><div className="why-title">The arithmetic</div><p className="mono small">{result.debrief.maths}</p></>}
       <p className="muted small">Module: {objective.module} · {objective.setting_name.toLowerCase()}.</p>
       <ReportMarking what={{ objective_id: objective.id }} />
     </div>

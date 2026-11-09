@@ -47,13 +47,13 @@ export function FactsPanel({ ticker, onLoggedOut }: { ticker: string; onLoggedOu
 
       {eps.length >= 2 && (
         <>
-          <div className="why-title">PROFIT PER SHARE, BY QUARTER (KOBO)</div>
+          <div className="why-title">Profit per share, by quarter (kobo)</div>
           <SingleLine name="Profit per share" format={(v) => v.toFixed(0)}
                       data={eps.map((p) => ({ label: p.label.replace("Year ", "Y"), value: p.kobo_per_share }))} />
         </>
       )}
 
-      <div className="why-title">CASH OUTLOOK</div>
+      <div className="why-title">Cash outlook</div>
       <div className="tiles">
         <Fact label="Cash now" value={formatCompact(f.cash_kobo)} meaning="as filed" />
         <Fact label="Change over the past year"
@@ -64,12 +64,12 @@ export function FactsPanel({ ticker, onLoggedOut }: { ticker: string; onLoggedOu
       </div>
       <p className="small">{f.cash_outlook}</p>
 
-      <div className="why-title">WHO CONTROLS IT</div>
+      <div className="why-title">Who controls it</div>
       <p className="small">{f.control}</p>
 
       {f.notices.length > 0 && (
         <>
-          <div className="why-title">NOTICES FROM THE EXCHANGE</div>
+          <div className="why-title">Notices from the exchange</div>
           {f.notices.map((n, i) => (
             <div key={i} className="news-line">
               <div className="small muted">{n.period_label}</div>

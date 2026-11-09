@@ -107,7 +107,7 @@ function Directory({ view, player, act }: { view: EmpireView; player: Player; ac
         </p>
         {d.divisions.map((division) => (
           <div key={division.division}>
-            <div className="why-title">DIVISION {division.division}</div>
+            <div className="why-title">Division {division.division}</div>
             <div className="scroll" tabIndex={0}>
               <table>
                 <thead><tr><th scope="col" className="num">Place</th><th scope="col">Empire</th><th scope="col">Run by</th><th scope="col" className="num">Points</th><th scope="col" className="num">Worth</th><th scope="col" className="num">Players</th><th scope="col" className="num">Trust</th><th scope="col" className="num">Reputation</th><th scope="col"><span className="sr-only">Action</span></th></tr></thead>
@@ -143,7 +143,7 @@ function Directory({ view, player, act }: { view: EmpireView; player: Player; ac
         <p className="muted small">▲ would go up, ▼ would go down, if the game year ended today. A newly opened empire enters the bottom division.</p>
         {d.seasons.length > 0 && (
           <>
-            <div className="why-title">HOW PAST GAME YEARS ENDED</div>
+            <div className="why-title">How past game years ended</div>
             {d.seasons.map((season) => (
               <div key={season.season} className="small">
                 <span className="strong">Year {season.season}:</span>{" "}
@@ -156,7 +156,7 @@ function Directory({ view, player, act }: { view: EmpireView; player: Player; ac
         {!player.build && <p className="muted small">Choose a build on the <a href="#/career">Career</a> page first: a seat in an empire is a seat for a build.</p>}
         {d.forming.length > 0 && !view.room && (
           <>
-            <div className="why-title">BEING FOUNDED</div>
+            <div className="why-title">Being founded</div>
             {d.forming.map((row) => (
               <div key={row.id} className="row">
                 <span>{row.name} <span className="muted small">· founder: {row.founder}</span></span>
@@ -231,7 +231,7 @@ function Founding({ room, act }: { room: EmpireRoom; act: Act }) {
         { label: "Pool the registration fee", done: pooled >= fee, note: `${formatCompact(room.cash_kobo)} of ${formatCompact(room.registration_fee_kobo)}` },
         { label: "Open the empire", done: false, note: "the head does this" },
       ]} />
-      <div className="why-title">WHO HAS PUT IN WHAT</div>
+      <div className="why-title">Who has put in what</div>
       {room.capital.map((line) => <div key={line.display_name} className="row"><span>{line.display_name}</span><span className="mono">{formatNaira(line.amount_kobo)}</span></div>)}
       <AmountForm label="Put in more of your own cash" button="Put in" busy={act.busy} onSubmit={(kobo) => act.run("POST", "/empire/capital", { amount_kobo: kobo })}
                   hint="If the founding is cancelled, every naira goes back to whoever put it in." />
@@ -321,7 +321,7 @@ function Seats({ room, act }: { room: EmpireRoom; act: Act }) {
       </div>
       {room.is_head && room.seats.some((seat) => seat.legal.length > 0) && (
         <div className="definition">
-          <div className="why-title">LEGAL RECORDS OF YOUR MEMBERS</div>
+          <div className="why-title">Legal records of your members</div>
           <p className="muted small">A theft proved against a member, here or at an empire they have left, is on their legal record. They do not lose their seat with you for it: whether they stay is your decision.</p>
           {room.seats.filter((seat) => seat.legal.length > 0).map((seat) => (
             <div key={`${seat.build}${seat.slot}`}>
@@ -341,7 +341,7 @@ function Seats({ room, act }: { room: EmpireRoom; act: Act }) {
       )}
       {room.is_head && (
         <div className="definition">
-          <div className="why-title">LIMITS YOU SET AS HEAD</div>
+          <div className="why-title">Limits you set as head</div>
           <AmountForm label={`What a member may sign for in a quarter (now ${formatNaira(room.expense_limit_kobo)})`} button="Set" busy={act.busy}
                       onSubmit={(kobo) => act.run("PUT", "/empire/limits", { expense_limit_kobo: kobo })} />
           <div className="row">
@@ -358,7 +358,7 @@ function Seats({ room, act }: { room: EmpireRoom; act: Act }) {
       )}
       {room.applications.length > 0 && (
         <>
-          <div className="why-title">ASKING FOR A SEAT</div>
+          <div className="why-title">Asking for a seat</div>
           {room.applications.map((asked) => (
             <div key={asked.id} className="row">
               <span>{asked.display_name} <span className="muted small">· {asked.build.replace("_", " ")}</span>
@@ -411,7 +411,7 @@ function Treasury({ room, act, onLoggedOut }: { room: EmpireRoom; act: Act; onLo
       ))}
       {room.can_trade ? (
         <>
-          <div className="why-title">TRADE FOR THE EMPIRE, WITH THE EMPIRE'S MONEY</div>
+          <div className="why-title">Trade for the empire, with the empire’s money</div>
           <p className="muted small">
             {room.is_head ? "As head you trade without a limit." : `Your limit for the quarter is ${formatNaira(room.trade_limit_kobo)}; ${formatNaira(room.trade_used_kobo)} is used.${room.run_by_computer ? " In an empire the computer runs, the limit is a share of the empire that grows with your rank: 0.5% as an Associate, 2% as a Professional, 5% as a Senior, 10% as a Principal, 20% as a Master." : ""}`} What you buy
             belongs to the empire, not to you. Buying what the empire's task calls for is outside your limit.
@@ -420,7 +420,7 @@ function Treasury({ room, act, onLoggedOut }: { room: EmpireRoom; act: Act; onLo
           <div className="why-title">SHARES</div>
           <ShareOrderForm whose="The empire" busy={act.busy} held={room.holdings} fairDealing={room.fair_dealing} onLoggedOut={onLoggedOut}
                           onPlace={(order) => act.run("POST", "/empire/orders", { ...order, kind: "limit" })} />
-          <div className="why-title">BONDS AND BILLS</div>
+          <div className="why-title">Bonds and bills</div>
           <BondOrderForm whose="The empire" busy={act.busy} held={room.bond_holdings} onLoggedOut={onLoggedOut}
                          onPlace={(order) => act.run("POST", "/empire/bonds", order)} />
         </>
@@ -482,9 +482,9 @@ function Books({ room, act }: { room: EmpireRoom; act: Act }) {
 
 function Audits({ room, act }: { room: EmpireRoom; act: Act }) {
   const [chosen, setChosen] = useState<number[]>([]);
-  const KIND = { accountant: "An Accountant's audit", staff: "The staff Accountant's audit", ai: "The AI audit" } as const;
+  const KIND = { accountant: "An Accountant's audit", staff: "The staff Accountant's audit", ai: "The artificial-intelligence audit" } as const;
   return (
-    <Panel title="Audits and what follows" aside={room.audit_season ? "● Audit season: the AI audit can be hired" : `Next audit season: ${room.next_audit_season}`}>
+    <Panel title="Audits and what follows" aside={room.audit_season ? "● Audit season: the artificial-intelligence audit can be hired" : `Next audit season: ${room.next_audit_season}`}>
       {room.open_audit && (
         <div className="definition row-chosen">
           <div className="strong">Your audit found {room.open_audit.findings.length} false {room.open_audit.findings.length === 1 ? "entry" : "entries"}</div>
@@ -725,15 +725,15 @@ function Election({ room, act }: { room: EmpireRoom; act: Act }) {
 function needs(room: EmpireRoom) {
   const cards: { tag: string; title: string; text: string }[] = [];
   for (const step of room.task?.steps ?? []) {
-    if (step.yours_to_take) cards.push({ tag: "YOUR STEP", title: step.what, text: `The step before it is done. ${room.task?.company} is waiting on your build.` });
-    if (step.yours_to_approve) cards.push({ tag: "APPROVAL", title: "Approve the investment", text: "Every build has reported. The decision is yours as head." });
+    if (step.yours_to_take) cards.push({ tag: "Your step", title: step.what, text: `The step before it is done. ${room.task?.company} is waiting on your build.` });
+    if (step.yours_to_approve) cards.push({ tag: "Approval", title: "Approve the investment", text: "Every build has reported. The decision is yours as head." });
   }
-  if (room.resignation?.offer) cards.push({ tag: "OFFER TO STAY", title: "The head has made you an offer", text: "Accept it and stay, or let your letter stand. See Leaving the empire, below." });
-  for (const letter of room.resignations.filter((r) => !r.offer)) cards.push({ tag: "RESIGNATION", title: `${letter.name} has handed in a letter`, text: "Make an offer to stay, let them go now, or let the notice run." });
+  if (room.resignation?.offer) cards.push({ tag: "Offer to stay", title: "The head has made you an offer", text: "Accept it and stay, or let your letter stand. See Leaving the empire, below." });
+  for (const letter of room.resignations.filter((r) => !r.offer)) cards.push({ tag: "Resignation", title: `${letter.name} has handed in a letter`, text: "Make an offer to stay, let them go now, or let the notice run." });
   if (room.open_audit) cards.push({ tag: "AUDIT", title: "File your audit report", text: `${room.open_audit.findings.length} false entries found. Decide what goes in the report.` });
   if (room.is_head) {
-    for (const item of room.cases.filter((c) => c.status === "open")) cards.push({ tag: "PROVED THEFT", title: `${item.who} took ${formatNaira(item.amount_kobo)}`, text: "An audit proved it. Decide what follows." });
-    if (room.applications.length > 0) cards.push({ tag: "APPLICATIONS", title: `${room.applications.length} asking for a seat`, text: "Accept or refuse them under Seats." });
+    for (const item of room.cases.filter((c) => c.status === "open")) cards.push({ tag: "Proved theft", title: `${item.who} took ${formatNaira(item.amount_kobo)}`, text: "An audit proved it. Decide what follows." });
+    if (room.applications.length > 0) cards.push({ tag: "Applications", title: `${room.applications.length} asking for a seat`, text: "Accept or refuse them under Seats." });
     for (const pact of room.pacts.filter((p) => (p.ours && p.status === "drafted") || (!p.ours && p.status === "proposed"))) cards.push({ tag: "PACT", title: `A pact with ${pact.with} needs your signature`, text: pact.kind });
   }
   return cards.slice(0, 3);

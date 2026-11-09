@@ -108,9 +108,9 @@ function BondLine({ bond, mine, deskOpen, onDone, room, paused = false }: {
 }
 
 const GROUPS: [string, (b: Bond) => boolean, string][] = [
-  ["GOVERNMENT BILLS", (b) => b.kind === "bill", "A three-month loan to the Government. The safest place for cash you do not need for a few weeks."],
-  ["GOVERNMENT BONDS", (b) => b.issuer === "Federal Government" && b.kind !== "bill", "Longer loans to the Government. Their prices fall when interest rates rise, and rise when rates fall; the longer the bond, the more."],
-  ["COMPANY BONDS", (b) => b.issuer !== "Federal Government", "Loans to companies. They pay more than the Government's because a company can fail to repay."],
+  ["Government bills", (b) => b.kind === "bill", "A three-month loan to the Government. The safest place for cash you do not need for a few weeks."],
+  ["Government bonds", (b) => b.issuer === "Federal Government" && b.kind !== "bill", "Longer loans to the Government. Their prices fall when interest rates rise, and rise when rates fall; the longer the bond, the more."],
+  ["Company bonds", (b) => b.issuer !== "Federal Government", "Loans to companies. They pay more than the Government's because a company can fail to repay."],
 ];
 
 export function BondsWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void; onChanged: () => void }) {
@@ -131,7 +131,16 @@ export function BondsWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void;
 
   return (
     <>
-      <Panel title="Bonds and bills" aside={d.desk_open ? "The bond desk is open" : "The bond desk is closed: bills can still be bought"}>
+      <div className="work-head">
+        <div>
+          <h1>Bonds and bills</h1>
+          <div className="work-sub">
+            A bond is a loan you make to a government or a company; a bill is a short one, under a year
+            <span className="dot-sep"> · </span>{d.desk_open ? "the bond desk is open" : "the bond desk is closed; bills can still be bought"}
+          </div>
+        </div>
+      </div>
+      <Panel title="Bonds and bills">
         <p className="small">
           A bond is a loan you can buy and sell. Whoever holds it is paid the interest each quarter, and ₦1,000 for each bond at
           the end. You trade with the pension funds' bond desk, at its prices. Every bond shows two prices: its fair value,
@@ -194,7 +203,7 @@ export function BondsWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void;
             </div>
           ))}
         </div>
-        <GroupTitle>CREDIT SPREADS</GroupTitle>
+        <GroupTitle>Credit spreads</GroupTitle>
         <p className="small muted">The extra yearly return wanted for lending to a company, by its credit rating.</p>
         <div className="spreads">
           {d.spreads.map((s) => <span key={s.rating} className="spread"><Rating value={s.rating} /> <span className="mono">+{formatPercent(s.spread_bps, 1)}</span></span>)}
@@ -335,13 +344,19 @@ export function CorporateWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
   const nothing = c.offers.length + c.votes.length + c.takeovers.length === 0;
   return (
     <>
-      <Panel title="Offers, votes and bids" aside="Announced as one quarter closes, settled as the next one closes">
+      <div className="work-head">
+        <div>
+          <h1>Offers, votes and bids</h1>
+          <div className="work-sub">Announced as one quarter closes, settled as the next one closes</div>
+        </div>
+      </div>
+      <Panel title="Offers, votes and bids">
         {nothing && <p className="muted">Nothing is open. Companies announce share offers, votes and takeover offers when a quarter's results are filed.</p>}
-        {c.takeovers.length > 0 && <GroupTitle>TAKEOVER OFFERS</GroupTitle>}
+        {c.takeovers.length > 0 && <GroupTitle>Takeover offers</GroupTitle>}
         {c.takeovers.map((bid) => <TakeoverCard key={bid.id} bid={bid} update={update} />)}
-        {c.offers.length > 0 && <GroupTitle>NEW SHARES ON OFFER</GroupTitle>}
+        {c.offers.length > 0 && <GroupTitle>New shares on offer</GroupTitle>}
         {c.offers.map((offer) => <OfferCard key={offer.id} offer={offer} update={update} />)}
-        {c.votes.length > 0 && <GroupTitle>SHAREHOLDERS' VOTES</GroupTitle>}
+        {c.votes.length > 0 && <GroupTitle>Shareholders’ votes</GroupTitle>}
         {c.votes.map((vote) => <VoteCard key={vote.id} vote={vote} update={update} />)}
       </Panel>
 
@@ -385,7 +400,14 @@ export function OwnershipWork({ onLoggedOut }: { onLoggedOut: () => void }) {
   const rows = loaded.data ?? [];
   const controlled = rows.filter((r) => r.controller);
   return (
-    <Panel title="Who owns what" aside="Whoever holds more than half a company's shares controls it">
+    <>
+      <div className="work-head">
+        <div>
+          <h1>Who owns what</h1>
+          <div className="work-sub">Whoever holds more than half a company’s shares controls it</div>
+        </div>
+      </div>
+    <Panel title="Who owns what">
       <p className="small">
         {controlled.length === 0 ? "No company has a controlling owner today." :
           `${controlled.length} of ${rows.length} companies have a controlling owner.`} A single player's holding is never listed.
@@ -404,5 +426,6 @@ export function OwnershipWork({ onLoggedOut }: { onLoggedOut: () => void }) {
         </table>
       </div>
     </Panel>
+    </>
   );
 }

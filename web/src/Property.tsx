@@ -24,10 +24,10 @@ const STEP_NAMES = { title: "Legal Counsel checks the title", valuation: "The Ac
 const STEP_BUILD = { title: "lawyer", valuation: "accountant", limit: "risk_manager", money: "investment_banker" } as const;
 type Step = keyof typeof STEP_NAMES;
 const REASON: Record<Auction["reason"], { tag: string; words: string }> = {
-  listing: { tag: "LISTING", words: "A property company is selling. It has a lowest price nobody sees." },
-  owner: { tag: "OWNER'S SALE", words: "An owner is selling. There may be a lowest price nobody sees." },
-  repossession: { tag: "■ FORCED SALE", words: "The bank is selling it: its mortgage was not paid. There is no lowest price." },
-  tax: { tag: "■ FORCED SALE", words: "Sold for unpaid tax. There is no lowest price." },
+  listing: { tag: "Listing", words: "A property company is selling. It has a lowest price nobody sees." },
+  owner: { tag: "Owner’s sale", words: "An owner is selling. There may be a lowest price nobody sees." },
+  repossession: { tag: "■ Forced sale", words: "The bank is selling it: its mortgage was not paid. There is no lowest price." },
+  tax: { tag: "■ Forced sale", words: "Sold for unpaid tax. There is no lowest price." },
 };
 
 const pct = (bps: number) => formatPercent(bps, 1);
@@ -557,14 +557,31 @@ export function PropertyWork({ onLoggedOut, onChanged }: Props) {
       <div className="work-head">
         <div>
           <h1>Property</h1>
-          <span className="muted small">Land and buildings in five cities, the Auction House, and what you own</span>
-        </div>
-        <div className="empire-stats">
-          <div><div className="lbl"><Term word="Rental yield">Yield investors ask</Term></div><div className="mono figure-small">{pct(m.yield_bps)}</div></div>
-          <div><div className="lbl">Mortgage rate</div><div className="mono figure-small">{pct(m.mortgage_rate_bps)}</div></div>
-          <div><div className="lbl">Property and land tax</div><div className="mono figure-small">{pct(m.tax_bps)} a year</div></div>
+          <div className="work-sub">Land and buildings in five cities, the Auction House, and what you own</div>
         </div>
       </div>
+      <section className="band band-4" aria-label="The property market today">
+        <div className="band-cell">
+          <div className="band-label"><Term word="Rental yield">Yield investors ask</Term></div>
+          <div className="band-value">{pct(m.yield_bps)}</div>
+          <div className="band-note">a year’s rent, against what a building costs</div>
+        </div>
+        <div className="band-cell">
+          <div className="band-label">Mortgage rate</div>
+          <div className="band-value">{pct(m.mortgage_rate_bps)}</div>
+          <div className="band-note">a year, on what a bank lends you</div>
+        </div>
+        <div className="band-cell">
+          <div className="band-label">Property and land tax</div>
+          <div className="band-value">{pct(m.tax_bps)}</div>
+          <div className="band-note">a year, paid at each quarter’s close</div>
+        </div>
+        <div className="band-cell">
+          <div className="band-label">What a bank will lend you</div>
+          <div className="band-value">{formatCompact(m.mortgage_most)}</div>
+          <div className="band-note">at most, for one property, after your mortgage; a salary is needed</div>
+        </div>
+      </section>
       <Messages act={act} />
       <div className="underline-tabs" role="tablist" aria-label="Property">
         {tabs.map(([key, label]) => <button key={key} role="tab" aria-selected={tab === key} className={tab === key ? "active" : undefined} onClick={() => choose(key)}>{label}</button>)}
@@ -577,7 +594,7 @@ export function PropertyWork({ onLoggedOut, onChanged }: Props) {
         </>
       )}
       {tab === "mine" && (
-        <Panel title="My property" aside={`A bank lends you at most ${formatCompact(m.mortgage_most)} more`}>
+        <Panel title="My property">
           <Owned h={m.mine} act={act} forEmpire={false} canAct m={m} />
           <p className="muted small">{m.mortgage_limit_note} Rent is paid at each quarter's close; tax and upkeep are taken then too. Unpaid tax grows by a twentieth each quarter, and the Government sells a property whose unpaid tax reaches a tenth of its value.</p>
         </Panel>
@@ -610,10 +627,10 @@ export function PropertyRail({ onLoggedOut }: { onLoggedOut: () => void }) {
   const asked = (partners.data?.requests ?? []).filter((r) => r.status === "asked");
   const late = m.mine.mortgages.filter((x) => x.missed > 0);
   const items = [
-    ...outbid.map((a) => ({ tag: "▼ OUTBID", title: a.property.name })),
-    ...asked.map((r) => ({ tag: "PARTNER", title: `${r.asked_by}: ${r.property}` })),
-    ...late.map((x) => ({ tag: "■ MORTGAGE", title: `${x.missed} payment missed at ${x.bank}` })),
-    ...leading.map((a) => ({ tag: "▲ LEADING", title: a.property.name })),
+    ...outbid.map((a) => ({ tag: "▼ Outbid", title: a.property.name })),
+    ...asked.map((r) => ({ tag: "Partner", title: `${r.asked_by}: ${r.property}` })),
+    ...late.map((x) => ({ tag: "■ Mortgage", title: `${x.missed} payment missed at ${x.bank}` })),
+    ...leading.map((a) => ({ tag: "▲ Leading", title: a.property.name })),
   ];
   return (
     <>

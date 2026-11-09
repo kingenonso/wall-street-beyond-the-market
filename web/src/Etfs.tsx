@@ -54,7 +54,16 @@ export function EtfsWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void; 
   const special = data.etfs.filter((e) => e.special);
   return (
     <>
-      <Panel title="Indexes and ETFs" aside={`passive money: ${formatPercent(data.passive.share_bps)} of the market (heading for ${formatPercent(data.passive.target_bps, 0)})`}>
+      <div className="work-head">
+        <div>
+          <h1>Indexes and ETFs</h1>
+          <div className="work-sub">
+            Funds that follow a published list rather than a manager’s choice
+            <span className="dot-sep"> · </span>passive money is {formatPercent(data.passive.share_bps)} of the market (heading for {formatPercent(data.passive.target_bps, 0)})
+          </div>
+        </div>
+      </div>
+      <Panel title="Indexes and ETFs">
         <p className="small">
           An <span className="strong">index</span> follows a group of companies (or bonds) by published rules. An <span className="strong">ETF</span> copies an
           index and its units trade on the exchange all day, like a share; its <span className="strong">value</span> (what its holdings are worth, per
@@ -230,7 +239,7 @@ function EtfView({ code, onBack, onLoggedOut, onChanged }: { code: string; onBac
             <button className="button-quiet" disabled={busy} onClick={() => run(`/etfs/orders/${o.id}/cancel`)}>Cancel</button></div>
         ))}
         {(e.book.buy.length > 0 || e.book.sell.length > 0) && <>
-          <div className="why-title">OTHER ORDERS WAITING</div>
+          <div className="why-title">Other orders waiting</div>
           <div className="row small"><span>Buyers: {e.book.buy.map((b) => `${units(b.units)} at ${naira(b.limit_price)}`).join(" · ") || "none"}</span></div>
           <div className="row small"><span>Sellers: {e.book.sell.map((b) => `${units(b.units)} at ${naira(b.limit_price)}`).join(" · ") || "none"}</span></div>
         </>}
@@ -409,7 +418,7 @@ export function EtfAlerts({ onLoggedOut }: { onLoggedOut: () => void }) {
   return (
     <div className="bank-alert-region fund-alert-region etf-alert-region">
       <div className="bank-alert fund-alert" role="alertdialog" aria-labelledby={`etf-alert-${a.id}`}>
-        <div className="bank-alert-tag">● {a.kind === "index_change" ? "INDEXES" : `ETFS${a.code ? ` · ${a.code}` : ""}`}</div>
+        <div className="bank-alert-tag">● {a.kind === "index_change" ? "Indexes" : `ETFs${a.code ? ` · ${a.code}` : ""}`}</div>
         <div className="bank-alert-headline" id={`etf-alert-${a.id}`}>{a.headline}</div>
         <p className="small">{a.words}</p>
         <div className="bank-alert-actions">

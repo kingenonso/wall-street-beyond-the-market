@@ -60,7 +60,13 @@ export function IndustriesWork({ onLoggedOut }: { onLoggedOut: () => void }) {
   const ranked = [...industries].sort((a, b) => (b.sales_growth_bps ?? -1e9) - (a.sales_growth_bps ?? -1e9));
   return (
     <>
-      <Panel title="The market at a glance" aside="Every company, by size and today's move">
+      <div className="work-head">
+        <div>
+          <h1>Industries</h1>
+          <div className="work-sub">Every company by industry, at a glance and by its sales</div>
+        </div>
+      </div>
+      <Panel title="The market at a glance" aside="Every company, by size and today’s move">
         <HeatMap industries={industries} />
       </Panel>
 

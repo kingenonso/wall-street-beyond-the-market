@@ -153,24 +153,46 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
   return (
     <>
       <div className="work-head">
-        <h1>Your portfolio</h1>
-        <span className="muted small">What you own, what it cost and what it is worth now</span>
+        <div>
+          <h1>Portfolio</h1>
+          <div className="work-sub">
+            What you own, what it cost and what it is worth now
+            {p.holdings.length > 0 && <><span className="dot-sep"> · </span>{p.holdings.length} {p.holdings.length === 1 ? "company" : "companies"} · {shares(p.holdings.reduce((n, h) => n + h.shares, 0))} shares</>}
+          </div>
+        </div>
+        {waiting.length > 0 && <a href="#/portfolio" className="muted small">{waiting.length} {waiting.length === 1 ? "order" : "orders"} waiting</a>}
       </div>
+
+      <section className="band band-4" aria-label="What you own">
+        <div className="band-cell">
+          <div className="band-label"><Term word="Net worth">Everything you own</Term></div>
+          <div className="band-value">{formatCompact(p.total_kobo)}</div>
+          <div className="band-note">
+            {lastTwo ? <><Gain kobo={(BigInt(p.total_kobo) - BigInt(lastTwo)).toString()} /> since the last Closing Bell</> : "written down at each Closing Bell"}
+          </div>
+        </div>
+        <div className="band-cell">
+          <div className="band-label">Shares</div>
+          <div className="band-value">{formatCompact(p.shares_value_kobo)}</div>
+          <div className="band-note">at today’s prices</div>
+        </div>
+        <div className="band-cell">
+          <div className="band-label">Cash you can use now</div>
+          <div className="band-value">{formatCompact(p.cash_kobo)}</div>
+          <div className="band-note">
+            {BigInt(p.held_for_orders_kobo) > 0n ? `plus ${formatCompact(p.held_for_orders_kobo)} held for your buy orders` : "nothing held for orders"}
+          </div>
+        </div>
+        <div className="band-cell">
+          <div className="band-label">Dividends received</div>
+          <div className="band-value">{formatCompact(p.dividends_kobo)}</div>
+          <div className="band-note">cash paid to you by the companies you own</div>
+        </div>
+      </section>
 
       <GrantPanel onLoggedOut={onLoggedOut} onChanged={onChanged} />
 
-      <Panel>
-        <div className="panel-head">
-          <div>
-            <h2><Term word="Net worth">Everything you own</Term></h2>
-            <div className="mono figure" style={{ marginTop: 4 }}>{formatNaira(p.total_kobo)}</div>
-          </div>
-          <div className="summary-moves">
-            {lastTwo && <div><div className="lbl">Since the last Closing Bell</div><Gain kobo={(BigInt(p.total_kobo) - BigInt(lastTwo)).toString()} /></div>}
-            <div><div className="lbl">Dividends received</div><span className="mono">{formatNaira(p.dividends_kobo)}</span></div>
-            {BigInt(p.realised_kobo) !== 0n && <div><div className="lbl">On shares sold</div><Gain kobo={p.realised_kobo} /></div>}
-          </div>
-        </div>
+      <Panel title="What you own, by kind">
         <MixBar label="What you own, by kind" parts={[
           { label: "Shares", value: Number(BigInt(p.shares_value_kobo) / 100n), color: "var(--info)", note: formatCompact(p.shares_value_kobo) },
           { label: "Bonds and bills", value: Number(BigInt(p.bonds_value_kobo) / 100n), color: "var(--build-am)", note: formatCompact(p.bonds_value_kobo) },
@@ -202,16 +224,17 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
         )}
       </Panel>
 
-      <Panel title="Your shares">
+      <Panel title="Your shares" aside={p.holdings.length > 0 ? <><Term word="Concentration">Share of your shares</Term> shown beside each</> : undefined}>
         {p.holdings.length === 0 ? (
           <p className="muted">
             You own no shares yet. Open the <a href="#/market">Market</a>, pick a company and place a buy order.
           </p>
         ) : (
-          <div className="scroll" tabIndex={0}>
-            <table>
+          <div className="scroll scroll-sticky" tabIndex={0}>
+            <table className="dense tape-table">
               <thead>
                 <tr>
+                  <th scope="col" className="sr-only">Code</th>
                   <th scope="col">Company</th>
                   <th scope="col" className="num">Shares</th>
                   <th scope="col" className="num">Price</th>
@@ -220,14 +243,15 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
                   <th scope="col" className="num">They cost you</th>
                   <th scope="col" className="num">Gain or loss</th>
                   <th scope="col" className="num">Dividends</th>
-                  <th scope="col"><Term word="Concentration">Share of your shares</Term></th>
+                  <th scope="col" className="num"><Term word="Concentration">Share of your shares</Term></th>
                 </tr>
               </thead>
               <tbody>
                 {p.holdings.map((h) => (
                   <tr key={h.ticker}>
+                    <td className="mono strong"><a href={`#/companies/${h.ticker}`}>{h.ticker}</a></td>
                     <th scope="row">
-                      <a href={`#/companies/${h.ticker}`}>{h.name}</a> <span className="ticker mono">{h.ticker}</span>
+                      {h.name}
                       {h.held_for_orders > 0 && <div className="small muted">{shares(h.held_for_orders)} held for your sell orders</div>}
                     </th>
                     <td className="num mono">{shares(h.shares)}</td>
@@ -237,7 +261,7 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
                     <td className="num mono">{formatNaira(h.cost_kobo)}</td>
                     <td className="num"><Gain kobo={h.gain_kobo} /></td>
                     <td className="num mono">{formatNaira(h.dividends_kobo)}</td>
-                    <td><ShareBar part={h.value_kobo} whole={p.shares_value_kobo} /></td>
+                    <td className="num"><ShareBar part={h.value_kobo} whole={p.shares_value_kobo} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -245,8 +269,8 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
           </div>
         )}
         <p className="muted small">
-          "They cost you" is what you paid for the shares you still hold, fees included. When you sell some, the average
-          cost of those shares comes off.
+          “They cost you” is what you paid for the shares you still hold, fees included. When you sell some, the average
+          cost of those shares comes off. Inside the market’s trading hours, a figure can change before you finish reading it.
         </p>
       </Panel>
 
@@ -266,7 +290,7 @@ export function PortfolioWork({ onLoggedOut, onChanged }: { onLoggedOut: () => v
         ))}
         {finished.length > 0 && (
           <>
-            <div className="why-title" style={{ marginTop: 14 }}>YOUR LATEST FINISHED ORDERS</div>
+            <div className="why-title" style={{ marginTop: 14 }}>Your latest finished orders</div>
             {finished.map((order) => (
               <div key={order.id} className="order-line">
                 <span>{describe(order)}</span>

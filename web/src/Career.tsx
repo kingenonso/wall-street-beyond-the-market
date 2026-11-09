@@ -194,7 +194,7 @@ function Retirement({ career, act }: { career: Career; act: ReturnType<typeof us
         </div>
       ))}
 
-      <div className="why-title">SAVE MORE, AND BE REWARDED FOR IT</div>
+      <div className="why-title">Save more, and be rewarded for it</div>
       <p className="small">
         You may save up to {savings.most_extra_bps / 100}% of your salary on top of the usual amount. What you save extra is taken
         before income tax, so you pay less tax; your employer matches it, naira for naira, up to {savings.match_most_bps / 100}% of
@@ -214,7 +214,7 @@ function Retirement({ career, act }: { career: Career; act: ReturnType<typeof us
         <div className="muted small">At your level: {formatNaira(pay.extra_saving_kobo)} extra saved each quarter, and {formatNaira(pay.employer_match_kobo)} added by your employer.</div>
       )}
 
-      <div className="why-title">WHEN IS RETIREMENT?</div>
+      <div className="why-title">When is retirement?</div>
       {savings.retired ? (
         <p className="small">✓ Your pension is paid every quarter: {formatPercent(savings.pension_bps ?? savings.full_pension_bps, 1)} of your savings each time{savings.pension_bps !== null && savings.pension_bps < savings.full_pension_bps ? " (an early pension, smaller for good)" : ""}. You may keep working.</p>
       ) : (

@@ -136,7 +136,7 @@ export function ShareOrderForm({ whose, busy, held, fairDealing, onPlace, onLogg
         {q && <p className="small muted">Broad Street Exchange · {MARKET_LABEL[q.market_state]}. An order at your price is matched at once if somebody is waiting at it, and waits if not.</p>}
       </form>
       <div>
-        <div className="why-title">WHO IS WAITING TO BUY AND SELL{chosen ? ` · ${chosen.ticker}` : ""}</div>
+        <div className="why-title">Who is waiting to buy and sell{chosen ? ` · ${chosen.ticker}` : ""}</div>
         {q ? <Book quote={q} /> : <p className="muted small">Choose a company to see its price, today's range, and the buyers and sellers waiting.</p>}
       </div>
     </div>

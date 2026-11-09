@@ -452,7 +452,7 @@ function CompanyAbout({ company: data }: { company: Company }) {
 
       <Panel title="Credit rating">
         <div className="headline"><Rating value={latest.credit_rating} /></div>
-        <div className="why-title">WHY THIS RATING?</div>
+        <div className="why-title">Why this rating?</div>
         <ul className="reasons">
           {latest.rating_reasons.map((reason) => <li key={reason}>{reason}</li>)}
         </ul>

@@ -67,11 +67,11 @@ export function ClosingBellPanel({ onLoggedOut, brief = false }: { onLoggedOut: 
           </ul>
           {!brief && bell.stories.length > 0 && (
             <>
-              <div className="why-title">THE DAY'S MAIN STORIES</div>
+              <div className="why-title">The day’s main stories</div>
               <ul className="reasons">{bell.stories.map((story) => <li key={story}>{story}</li>)}</ul>
             </>
           )}
-          <div className="why-title">MARKET ADVISORY</div>
+          <div className="why-title">Market advisory</div>
           <ul className="reasons">{bell.advisory.map((line) => <li key={line}>{line}</li>)}</ul>
           <div className="why-title">NEXT</div>
           <p className="small">{bell.next}</p>

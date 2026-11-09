@@ -90,9 +90,14 @@ describe("tables stay usable", () => {
     expect(fold).toMatch(/\.scroll-sticky \{ max-height: none/);
   });
 
-  it("gives a table that scrolls sideways room at its edges and a focus ring", () => {
-    expect(rule(".scroll")).toMatch(/padding:\s*0 8px/);
+  it("gives a table that scrolls sideways room at its cells and a focus ring, without gapping its brass rule", () => {
+    expect(rule(".scroll")).not.toMatch(/padding:/);
+    expect(css).toMatch(/\.scroll > table > tbody > tr > :first-child \{ padding-left:/);
     expect(rule(".scroll:focus-visible")).toMatch(/outline/);
+  });
+
+  it("holds headings still only in a table with a height of its own", () => {
+    expect(css).toMatch(/\.no-sticky thead th \{ position: static/);
   });
 });
 

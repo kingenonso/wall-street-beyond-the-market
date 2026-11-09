@@ -113,7 +113,7 @@ export function PensionFundsPanel({ player, onLoggedOut, onChanged }: { player: 
         ))}
         {data.can_open && (
           <form className="stack-form" onSubmit={(event) => { event.preventDefault(); run("POST", "/pension-funds", { name, fee_bps: Number(fee) }); }}>
-            <div className="why-title">OPEN A PENSION FUND</div>
+            <div className="why-title">Open a pension fund</div>
             <p className="muted small">Registration costs {formatNaira(data.registration_fee_kobo)} from your own cash. A manager opens one fund, once. Your own pension cannot be kept in the fund you run.</p>
             <label className="answer"><span className="field-label">Name of the fund</span><span className="answer-box"><input type="text" maxLength={40} value={name} onChange={(event) => setName(event.target.value)} /></span></label>
             <label className="answer"><span className="field-label">Your fee each quarter, of everything in the fund</span>

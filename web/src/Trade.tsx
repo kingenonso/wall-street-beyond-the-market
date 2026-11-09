@@ -258,7 +258,7 @@ export function TradePanel({ ticker, onLoggedOut, onTraded, layout = "wide" }: {
         </form>
 
         <div>
-          <div className="why-title">WHO IS WAITING <Term word="Order book"><span className="sr-only">the order book</span></Term></div>
+          <div className="why-title">Who is waiting <Term word="Order book"><span className="sr-only">the order book</span></Term></div>
           {rail
             ? <DepthBars format={formatNaira}
                          sellers={q.offers.slice(0, 5).map((l) => ({ price: l.price_kobo, quantity: l.quantity }))}
@@ -272,7 +272,7 @@ export function TradePanel({ ticker, onLoggedOut, onTraded, layout = "wide" }: {
           )}
           {mine.length > 0 && (
             <>
-              <div className="why-title">{empireMode ? "THE EMPIRE'S ORDERS WAITING" : "YOUR ORDERS WAITING"}</div>
+              <div className="why-title">{empireMode ? "The empire’s orders waiting" : "Your orders waiting"}</div>
               {mine.map((order) => (
                 <div key={order.id} className="order-line">
                   <span>{describe(order)}</span>
@@ -297,7 +297,7 @@ export function TradePanel({ ticker, onLoggedOut, onTraded, layout = "wide" }: {
 
       {why.data && !rail && (
         <div className="why-box">
-          <div className="why-title">WHY IS THE PRICE WHERE IT IS?</div>
+          <div className="why-title">Why is the price where it is?</div>
           <p className="small">
             {why.data.move_bps !== 0 && <><Change bps={why.data.move_bps} />{" "}</>}
             {why.data.summary}

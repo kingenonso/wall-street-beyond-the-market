@@ -20,7 +20,7 @@ export const GLOSSARY: Record<string, { means: string; example?: string }> = {
   "Market order": { means: "An order at the best price available right now. Quick, but the price is not fixed." },
   "Spread": { means: "The gap between the best price a buyer offers and the lowest a seller asks." },
   "Exchange fee": { means: "Every trade pays 0.5% to the exchange. It is not returned." },
-  "Exchange rate": { means: "How many naira one US dollar costs. More naira for a dollar means a weaker naira.", example: "₦1,560 instead of ₦1,500: the naira is 4% weaker, and goods bought abroad cost more." },
+  "Exchange rate": { means: "How many naira one dollar costs. More naira for a dollar means a weaker naira.", example: "₦1,560 instead of ₦1,500: the naira is 4% weaker, and goods bought abroad cost more." },
   "Inflation": { means: "How much prices in the shops rose over a year.", example: "6% means what cost ₦100 now costs ₦106." },
   "Rental yield": { means: "A year’s rent as a share of a building’s price. Property investors want more of it when interest rates are high.", example: "₦12m rent on a ₦100m building is a 12% yield." },
   "Guide value": { means: "What a property was worth when it was listed: its rent over the yield investors ask, less for wear, plus any bubble in its district.", example: "A guide, not the seller’s lowest price, which nobody sees." },

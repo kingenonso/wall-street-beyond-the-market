@@ -28,6 +28,7 @@ import { MessagesRail, MessagesWork, partnerFrom } from "./Messages";
 import { WorkFocus, WorkRail, WorkWork } from "./Work";
 import { useClock } from "./useClock";
 import { FirmPortal, SharedRecordPage, TalentRail, TalentWork } from "./Talent";
+import { CourtRail, CourtWork } from "./Court";
 
 export function App() {
   // undefined = still checking, null = not logged in.
@@ -202,6 +203,10 @@ export function App() {
     const other = partnerFrom(item);
     work = <MessagesWork key={other ?? ""} with={other} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <MessagesRail />;
+  } else if (section === "court") {
+    current = "court";
+    work = <CourtWork onLoggedOut={loggedOut} />;
+    rail = <CourtRail />;
   } else if (section === "talent") {
     current = "talent";
     work = <TalentWork key={item ?? ""} player={player} tab={item} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;

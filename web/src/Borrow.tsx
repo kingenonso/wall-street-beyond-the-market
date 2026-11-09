@@ -7,7 +7,6 @@ import { api, ApiError, type BorrowingDesk as Borrowing, type LendingBook, type 
 import { asKobo } from "./Empire";
 import { formatCompact, formatNaira, formatPercent } from "./format";
 import { useLoad } from "./hooks";
-import { NumberTile } from "./Parts";
 import { Failed, Loading, Panel } from "./Shell";
 import { Term } from "./Term";
 import { WhatCouldHappenPanel } from "./WhatIf";
@@ -64,11 +63,30 @@ function LoansTab({ b, act, forEmpire = false, book }: { b: Borrowing; act: Act;
   const [repay, setRepay] = useState<Record<number, string>>({});
   return (
     <>
-      <div className="tiles">
-        <NumberTile label="Worth, after all debts" value={formatCompact(book.equity)} />
-        <NumberTile label="Owed in all" value={formatCompact(book.debts)} note={`Borrowing to invest may be at most ${book.most_debt_times}× what you are worth`} />
-        <NumberTile label="Borrowed against shares" value={formatCompact(book.margin.owed)} note={`${formatCompact(book.margin.limit)} more available`} />
-      </div>
+      <section className="band band-4" aria-label={forEmpire ? "What the empire owes" : "What you owe"}>
+        <div className="band-cell">
+          <div className="band-label">{forEmpire ? "The empire’s worth, after all debts" : "Your worth, after all debts"}</div>
+          <div className="band-value">{formatCompact(book.equity)}</div>
+          <div className="band-note">what would be left if every debt were paid</div>
+        </div>
+        <div className="band-cell">
+          <div className="band-label">Owed in all</div>
+          <div className="band-value">{formatCompact(book.debts)}</div>
+          <div className="band-note">borrowing may be at most {book.most_debt_times}× what is worth</div>
+        </div>
+        <div className="band-cell">
+          <div className="band-label">Borrowed against shares</div>
+          <div className="band-value">{formatCompact(book.margin.owed)}</div>
+          <div className="band-note">{formatCompact(book.margin.limit)} more available</div>
+        </div>
+        <div className="band-cell">
+          <div className="band-label">The loan, against what is held</div>
+          <div className={`band-value${book.margin.ratio_bps >= book.margin.call_bps ? " change-down" : ""}`}>
+            {book.margin.ratio_bps >= book.margin.sell_bps ? "■ " : book.margin.ratio_bps >= book.margin.call_bps ? "▲ " : "● "}{pct(book.margin.ratio_bps)}
+          </div>
+          <div className="band-note">call at {pct(book.margin.call_bps)} · sale at {pct(book.margin.sell_bps)}</div>
+        </div>
+      </section>
       <MarginMeter ratio={book.margin.ratio_bps} call={book.margin.call_bps} sell={book.margin.sell_bps} />
       {!forEmpire && (
         <Panel title="A personal loan" aside={`${formatPercent(book.rates.personal_bps)} a year · repaid over two years`}>
@@ -112,16 +130,42 @@ function ShortsTab({ b, act, forEmpire = false, book, initialTicker }: { b: Borr
   const [more, setMore] = useState<Record<number, string>>({});
   const chosen = b.lendable.find((l) => l.ticker === ticker);
   const count = Number(shares);
-  const collateral = chosen && count > 0 ? (BigInt(chosen.price) * BigInt(Math.floor(count)) * 3n / 2n).toString() : null;
+  const needed = chosen && count > 0 ? (BigInt(chosen.price) * BigInt(Math.floor(count)) * 3n / 2n).toString() : null;
+  const collateral = book.shorts.reduce((n, s) => n + BigInt(s.collateral), 0n);
+  const gain = book.shorts.reduce((n, s) => n + BigInt(s.gain), 0n);
   return (
     <>
+      <section className="band band-4" aria-label="Short selling">
+        <div className="band-cell">
+          <div className="band-label">Fee to borrow shares</div>
+          <div className="band-value">{formatPercent(book.rates.short_fee_bps)}</div>
+          <div className="band-note">a year, paid to the pension funds who lend them</div>
+        </div>
+        <div className="band-cell">
+          <div className="band-label">{forEmpire ? "The empire’s open shorts" : "Your open shorts"}</div>
+          <div className="band-value">{book.shorts.length.toLocaleString("en-NG")}</div>
+          <div className="band-note">{book.shorts.length === 0 ? "none borrowed to sell today" : "each holds 150% of its value in cash"}</div>
+        </div>
+        <div className="band-cell">
+          <div className="band-label">Cash held as collateral</div>
+          <div className="band-value">{formatCompact(collateral.toString())}</div>
+          <div className="band-note">returned when the shares are given back</div>
+        </div>
+        <div className="band-cell">
+          <div className="band-label">Gain if bought back now</div>
+          <div className={`band-value${book.shorts.length === 0 ? " muted" : gain < 0n ? " change-down" : " change-up"}`}>
+            {book.shorts.length === 0 ? "—" : `${gain < 0n ? "▼" : "▲"} ${formatCompact(gain.toString().replace("-", ""))}`}
+          </div>
+          <div className="band-note">{book.shorts.length === 0 ? "nothing to buy back yet" : "on paper, until you give the shares back"}</div>
+        </div>
+      </section>
       <Panel title="Sell short: borrow shares to sell" aside={`fee ${formatPercent(book.rates.short_fee_bps)} a year`}>
         <p className="small"><Term word="Short selling">Selling short</Term> is a bet that a price will fall: borrow shares from the pension funds, sell them, and later buy them back (cheaper, you hope) to give back. You hold 150% of their value in cash while they are borrowed. Below 125% a margin call; below 110%, or a call not met by the next bell, they are bought back for you at 5% above the close. You pay the lender any dividend, and the funds can recall the shares.</p>
         <form className="inline-form" onSubmit={(e) => { e.preventDefault(); if (ticker && count > 0) act.run("/shorts", { ticker, shares: Math.floor(count), for_empire: forEmpire }, "Borrowed. Sell them on the company's page (they are in your holdings), and give them back when you close."); }}>
           <label>Share<select value={ticker} onChange={(e) => setTicker(e.target.value)}><option value="">Choose…</option>{b.lendable.filter((l) => l.lendable > 0).map((l) => <option key={l.ticker} value={l.ticker}>{l.ticker} · {l.name}</option>)}</select></label>
           <label className="answer">Shares<input type="number" min={1} value={shares} onChange={(e) => setShares(e.target.value)} /></label>
           <button className="button-primary" disabled={act.busy || !ticker || !(count > 0)}>Borrow to sell</button>
-          {chosen && <span className="muted small">At {formatNaira(chosen.price)}: up to {chosen.lendable.toLocaleString("en-NG")} can be borrowed now{collateral ? `; this needs ${formatNaira(collateral)} held` : ""}.</span>}
+          {chosen && <span className="muted small">At {formatNaira(chosen.price)}: up to {chosen.lendable.toLocaleString("en-NG")} can be borrowed now{needed ? `; this needs ${formatNaira(needed)} held` : ""}.</span>}
         </form>
       </Panel>
       {book.shorts.length > 0 && (
@@ -144,12 +188,12 @@ function ShortsTab({ b, act, forEmpire = false, book, initialTicker }: { b: Borr
         </Panel>
       )}
       <Panel title="What can be borrowed" aside="short interest: lent out as a share of all shares (never who)">
-        <div className="scroll" tabIndex={0}>
-          <table className="dense">
-            <thead><tr><th scope="col">Share</th><th scope="col" className="num">Price</th><th scope="col" className="num">Can be borrowed</th><th scope="col" className="num">Short interest</th></tr></thead>
+        <div className="scroll scroll-sticky" tabIndex={0}>
+          <table className="dense tape-table no-sticky">
+            <thead><tr><th scope="col">Share</th><th scope="col">Company</th><th scope="col" className="num">Price</th><th scope="col" className="num">Can be borrowed</th><th scope="col" className="num">Short interest</th></tr></thead>
             <tbody>
               {b.lendable.map((l) => (
-                <tr key={l.ticker}><th scope="row">{l.ticker} <span className="muted small">{l.name}</span></th><td className="num mono">{formatNaira(l.price)}</td>
+                <tr key={l.ticker}><td className="mono strong">{l.ticker}</td><th scope="row">{l.name}</th><td className="num mono">{formatNaira(l.price)}</td>
                   <td className="num mono">{l.lendable.toLocaleString("en-NG")}</td><td className="num mono">{formatPercent(l.short_interest_bps, 2)}</td></tr>
               ))}
             </tbody>
@@ -207,9 +251,13 @@ export function BorrowWork({ onLoggedOut, onChanged }: Props) {
       <div className="work-head">
         <div>
           <h1>Borrow</h1>
-          <span className="muted small">Loans against your salary or your shares, and borrowing shares to sell short</span>
+          <div className="work-sub">
+            Loans against your salary or your shares, and borrowing shares to sell short
+          </div>
         </div>
+        {tab === "loans" && <span className="muted small">a personal loan is repaid over two years; a loan against shares, when you like</span>}
       </div>
+
       {act.error && <p className="error" role="alert">{act.error}</p>}
       {act.notice && <p className="saved" role="status">{act.notice}</p>}
       {b.events.length > 0 && (

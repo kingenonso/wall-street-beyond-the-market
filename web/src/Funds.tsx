@@ -61,7 +61,13 @@ export function FundsWork({ onLoggedOut, onChanged }: { onLoggedOut: () => void;
   const byId = new Map(data.funds.map((f) => [f.id, f]));
   return (
     <>
-      <Panel title="Investment funds" aside="money in and out at the next closing bell's price">
+      <div className="work-head">
+        <div>
+          <h1>Investment funds</h1>
+          <div className="work-sub">Money in and out at the next closing bell’s price</div>
+        </div>
+      </div>
+      <Panel title="Investment funds">
         <p className="small">
           A fund pools many people's money and a manager invests it. You buy <span className="strong">units</span>; a unit is worth the
           fund divided by its units. You never know the exact price you will deal at: it is the next closing bell's, so nobody can
@@ -296,7 +302,7 @@ function ManagerDesk({ fund, funds, onLoggedOut, onChanged, reload }: { fund: Fu
         <div className="why-title">BONDS AND BILLS</div>
         <BondOrderForm whose="The fund" busy={busy} held={fund.bond_lines} onLoggedOut={onLoggedOut} onPlace={(o) => run("/manage/bonds", o)} />
       </>)}
-      <div className="why-title">RUNNING THE FUND</div>
+      <div className="why-title">Running the fund</div>
       <div className="step-actions">
         <button className="button-outline" disabled={busy} onClick={() => run("/manage/gate", { on: !fund.gated })}>{fund.gated ? "Lift the gate" : "Put up a gate (announced to everyone)"}</button>
         {fund.fee_bps > 0 && <button className="button-quiet" disabled={busy} onClick={() => run("/manage/fees", { fee_bps: Math.max(fund.fee_bps - 25, 0), perf_fee_bps: fund.perf_fee_bps })}>Lower the fee by 0.25%</button>}
@@ -368,7 +374,7 @@ export function FundAlerts({ onLoggedOut }: { onLoggedOut: () => void }) {
   return (
     <div className="bank-alert-region fund-alert-region">
       <div className="bank-alert fund-alert" role="alertdialog" aria-labelledby={`fund-alert-${a.id}`}>
-        <div className="bank-alert-tag">● FUNDS · {a.fund}</div>
+        <div className="bank-alert-tag">● Funds · {a.fund}</div>
         <div className="bank-alert-headline" id={`fund-alert-${a.id}`}>{a.headline}</div>
         <p className="small">{a.words}</p>
         <div className="bank-alert-actions">

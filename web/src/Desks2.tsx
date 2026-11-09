@@ -226,7 +226,7 @@ export function RiskManagerWork({ player, onLoggedOut }: Props) {
         <div className="two-columns">
           <div><div className="why-title">BY KIND</div><Wheel slices={d.categories} total={d.total_kobo} /></div>
           <div>
-            <div className="why-title">SHARES BY INDUSTRY</div>
+            <div className="why-title">Shares by industry</div>
             {d.sectors.length === 0 && <p className="muted small">No shares are held.</p>}
             {d.sectors.slice(0, 6).map((row) => (
               <div key={row.label} className="bar-row">
@@ -234,7 +234,7 @@ export function RiskManagerWork({ player, onLoggedOut }: Props) {
                 <div className="meter"><div className="meter-fill" style={{ width: `${row.share_bps / 100}%` }} /></div>
               </div>
             ))}
-            <div className="why-title">SHARES BY CITY</div>
+            <div className="why-title">Shares by city</div>
             {d.cities.map((row) => (
               <div key={row.label} className="bar-row">
                 <div className="row"><span>{row.label}</span><span className="mono">{formatPercent(row.share_bps)} <span className="muted">· {formatCompact(row.value_kobo)}</span></span></div>
@@ -323,13 +323,13 @@ export function LawyerWork({ player, onLoggedOut }: Props) {
             <span className="small">{pact.status}{!pact.legal && <span className="change-down"> · unlawful</span>}{pact.exposed && " · uncovered"}</span>
           </div>
         ))}
-        {room && room.cases.length > 0 && <div className="why-title">PROVED THEFTS IN THE EMPIRE</div>}
+        {room && room.cases.length > 0 && <div className="why-title">Proved thefts in the empire</div>}
         {room?.cases.map((item) => <div key={item.id} className="row"><span>{item.who} <span className="muted small">· {item.category}</span></span><span className="mono">{formatNaira(item.amount_kobo)} · {item.status}</span></div>)}
       </Panel>
 
       <Panel title="Case workspace" aside={`${d.sector} · ${d.headquarters}`}>
         <CompanyPicker value={d.ticker} companies={d.companies} onChange={setTicker} />
-        <div className="why-title">PARTIES: WHO CONTROLS IT</div>
+        <div className="why-title">Parties: who controls it</div>
         <p className="small">{d.control}</p>
         {d.holders.map((holder) => (
           <div key={holder.holder} className="bar-row">
@@ -337,7 +337,7 @@ export function LawyerWork({ player, onLoggedOut }: Props) {
             <div className="meter"><div className="meter-fill" style={{ width: `${holder.share_bps / 100}%` }} /></div>
           </div>
         ))}
-        {d.bid && <p className="small"><span className="card-tag">TAKEOVER</span> An offer of {formatNaira(d.bid.price_kobo)} a share is open{d.bid.hostile ? ", against the board's advice" : ""}. It closes with {d.bid.closes_label}. A buyer needs more than half the shares to take control.</p>}
+        {d.bid && <p className="small"><span className="card-tag">Takeover</span> An offer of {formatNaira(d.bid.price_kobo)} a share is open{d.bid.hostile ? ", against the board's advice" : ""}. It closes with {d.bid.closes_label}. A buyer needs more than half the shares to take control.</p>}
         <div className="why-title">Risks: who is paid first if it fails ({d.period_label}, as filed)</div>
         <div className="scroll" tabIndex={0}>
           <table>
@@ -363,7 +363,7 @@ export function LawyerWork({ player, onLoggedOut }: Props) {
             <span className="small change-down">{row.reasons.join(" · ")}</span>
           </div>
         ))}
-        {d.exposed_pacts.length > 0 && <div className="why-title">PACTS THAT HAVE COME TO LIGHT</div>}
+        {d.exposed_pacts.length > 0 && <div className="why-title">Pacts that have come to light</div>}
         {d.exposed_pacts.map((pact, index) => <div key={index} className="row"><span>{pact.one} and {pact.other}</span><span className={pact.legal ? "muted small" : "small change-down"}>{pact.kind}{pact.legal ? "" : " · unlawful"}</span></div>)}
       </Panel>
 
@@ -561,7 +561,7 @@ export function HeadWork({ player, onLoggedOut }: Props) {
           <div className="queue">
             {waiting.slice(0, 3).map((words, index) => (
               <article key={words} className={index === 0 ? "card card-first" : "card"}>
-                <div className="card-top"><span className="card-tag">AWAITING APPROVAL</span></div>
+                <div className="card-top"><span className="card-tag">Awaiting approval</span></div>
                 <h3>{words}</h3>
                 <a className={index === 0 ? "button-primary" : "button-outline"} href="#/empire">Open the War Room</a>
               </article>
@@ -586,7 +586,7 @@ export function HeadWork({ player, onLoggedOut }: Props) {
         <div className="two-columns">
           <div><Wheel slices={d.assets} total={d.worth_kobo} /></div>
           <div>
-            <div className="why-title">KEY HOLDINGS</div>
+            <div className="why-title">Key holdings</div>
             {d.holdings.length === 0 && <p className="muted small">The empire holds no shares yet. An investment task ends with a purchase.</p>}
             {d.holdings.map((h) => (
               <div key={h.ticker} className="row"><span><a href={`#/companies/${h.ticker}`}>{h.name}</a> <span className="muted small">{h.sector} · {h.city}</span></span><span className="mono">{formatCompact(h.value_kobo)} <span className="muted">· {formatPercent(h.share_bps)}</span></span></div>
