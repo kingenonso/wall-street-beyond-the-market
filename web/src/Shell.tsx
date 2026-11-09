@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FocusEvent, type ReactNode } from "react";
 import { api, type NewsAlert, type NewsAlertMark, type Player } from "./api";
 import { CommandBar } from "./CommandBar";
-import { formatLagosDate, formatLagosTime, formatNaira, MARKET_LABEL } from "./format";
+import { formatNaira } from "./format";
 import { ProfilePicture } from "./icons";
 import { PriceTicker } from "./Ticker";
 import { play } from "./sound";
@@ -17,17 +17,6 @@ export function Wordmark() {
       <span className="wordmark-main">WALL STREET</span>
       <span className="wordmark-sub">BEYOND THE MARKET</span>
     </div>
-  );
-}
-
-export function MarketPill({ live }: { live: LiveClock | null }) {
-  if (!live) return <span className="pill pill-closed">Connecting…</span>;
-  const state = live.clock.market_state;
-  return (
-    <span className={`pill pill-${live.clock.closing_rush ? "opening_auction" : state}`} title={live.clock.closing_rush ? "Closing Rush" : MARKET_LABEL[state]}>
-      <span className="pill-dot" aria-hidden="true" />
-      <span className="pill-label">{live.clock.closing_rush ? "Closing Rush" : MARKET_LABEL[state]}</span>
-    </span>
   );
 }
 
@@ -55,30 +44,106 @@ function VolumeSlider({ player, onPlayer }: { player: Player; onPlayer?: (player
   );
 }
 
-/** Zone 1 of the standard layout: the top bar. */
-function TopBar({ player, live, onLogout, onPlayer }: {
-  player: Player; live: LiveClock | null; onLogout: () => void; onPlayer?: (player: Player) => void;
+/**
+ * A strip button that opens a list. Used for the sections menu, the Viewing chooser and the player's own
+ * menu, so all three behave the same way: a click opens, Escape closes, a click outside closes, and the
+ * focus goes back to the button when it shuts.
+ */
+function StripMenu({ label, children, className = "", menuLabel }: {
+  label: ReactNode; children: ReactNode; className?: string; menuLabel?: string;
 }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: MouseEvent) => { if (box.current && !box.current.contains(event.target as Node)) setOpen(false); };
+    const key = (event: KeyboardEvent) => { if (event.key === "Escape") { setOpen(false); button.current?.focus(); } };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", key); };
+  }, [open]);
+  return (
+    <div className={`strip-menu ${className}`} ref={box}>
+      <button ref={button} type="button" className="strip-item" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((v) => !v)}>
+        {label} <span aria-hidden="true" className="strip-caret">▾</span>
+      </button>
+      {open && (
+        <div className="strip-sheet" role="menu" aria-label={menuLabel} onClick={() => setOpen(false)}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Fullscreen, toggled from the strip. Works only where the browser allows it, which is why it is a button. */
+function FullscreenButton() {
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    const read = () => setFull(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", read);
+    read();
+    return () => document.removeEventListener("fullscreenchange", read);
+  }, []);
+  function toggle() {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => undefined);
+    else document.documentElement.requestFullscreen?.().catch(() => undefined);
+  }
+  return (
+    <button type="button" className="strip-item" onClick={toggle} aria-pressed={full}>
+      {full ? "Leave fullscreen" : "Fullscreen"}
+    </button>
+  );
+}
+
+/**
+ * Zone 1 of the standard layout: the strip across the top, in three groups as the reference has it.
+ * The left group is navigation and the game's own pages; the middle group is set apart because its
+ * items are not pages at all but switches on the whole world; the right group says what you are
+ * looking at and who you are.
+ */
+function Strip({ player, current, onLogout, onPlayer }: {
+  player: Player; current: string;
+  onLogout: () => void; onPlayer?: (player: Player) => void;
+}) {
+  const here = sectionOf(player, current);
+  const viewing = viewingLabel(player, current);
   return (
     <header className="topbar">
-      <a href="#/" className="plain-link topbar-mark"><Wordmark /></a>
-      <CommandBar player={player} />
-      {/* One row: the game's date and the Lagos time, the market's state. The full date is in the tooltip. */}
-      <div className="topbar-clock">
-        {live && (
-          <span className="mono topbar-date" title={`${formatLagosDate(live.now)} · ${formatLagosTime(live.now)} Lagos`}>
-            {shortGameDate(live)}<span className="muted topbar-time"> · {formatLagosTime(live.now).slice(0, 5)} Lagos</span>
-          </span>
-        )}
-        <MarketPill live={live} />
-        {live && live.clock.test_weeks_ahead > 0 && (
-          <span className="pill pill-test" title={`A test world, fast-forwarded ${live.clock.test_weeks_ahead} ${live.clock.test_weeks_ahead === 1 ? "week" : "weeks"}`}>
-            Test +{live.clock.test_weeks_ahead}w
-          </span>
-        )}
+      <div className="strip-left">
+        <StripMenu label={<><span aria-hidden="true">☰</span> Menu</>} menuLabel="Sections">
+          <nav className="strip-links" aria-label="Sections">
+            {sectionsFor(player).map((section) => (
+              <a key={section.path} href={`#/${section.path}`} className={section.path === (here?.path ?? "") ? "current" : ""}>
+                {section.label}
+                {(section.count ?? 0) > 0 && <span className="count">{section.count}</span>}
+              </a>
+            ))}
+          </nav>
+        </StripMenu>
+        <FullscreenButton />
+        <a className="strip-item" href="#/help">Help</a>
+        <a className="strip-item" href="#/about">About</a>
       </div>
-      {/* The player: cash, and the picture that opens their menu (their name, build, sound and settings are inside it). */}
-      <div className="topbar-player">
+
+      {/* The world's switches, set away from the navigation on purpose: none of these is a page. */}
+      <nav className="strip-world" aria-label="Settings for the whole world">
+        <WorldSwitch label="Change Law Firm" />
+        <WorldSwitch label="Toggle Global Autopilot" />
+        <WorldSwitch label="Cheats" />
+        <WorldSwitch label="Insurance" />
+      </nav>
+
+      <div className="strip-right">
+        <StripMenu label={<><span className="muted">Viewing:</span> {viewing}</>} menuLabel="What you are looking at">
+          <nav className="strip-links" aria-label="What you are looking at">
+            <a href="#/">Your page</a>
+            <a href="#/portfolio">Your portfolio</a>
+            <a href="#/market">The market</a>
+            {player.empire && !player.empire.forming && <a href="#/empire">{player.empire.name}</a>}
+          </nav>
+        </StripMenu>
         <div className="mono cash" title="Your cash">{formatNaira(player.cash.amount_kobo)}</div>
         <a href="#/search" className="icon-button phone-only" aria-label="Search or jump to">
           <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
@@ -89,9 +154,18 @@ function TopBar({ player, live, onLogout, onPlayer }: {
   );
 }
 
-function shortGameDate(live: LiveClock): string {
-  const date = live.clock.game_date;
-  return date ? `Y${date.year} · Q${date.quarter} · Day ${date.day_of_quarter}` : "Not open yet";
+/**
+ * One of the world's switches. None of the four has an engine behind it yet, so each is shown dimmed —
+ * the grammar the reference uses for a thing you cannot do — and says in its tooltip what it will do
+ * once it exists. Nothing here pretends to work.
+ */
+function WorldSwitch({ label }: { label: string }) {
+  return (
+    <button type="button" className="strip-item strip-world-item" disabled aria-disabled="true"
+            title={`${label}: not built yet`}>
+      {label}
+    </button>
+  );
 }
 
 /**
@@ -279,6 +353,25 @@ export function sectionOf(player: Player, current: string): Section | undefined 
   return sectionsFor(player).find((s) => s.path === current || (s.tabs ?? []).some((t) => t.path === current));
 }
 
+/**
+ * The words after "Viewing:" in the strip: the page's own name, so the strip always says what you are
+ * looking at. A page that is a tab of a section is named as the tab, because that is what the player
+ * opened; a page with no name of its own falls back to the player's own page.
+ */
+const PAGE_NAMES: Record<string, string> = {
+  help: "Help", about: "About", search: "Search", more: "More", messages: "Messages",
+  rank: "Rank", profile: "Profile", talent: "Proven Talent",
+};
+
+function viewingLabel(player: Player, current: string): string {
+  for (const section of sectionsFor(player)) {
+    if (section.path === current) return section.label;
+    const tab = (section.tabs ?? []).find((t) => t.path === current);
+    if (tab) return tab.label;
+  }
+  return PAGE_NAMES[current] ?? "Your page";
+}
+
 /** Along the top of a page that shares its section with others: the section's pages, as links. */
 function SectionTabs({ player, current }: { player: Player; current: string }) {
   const section = sectionOf(player, current);
@@ -391,6 +484,44 @@ export function SearchWork({ player }: { player: Player }) {
   );
 }
 
+/** How to get about: the handful of keys and places that save the most time. Nothing here is invented. */
+export function HelpWork() {
+  return (
+    <>
+      <h1>Help</h1>
+      <Panel title="Finding your way">
+        <div className="more-list">
+          <p className="small">The search line at the top of every page takes a company's code or name, a page, or what you want to do. <kbd>Ctrl K</kbd> puts the cursor in it from anywhere.</p>
+          <p className="small">The tape across the top is the day's prices. Click a code to open that company.</p>
+          <p className="small">The strip along the very top says what you are looking at. Click <span className="strong">Viewing:</span> to change it.</p>
+          <p className="small">The tabs on a page move with the arrow keys; <kbd>Home</kbd> and <kbd>End</kbd> go to the first and the last. <kbd>Escape</kbd> closes any menu.</p>
+          <p className="small">The first thing on a page is a link that skips straight to its content, for anybody working by keyboard.</p>
+        </div>
+      </Panel>
+      <Panel title="When something is wrong">
+        <div className="more-list">
+          <p className="small">Nothing you do here can lose money silently: every figure on a screen comes from the server, and every trade is written down before it is shown to you.</p>
+          <p className="small">If a page will not load, reload it. If it still will not load, the number on the screen may be older than the market — read it again before you act on it.</p>
+        </div>
+      </Panel>
+    </>
+  );
+}
+
+/** What the game is, in a few sentences, for anybody who lands here without knowing. */
+export function AboutWork() {
+  return (
+    <>
+      <h1>About</h1>
+      <Panel title="Wall Street: Beyond the Market">
+        <p className="small">A market simulation set in Nigeria. You start with cash, a bank account and a name, and you buy, sell, borrow, lend, build companies and — if you choose — break the law in ways the courts will notice.</p>
+        <p className="small">Every company in the market has accounts, a board, employees and a share price that moves with what it earns. The world keeps its own clock: quarters close, companies file, dividends are paid, and the courts sit whether or not you are watching.</p>
+        <p className="small">Money is counted in naira and kobo, and every naira that moves is written in a ledger before anybody sees it. Nothing on a screen is decided by the screen.</p>
+      </Panel>
+    </>
+  );
+}
+
 /**
  * The standard layout every screen uses (design document, section 18):
  * top bar, sections menu, work area and context rail.
@@ -437,11 +568,13 @@ export function Shell({ player, live, current, onLogout, onPlayer, work, rail, a
   return (
     <div className="app" data-accent={accent ?? player.accent ?? undefined}>
       <a href="#main" className="skip-link" onClick={(e) => { e.preventDefault(); document.getElementById("main")?.focus(); }}>Skip to the page</a>
-      <TopBar player={player} live={live} onLogout={onLogout} onPlayer={onPlayer} />
-      <PriceTicker />
+      <Strip player={player} current={current} onLogout={onLogout} onPlayer={onPlayer} />
+      <PriceTicker live={live} />
       <div className={wide ? "shell shell-wide" : "shell"}>
         <SectionsMenu player={player} current={current} />
-        <main className="work" id="main" tabIndex={-1}><SectionTabs player={player} current={current} />{work}</main>
+        <main className="work" id="main" tabIndex={-1}>
+          <div className="work-bar"><CommandBar player={player} /></div>
+          <SectionTabs player={player} current={current} />{work}</main>
         {!wide && <aside className="rail" aria-label="Context">{rail}</aside>}
       </div>
       <BottomBar player={player} current={current} />

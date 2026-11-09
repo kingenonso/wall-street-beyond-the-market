@@ -21,7 +21,7 @@ import { BorrowRail, BorrowWork } from "./Borrow";
 import { CurrenciesWork } from "./Currencies";
 import { useRoute } from "./hooks";
 import { ProfileRail, ProfileWork } from "./Profile";
-import { MoreWork, Panel, SearchWork, Shell } from "./Shell";
+import { AboutWork, HelpWork, MoreWork, Panel, SearchWork, Shell } from "./Shell";
 import { play, setSoundSettings, unlockOnFirstTouch } from "./sound";
 import { RankRail, RankWork } from "./Rank";
 import { MessagesRail, MessagesWork, partnerFrom } from "./Messages";
@@ -197,6 +197,14 @@ export function App() {
   } else if (section === "search") {
     current = "search";
     work = <SearchWork player={player} />;
+    rail = <></>;
+  } else if (section === "help") {
+    current = "help";
+    work = <HelpWork />;
+    rail = <></>;
+  } else if (section === "about") {
+    current = "about";
+    work = <AboutWork />;
     rail = <></>;
   } else if (section === "messages") {
     current = "messages";

@@ -2,7 +2,8 @@ import { useState, type FormEvent } from "react";
 import { api, ApiError, type Player, type ProfileIcon, type SignUpPending } from "./api";
 import { formatLagosTime } from "./format";
 import { ProfilePicture } from "./icons";
-import { MarketPill, Wordmark } from "./Shell";
+import { Wordmark } from "./Shell";
+import { MarketPill } from "./Ticker";
 import type { LiveClock } from "./useClock";
 
 type Mode = "login" | "signup";

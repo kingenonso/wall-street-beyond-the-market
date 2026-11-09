@@ -158,3 +158,45 @@ describe("the desk's two devices survive", () => {
     expect(rule(".tape-row.wire .tape-text")).toMatch(/-webkit-line-clamp:\s*2/);
   });
 });
+
+describe("the strip across the top", () => {
+  const shell = readFileSync(new URL("./Shell.tsx", import.meta.url), "utf8");
+  const ticker = readFileSync(new URL("./Ticker.tsx", import.meta.url), "utf8");
+
+  it("is three groups, and sets the world's switches apart from the navigation", () => {
+    for (const group of [".strip-left", ".strip-world", ".strip-right"]) {
+      expect(rule(group), `${group} has lost its layout`).toMatch(/display:\s*flex/);
+    }
+    // The middle group is not a page among pages: a rule keeps the eye from reading it as navigation.
+    expect(rule(".strip-world")).toMatch(/border-left/);
+  });
+
+  it("puts the game's date and the market's state on the tape row, not in the strip", () => {
+    expect(ticker).toMatch(/className="tape-date"/);
+    expect(ticker).toMatch(/<MarketPill/);
+    expect(shell, "the date has crept back into the strip").not.toMatch(/tape-date/);
+  });
+
+  /**
+   * The loophole check for the four switches that have no engine behind them — the law firm, the two
+   * autopilots, the cheats and insurance. A button that looks ready and does nothing is a lie to the
+   * player, so while a switch is unbuilt it must be shown dimmed and disabled, which is also what the
+   * colour grammar already means by dimmed. When one of them is built, this test changes with it, in
+   * the same commit, and that change is the reminder that the others are still dark.
+   */
+  it("ships no switch that pretends to work before its engine does", () => {
+    for (const label of ["Change Law Firm", "Toggle Global Autopilot", "Cheats", "Insurance"]) {
+      expect(shell, `the strip has lost the ${label} switch`).toContain(`label="${label}"`);
+    }
+    const start = shell.indexOf("function WorldSwitch");
+    expect(start, "no WorldSwitch in Shell.tsx").toBeGreaterThan(-1);
+    const body = shell.slice(start, shell.indexOf("\n}", start));
+    expect(body, "WorldSwitch now renders a button that does something, but no engine exists yet").toMatch(/disabled/);
+    expect(rule(".strip-item:disabled")).toMatch(/opacity|color/);
+  });
+
+  it("keeps the search line reachable now that it is not in the strip", () => {
+    expect(rule(".work-bar")).toMatch(/margin-bottom/);
+    expect(shell).toMatch(/<div className="work-bar"><CommandBar/);
+  });
+});
