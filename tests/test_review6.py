@@ -273,7 +273,7 @@ def test_one_pact_of_a_kind_between_two_empires_and_no_reward_for_uncovering_you
     with pytest.raises(empires.EmpireError, match="already have a pact of that kind"):
         empires.draft_pact(db, scribe, other["id"], "alliance", "We stand together against all comers.", NOW9)
     always(monkeypatch, True)
-    with pytest.raises(empires.EmpireError, match="does not investigate the empire they sit in"):
+    with pytest.raises(empires.EmpireError, match="do not investigate the empire you sit in"):
         empires.investigate(db, scribe, empire["id"], NOW9)
     assert empires.investigate(db, scribe, other["id"], NOW9)["found"] is False            # their own empire's pact is not theirs to uncover
     reporter, _ = pro(db, "investment_banker", "reporter")
