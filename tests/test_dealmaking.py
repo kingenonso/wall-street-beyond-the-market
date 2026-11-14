@@ -344,8 +344,10 @@ def test_a_truce_stops_poaching_and_offers_for_each_others_companies(db):
 
 def test_two_empires_merge_by_their_members_votes_and_every_owner_keeps_what_their_share_was_worth(db):
     empire, team = firm_of(db, n_cash=2_000_000_000)
-    # Seven seats an empire (a head and two for each build): the smaller empire's head and banker fill the two seats left.
-    other, them = house(db, "Delta Partners", builds=("investment_banker",), cash_naira=1_000_000_000, head_build="risk_manager")
+    # Seven places an empire (the head's chair and two seats for each build): Lagoon House has one seat left in each
+    # build, and the smaller empire's three (its head, a banker and an Asset Manager) fill them.
+    other, them = house(db, "Delta Partners", builds=("investment_banker", "asset_manager"), cash_naira=1_000_000_000,
+                        head_build="risk_manager")
     company = own(db, other, "RWH")
     worth_a, worth_b = empires.worth(db, empire, LATER)["total"], empires.worth(db, other, LATER)["total"]
     value_b = {p["player_id"]: p["value"] for p in firm_money.partners(db, other, LATER)}
@@ -359,8 +361,9 @@ def test_two_empires_merge_by_their_members_votes_and_every_owner_keeps_what_the
     assert combo["status"] == "voting"
     firm.propose(db, them["head"], "merger_join", {"combination_id": combo["id"]}, LATER)
     r = _one(db, "SELECT * FROM empire_resolutions WHERE empire_id = %s AND kind = 'merger_join'", (other["id"],))
-    if r["status"] == "open":
-        firm.vote(db, them["investment_banker"], r["id"], True, LATER)
+    for voter in (them["investment_banker"], them["asset_manager"]):
+        if _one(db, "SELECT status FROM empire_resolutions WHERE id = %s", (r["id"],))["status"] == "open":
+            firm.vote(db, voter, r["id"], True, LATER)
     assert _one(db, "SELECT status FROM empires WHERE id = %s", (other["id"],))["status"] == "merged"
     merged = empires._empire(db, empire["id"])
     assert cash(db, other["account_id"]) == 0 and ledger.amount_in_existence(db) == money

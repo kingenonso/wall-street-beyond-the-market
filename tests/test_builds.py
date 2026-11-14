@@ -89,12 +89,14 @@ def test_every_piece_of_new_work_can_be_taken_done_right_and_is_paid_by_its_name
         assert "company_id" not in taken["terms"] and taken["result"] is None
         if template.bell is not None:
             give_shares(db, account, "IDC", 40_000), give_shares(db, account, "GGM", 40_000), give_shares(db, account, "EKC", 40_000)
+            if code == "am_spread":                       # five companies from three industries or more, none above 30%
+                give_shares(db, account, "IKB", 40_000), give_shares(db, account, "AGA", 40_000)
             bonds.trade(db, account=account, code=next(b for b in bonds.listing(db, NOW9) if b["kind"] == "bill")["code"],
                         side="buy", units=100, now=NOW9)
             for n in range(1, 4):
                 bell(db, n)
             done = state_of(db, taken["id"])
-            assert done["state"] == "passed", done["result"]
+            assert done["state"] == "passed", (code, done["result"])
         elif template.close is None:
             answers = right_answers(db, taken["id"])
             other, _ = pro(db, build, f"{build}{index}b")
