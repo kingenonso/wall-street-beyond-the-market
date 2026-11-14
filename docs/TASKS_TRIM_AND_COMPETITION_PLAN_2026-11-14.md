@@ -1,6 +1,19 @@
 # Tasks for three builds, and work that makes empires compete
 
-Written 14 November 2026, for the owner's approval. Nothing here is deleted or built until the owner says so.
+Written 14 November 2026. **The trim was approved by the owner the same day ("approve the tasks") and is built** on the
+branch `tasks-trim`: `simulation/objectives.py` (`NEWSROOM`, `RETIRED`), migration 047, `tests/test_tasks_trim.py`.
+The competition part still waits for the owner's approval.
+
+What building it found and fixed on the way:
+- When the six builds became three, the retired builds' rank cases were renamed onto the merged builds' names, and a
+  later entry under the same name replaces an earlier one. The Investment Banker's rank case had become the
+  journalist's investigation. Each build has its own case again.
+- Migration 045 could not have run on a game with any work done by the three retired builds: work is guarded as a
+  permanent record, and 045 moved it without lifting the guard. It now lifts it for that one statement, and moves the
+  work's syllabus map with it.
+
+The old Part 4c on the branch `home-part-4c` (10 industries, 35 companies) is dropped, as the owner decided on
+14 November 2026: main's Part 4c (6 industries, 24 companies) is the one the game keeps. The branch stays on GitHub.
 
 ## Where the tasks stand today
 

@@ -214,3 +214,16 @@ def government_budget(db, period: int) -> int:
         if kind != "bill":
             replaced += min(repaid, sold)                 # borrowed again to replace bonds repaid: not for spending
     return max(collected + max(borrowed - replaced, 0) - coupons - discount, 0)
+
+
+def taken_before_retirement(monkeypatch, *codes):
+    """Test set-up: work that was retired from the board on 14 November 2026 (simulation/objectives.RETIRED), as if it had
+    been taken on before then. Work in hand when a kind is retired still finishes and is marked, so its marking is still
+    tested; it is only never offered again."""
+    import dataclasses
+    from simulation import objectives
+    for code in codes:
+        for variant in (code, code + "_e", code + "_w"):
+            if variant in objectives.TEMPLATES:
+                monkeypatch.setitem(objectives.TEMPLATES, variant,
+                                    dataclasses.replace(objectives.TEMPLATES[variant], retired=False))

@@ -94,6 +94,7 @@ class Template:
     setting: str = "solo"               # 'solo' (alone), 'empire' (with the empire) or 'live' (a weekend challenge)
     base: str | None = None             # the solo piece of work this is another setting of
     bonus_bps: int = BPS                # what it pays and teaches, against the solo piece
+    retired: bool = False               # True: no longer offered; work already in hand finishes, records stay
 
     @property
     def root(self) -> str:
@@ -1405,17 +1406,54 @@ def _grow_library() -> None:
             TEMPLATES[variant.code] = variant
 
 
+# Three builds, 14 November 2026 (owner: "approve the tasks"). The newsroom's work is open to every build, as its own
+# syllabus map, and the experience it earns goes to the player's own build, as the head's work does. Thirty-eight kinds
+# of work that repeated others are retired: they are never offered again, but anything in hand finishes as it was
+# given and every record of them stays. See docs/TASKS_TRIM_AND_COMPETITION_PLAN_2026-11-14.md.
+NEWSROOM = frozenset({"jr_results", "jr_economy", "jr_verify", "jr_scoop", "jn_nudge", "jn_short", "jn_bank_losses",
+                      "jn_source_odds", "jn_declare", "jn_exclusive"})
+RETIRED = frozenset({
+    # The Accountant's, now the Asset Manager's: a repeat of another, or too narrow.
+    "ac_bills", "ac_forecast", "ac_press_check", "ac_deferred", "ac_carry", "ac_lease", "ac_property", "ac_retail_margin",
+    # The Legal Counsel's, now the Investment Banker's.
+    "lw_zoning", "lw_claims_advice", "lw_consent", "lw_lending", "lw_currency_clause", "lw_prepublication",
+    "lw_lease_break", "lw_preferred", "lw_closeout",
+    # The journalism that was a "report this market" variation of the same skill.
+    "jn_check_story", "jn_company_risk", "jr_rate", "jn_foreign_money", "jr_league", "jn_expose_ready", "jn_oil_naira",
+    "jn_property", "jn_readers", "jn_rate_read", "jn_film_quarter", "jn_open_interest", "jn_preferred", "jn_hedging",
+    "jn_property_index", "jn_infrastructure", "jn_real_wages", "jn_repossessions", "jn_breadth", "jn_scoop",
+    "jn_front_page",
+})
+
+
+def _trim_library() -> None:
+    for code in NEWSROOM | RETIRED:
+        if code not in TEMPLATES:
+            raise RuntimeError(f"The library has no work called {code}.")
+    for code in NEWSROOM:
+        TEMPLATES[code] = dataclasses.replace(TEMPLATES[code], build="newsroom")
+    for code in RETIRED:
+        # A retired piece of work that was the newsroom's still counts there, so a record of it reads in one place.
+        build = "newsroom" if code.startswith(("jn_", "jr_")) else TEMPLATES[code].build
+        TEMPLATES[code] = dataclasses.replace(TEMPLATES[code], build=build, retired=True)
+
+
+_trim_library()
 _grow_library()
-TRACKS = (*careers.BUILDS, "ceo")
+TRACKS = (*careers.BUILDS, "newsroom", "ceo")
 
 
 def track_name(track: str) -> str:
-    return "Leadership" if track == "ceo" else careers.BUILDS[track]["name"]
+    if track == "ceo":
+        return "Leadership"
+    if track == "newsroom":
+        return "The newsroom"
+    return careers.BUILDS[track]["name"]
 
 
 def modules(build: str) -> list[dict]:
     return [{"module": t.module, "template": t.code, "title": t.title, "idea": t.idea, "level": t.level}
-            for t in TEMPLATES.values() if t.build == build and t.setting == "solo" and t.listed]
+            for t in TEMPLATES.values() if t.build == build and t.setting == "solo" and t.listed and not t.retired]
 
 
 def mastery(conn: Connection, player_id, track: str) -> list[dict]:
@@ -1582,7 +1620,8 @@ def ceo_open(conn: Connection, player_id, career: dict | None) -> bool:
 def _open_to(conn: Connection, template: Template, player_id, career: dict | None) -> bool:
     if career is None:
         return False
-    return template.build == career["build"] or (template.build == "ceo" and ceo_open(conn, player_id, career))
+    return (template.build in (career["build"], "newsroom")
+            or (template.build == "ceo" and ceo_open(conn, player_id, career)))
 
 
 def _empire_work_done(conn: Connection, player_id, period: int) -> int:
@@ -1602,7 +1641,7 @@ def board(conn: Connection, player_id, now: datetime) -> dict:
                 "skills": [], "coverage": {"learned": 0, "modules": 0}, "limit": data.MAX_ACTIVE_OBJECTIVES, "weekend": challenge,
                 "tracks": [], "settings": data.SETTINGS}
     build = mine["build"]
-    tracks = [build] + (["ceo"] if ceo_open(conn, player_id, mine) else [])
+    tracks = [build, "newsroom"] + (["ceo"] if ceo_open(conn, player_id, mine) else [])
     rows = _rows(conn, "SELECT * FROM objectives WHERE player_id = %s AND build = %s ORDER BY id DESC LIMIT 90", (player_id, build))
     active = [_public(o) for o in rows if o["state"] == "active"]
     finished = [_public(o) for o in rows if o["state"] != "active"][:12]
@@ -1624,7 +1663,7 @@ def board(conn: Connection, player_id, now: datetime) -> dict:
     taken = {o["template"] for o in rows if o["period"] == ctx["period"] and "step_id" not in o["terms"]}
     taken_roots = {(o["track"], o["root"]) for o in rows if o["period"] == ctx["period"] and "step_id" not in o["terms"]}
     in_hand = {o["template"] for o in rows if o["state"] == "active"}
-    for template in (t for t in TEMPLATES.values() if t.build in tracks and t.listed):
+    for template in (t for t in TEMPLATES.values() if t.build in tracks and t.listed and not t.retired):
         offer = {"template": template.code, "module": template.module, "title": template.title, "idea": template.idea,
                  "how": how_to(template),
                  "kind": template.kind, "level": template.level, "reward": _reward(template, ctx["wage_index_bps"]),
@@ -1695,6 +1734,8 @@ def accept(conn: Connection, player_id, code: str, now: datetime, step: dict | N
         mine = ctx["career"]
         if template is None or mine is None or not _open_to(conn, template, player_id, mine) or (not template.listed and not step):
             raise ObjectiveError("That work is not open to your build.")
+        if template.retired and not step:
+            raise ObjectiveError("That work is no longer offered.")
         if template.setting == "live" and not weekend(now)["open"]:
             raise ObjectiveError("Weekend challenges are open from Friday 18:00 to Sunday 22:00 (Lagos time).")
         if template.payer == "empire" and not step and _empire_work_done(conn, player_id, ctx["period"]) >= data.EMPIRE_WORK_A_QUARTER:

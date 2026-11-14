@@ -24,7 +24,7 @@ from simulation import firm_practice, objectives_industries, private, quarters
 from simulation import news, news_kinds
 from simulation import world_data as data
 from simulation.money import BPS, apply_bps, million_naira, naira
-from tests.conftest import after_quarters
+from tests.conftest import after_quarters, taken_before_retirement
 from tests.test_builds import pro, right_answers
 from tests.test_careers import NOW9, professional, sound
 from tests.test_dealmaking import cash, house, job_truth
@@ -511,8 +511,9 @@ def test_objective_am_growth_rates(db):
     assert "rate" in verdict["debrief"]["plain"].lower()
 
 
-def test_objective_ac_retail_margin(db):
+def test_objective_ac_retail_margin(db, monkeypatch):
     """The Accountant: a grocer's margin, and how little its sales may fall."""
+    taken_before_retirement(monkeypatch, "ac_retail_margin")
     f, answers, verdict = sits(db, "asset_manager", "ac_retail_margin", "grocer")
     gross = f["sales"] * f["margin"] / 100
     profit = gross * (1 - f["overhead"] / 100)
@@ -523,8 +524,9 @@ def test_objective_ac_retail_margin(db):
     assert "margin" in verdict["debrief"]["plain"].lower()
 
 
-def test_objective_jn_film_quarter(db):
+def test_objective_jn_film_quarter(db, monkeypatch):
     """The Journalist: a studio's quarter, and what it looks like without the hit."""
+    taken_before_retirement(monkeypatch, "jn_film_quarter")
     f, answers, verdict = sits(db, "investment_banker", "jn_film_quarter", "film")
     sales = f["hit"] + f["other"]
     cost = sales * f["cost"] / 100
@@ -536,7 +538,7 @@ def test_objective_jn_film_quarter(db):
     assert "hit" in verdict["debrief"]["plain"].lower()
     # Entertainment is a subject for the journalist, not an employer: this is the journalist's piece, and no
     # build is given a film company to work for (decided 3 November 2026, in the checklist).
-    assert objectives.TEMPLATES["jn_film_quarter"].build == "investment_banker"
+    assert objectives.TEMPLATES["jn_film_quarter"].build == "newsroom"
 
 
 def test_objective_rm_gas_cost(db):
@@ -556,8 +558,9 @@ def test_objective_rm_gas_cost(db):
     assert "gas" in verdict["debrief"]["plain"].lower()
 
 
-def test_objective_lw_currency_clause(db):
+def test_objective_lw_currency_clause(db, monkeypatch):
     """The Legal Counsel: a supply contract, and who carries the currency risk."""
+    taken_before_retirement(monkeypatch, "lw_currency_clause")
     f, answers, verdict = sits(db, "investment_banker", "lw_currency_clause", "clause")
     extra = f["order"] * f["fall"] / 100
     assert abs(answers["extra"] - extra) <= 0.011

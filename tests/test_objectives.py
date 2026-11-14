@@ -17,7 +17,7 @@ from psycopg.rows import dict_row
 from simulation import bonds, careers, clock, exchange, ledger, marketview, objectives, quarters
 from simulation import world_data as data
 from simulation.money import BPS, naira
-from tests.conftest import ADULT, WORLD_START, after_quarters, join, money_accounted_for
+from tests.conftest import ADULT, WORLD_START, after_quarters, join, money_accounted_for, taken_before_retirement
 from tests.test_careers import NOW9, pass_one, professional, sound
 
 pytestmark = pytest.mark.world("eight")
@@ -173,7 +173,8 @@ def test_harder_work_opens_with_level(db):
     assert objectives.accept(db, player, "ac_rating", NOW9)["state"] == "active"
 
 
-def test_each_piece_of_work_once_a_quarter_and_three_in_hand_at_most(db):
+def test_each_piece_of_work_once_a_quarter_and_three_in_hand_at_most(db, monkeypatch):
+    taken_before_retirement(monkeypatch, "ac_forecast")
     player, _ = accountant(db, level=5)
     for code in ("ac_ratios", "ac_cash_flow", "ac_income"):
         objectives.accept(db, player, code, NOW9)
@@ -316,7 +317,8 @@ def test_finishing_the_income_statement_and_the_tax(db):
     assert objectives.submit(db, player, taken["id"], right, NOW9)["state"] == "passed"
 
 
-def test_a_sales_forecast_is_judged_by_what_the_company_then_files(db):
+def test_a_sales_forecast_is_judged_by_what_the_company_then_files(db, monkeypatch):
+    taken_before_retirement(monkeypatch, "ac_forecast")
     good, _ = accountant(db, level=2)
     bad, _ = professional(db, "bola", now=NOW9)
     careers.add_experience(db, bad, "asset_manager", careers.experience_for(2), NOW9)
@@ -341,7 +343,8 @@ def test_a_sales_forecast_is_judged_by_what_the_company_then_files(db):
     sound(db)
 
 
-def test_the_auditors_call_on_whether_a_company_can_pay(db):
+def test_the_auditors_call_on_whether_a_company_can_pay(db, monkeypatch):
+    taken_before_retirement(monkeypatch, "ac_bills")
     players = [accountant(db, f"player{n}", level=3)[0] for n in range(6)]
     taken = {p: objectives.accept(db, p, "ac_bills", NOW9) for p in players}
     for index, p in enumerate(players):

@@ -27,20 +27,15 @@ from simulation import objectives as o
 from simulation import world_data as data
 from simulation.money import apply_bps, naira
 
-# The parts of each track's case. Those marked True are done on the one company the case is about.
+# The parts of each track's case. Those marked True are done on the one company the case is about. One case to a track:
+# the retired builds' cases went with them (a dictionary keeps only the last of two cases under one name).
 CASES = {
-    "asset_manager": ("A full review of a company's accounts",
-                   (("ac_ratios", True), ("ac_cash_flow", True), ("ac_income", True))),
     "asset_manager": ("A client's portfolio, a valuation and the risk in its bonds",
                       (("am_review", False), ("ib_multiples", True), ("rm_shock", False))),
     "investment_banker": ("A full company valuation and how to finance it",
                           (("ib_multiples", True), ("ib_capacity", True), ("ib_rights", True), ("ib_bond", False))),
     "risk_manager": ("A full risk review: cash, a bad quarter and a rate shock",
                      (("rm_liquidity", True), ("rm_stress", True), ("rm_shock", False))),
-    "investment_banker": ("A contested transfer of a company: who controls it, what it owes, and whether its promises hold",
-               (("lw_control", True), ("lw_debts", True), ("lw_contract", True), ("lw_rules", False))),
-    "investment_banker": ("A published investigation: the results, the claims made about them, and the industry around them",
-                   (("jr_results", True), ("jr_verify", True), ("jr_league", False))),
     "ceo": ("The board's review of a business: its return, its costs, its dividend and a takeover",
             (("ce_return", True), ("ce_breakeven", True), ("ce_payout", True), ("ce_buy", True))),
 }

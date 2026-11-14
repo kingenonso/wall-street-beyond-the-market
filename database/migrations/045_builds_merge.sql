@@ -85,7 +85,13 @@ UPDATE employments e SET build = m.new FROM build_merge m WHERE e.build = m.old;
 -- Work, past and in hand. Every piece of work belongs to the build it becomes, judged or not, so
 -- that the syllabus and the mastery map are read from one list of three and not from a mix.
 -- ---------------------------------------------------------------------------
+-- Work is guarded as a permanent record (migration 015): its build cannot change once it is taken on. This is the one
+-- time the game itself moves it, so the guard is lifted for this statement only and put back at once. The track (the
+-- syllabus map the work counts towards) moves with it, or the work done would stop counting.
+ALTER TABLE objectives DISABLE TRIGGER objectives_guarded;
 UPDATE objectives o SET build = m.new FROM build_merge m WHERE o.build = m.old;
+UPDATE objectives o SET track = m.new FROM build_merge m WHERE o.track = m.old;
+ALTER TABLE objectives ENABLE TRIGGER objectives_guarded;
 
 -- An open rank case moves to the merged track and is sat as it was, fee paid and all. A judged
 -- case is a record.

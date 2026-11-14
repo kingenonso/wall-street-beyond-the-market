@@ -15,7 +15,7 @@ from psycopg.rows import dict_row
 
 from simulation import careers, ledger, objectives, quarters
 from simulation.money import naira
-from tests.conftest import ADULT, after_quarters, join
+from tests.conftest import ADULT, after_quarters, join, taken_before_retirement
 from tests.test_careers import NOW9, OPEN, pass_one, professional, sound
 from tests.test_objectives import accountant, bell, give_shares, manager, state_of
 
@@ -105,7 +105,8 @@ def test_a_fund_chosen_during_the_quarter_takes_effect_from_the_next(db):
 
 # 5 and 6. Answers that are not ordinary numbers are refused at the door, and never reach the books.
 @pytest.mark.world("eight")
-def test_answers_that_are_not_ordinary_numbers_are_refused(db, client):
+def test_answers_that_are_not_ordinary_numbers_are_refused(db, client, monkeypatch):
+    taken_before_retirement(monkeypatch, "ac_forecast")
     player, _ = accountant(db, "zed", level=2)
     taken = objectives.accept(db, player, "ac_forecast", NOW9)
     for bad in ("nan", "inf", "-inf", "1e999", float("nan"), float("inf"), -5, 0):

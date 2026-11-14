@@ -13,7 +13,7 @@ from psycopg.types.json import Jsonb
 from simulation import (articles, careers, chronicle, clients, exchange, investors, ledger, newsroom, newsroom_facts, objectives,
                         objectives_news, quarters, ripple, standing)
 from simulation import world_data as data
-from tests.conftest import after_quarters
+from tests.conftest import after_quarters, taken_before_retirement
 from tests.test_builds import pro
 from tests.test_careers import NOW9, sound
 from tests.test_firm import firm_of
@@ -339,7 +339,8 @@ def test_pay_rises_with_reach_and_an_independent_is_paid_by_the_paper_that_picks
     sound(db)
 
 
-def test_the_news_work_comes_three_ways_with_named_editors_who_remember(db):
+def test_the_news_work_comes_three_ways_with_named_editors_who_remember(db, monkeypatch):
+    taken_before_retirement(monkeypatch, "jn_check_story", "jn_front_page")
     assert len(objectives_news.NEWS) == 12
     for t in objectives_news.NEWS:
         assert {x.setting for x in objectives.TEMPLATES.values() if x.root == t.code} == {"solo", "empire", "live"}
