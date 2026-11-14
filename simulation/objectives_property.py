@@ -2,12 +2,12 @@
 
 The Asset Manager judges whether a building is worth buying for its rent; the Accountant follows a mortgaged
 building's cash for a quarter; the Investment Banker puts together the money for a purchase; the Risk Manager
-stress-tests a mortgage against a fall in prices; Legal Counsel reads a title before a purchase; the Financial
+stress-tests a mortgage against a fall in prices; Investment Banker reads a title before a purchase; the Financial
 Journalist reports a district's quarter. They follow the same rules as the rest of the library (objectives.py):
 practical work, judged by the server, paid by the player's employer.
 
 The real property in the game is used only for what anybody may see (its rent, its value, its district's
-figures). A title's flaws are never used: Legal Counsel's case files are exercises, made up for the paper.
+figures). A title's flaws are never used: Investment Banker's case files are exercises, made up for the paper.
 """
 
 from __future__ import annotations

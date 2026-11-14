@@ -27,7 +27,7 @@ def test_a_new_player_joins_an_empire_from_the_first_day_and_uses_the_war_room(d
     room = joined.json()["room"]
     assert room["name"] == first["name"] and room["your_build"] == "asset_manager" and room["run_by_computer"] and not room["is_head"]
     assert len(room["seats"]) == 6 and sum(1 for s in room["seats"] if s["you"]) == 1
-    assert room["can_audit"] and not room["can_trade"]
+    assert room["can_audit"] and room["can_trade"]          # the Asset Manager trades for the empire (three builds)
 
     # The chat.
     assert client.post("/api/empire/messages", json={"body": "Good morning."}).json()["room"]["messages"][-1]["body"] == "Good morning."
@@ -118,7 +118,7 @@ def test_the_new_build_screens_have_their_figures_and_show_nothing_hidden(db, cl
     assert book["book"] == "empire" and book["book_name"] == league[0]["name"] and int(book["total_kobo"]) > naira(1_000_000_000)
     assert client.get("/api/desk/risk-manager?book=own").json()["book"] == "own"
     head = client.get("/api/desk/head").json()
-    assert int(head["worth_kobo"]) == int(book["total_kobo"]) and head["staff"] == 6 and head["players"] == 1
+    assert int(head["worth_kobo"]) == int(book["total_kobo"]) and head["staff"] == 5 and head["players"] == 1     # six seats, one held by the player
     me = client.get("/api/me").json()
     assert me["empire"]["name"] == league[0]["name"] and me["empire"]["is_head"] is False and me["empire"]["place"] in (1, 2, 3, 4, 5)
     for seen in (banker, lawyer, own, book, head):

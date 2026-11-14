@@ -7,7 +7,7 @@ work in, and their own saving for retirement. They choose one of the six banks, 
 interest on the cash they leave with it. Their level comes from the work they finish.
 
 The builds are the Asset Manager, the Risk Manager and the Investment Banker. The accountancy,
-law and journalism work the Accountant, Legal Counsel and Financial Journalist used to carry is
+law and journalism work the Accountant, Investment Banker and Financial Journalist used to carry is
 now done at those three desks — the Asset Manager signs the accounts, the Investment Banker
 gives legal approval, and every build may write the news. Nothing here makes money. A player's
 salary is carved out of the wage bill their employer already pays: the player takes the place of
@@ -54,7 +54,7 @@ BUILDS = {
 }
 # The builds are the Asset Manager, the Risk Manager and the Investment Banker. The
 # accountancy work the Accountant carried is done at the Asset Manager's desk, and the legal
-# and journalism work the Legal Counsel and Financial Journalist carried is done at the
+# and journalism work the Investment Banker and Financial Journalist carried is done at the
 # Investment Banker's desk. The newsroom is open to every build. A player may hold up to three
 # builds; each keeps its own level.
 LATER_BUILDS: tuple = ()

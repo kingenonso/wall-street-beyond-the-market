@@ -699,7 +699,7 @@ DEFAULT_LOSS_BPS = 60              # each company newly in default costs this mu
 # ---------------------------------------------------------------------------
 # The three builds an empire seats, two seats each, under its head: seven places in the Ministry (owner, 9 November
 # 2026). It was six builds and thirteen seats. The retired three are gone from the game, not renamed: the Accountant's
-# audit sits with the Asset Manager, the Legal Counsel's approvals and pacts with the Investment Banker, and the
+# audit sits with the Asset Manager, the Investment Banker's approvals and pacts with the Investment Banker, and the
 # newsroom's work is open to every build. Nothing here may list a build that is not a key of careers.BUILDS.
 EMPIRE_BUILDS = ("investment_banker", "asset_manager", "risk_manager")
 EMPIRE_FOUNDING_LEVEL = 20

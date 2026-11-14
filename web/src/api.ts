@@ -721,7 +721,7 @@ export type Grant = {
 // Stage 6: empires, the War Room, pension funds run by players, and the other builds' screens.
 // ---------------------------------------------------------------------------
 export type LeagueRow = {
-  id: number; name: string; kind: string; worth_kobo: Kobo; trust: number; members: number; place: number;
+  id: number; name: string; kind: string; worth_kobo: Kobo; trust: number; members: number; place: number; places?: number;
   seats_open: number; run_by: string; yours: boolean; applied: boolean;
 };
 export type EmpireDirectory = {

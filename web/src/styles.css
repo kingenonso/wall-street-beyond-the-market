@@ -1370,7 +1370,7 @@ fieldset.check-list .check-line { display: flex; gap: 6px; align-items: center; 
   font-size: 12.5px;
 }
 .tape-row:first-child { border-top: 0; }
-.tape-stamp { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+.tape-stamp { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 a.tape-stamp:hover { color: var(--gold); text-decoration: none; }
 .tape-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
 .tape-text .tape-name { color: var(--muted); }

@@ -1,7 +1,7 @@
 // Retirement, as a page of its own under Money.
 //
 // The owner's instruction of 9 November 2026 was that retirement should "go hard". It was already a
-// rule in the engine — eight per cent of every salary, the employer's ten on top, six kinds of fund
+// rule in the engine — eight per cent of every salary, the employer's ten on top, four kinds of fund
 // with their own weaknesses, an early pension that is smaller for good, one early withdrawal in a
 // whole career — but it was three levels down inside Work › Career, below the payslips, and the only
 // way to see where it was heading was to wait a decade. This page is the whole of it in one place,

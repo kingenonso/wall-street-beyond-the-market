@@ -61,8 +61,8 @@ def intel_desk(player: dict = Depends(current_player), conn: Connection = Depend
     now = _exchange_time(conn)
     out = {"tip": intel.sealed_tip(conn, player["id"], now), "mine": intel.mine(conn, player["id"], now),
            "market": intel.market(conn, player["id"], now), "feed": intel.desk_feed(conn, player["id"], now)}
-    if player["build"] == "investment_banker":
-        level = careers.career(conn, player["id"], "investment_banker")
+    if player["build"]:                                  # sources are open to every build, as the newsroom is
+        level = careers.career(conn, player["id"], player["build"])
         out["sources"] = intel.sources(conn, player["id"], now)
         out["sources_allowed"] = intel.sources_allowed(level["level"] if level else 1)
     return wire(out)

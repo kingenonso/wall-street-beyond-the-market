@@ -1,7 +1,7 @@
 """Stage 9: work about borrowing, short selling and derivatives, one piece for each of the six builds.
 
 The Asset Manager measures a loan against shares through a fall; the Accountant prices a future from the cost of
-carry; the Investment Banker uses put-call parity; the Risk Manager works out value at risk; Legal Counsel reads a
+carry; the Investment Banker uses put-call parity; the Risk Manager works out value at risk; Investment Banker reads a
 securities lending agreement; the Financial Journalist reports a share's short interest. They follow the same
 rules as the rest of the library (objectives.py): practical work, judged by the server, paid by the employer.
 Only public figures are used: share prices, each share's own swing, and today's interest rate.

@@ -305,7 +305,7 @@ def test_an_empire_borrows_and_shorts_inside_the_risk_managers_limits_and_above_
     signed(db, team, 1_000_000, 0, NOW9)
     member_of_am = None
     from tests.test_firm import member
-    member_of_am = member(db, empire, team["head"], "asset_manager", "trader")
+    member_of_am = team["asset_manager"]          # both Asset Manager seats are taken: the head and this partner
     from tests.test_derivatives import ready
     ready(db, member_of_am)
     inside = lending_empire.borrow(db, member_of_am, bank_id(db), naira(500_000), NOW9)

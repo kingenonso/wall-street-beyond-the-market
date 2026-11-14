@@ -102,7 +102,7 @@ def test_r5_an_empires_bank_swap_takes_the_banks_price_when_signed(db):
     asked = swaps.propose(db, banker, kind="rate", counterparty={"bank": bank_id(db)}, side="receive_fixed", quarters=2,
                           notional=naira(100_000_000), now=NOW9, for_empire=True)
     db.execute("UPDATE swaps SET fixed_bps = 9000 WHERE id = %s", (asked["swap_id"],))          # a stale price from long ago
-    for kind, who in (("swap_draft", team["investment_banker"]), ("swap_risk", team["risk_manager"]), ("swap_sign", team["head"])):
+    for kind, who in (("swap_risk", team["risk_manager"]), ("swap_sign", team["head"])):       # the banker drafts as they put it
         approval = _one(db, "SELECT * FROM empire_approvals WHERE empire_id = %s AND kind = %s AND status = 'waiting'", (empire["id"], kind))
         firm.decide(db, who, approval["id"], True, "Agreed.", NOW9)
     s = _one(db, "SELECT * FROM swaps WHERE id = %s", (asked["swap_id"],))
@@ -144,7 +144,7 @@ def test_r10_the_asset_manager_buys_for_the_empire_inside_the_limit(db):
     from fastapi import HTTPException
     from tests.test_firm import member
     empire, team = firm_of(db, n_cash=5_000_000_000)
-    am = ready(db, member(db, empire, team["head"], "asset_manager", "dealerof"))
+    am = ready(db, team["asset_manager"])          # both Asset Manager seats are taken: the head and this partner
     idc = _one(db, "SELECT * FROM companies WHERE ticker = 'IDC'")
     inst = instruments.grant_warrants(db, idc, {ledger.account_id(db, ledger.INVESTORS_INSTITUTIONS): 100_000}, strike=price_of(db, "IDC"),
                                       expiry_period=12, period=9, why="test", now=NOW9)

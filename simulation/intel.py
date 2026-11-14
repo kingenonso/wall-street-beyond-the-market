@@ -385,8 +385,8 @@ def give(conn: Connection, player_id, ref: str, to_name: str, now: datetime) -> 
         to = _one(conn, "SELECT id, build, display_name FROM players WHERE lower(display_name) = lower(%s)", ((to_name or "").strip(),))
         if to is None or to["id"] == player_id:
             raise IntelError("There is no other player of that name.")
-        if to["build"] != "investment_banker":
-            raise IntelError("Information is given to a Financial Journalist, who can check it and print it.")
+        if to["build"] is None:
+            raise IntelError("Information is given to a player with a build, who can check it and print it.")
         if not hold(conn, item["id"], to["id"], "given", now, from_player=player_id):
             raise IntelError(f"{to['display_name']} already holds it.")
         if item["source_id"]:
@@ -478,8 +478,8 @@ def mine(conn: Connection, player_id, now: datetime, limit: int = 40) -> list[di
 
 def _journalist(conn: Connection, player_id) -> dict:
     p = _player(conn, player_id)
-    if p["build"] != "investment_banker":
-        raise IntelError("Only a Financial Journalist builds sources.")
+    if p["build"] is None:
+        raise IntelError("Choose a build first: sources are built by anyone who writes for the newsroom.")
     return p
 
 
@@ -489,8 +489,8 @@ def sources_allowed(level: int) -> int:
 
 def cultivate(conn: Connection, player_id, kind: str, ticker: str | None, now: datetime) -> dict:
     """Begin building a source inside a company, or in the ministries. It takes two quarters; one new source a quarter."""
-    _journalist(conn, player_id)
-    level = _level(conn, player_id, "investment_banker")
+    me = _journalist(conn, player_id)
+    level = _level(conn, player_id, me["build"])
     w = _now(conn, now)
     with conn.transaction():
         conn.execute("SELECT pg_advisory_xact_lock(hashtext('sources:' || %s))", (str(player_id),))
@@ -732,7 +732,7 @@ def desk_feed(conn: Connection, player_id, now: datetime, limit: int = 12) -> di
             outcome = {"confirmed": "borne out", "disproved": "proved wrong", None: "not yet settled"}[r["lead_outcome"]]
             items.append({"what": f"Unconfirmed report: “{r['headline']}”: {outcome}.", "at": r["published_at"]})
     elif build == "investment_banker":
-        # legal/pacts and deals (formerly Legal Counsel + Investment Banker)
+        # legal/pacts and deals (formerly Investment Banker + Investment Banker)
         for r in _rows(conn, "SELECT a.name AS a, b.name AS b, p.legal, p.exposed_at FROM empire_pacts p JOIN empires a ON a.id = p.from_empire"
                              " JOIN empires b ON b.id = p.to_empire WHERE p.exposed_at IS NOT NULL ORDER BY p.exposed_at DESC LIMIT %s", (limit,)):
             items.append({"what": f"{'An unlawful' if not r['legal'] else 'A lawful'} pact between {r['a']} and {r['b']} came to light.",

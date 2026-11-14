@@ -619,7 +619,7 @@ def _settle_dangers(conn, opinion, period, now):
 
 
 # ---------------------------------------------------------------------------
-# The Legal Counsel's desk
+# The Investment Banker's desk
 # ---------------------------------------------------------------------------
 
 def _holdings_pct(ctx) -> list[dict]:

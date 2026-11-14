@@ -7,7 +7,7 @@ Only the difference moves, at each quarter's close, from the first quarter after
 quarter that is running is already known, so it would be no bargain at all).
 
 A bank takes the other side at once, at its own price (a little in its favour). Another player or empire must accept.
-Inside an empire a swap is the Investment Banker's to structure (or the head's), then Legal Counsel drafts it, the
+Inside an empire a swap is the Investment Banker's to structure (or the head's), then Investment Banker drafts it, the
 Risk Manager signs, and the head signs: each a request that passes up the usual way if a desk is slow.
 
 Nobody holds collateral. If one side cannot pay, the other is owed what is missing (a shortfall, in default). Measuring
@@ -218,7 +218,6 @@ def propose(conn: Connection, player_id, *, kind: str, counterparty: dict, side:
             if not isinstance(barrels, int) or isinstance(barrels, bool) or not 0 < barrels <= data.SWAP_MOST_BARRELS:
                 raise SwapError(f"Name the barrels a quarter, at most {data.SWAP_MOST_BARRELS:,}.")
             notional = None
-        check_room(conn, account, kind, notional, barrels, now)
         other, bank = _counterparty(conn, counterparty)
         if other == account:
             raise SwapError("A swap needs two different sides.")
@@ -230,6 +229,7 @@ def propose(conn: Connection, player_id, *, kind: str, counterparty: dict, side:
         if empire is not None and _one(conn, "SELECT 1 FROM empire_seats s JOIN ledger_accounts a ON a.player_id = s.player_id"
                                              " WHERE s.empire_id = %s AND a.id = %s", (empire["id"], other)):
             raise SwapError("An empire does not deal with its own members.")
+        check_room(conn, account, kind, notional, barrels, now)    # who it is with is checked first: then whether it fits
         if bank:
             fixed = _bank_fixed(conn, kind, side, now)
         elif not isinstance(fixed, int) or isinstance(fixed, bool) or fixed <= 0 or (kind == "rate" and fixed > 10_000):
@@ -241,7 +241,7 @@ def propose(conn: Connection, player_id, *, kind: str, counterparty: dict, side:
                    (kind, account, side, other, bank, notional, barrels, fixed if kind == "rate" else None,
                     fixed if kind in ("oil", "fx") else None, quarters, "signing" if empire else "proposed", player_id, now))
         if empire is not None:
-            _ask(conn, row, empire, "swap_draft", "investment_banker", player_id, "proposer", state["period"], now)
+            _drafted(conn, row, empire, player_id, "proposer", state["period"], now)
             return {"swap_id": row["id"], "waiting": True, "status": "signing"}
         return _after_proposer(conn, row, now)
 
@@ -268,7 +268,7 @@ def accept(conn: Connection, player_id, swap_id: int, now: datetime, *, for_empi
         check_room(conn, account, swap["kind"], swap["notional"], swap["barrels"], now)
         if empire is not None:
             conn.execute("UPDATE swaps SET status = 'countersigning', accepted_by = %s WHERE id = %s", (player_id, swap_id))
-            _ask(conn, swap, empire, "swap_draft", "investment_banker", player_id, "counter", state["period"], now)
+            _drafted(conn, swap, empire, player_id, "counter", state["period"], now)
             return {"swap_id": swap_id, "waiting": True, "status": "countersigning"}
         return _activate(conn, swap, player_id, now)
 
@@ -306,7 +306,7 @@ def _activate(conn: Connection, swap: dict, accepted_by, now: datetime) -> dict:
             "first_period": first}
 
 
-# Inside an empire: Legal Counsel drafts, the Risk Manager signs, the head signs (each passes up if the desk is slow).
+# Inside an empire: Investment Banker drafts, the Risk Manager signs, the head signs (each passes up if the desk is slow).
 
 def _ask(conn: Connection, swap: dict, empire: dict, kind: str, desk: str, asked_by, side: str, period: int, now: datetime) -> None:
     titles = {"swap_draft": "Draft the swap", "swap_risk": "Sign the swap's risk", "swap_sign": "Sign the swap"}
@@ -316,13 +316,25 @@ def _ask(conn: Connection, swap: dict, empire: dict, kind: str, desk: str, asked
              period=period, now=now)
 
 
-def _draft(conn: Connection, approval: dict, now: datetime) -> None:
-    swap = _one(conn, "SELECT * FROM swaps WHERE id = %s FOR UPDATE", (approval["payload"]["swap_id"],))
+def _write_contract(conn: Connection, swap: dict) -> None:
     words = (f"{describe(swap)}. The fixed side pays the fixed {'rate on the sum' if swap['kind'] == 'rate' else 'price for the barrels'}; "
              f"the floating side pays the {'Central Bank rate in force that quarter' if swap['kind'] == 'rate' else 'oil price in force that quarter'}; "
              "only the difference is paid, at each quarter's close. No collateral is held: what one side fails to pay is owed to the "
              "other. Neither side may end it early.")
     conn.execute("UPDATE swaps SET contract = %s WHERE id = %s", (words, swap["id"]))
+
+
+def _drafted(conn: Connection, swap: dict, empire: dict, asked_by, side: str, period: int, now: datetime) -> None:
+    """The Investment Banker who puts the swap drafts its terms as they put it (the Lawyer who drafted them is retired with
+    the three builds; asking the banker to approve their own draft would leave it waiting for ever)."""
+    _write_contract(conn, swap)
+    _ask(conn, swap, empire, "swap_risk", "risk_manager", asked_by, side, period, now)
+
+
+def _draft(conn: Connection, approval: dict, now: datetime) -> None:
+    # A draft asked for before the three builds: drafted when decided.
+    swap = _one(conn, "SELECT * FROM swaps WHERE id = %s FOR UPDATE", (approval["payload"]["swap_id"],))
+    _write_contract(conn, swap)
     empire = empires._empire(conn, approval["empire_id"])
     _ask(conn, swap, empire, "swap_risk", "risk_manager", approval["asked_by"], approval["payload"]["side"], approval["period"], now)
 

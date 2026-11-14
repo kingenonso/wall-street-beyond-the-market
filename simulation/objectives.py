@@ -1415,7 +1415,7 @@ NEWSROOM = frozenset({"jr_results", "jr_economy", "jr_verify", "jr_scoop", "jn_n
 RETIRED = frozenset({
     # The Accountant's, now the Asset Manager's: a repeat of another, or too narrow.
     "ac_bills", "ac_forecast", "ac_press_check", "ac_deferred", "ac_carry", "ac_lease", "ac_property", "ac_retail_margin",
-    # The Legal Counsel's, now the Investment Banker's.
+    # The Investment Banker's, now the Investment Banker's.
     "lw_zoning", "lw_claims_advice", "lw_consent", "lw_lending", "lw_currency_clause", "lw_prepublication",
     "lw_lease_break", "lw_preferred", "lw_closeout",
     # The journalism that was a "report this market" variation of the same skill.
@@ -1680,7 +1680,7 @@ def board(conn: Connection, player_id, now: datetime) -> dict:
             offer["why_not"] = ("You have worked this module in another setting this quarter. One setting of each module a quarter: "
                                 "it is on offer here again next quarter.")
         elif template.payer == "empire" and not in_empire:
-            offer["why_not"] = ("This work is for a Legal Counsel with a seat in an open empire." if template.code == "lw_pact"
+            offer["why_not"] = ("This work is for an Investment Banker with a seat in an open empire." if template.code == "lw_pact"
                                 else "For members of an open empire. Take a seat in one to practise this with your empire.")
         elif template.payer == "empire" and empire_done >= data.EMPIRE_WORK_A_QUARTER:
             offer["why_not"] = (f"You have done {data.EMPIRE_WORK_A_QUARTER} pieces of work for your empire this quarter, "

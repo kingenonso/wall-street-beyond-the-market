@@ -2,7 +2,7 @@
 
 Seven pieces for the Financial Journalist, from the editors of the three media houses (named clients who remember how
 the work went), and one for each of the other five builds tied to the news: the Accountant checks a story's figures,
-the Risk Manager rates a reputational risk, Legal Counsel reviews a story before it runs, the Asset Manager trades on
+the Risk Manager rates a reputational risk, Investment Banker reviews a story before it runs, the Asset Manager trades on
 verified news, and the Investment Banker times a deal's announcement. Each comes in the three settings.
 """
 

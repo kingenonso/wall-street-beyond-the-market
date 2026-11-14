@@ -7,7 +7,7 @@ that comes round every quarter, and the desks depend on one another:
   approvals      one desk must say yes before something happens; a request never waits for ever
   resolutions    what the members vote on, and the empire's own rules that come of it
   duties         each desk's standing work for the quarter, marked by the server, and its scorecard
-  documents      papers the Legal Counsel reads before the head signs; some clauses are traps
+  documents      papers the Investment Banker reads before the head signs; some clauses are traps
   opinions       what a member put their name to, checked later against what happened
   the record     what a head did, kept for good
 
@@ -49,7 +49,7 @@ STAFF_DUTY_SCORE = 70               # computer-run staff do a duty reliably, and
 STAFF_CATCHES_BPS = 7000            # the staff's chance of catching each trap in a paper
 DUTY_PASS = 60                      # a duty done at this score or better was done well
 DUTY_EXPERIENCE = 50                # what a duty done perfectly teaches, before rank
-OVERRULE_DESKS = ("risk_manager", "investment_banker")     # the Legal Counsel's overrule is the Investment Banker's
+OVERRULE_DESKS = ("risk_manager", "investment_banker")     # the Investment Banker's overrule is the Investment Banker's
 REASON_KINDS = ("trade", "bond_trade", "deal", "legal", "venture")       # a yes to these needs a written reason, as a no always does
 LEAGUE = {"duty_missed": -1, "well_run": 3}
 DESKS = (*data.EMPIRE_BUILDS, "head")
@@ -306,14 +306,14 @@ def decide(conn: Connection, player_id, approval_id: int, approve: bool, reason:
 
 
 def overrule(conn: Connection, head_id, approval_id: int, reason: str, now: datetime) -> None:
-    """The head overrules the Risk Manager's or the Legal Counsel's refusal. It is carried out, and it goes
+    """The head overrules the Risk Manager's or the Investment Banker's refusal. It is carried out, and it goes
     on the head's record for good: if it turns out badly, it counts against the head, not the desk."""
     with conn.transaction():
         state = _open(conn, now)
         empire = empires._head(conn, head_id)
         approval = _approval(conn, approval_id, empire["id"])
         if approval["status"] != "refused" or approval["desk"] not in OVERRULE_DESKS or approval["decided_as"] not in ("desk", "staff"):
-            raise EmpireError("Only a refusal by the Risk Manager's or the Legal Counsel's desk can be overruled.")
+            raise EmpireError("Only a refusal by the Risk Manager's or the Investment Banker's desk can be overruled.")
         if _hours(approval["decided_at"], now) > OVERRULE_HOURS:
             raise EmpireError("That refusal has stood for two days. It is too late to overrule it; ask again.")
         reason = _text(reason or "")[:400]
@@ -782,7 +782,7 @@ def duties_view(conn: Connection, seat: dict, empire: dict, state: dict, now: da
 
 
 # ---------------------------------------------------------------------------
-# Documents: the Legal Counsel reads before the head signs
+# Documents: the Investment Banker reads before the head signs
 # ---------------------------------------------------------------------------
 STRIKE_COST_WORDS = "Each fair clause struck out is one the other side charges for."
 
@@ -832,11 +832,11 @@ def _finish_review(conn: Connection, doc: dict, struck: list[str], reviewer, by_
 
 
 def review_document(conn: Connection, player_id, document_id: int, struck: list[str], now: datetime) -> dict:
-    """The Legal Counsel reads a paper and strikes out the clauses that would hurt the empire. A trap left
+    """The Investment Banker reads a paper and strikes out the clauses that would hurt the empire. A trap left
     in stays in force. A fair clause struck out is one the other side charges for.
 
-    When the Legal Counsel's desk has had a day and done nothing, the head may read it instead (and after
-    two days the deputy): a head with no Legal Counsel signs at their own risk."""
+    When the Investment Banker's desk has had a day and done nothing, the head may read it instead (and after
+    two days the deputy): a head with no Investment Banker signs at their own risk."""
     with conn.transaction():
         state = _open(conn, now)
         seat, empire = _active(conn, player_id)

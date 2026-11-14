@@ -8,7 +8,7 @@ work when six industries open at once:
   retail        the Accountant            a grocer's margin, and how little sales may fall
   entertainment the Journalist            a studio's quarter, and what it looks like without the hit
   fertiliser    the Risk Manager          a cost that follows the gas price
-  pharma        the Legal Counsel         a supply contract, and who carries the currency risk
+  pharma        the Investment Banker         a supply contract, and who carries the currency risk
 
 Each is one new module in its build's syllabus, at Level 5, so the four modules a new player
 starts with are untouched. Each comes in the three settings like every other piece, because
@@ -274,7 +274,7 @@ piece("rm_gas_cost", "risk_manager", "Cost risk from an input price", "When the 
 
 
 # ---------------------------------------------------------------------------
-# The Legal Counsel: who carries the currency risk (pharma)
+# The Investment Banker: who carries the currency risk (pharma)
 # ---------------------------------------------------------------------------
 
 def _supply_contract(ctx, r):

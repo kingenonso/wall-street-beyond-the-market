@@ -53,7 +53,7 @@ TASK_KINDS = {
 }
 DEFEND_FALL_BPS = 1000              # a holding is under pressure when its price is 10% below what the empire paid on average, or a bid is open for it
 # The chains name three builds, not six (owner, 9 November 2026). The Accountant's check is the Asset Manager's,
-# the Legal Counsel's reading of the paper is the Investment Banker's, and the research note that opened the
+# the Investment Banker's reading of the paper is the Investment Banker's, and the research note that opened the
 # defence sits with the desk that now keeps the accounts. The wording of each step is kept.
 RAISE_STEPS = (
     ("investment_banker", None, "Design the raising: a loan, a bond or a stake", "The design, to the Asset Manager"),
@@ -455,7 +455,7 @@ def _draw(conn: Connection, empire: dict, period: int, now: datetime) -> dict | 
         issued = {sid: sh["shares"] for sid, sh in shares.items()}
         big = [h for h in held if h["shares"] * BPS >= 500 * max(issued.get(h["company_id"], 1), 1)]
         filings = ("holdings_and_bids" if any(corporate.bid_for(conn, h["company_id"]) for h in big) else "holdings") if big else "none"
-        return {"kind": kind, "body": "The financial regulator has sent an inspector. The Accountant must state the quarter's costs to date, the Legal Counsel "
+        return {"kind": kind, "body": "The financial regulator has sent an inspector. The Accountant must state the quarter's costs to date, the Investment Banker "
                                       "the filings the empire is bound by, and the Risk Manager whether the empire is inside its own treasury policy.",
                 "payload": {"_costs": costs, "_inside": not breaches, "_filings": filings}}
     h = valued[_roll(conn, "which_offer", empire["id"], day) % len(valued)]

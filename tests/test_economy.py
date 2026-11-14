@@ -336,7 +336,7 @@ def test_the_economy_page_reports_households_money_and_history(client, player):
     # Every naira is somewhere, and the holders add up to all the money there is.
     assert sum(int(m["amount_kobo"]) for m in body["money"]) == int(body["money_in_existence_kobo"])
     assert {m["holder"] for m in body["money"]} >= {"Households", "Companies", "Banks and insurers", "Pension funds"}
-    assert abs(sum(s["share_bps"] for s in body["household_spending"]) - 10_000) <= 12
+    assert abs(sum(s["share_bps"] for s in body["household_spending"]) - 10_000) <= len(body["household_spending"])   # each share rounded down
 
 
 @pytest.mark.world("eight")

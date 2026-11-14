@@ -127,7 +127,7 @@ def test_q7_each_part_of_a_deal_is_done_only_by_its_desk_and_only_in_its_own_emp
     step = {s["step"]: s for s in _dicts(db, "SELECT * FROM deal_steps WHERE file_id = %s", (file_id,))}
     with pytest.raises(empires.EmpireError, match="belongs to the"):
         firm_deals.open_step(db, team["investment_banker"], step["accounts"]["id"], LATER)
-    with pytest.raises(empires.EmpireError, match="Legal Counsel"):
+    with pytest.raises(empires.EmpireError, match="Investment Banker"):
         firm_deals.mark_terms(db, team["asset_manager"], file_id, {"as_is": "strike"}, LATER)
     with pytest.raises(empires.EmpireError, match="head"):
         firm_deals.place_bid(db, team["investment_banker"], file_id, sale["asking"], 0, LATER)

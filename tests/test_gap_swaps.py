@@ -84,7 +84,7 @@ def test_inside_an_empire_counsel_drafts_the_risk_manager_signs_and_the_head_sig
     asked = swaps.propose(db, banker, kind="rate", counterparty={"bank": bank_id(db)}, side="receive_fixed", quarters=2,
                           notional=naira(100_000_000), now=NOW9, for_empire=True)
     assert asked["waiting"]
-    for kind, who in (("swap_draft", team["investment_banker"]), ("swap_risk", team["risk_manager"]), ("swap_sign", team["head"])):
+    for kind, who in (("swap_risk", team["risk_manager"]), ("swap_sign", team["head"])):       # the banker drafts as they put it
         approval = _one(db, "SELECT * FROM empire_approvals WHERE empire_id = %s AND kind = %s AND status = 'waiting'", (empire["id"], kind))
         assert approval, kind
         firm.decide(db, who, approval["id"], True, "Agreed.", NOW9)
@@ -93,8 +93,8 @@ def test_inside_an_empire_counsel_drafts_the_risk_manager_signs_and_the_head_sig
     # A refusal at any step ends it.
     again = swaps.propose(db, banker, kind="rate", counterparty={"bank": bank_id(db)}, side="pay_fixed", quarters=1,
                           notional=naira(50_000_000), now=NOW9, for_empire=True)
-    approval = _one(db, "SELECT * FROM empire_approvals WHERE empire_id = %s AND kind = 'swap_draft' AND status = 'waiting'", (empire["id"],))
-    firm.decide(db, team["investment_banker"], approval["id"], False, "The terms are one-sided.", NOW9)
+    approval = _one(db, "SELECT * FROM empire_approvals WHERE empire_id = %s AND kind = 'swap_risk' AND status = 'waiting'", (empire["id"],))
+    firm.decide(db, team["risk_manager"], approval["id"], False, "The terms are one-sided.", NOW9)
     assert _one(db, "SELECT status FROM swaps WHERE id = %s", (again["swap_id"],))["status"] == "cancelled"
     _ = member
     sound(db)

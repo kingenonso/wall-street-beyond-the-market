@@ -121,7 +121,7 @@ function Directory({ view, player, act }: { view: EmpireView; player: Player; ac
                         <td>{row.run_by}</td>
                         <td className="num mono strong">{row.points}</td>
                         <td className="num mono">{formatCompact(row.worth_kobo)}</td>
-                        <td className="num mono">{row.members} of 12</td>
+                        <td className="num mono">{row.members} of {entry?.places ?? 7}</td>
                         <td className="num mono">{row.trust}</td>
                         <td className="num mono">{row.reputation ?? 50}</td>
                         <td className="num">

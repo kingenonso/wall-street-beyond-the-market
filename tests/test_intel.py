@@ -161,8 +161,8 @@ def test_information_is_given_or_leaked_only_to_a_journalist(db):
     j = _player(db, "investment_banker", "receiver")
     other = _player(db, "asset_manager", "notajournalist")
     item = _held_item(db, p)
-    with pytest.raises(intel.IntelError, match="Financial Journalist"):
-        intel.give(db, p, item["ref"], "notajournalist", NOW9)
+    with pytest.raises(intel.IntelError, match="no other player"):           # any build may receive it: the newsroom is open to all
+        intel.give(db, p, item["ref"], "nobody_by_that_name", NOW9)
     intel.give(db, p, item["ref"], "receiver", NOW9)
     assert _one(db, "SELECT how, from_player FROM intel_holders WHERE item_id = %s AND player_id = %s", (item["id"], j)) == \
         {"how": "given", "from_player": p}
@@ -312,7 +312,7 @@ def test_a_ministry_source_is_settled_at_the_close_against_the_central_banks_dec
 
 
 def test_each_build_sees_its_own_part_of_the_public_record_and_nothing_hidden(db):
-    for build in ("investment_banker", "asset_manager", "investment_banker", "asset_manager", "risk_manager", "investment_banker"):
+    for build in ("investment_banker", "asset_manager", "risk_manager"):
         p = _player(db, build, f"feed{build}")
         feed = intel.desk_feed(db, p, NOW9)
         assert feed["build"] in intel.BUILD_WORDS.values()

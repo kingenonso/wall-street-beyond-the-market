@@ -534,7 +534,7 @@ def _mortgages(conn: Connection, period: int, rate: int, label: str) -> list[int
 
 def _title_claims(conn: Connection, period: int, label: str, companies_: set) -> None:
     """Somebody bought a property whose seller did not truly own all of it. At the next close the true owner
-    comes forward and takes their part. (Legal Counsel's title check, or a title search, would have shown it.)"""
+    comes forward and takes their part. (Investment Banker's title check, or a title search, would have shown it.)"""
     claimant = ledger.account_id(conn, ledger.INVESTORS_FOUNDERS)
     for p in _rows(conn, "SELECT * FROM properties WHERE title_flaw_bps > 0"):
         owners = holdings(conn, p["id"])

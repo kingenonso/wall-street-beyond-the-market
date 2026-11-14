@@ -194,8 +194,8 @@ def test_a_member_can_leak_only_what_is_so_the_empire_suffers_the_leak_and_may_h
     give_shares(db, empire["account_id"], company["ticker"], 1000)
     with pytest.raises(press.PressError, match="head speaks"):
         press.leak(db, team["head"], "holding", "receiver", NOW9, ticker=company["ticker"])
-    with pytest.raises(press.PressError, match="Financial Journalist"):
-        press.leak(db, team["asset_manager"], "holding", "warden", NOW9, ticker=company["ticker"])
+    with pytest.raises(press.PressError, match="Pass it to a player"):          # the press is open to every build: only a real name is needed
+        press.leak(db, team["asset_manager"], "holding", "nobody_by_that_name", NOW9, ticker=company["ticker"])
     press.leak(db, team["asset_manager"], "holding", "receiver", NOW9, ticker=company["ticker"])
     with pytest.raises(press.PressError, match="this quarter already"):
         press.leak(db, team["asset_manager"], "holding", "receiver", NOW9, ticker=company["ticker"])

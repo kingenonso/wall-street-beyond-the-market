@@ -216,9 +216,12 @@ def league(conn: Connection, now: datetime) -> list[dict]:
 # Joining and leaving
 # ---------------------------------------------------------------------------
 
-def _take_seat(conn: Connection, empire: dict, player_id, build: str, now: datetime, period: int) -> dict:
+def _take_seat(conn: Connection, empire: dict, player_id, build: str, now: datetime, period: int, *, head_chair: bool = False) -> dict:
+    if head_chair:
+        # The founder's own chair, above the two seats of their build (the seven places).
+        conn.execute("INSERT INTO empire_seats (empire_id, build, slot, staffed) VALUES (%s, %s, 0, false)", (empire["id"], build))
     seat = _one(conn, "SELECT * FROM empire_seats WHERE empire_id = %s AND build = %s AND player_id IS NULL AND NOT hq_frozen"
-                      " ORDER BY slot LIMIT 1 FOR UPDATE", (empire["id"], build))
+                      " AND (slot > 0) = %s ORDER BY slot LIMIT 1 FOR UPDATE", (empire["id"], build, not head_chair))
     if seat is None:
         raise EmpireError(f"Every {BUILD_NAMES[build]} seat in {empire['name']} is taken: all are held by players.")
     try:
@@ -268,7 +271,7 @@ def apply(conn: Connection, player_id, empire_id: int, now: datetime) -> dict:
                 raise EmpireError("That empire is not open yet.")
             _take_seat(conn, empire, player_id, player["build"], now, state["period"])
             return {"status": "accepted", "empire": empire["name"]}
-        if not _one(conn, "SELECT 1 FROM empire_seats WHERE empire_id = %s AND build = %s AND player_id IS NULL AND NOT hq_frozen",
+        if not _one(conn, "SELECT 1 FROM empire_seats WHERE empire_id = %s AND build = %s AND player_id IS NULL AND NOT hq_frozen AND slot > 0",
                     (empire_id, player["build"])):
             raise EmpireError(f"Every {BUILD_NAMES[player['build']]} seat in {empire['name']} is taken: all are held by players.")
         try:
@@ -314,6 +317,7 @@ def _vacate(conn: Connection, seat: dict, now: datetime, period: int, reason: st
     from simulation import firm
     firm.on_vacate(conn, seat, now)
     conn.execute("UPDATE empire_seats SET player_id = NULL, since = NULL, signing_limit = NULL WHERE id = %s", (seat["id"],))
+    conn.execute("DELETE FROM empire_seats WHERE id = %s AND slot = 0", (seat["id"],))     # the founder's chair goes with them
     conn.execute("UPDATE empire_resignations SET status = CASE WHEN %s::text IN ('left', 'released') THEN %s::text ELSE 'overtaken' END, ended_at = %s"
                  " WHERE player_id = %s AND status = 'waiting'", (reason, reason, now, seat["player_id"]))
     conn.execute("DELETE FROM empire_head_votes WHERE empire_id = %s AND (voter_id = %s OR candidate_id = %s)",
@@ -606,7 +610,7 @@ def found(conn: Connection, player_id, name: str, amount: int, from_savings: int
         if player["reputation"] < data.JOIN_LEAST_REPUTATION:
             raise EmpireError(f"Nobody will found an empire with somebody whose reputation is below {data.JOIN_LEAST_REPUTATION}.")
         empire = _create(conn, _name_ok(conn, name), "player", "forming", player_id, now, None)
-        _take_seat(conn, empire, player_id, player["build"], now, state["period"])
+        _take_seat(conn, empire, player_id, player["build"], now, state["period"], head_chair=True)
         _pledge(conn, empire, player_id, amount, from_savings, now)
         _log(conn, empire["id"], f"{player['display_name']} began founding {empire['name']}.", now)
         return empire
@@ -2109,8 +2113,9 @@ def directory(conn: Connection, player_id, now: datetime) -> dict:
     table = league(conn, now)
     waiting = _one(conn, "SELECT empire_id FROM empire_applications WHERE player_id = %s AND status = 'waiting'", (player_id,))
     for entry in table:
-        seats = _rows(conn, "SELECT build, player_id FROM empire_seats WHERE empire_id = %s", (entry["id"],))
+        seats = _rows(conn, "SELECT build, slot, player_id FROM empire_seats WHERE empire_id = %s", (entry["id"],))
         entry["seats_open"] = sum(1 for s in seats if s["build"] == player["build"] and s["player_id"] is None) if player["build"] else 0
+        entry["places"] = sum(1 for s in seats if s.get("slot", 1) > 0) + 1          # the seats, and the head above them
         entry["run_by"] = "the computer" if entry["kind"] == "computer" and not _one(
             conn, "SELECT head_player_id FROM empires WHERE id = %s", (entry["id"],))["head_player_id"] else "players"
         entry["yours"] = bool(mine and mine["empire_id"] == entry["id"])

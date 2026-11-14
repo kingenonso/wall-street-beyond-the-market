@@ -17,7 +17,7 @@ from tests.conftest import after_quarters
 from tests.test_builds import pro
 from tests.test_careers import NOW9, sound
 from tests.test_empires import founded
-from tests.test_firm import firm_of, member, waiting
+from tests.test_firm import vote_while_open, firm_of, member, waiting
 from tests.test_objectives import give_cash, give_shares
 
 pytestmark = pytest.mark.world("eight")
@@ -129,7 +129,8 @@ def test_f03_a_leaving_partner_is_bought_back_at_no_more_than_their_share_of_the
     give_cash(db, ledger.player_account_id(db, journalist), 10_000_000)
     empires.put_in(db, journalist, naira(10_000_000), 0, LATER)
     vote = firm.propose(db, head, "constitution", {"leaver_units": "buy_back"}, LATER)
-    firm.vote(db, accountant, vote["id"], True, LATER)
+    vote_while_open(db, accountant, vote["id"], True, LATER)
+    vote_while_open(db, journalist, vote["id"], True, LATER)
     assert firm.article(db, empire["id"], "leaver_units") == "buy_back"
     empire = empires._empire(db, empire["id"])
     worth, total = empires.worth(db, empire, LATER)["total"], firm_money.units_total(db, empire["id"])
@@ -323,7 +324,7 @@ def test_f13_a_dividend_is_not_paid_out_of_a_profit_that_is_no_longer_the_last_q
     then = after_quarters(9) + timedelta(hours=2)
     try:
         for who in ("head", "investment_banker", "risk_manager"):
-            firm.vote(db, team[who], vote["id"], True, then)
+            vote_while_open(db, team[who], vote["id"], True, then)
     except empires.EmpireError:
         pass
     assert _cash(db, team["head"]) == head_cash, "a dividend was paid after the last closed quarter made a loss of ₦50m"
@@ -406,9 +407,9 @@ def test_f17_a_lawyers_draft_contract_waits_for_the_head_to_offer_it(db):
     the member may sign it at once. The head never sees it: a Legal Counsel can give a colleague a 0-day notice (so they
     can leave for a rival at once) or a 20% share of the desk's pool, in the empire's name."""
     empire, team = firm_of(db)
-    contract = firm_people.offer_contract(db, team["investment_banker"], team["investment_banker"], 0, 2000, 0, LATER)
+    contract = firm_people.offer_contract(db, team["investment_banker"], team["asset_manager"], 0, 2000, 0, LATER)
     try:
-        firm_people.answer_contract(db, team["investment_banker"], contract["id"], True, LATER)
+        firm_people.answer_contract(db, team["asset_manager"], contract["id"], True, LATER)
     except empires.EmpireError:
         pass
     row = _one(db, "SELECT * FROM member_contracts WHERE id = %s", (contract["id"],))
@@ -446,7 +447,7 @@ def test_f20_a_counted_vote_cannot_be_rewritten(db):
     empire, team = firm_of(db)
     vote = firm.propose(db, team["risk_manager"], "treasury", {"cash_least_bps": 2000, "shares_most_bps": 5000}, LATER)
     for who in ("head", "investment_banker", "asset_manager"):
-        firm.vote(db, team[who], vote["id"], True, LATER)
+        vote_while_open(db, team[who], vote["id"], True, LATER)
     assert _one(db, "SELECT status FROM empire_resolutions WHERE id = %s", (vote["id"],))["status"] == "passed"
     with pytest.raises(Exception):
         db.execute("UPDATE empire_resolutions SET status = 'failed', outcome = 'Rewritten.' WHERE id = %s", (vote["id"],))
@@ -534,7 +535,7 @@ def test_f23_a_member_with_a_theft_case_waiting_does_not_become_acting_head_afte
     db.execute("UPDATE careers SET experience = %s WHERE player_id = %s", (careers.experience_for(45), team["investment_banker"]))
     vote = firm.call_vote(db, empire, "confidence", "Confidence?", {"subject_id": str(team["head"])}, 9, LATER)
     for who in ("asset_manager", "risk_manager", "investment_banker"):
-        firm.vote(db, team[who], vote["id"], False, LATER)
+        vote_while_open(db, team[who], vote["id"], False, LATER)
     head = empires._empire(db, empire["id"])["head_player_id"]
     assert head != team["investment_banker"], "a member with a theft case waiting became Acting Head (and now decides cases)"
 

@@ -84,7 +84,7 @@ def test_l5_new_work_sends_no_answers(db, client):
     player = _one(db, "SELECT id FROM players WHERE display_name = 'Ada'")["id"]
     client.put("/api/career/build", json={"build": "asset_manager"})
     client.put("/api/career/bank", json={"ticker": "IKB"})
-    client.put("/api/career/job", json={"ticker": "IDC"})
+    assert client.put("/api/career/job", json={"ticker": "KKI"}).status_code == 200      # an insurer: Asset Managers work for banks and insurers
     db.execute("UPDATE careers SET rank = 4, experience = %s WHERE player_id = %s", (careers.experience_for(60), player))
     taken = client.post("/api/objectives", json={"template": "ac_dilution"})
     assert taken.status_code == 201, taken.text

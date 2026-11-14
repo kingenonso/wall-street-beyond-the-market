@@ -95,7 +95,7 @@ def test_staff_are_paid_by_the_empire_each_quarter_and_the_computer_puts_idle_ca
     headings = {r["category"] for r in _dicts(db, "SELECT DISTINCT category FROM empire_books WHERE empire_id = %s AND kind = 'staff_pay'", (empire["id"],))}
     assert headings == {v[0] for k, v in data.DISGUISES.items() if k != "head"}
     wage = _dicts(db, "SELECT wage_index_bps FROM economy_results WHERE period = 8")[0]["wage_index_bps"]
-    assert paid[-1]["amount"] == 12 * careers.salary_per_quarter(data.STAFF_LEVEL, wage)
+    assert paid[-1]["amount"] == 6 * careers.salary_per_quarter(data.STAFF_LEVEL, wage)        # six seats, two for each build
     have = empires.worth(db, empire, NOW9)
     assert have["bonds"] > have["cash"] > 0
     # And each has an investment task in hand, or has finished one.
@@ -172,7 +172,7 @@ def test_an_empire_with_fewer_than_three_players_cannot_open_and_cancelling_hand
 def test_the_founder_is_acting_head_with_capped_powers(db):
     empire, (head, head_account), partners = founded(db)
     room = empires.war_room(db, head, NOW9)
-    assert room["is_head"] and room["humans"] == 3
+    assert room["is_head"] and room["humans"] == 4           # the founder and three partners
     # A head cannot pay themselves a bonus, and cannot spend more than a small part of the empire alone.
     with pytest.raises(empires.EmpireError, match="cannot pay themselves"):
         empires.pay_bonus(db, head, head, naira(1_000), "for me", NOW9)
@@ -203,10 +203,11 @@ def test_the_founder_is_acting_head_with_capped_powers(db):
 # ---------------------------------------------------------------------------
 
 def test_an_empire_of_three_humans_plus_staff_completes_a_task_that_needs_five_builds(db):
+    # (Three builds now, not five: the task's seven steps pass through every desk, the staff and the head.)
     empire, (head, _), partners = founded(db)
-    scribe, ledgerman = partners["investment_banker"][0], partners["asset_manager"][0]
-    for build in ("investment_banker", "risk_manager", "asset_manager"):
-        empires.staff_seat(db, head, build, 1, True, NOW9)
+    banker, ledgerman = partners["investment_banker"][0], partners["asset_manager"][0]
+    for build in ("investment_banker", "risk_manager"):
+        empires.staff_seat(db, head, build, 2, True, NOW9)
     task = empires.start_task(db, head, NOW9)
     with pytest.raises(empires.EmpireError, match="already started an investment task"):
         empires.start_task(db, head, NOW9)
@@ -216,27 +217,34 @@ def test_an_empire_of_three_humans_plus_staff_completes_a_task_that_needs_five_b
         return next(s for s in steps if s["status"] == "current")
 
     # A step cannot be taken out of turn, or by the wrong build.
-    with pytest.raises(empires.EmpireError, match="falls to a Financial Journalist"):
-        empires.take_step(db, ledgerman, step(ledgerman)["id"], NOW9)
-    # 1. The Financial Journalist researches the company the server chose.
-    taken = empires.take_step(db, scribe, step(scribe)["id"], NOW9)
+    with pytest.raises(empires.EmpireError, match="falls to an Asset Manager"):
+        empires.take_step(db, banker, step(banker)["id"], NOW9)
+    # 1. The Asset Manager researches the company the server chose.
+    taken = empires.take_step(db, ledgerman, step(ledgerman)["id"], NOW9)
     assert state_of(db, taken["id"])["client_company_id"] == task["company_id"] and taken["payer"] == "Lagoon House"
     cash = ledger.balance(db, empire["account_id"])
-    assert objectives.submit(db, scribe, taken["id"], right_answers(db, taken["id"]), NOW9)["state"] == "passed"
+    assert objectives.submit(db, ledgerman, taken["id"], right_answers(db, taken["id"]), NOW9)["state"] == "passed"
     assert ledger.balance(db, empire["account_id"]) == cash - taken["reward"]              # the empire pays for its own work
-    # 2. The Accountant reviews its accounts.
+    # 2. The Asset Manager reviews its accounts.
     assert step(ledgerman)["build"] == "asset_manager" and step(ledgerman)["yours_to_take"]
     taken = empires.take_step(db, ledgerman, step(ledgerman)["id"], NOW9)
     assert objectives.submit(db, ledgerman, taken["id"], ratios(db, taken["id"]), NOW9)["state"] == "passed"
-    # 3 to 5. Nobody holds the Investment Banker, Risk Manager or Legal Counsel seats: the staff do those steps, one each working day.
-    for build in ("investment_banker", "risk_manager", "asset_manager"):
+    # 3. The Investment Banker values it.
+    assert step(banker)["build"] == "investment_banker"
+    taken = empires.take_step(db, banker, step(banker)["id"], NOW9)
+    assert objectives.submit(db, banker, taken["id"], right_answers(db, taken["id"]), NOW9)["state"] == "passed"
+    # 4 and 5. Nobody takes the Risk Manager's step or the banker's second: after waiting, the staff do them.
+    for build in ("risk_manager", "investment_banker"):
         assert step(head)["build"] == build
-        empires.tick(db, NOW9)
+        for _ in range(data.STAFF_WAITS_TICKS + 1):
+            empires.tick(db, NOW9)
+            if step(head)["build"] != build:
+                break
     # 6. The head approves.
     waiting = step(head)
     assert waiting["build"] == "head" and waiting["yours_to_approve"]
     with pytest.raises(empires.EmpireError, match="Only the head"):
-        empires.approve_step(db, scribe, waiting["id"], NOW9)
+        empires.approve_step(db, banker, waiting["id"], NOW9)
     empires.approve_step(db, head, waiting["id"], NOW9)
     # 7. The Asset Manager buys, with the empire's money.
     taken = empires.take_step(db, head, step(head)["id"], NOW9)
@@ -252,9 +260,9 @@ def test_an_empire_of_three_humans_plus_staff_completes_a_task_that_needs_five_b
     done = _dicts(db, "SELECT * FROM empire_tasks WHERE id = %s", (task["id"],))[0]
     assert done["status"] == "done"
     steps = _dicts(db, "SELECT build, done_by, done_by_staff FROM empire_task_steps WHERE task_id = %s ORDER BY position", (task["id"],))
-    assert len({s["build"] for s in steps} - {"head"}) == 6 >= 5
-    assert {s["done_by"] for s in steps if s["done_by"]} == {head, scribe, ledgerman}
-    assert [s["build"] for s in steps if s["done_by_staff"]] == ["investment_banker", "risk_manager", "investment_banker"]
+    assert {s["build"] for s in steps} - {"head"} == set(data.EMPIRE_BUILDS)
+    assert {s["done_by"] for s in steps if s["done_by"]} == {head, banker, ledgerman}
+    assert [s["build"] for s in steps if s["done_by_staff"]] == ["risk_manager", "investment_banker"]
     log = " ".join(e["words"] for e in empires.war_room(db, head, NOW9)["events"])
     assert "The task is complete" in log and "Handed on" in log
     # One task a quarter: finished work cannot be started again for the experience.
@@ -265,7 +273,7 @@ def test_an_empire_of_three_humans_plus_staff_completes_a_task_that_needs_five_b
 
 def test_a_step_can_be_tried_once_and_a_failed_step_goes_to_a_colleague_or_the_staff(db):
     empire, (head, _), partners = founded(db)
-    scribe = partners["investment_banker"][0]
+    scribe = partners["asset_manager"][0]          # the first step falls to an Asset Manager
     empires.start_task(db, head, NOW9)
     first = empires.war_room(db, scribe, NOW9)["task"]["steps"][0]
     taken = empires.take_step(db, scribe, first["id"], NOW9)
@@ -276,7 +284,7 @@ def test_a_step_can_be_tried_once_and_a_failed_step_goes_to_a_colleague_or_the_s
     # With nobody else in the seat and no staff, the step waits: the head must recruit or hire.
     empires.tick(db, NOW9)
     assert empires.war_room(db, head, NOW9)["task"]["steps"][0]["status"] == "current"
-    empires.staff_seat(db, head, "investment_banker", 2, True, NOW9)
+    empires.staff_seat(db, head, "asset_manager", 2, True, NOW9)
     empires.tick(db, NOW9)
     steps = empires.war_room(db, head, NOW9)["task"]["steps"]
     assert steps[0]["status"] == "done" and steps[0]["done_by"] == "The staff"
@@ -368,7 +376,7 @@ def test_a_member_can_take_the_empires_money_disguised_in_its_books_within_their
         with pytest.raises(empires.EmpireError):
             empires.divert(db, thief, bad, NOW9)
     # Each build writes it its own way.
-    assert len({v[0] for v in data.DISGUISES.values()}) == 7
+    assert len({v[0] for v in data.DISGUISES.values()}) == len(data.DISGUISES)
     # A colleague sees the entry, but not who made it or whether it is genuine.
     mate, _ = thief_in(db, empire, "asset_manager", "mate")
     room = empires.war_room(db, mate, NOW9)
@@ -388,7 +396,7 @@ def test_an_accountants_audit_finds_it_and_the_thief_repays_with_a_fine_is_sacke
     thief, account = thief_in(db, empire, cash=1_000_000)
     auditor, _ = thief_in(db, empire, "asset_manager", "auditor", level=10)
     empires.divert(db, thief, naira(300_000), NOW9)
-    with pytest.raises(empires.EmpireError, match="Only an Accountant"):
+    with pytest.raises(empires.EmpireError, match="Only an Asset Manager"):
         empires.accountant_audit(db, thief, NOW9)
     always(monkeypatch, True)
     audit = empires.accountant_audit(db, auditor, NOW9)
@@ -448,7 +456,7 @@ def test_in_a_players_empire_the_head_decides_what_follows(db, monkeypatch):
     mine = [f["book_id"] for f in audit["findings"] if not f["yours"]]
     empires.file_audit(db, ledgerman, audit["id"], mine, NOW9)                # the auditor reports the other thief, and not themselves
     cases = empires.war_room(db, head, NOW9)["cases"]
-    assert len(cases) == 1 and cases[0]["status"] == "open" and cases[0]["who"] == "scribe"
+    assert len(cases) == 1 and cases[0]["status"] == "open" and cases[0]["who"] == "investment_banker"
     assert empires.seat_of(db, scribe) is not None
     with pytest.raises(empires.EmpireError, match="Only the head"):
         empires.decide_case(db, scribe, cases[0]["id"], False, NOW9)
@@ -589,8 +597,8 @@ def test_the_staff_accountant_audits_each_quarter_and_the_whole_thing_adds_up_ov
 def test_a_lawyer_drafts_a_pact_the_heads_sign_it_and_it_stays_hidden(db, monkeypatch):
     empire, (head, _), partners = founded(db)
     other = computer_empire(db)
-    scribe = partners["investment_banker"][0]
-    with pytest.raises(empires.EmpireError, match="drafted by a Legal Counsel"):
+    scribe = partners["asset_manager"][0]
+    with pytest.raises(empires.EmpireError, match="drafted by an Investment Banker"):
         empires.draft_pact(db, scribe, other["id"], "alliance", "We stand together against all comers.", NOW9)
     counsel, _ = pro(db, "investment_banker", "counsel", level=4)
     empires.apply(db, counsel, empire["id"], NOW9)
@@ -618,7 +626,7 @@ def test_a_lawyer_drafts_a_pact_the_heads_sign_it_and_it_stays_hidden(db, monkey
     assert _dicts(db, "SELECT trust FROM empires WHERE id = %s", (empire["id"],))[0]["trust"] == trust - data.PACT_BREAK_TRUST
     with pytest.raises(empires.EmpireError):
         empires.break_pact(db, head, pact["id"], NOW9)
-    # The Legal Counsel's work is judged when the quarter closes: the pact was signed by both.
+    # The Investment Banker's work is judged when the quarter closes: the pact was signed by both.
     assert quarters.close_due_quarters(db, after_quarters(9)) == [9]
     assert state_of(db, work["id"])["state"] == "passed"
     sound(db)
@@ -640,8 +648,9 @@ def test_a_journalist_can_uncover_a_pact_once_a_quarter_and_an_unlawful_one_cost
     assert [e["trust"] for e in _dicts(db, "SELECT trust FROM empires WHERE id IN (%s, %s)", (one["id"], two["id"]))] == [50 - data.PACT_EXPOSED_TRUST] * 2
     shown = empires.directory(db, head, NOW9)["exposed_pacts"]
     assert len(shown) == 1 and shown[0]["legal"] is False and pact["id"]
-    with pytest.raises(empires.EmpireError, match="Only a Financial Journalist"):
-        empires.investigate(db, head, one["id"], NOW9)
+    # Investigating is open to every build (the newsroom's work), but never of the empire one sits in.
+    with pytest.raises(empires.EmpireError, match="sit in"):
+        empires.investigate(db, head, empire["id"], NOW9)
 
 
 # ---------------------------------------------------------------------------

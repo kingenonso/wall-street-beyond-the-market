@@ -66,7 +66,7 @@ def test_in_a_player_run_empire_a_letter_starts_fourteen_real_days_of_notice(db)
         empires.resign(db, scribe, "Again.", NOW9)
     # The head is told; other members are not shown the letter.
     room = empires.war_room(db, head, NOW9)
-    assert [r["name"] for r in room["resignations"]] == ["scribe"] and room["resignations"][0]["letter"].startswith("I have had")
+    assert [r["name"] for r in room["resignations"]] == ["investment_banker"] and room["resignations"][0]["letter"].startswith("I have had")
     assert empires.badge(db, head, NOW9)["waiting"] >= 1
     other = empires.war_room(db, partners["asset_manager"][0], NOW9)
     assert other["resignations"] == [] and other["resignation"] is None
@@ -326,7 +326,7 @@ def test_growth_is_measured_with_money_put_in_by_members_left_out(db):
 def test_every_player_is_ranked_within_their_build(db):
     top, _ = pro(db, "investment_banker", "top", level=12)
     low, _ = pro(db, "investment_banker", "low", level=3)
-    pro(db, "investment_banker", "elsewhere", level=19)
+    pro(db, "asset_manager", "elsewhere", level=19)            # another build: not in this table
     table = leagues.build_table(db, "investment_banker", low)
     assert [(p["name"], p["place"]) for p in table["top"]] == [("top", 1), ("low", 2)] and table["your_place"] == 2
     assert table["top"][1]["you"] and "id" not in table["top"][0]

@@ -398,7 +398,8 @@ def publish_expose(conn: Connection, player_id, file_id: int, now: datetime) -> 
         conn.execute("UPDATE journalist_profiles SET readers = readers + %s, stories = stories + 1, scoops = scoops + 1,"
                      " credibility = least(credibility + %s, 100), following = following + %s WHERE player_id = %s",
                      (readers, data.EXPOSE_CREDIBILITY, readers * data.FOLLOW_SHARE_BPS // BPS, player_id))
-        careers.add_experience(conn, player_id, "investment_banker", 150, now)
+        writer = _one(conn, "SELECT build FROM players WHERE id = %s", (player_id,))["build"]
+        careers.add_experience(conn, player_id, writer, 150, now)        # the newsroom is open to every build
         from simulation import chronicle
         chronicle.write(conn, "personal", f"story:{story['id']}", "investigation", f"An exposé: {headline}",
                         f"{author['display_name']} published “{headline}” for {outlet_name}: {readers:,} readers.", period, day, now,
@@ -544,7 +545,7 @@ def who_is_looking(conn: Connection, empire_id, now: datetime) -> list[dict]:
             ORDER BY s.id DESC LIMIT 40""",
                    (since, w["period"], w["period"], w["day"], empire_id, empire_id, f'[{{"empire_id": {int(empire_id)}}}]', tickers, empire_id)):
         out.setdefault(s["who"], []).append(f"Wrote: “{s['headline']}”")
-    return sorted(({"investment_banker": k, "traces": v[:8], "count": len(v)} for k, v in out.items()), key=lambda r: -r["count"])
+    return sorted(({"journalist": k, "traces": v[:8], "count": len(v)} for k, v in out.items()), key=lambda r: -r["count"])
 
 
 # ---------------------------------------------------------------------------

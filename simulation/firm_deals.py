@@ -1,10 +1,10 @@
 """Private equity stage, part 2A: finding and buying a private company.
 
-  the data room      a company's private papers, shown only after Legal Counsel has signed a
+  the data room      a company's private papers, shown only after Investment Banker has signed a
                      confidentiality agreement for the empire
   the six checks     background (Intelligence desk), the accounts (Accountant), valuation (Investment
                      Banker), stress test and site inspection (Risk Manager), ownership and contracts
-                     (Legal Counsel); a fairness opinion before a large deal; the head decides
+                     (Investment Banker); a fairness opinion before a large deal; the head decides
   the agreement      the seller's draft, argued clause by clause: its promises, the seller's escape
                      clauses, and the protections the buyer asks for. Every change has a price
   bids               sealed, or at an auction the seller runs, against other empires (the computer-run
@@ -167,7 +167,7 @@ def _how(sale: dict) -> str:
 
 
 def sign_nda(conn: Connection, player_id, file_id: int, now: datetime) -> dict:
-    """Legal Counsel drafts and signs the confidentiality agreement. The data room opens, and the seller
+    """Investment Banker drafts and signs the confidentiality agreement. The data room opens, and the seller
     sends its draft of the sale agreement."""
     with conn.transaction():
         _open(conn, now)
@@ -176,7 +176,7 @@ def sign_nda(conn: Connection, player_id, file_id: int, now: datetime) -> dict:
         if found["nda_at"]:
             raise EmpireError("The confidentiality agreement is already signed.")
         if not _desk_ok(conn, empire, seat, "investment_banker"):
-            raise EmpireError("A confidentiality agreement is drafted by the empire's Legal Counsel.")
+            raise EmpireError("A confidentiality agreement is drafted by the empire's Investment Banker.")
         _sign_nda(conn, empire, found, player_id, now)
         return {"signed": True}
 
@@ -441,7 +441,7 @@ def _finish_step(conn: Connection, empire: dict, found: dict, sale: dict, step: 
 
 def _staff_steps(conn: Connection, now: datetime) -> None:
     """At each Closing Bell, the computer-run staff do the checks that have waited a day on a staffed desk
-    with no player, and sign the confidentiality agreement where Legal Counsel's desk is staffed."""
+    with no player, and sign the confidentiality agreement where Investment Banker's desk is staffed."""
     for row in _rows(conn, "SELECT f.* FROM deal_files f JOIN sale_processes s ON s.id = f.process_id WHERE f.status = 'open' AND s.status = 'open'"
                            " ORDER BY f.id"):
         with conn.transaction():
@@ -469,15 +469,15 @@ def _staff_steps(conn: Connection, now: datetime) -> None:
 # ---------------------------------------------------------------------------
 
 def mark_terms(conn: Connection, player_id, file_id: int, changes: dict, now: datetime) -> dict:
-    """Legal Counsel strikes out clauses of the seller's draft and asks for protections. The founders
+    """Investment Banker strikes out clauses of the seller's draft and asks for protections. The founders
     answer at once, each change at its price. An empire that is selling answers through its own
-    Legal Counsel (or its head) before the sale closes; what it has not answered by then is refused."""
+    Investment Banker (or its head) before the sale closes; what it has not answered by then is refused."""
     with conn.transaction():
         _open(conn, now)
         seat, empire = _seat(conn, player_id)
         found = _file(conn, empire["id"], file_id, lock=True)
         if not _desk_ok(conn, empire, seat, "investment_banker"):
-            raise EmpireError("The sale agreement is negotiated by the empire's Legal Counsel.")
+            raise EmpireError("The sale agreement is negotiated by the empire's Investment Banker.")
         if not found["nda_at"] or found["status"] != "open":
             raise EmpireError("The agreement can be argued over only while the file is open and the data room signed for.")
         sale = _process(conn, found["process_id"])
@@ -511,7 +511,7 @@ def mark_terms(conn: Connection, player_id, file_id: int, changes: dict, now: da
 
 
 def answer_terms(conn: Connection, player_id, process_id: int, buyer_empire_id: int, answers: dict, now: datetime) -> dict:
-    """The selling empire's Legal Counsel (or its head) agrees or refuses what a buyer asked."""
+    """The selling empire's Investment Banker (or its head) agrees or refuses what a buyer asked."""
     with conn.transaction():
         _open(conn, now)
         seat, empire = _seat(conn, player_id)
@@ -519,7 +519,7 @@ def answer_terms(conn: Connection, player_id, process_id: int, buyer_empire_id: 
         if sale["seller_empire_id"] != empire["id"] or sale["status"] != "open":
             raise EmpireError("Your empire is not selling that company.")
         if not _desk_ok(conn, empire, seat, "investment_banker") and empire["head_player_id"] != player_id:
-            raise EmpireError("A buyer's changes are answered by Legal Counsel or the head.")
+            raise EmpireError("A buyer's changes are answered by Investment Banker or the head.")
         if _one(conn, "SELECT 1 FROM deal_bids WHERE process_id = %s AND empire_id = %s AND status = 'live'", (process_id, buyer_empire_id)):
             raise EmpireError("That buyer has bid: the agreement it bid on is settled.")
         for code, yes in (answers or {}).items():
@@ -1060,13 +1060,13 @@ def _take_control(conn: Connection, company_id, period: int, now: datetime, *, d
 # ---------------------------------------------------------------------------
 
 def claim(conn: Connection, player_id, deal_id: int, code: str, now: datetime) -> dict:
-    """Legal Counsel (or the head) claims against the seller for a promise that turned out false. The
+    """Investment Banker (or the head) claims against the seller for a promise that turned out false. The
     promise must be in force (no "as is" clause), the claim made in time, and the truth now known to the empire."""
     with conn.transaction():
         state = _open(conn, now)
         seat, empire = _seat(conn, player_id)
         if not _desk_ok(conn, empire, seat, "investment_banker") and empire["head_player_id"] != player_id:
-            raise EmpireError("A claim is made by Legal Counsel or the head.")
+            raise EmpireError("A claim is made by Investment Banker or the head.")
         deal = _one(conn, "SELECT * FROM deals WHERE id = %s AND empire_id = %s FOR UPDATE", (deal_id, empire["id"]))
         if deal is None:
             raise EmpireError("Your empire made no such purchase.")
