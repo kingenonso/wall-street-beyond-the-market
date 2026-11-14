@@ -46,7 +46,7 @@ def stake(db, empire, ticker, bps=600):
     c = company(db, ticker)
     issued = _one(db, "SELECT sum(balance) AS s FROM ledger_balances WHERE asset = %s AND balance > 0", (c["share_asset"],))["s"]
     ledger.transfer(db, payer=ledger.account_id(db, ledger.INVESTORS_PUBLIC), receiver=empire["account_id"],
-                    amount=issued * bps // (BPS - bps) + 1, asset=c["share_asset"], kind="test_shares", memo="Test: a stake")
+                    amount=int(issued) * bps // (BPS - bps) + 1, asset=c["share_asset"], kind="test_shares", memo="Test: a stake")
     return c
 
 
@@ -142,15 +142,15 @@ def test_selling_the_shares_to_make_the_fall_voids_the_call(db):
     buyer = ledger.account_id(db, ledger.INVESTORS_PUBLIC)
     price = _one(db, "SELECT from_price FROM rival_calls WHERE id = %s", (made["call_id"],))["from_price"]
     give_cash(db, buyer, 10_000_000)
-    place(db, rival["account_id"], "sell", 100, price * 8 // 10, now=NOW9 + timedelta(hours=1), ticker="IDC")
-    place(db, buyer, "buy", 100, price * 8 // 10, now=NOW9 + timedelta(hours=1), ticker="IDC")
+    place(db, rival["account_id"], "sell", 100, price, now=NOW9 + timedelta(hours=1), ticker="IDC")
+    place(db, buyer, "buy", 100, price, now=NOW9 + timedelta(hours=1), ticker="IDC")
     db.execute("UPDATE market_instruments SET last_price = %s WHERE company_id = %s", (price * 8 // 10, target["id"]))
     competition.judge_calls(db, P + data.CALL_QUARTERS - 1, NOW9 + timedelta(days=1))
     row = _one(db, "SELECT status, outcome FROM rival_calls WHERE id = %s", (made["call_id"],))
     traded = _one(db, "SELECT count(*) AS n FROM market_trades WHERE seller_account_id = %s", (rival["account_id"],))["n"]
-    if traded:
-        assert row["status"] == "void" and "rival empire itself" in row["outcome"]
-        assert points(db, empires.seat_of(db, caller)["empire_id"], "call:") == 0
+    assert traded > 0
+    assert row["status"] == "void" and "rival empire itself" in row["outcome"]
+    assert points(db, empires.seat_of(db, caller)["empire_id"], "call:") == 0
 
 
 def a_hostile_bid(db, bidder_ticker="EKC", target_ticker="IDC"):

@@ -1,4 +1,4 @@
-# Competition, part 1: contested mandates and ranked work
+# Competition: contested mandates, ranked work, and work aimed at rivals
 
 Built 14 November 2026 on the owner's "build", on the branch `competition`. It was asked for because "the main aim for
 this game is to compete with other empires and players". The plan is in `docs/TASKS_TRIM_AND_COMPETITION_PLAN_2026-11-14.md`.
@@ -75,9 +75,37 @@ Up to Level 5, a player's work is marked alone, as before. Competing opens at Le
 | Two empires taking turns to win | A hidden pact to share mandates is a pact, and pacts are already a matter for the Tribunal |
 | The page naming its own figures | The server refuses fields it did not ask for |
 
-## Part 2, not yet built
+## Part 2: work aimed at rivals (built 14 November 2026, branch `competition-2`)
 
-- Work aimed at rivals: shorting a rival empire's overvalued company, defending a client against a rival's takeover, and
-  spotting a rival bank's weak point.
-- The empire league as the full scoreboard.
+**Calls on rivals.** A rival's company is a listed company in which another empire holds 5% or more of the shares.
+
+- **Overvalued:** an empire's Asset Manager (or its head) calls a rival's company overvalued. The call is right if its
+  share price falls 10% or more within two quarters.
+- **A weak bank:** an empire's Risk Manager (or its head) calls a rival's bank weak. The call is right if its credit
+  rating is cut within two quarters.
+
+A call is public from the moment it is made, so the rival sees it coming. The record judges it:
+
+- **Right:** the caller's empire gains 6 league points and the rival loses 3.
+- **Wrong:** the caller's empire loses 3.
+
+An empire may have at most two calls open at once, and one for each company. A call cannot be changed. If the caller's
+empire, or the rival itself, sells the shares while the call is open, the call is void: nobody can make the fall
+themselves, or hand a friend the points.
+
+**Defence mandates.** A company facing a hostile takeover bid puts its defence out to pitch, as a company selling shares
+does.
+
+- The banker names a fee and forecasts how much of the stock will be sold to the bidder.
+- The defender is paid its fee on what the bid was worth, and earns 8 points, only if the bid fails.
+- Nobody defends a company against a bid their own empire stands behind.
+
+**The league as the scoreboard.** The competition page shows the league this game year by what earned each empire its
+points: mandates, defences, ranked forecasts, calls on rivals, points lost to rivals' calls, and everything else.
+
+**Tests:** `tests/test_competition_rivals.py`.
+
+## Still to come
+
 - Mandates for companies selling a division or looking for a buyer.
+- A call's effect on the market (today a call moves league points, not prices).
