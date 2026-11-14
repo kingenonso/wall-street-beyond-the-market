@@ -73,8 +73,13 @@ def last_closed(conn: Connection) -> int:
 
 
 def stage_oil_shock(conn: Connection, period: int) -> tuple[int, int] | None:
-    """Make the price of oil dearer for one quarter. Returns (before, after) in cents, or None."""
-    row = _one(conn, "SELECT oil_cents FROM abroad_results WHERE period = %s", (period,))
+    """Make the price of oil dearer for one quarter. Returns (before, after) in cents, or None.
+
+    A quarter's oil price is worked out, as it closes, from the price the last quarter closed at; so the shock is put on
+    that price (the record of the quarter before), and the quarter that closes next starts from oil half as dear again.
+    From there it drifts back to its usual level by the game's own rule. (Until 14 November 2026 this edited the quarter's
+    own row before it existed, so the shock was never staged.)"""
+    row = _one(conn, "SELECT oil_cents FROM abroad_results WHERE period = %s", (period - 1,))
     if row is None:
         return None
     before = row["oil_cents"]
@@ -83,7 +88,7 @@ def stage_oil_shock(conn: Connection, period: int) -> tuple[int, int] | None:
     # permanence trigger is stood down for this one change, as the crisis test does.
     with conn.transaction():
         conn.execute("SET LOCAL session_replication_role = replica")
-        conn.execute("UPDATE abroad_results SET oil_cents = %s WHERE period = %s", (after, period))
+        conn.execute("UPDATE abroad_results SET oil_cents = %s WHERE period = %s", (after, period - 1))
     return before, after
 
 
@@ -132,6 +137,8 @@ def run(conn: Connection, target: int = TEN_YEARS, shocks: bool = True, quiet: b
             moved = stage_oil_shock(conn, period)
             if moved:
                 staged.append(f"quarter {period}: the price of oil from {moved[0] / 100:.2f} to {moved[1] / 100:.2f} dollars a barrel")
+            else:
+                staged.append(f"quarter {period}: the oil shock could NOT be staged (no price for the quarter before)")
         if shocks:
             for quarter, trust in BANK_SHOCKS:
                 if period == quarter:
