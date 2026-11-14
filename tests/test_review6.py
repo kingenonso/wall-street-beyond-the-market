@@ -271,7 +271,7 @@ def test_one_pact_of_a_kind_between_two_empires_and_no_reward_for_uncovering_you
     pact = empires.draft_pact(db, scribe, other["id"], "alliance", "We stand together against all comers.", NOW9)
     assert empires.sign_pact(db, head, pact["id"], NOW9)["status"] == "signed"
     with pytest.raises(empires.EmpireError, match="already have a pact of that kind"):
-        empires.draft_pact(db, head, other["id"], "alliance", "We stand together against all comers.", NOW9)
+        empires.draft_pact(db, scribe, other["id"], "alliance", "We stand together against all comers.", NOW9)
     always(monkeypatch, True)
     with pytest.raises(empires.EmpireError, match="does not investigate the empire they sit in"):
         empires.investigate(db, scribe, empire["id"], NOW9)
@@ -437,8 +437,8 @@ def test_smaller_things_the_reviewer_found(db, monkeypatch):
         careers.choose_build(db, thief, "risk_manager", NOW9)              # (the thief is a banker: a change to another build)
     # A step that was tried and not passed goes to the staff: a colleague in the same build cannot take it with the answers in hand.
     empire, (head, _), partners = founded(db)
-    scribe = partners["investment_banker"][0]
-    second, _ = pro(db, "investment_banker", "second")
+    scribe = partners["asset_manager"][0]                  # the first step falls to an Asset Manager
+    second, _ = pro(db, "asset_manager", "second")
     empires.apply(db, second, empire["id"], NOW9)
     empires.decide_application(db, head, _d(db, "SELECT id FROM empire_applications WHERE status = 'waiting'")[0]["id"], True, NOW9)
     empires.start_task(db, head, NOW9)
