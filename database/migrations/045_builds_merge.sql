@@ -1,10 +1,5 @@
--- DO NOT APPLY THIS ON ITS OWN.
---
--- It is half of one change: the code that writes build names must move in the same sitting, or
--- an empire founded after this runs would be refused by the new empire_seats check, because
--- simulation/world_data.py still lists six builds. The code steps are listed in
--- docs/BUILDS_MERGE_TO_THREE_PROPOSAL_2026-11-09.md, and the last of them is the one that makes
--- this safe to run.
+-- It lands with the code that writes three build names (simulation/world_data.py EMPIRE_BUILDS and
+-- simulation/careers.py), so it is safe to run with the rest of the migrations.
 --
 -- The builds are merged from six into three, in the database.
 --
