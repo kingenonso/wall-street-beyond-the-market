@@ -55,7 +55,7 @@ Rebuilt so that it works and cannot be gamed:
   - your claims;
   - your loan spread with and without cover.
 
-**Decisions taken for the owner to confirm:**
+**Decisions, confirmed by the owner on 14 November 2026:**
 
 1. Directors' cover pays the tribunal's costs and damages, never the fine. The 9 November checklist allowed the fine
    for a wrong done before the policy, but that is the same as buying cover after the loss, which its own loophole
@@ -63,6 +63,12 @@ Rebuilt so that it works and cannot be gamed:
 2. The insurers start with ₦200 million of capital.
 3. Income protection stays narrow (the checklist's option b). In this game only the newsroom dismisses anyone, and
    the page says so.
+
+**Later, each as its own small stage (agreed 14 November 2026):**
+
+- The game's real insurance companies write these policies, so premiums become their income and move their shares.
+- Companies can lay staff off (a loss-making company, a struggling industry, a takeover), so income protection
+  answers a real risk.
 
 ## Commodities
 
