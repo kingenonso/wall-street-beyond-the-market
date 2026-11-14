@@ -203,7 +203,7 @@ def test_companies_in_one_sector_take_different_shares_that_shift_over_time(db):
         total = sum(v for _, v in rows)
         return {ticker: value * 10_000 // total for ticker, value in rows}
     early, late = shares(1), shares(8)
-    assert abs(sum(early.values()) - 10_000) <= 6 and abs(sum(late.values()) - 10_000) <= 6
+    assert abs(sum(early.values()) - 10_000) <= len(early) and abs(sum(late.values()) - 10_000) <= len(late)   # each share rounded down
     assert any(late[t] > early[t] + 20 for t in early) and any(late[t] < early[t] - 20 for t in early)
 
 
