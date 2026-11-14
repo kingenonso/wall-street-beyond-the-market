@@ -433,9 +433,10 @@ def test_every_industry_has_work_for_every_build(db):
     assert set(work.values()) == {t.code for t in objectives_industries.INDUSTRIES}
     pieces = {industry: objectives.TEMPLATES[code] for industry, code in work.items()}
 
-    # One to each build, so no build is left out, and each opens at Level 5 — above the four modules a new
-    # player starts with, and below the bands that were already there.
-    assert sorted(t.build for t in pieces.values()) == sorted(careers.BUILDS)
+    # Every build has one or more, so no build is left out (the former journalist's piece is in the newsroom, which is
+    # open to every build), and each opens at Level 5 — above the four modules a new player starts with, and below the
+    # bands that were already there.
+    assert {t.build for t in pieces.values()} == set(careers.BUILDS) | {"newsroom"}
     for piece in pieces.values():
         assert piece.level == 5 and piece.listed and piece.payer == "employer", piece.code
         assert piece.module in {m["module"] for m in objectives.modules(piece.build)}, piece.code

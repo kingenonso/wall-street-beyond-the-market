@@ -352,7 +352,7 @@ def test_what_an_asset_manager_may_trade_for_a_computer_run_empire_grows_with_ra
     assert limit == apply_bps(worth, 50)
     # The limit holds, and it is the player's for the quarter wherever they sit.
     bill = next(b for b in bonds.listing(db, NOW9) if b["kind"] == "bill")
-    units = limit // bill["ask"]
+    units = limit * 9 // 10 // bill["ask"]                  # nine-tenths of the limit (the cost comes on top of the price)
     empires.trade_bonds(db, manager, code=bill["code"], side="buy", units=units, now=NOW9)
     with pytest.raises(empires.EmpireError, match="trading limit"):
         empires.trade_bonds(db, manager, code=bill["code"], side="buy", units=units, now=NOW9)

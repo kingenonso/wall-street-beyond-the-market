@@ -82,7 +82,7 @@ def test_every_module_has_work_alone_with_the_empire_and_as_a_weekend_challenge(
             versions = {t.setting for t in objectives.TEMPLATES.values() if t.build == track and t.module == m["module"] and t.listed}
             assert versions == {"solo", "empire", "live"}, (track, m["module"])
     # Every piece of work is tagged with its module and its track; nothing is left untagged.
-    assert all(t.module and t.build in (*TRACKS, "ceo") for t in objectives.TEMPLATES.values())
+    assert all(t.module and t.build in (*TRACKS, "newsroom", "ceo") for t in objectives.TEMPLATES.values())   # the newsroom: every build
 
 
 def test_the_names_of_exam_bodies_appear_nowhere_in_the_library():
@@ -414,7 +414,7 @@ def test_the_leadership_track_opens_to_a_head_or_at_level_forty_and_its_experien
         objectives.accept(db, junior, "ce_return", NOW9)
     db.execute("UPDATE careers SET rank = 1, experience = %s WHERE player_id = %s", (careers.experience_for(40), junior))
     board = objectives.board(db, junior, NOW9)
-    assert [t["track"] for t in board["tracks"]] == ["asset_manager", "ceo"] and board["tracks"][1]["name"] == "Leadership"
+    assert [t["track"] for t in board["tracks"]] == ["asset_manager", "newsroom", "ceo"] and board["tracks"][2]["name"] == "Leadership"
     before = careers.career(db, junior)["experience"]
     done = do(db, junior, "ce_return", NOW9)
     assert done["state"] == "passed" and done["track"] == "ceo"

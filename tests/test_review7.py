@@ -49,8 +49,9 @@ def test_a_module_is_worked_in_one_setting_a_quarter_whichever_is_taken_first(db
     objectives.accept(db, player, code, FRIDAY9)
     with pytest.raises(Exception, match="objectives_one_setting_a_quarter"):
         db.execute("INSERT INTO objectives (player_id, build, template, module, period, payer_account_id, payer_name, title, terms, reward,"
-                   " experience, accepted_at, setting, root) SELECT player_id, build, template || '_e', module, period, payer_account_id,"
-                   " payer_name, title, terms, reward, experience, accepted_at, 'empire', root FROM objectives WHERE player_id = %s", (player,))
+                   " experience, accepted_at, setting, root, track) SELECT player_id, build, template || '_e', module, period, payer_account_id,"
+                   " payer_name, title, terms, reward, experience, accepted_at, 'empire', root, track FROM objectives WHERE player_id = %s",
+                   (player,))
 
 
 def test_one_purchase_is_not_learned_practised_and_proven_at_once(db):
@@ -114,6 +115,7 @@ def test_an_offer_lapses_when_the_head_who_made_it_no_longer_leads(db):
     empires.counter_offer(db, old_head, letter, naira(500_000), naira(10_000_000), "Stay.", NOW9)
     db.execute("UPDATE players SET ceo_since = %s WHERE id = %s", (NOW9, new_head))
     empires.vote_head(db, new_head, new_head, NOW9)
+    empires.vote_head(db, partners["risk_manager"][0], new_head, NOW9)        # (four members: three votes elect)
     assert empires.vote_head(db, scribe, new_head, NOW9)["elected"]
     # The member is no longer shown the old head's offer, and cannot take it.
     assert empires.war_room(db, scribe, NOW9)["resignation"]["offer"] is None
@@ -175,7 +177,7 @@ def test_money_taken_and_paid_back_with_a_fine_is_not_growth(db, monkeypatch):
 def test_beginning_a_founding_does_not_open_the_leadership_track(db):
     player, _ = pro(db, "asset_manager", level=20, cash_naira=1)
     empires.found(db, player, "Paper House", 1, 0, NOW9)
-    assert [t["track"] for t in objectives.board(db, player, NOW9)["tracks"]] == ["asset_manager"]
+    assert [t["track"] for t in objectives.board(db, player, NOW9)["tracks"]] == ["asset_manager", "newsroom"]   # no Leadership
     with pytest.raises(objectives.ObjectiveError, match="not open"):
         objectives.accept(db, player, "ce_return", NOW9)
     with pytest.raises(ranks.RankError, match="not open"):
@@ -198,7 +200,7 @@ def test_a_resignation_and_an_offer_are_between_the_member_and_the_head(db):
     # When somebody actually leaves, that is written down for all to see.
     empires.resign(db, scribe, "", NOW9)
     empires.release(db, head, empires.war_room(db, head, NOW9)["resignations"][0]["id"], NOW9)
-    assert "scribe was released from their notice and left." in [e["words"] for e in empires.war_room(db, colleague, NOW9)["events"]]
+    assert "investment_banker was released from their notice and left." in [e["words"] for e in empires.war_room(db, colleague, NOW9)["events"]]
 
 
 # 8. A member working out their notice could be voted in as head.
@@ -211,7 +213,8 @@ def test_somebody_who_is_leaving_cannot_be_voted_in_to_lead(db):
         empires.vote_head(db, colleague, scribe, NOW9)
     empires.withdraw_resignation(db, scribe, NOW9)
     assert empires.vote_head(db, colleague, scribe, NOW9)["votes"] == 1
-    # A vote is cast for a seat, because a member is not given colleagues' identifiers.
+    # A vote is cast for a seat, because a member is not given colleagues' identifiers. (Four members: three votes elect.)
+    empires.vote_for_seat(db, partners["risk_manager"][0], "investment_banker", 1, NOW9)
     assert empires.vote_for_seat(db, scribe, "investment_banker", 1, NOW9)["elected"]
     with pytest.raises(empires.EmpireError, match="Nobody holds that seat"):
         empires.vote_for_seat(db, colleague, "investment_banker", 2, NOW9)
@@ -314,7 +317,7 @@ def test_the_new_records_are_permanent(db):
     leagues.award(db, empire["id"], 10, "A task finished", 9, NOW9, reference="task:1")
     empires.resign(db, scribe, "", NOW9)
     empires.withdraw_resignation(db, scribe, NOW9)
-    player, _ = pro(db, "asset_manager", level=20, cash_naira=2_000_000)
+    player, _ = pro(db, "asset_manager", "outsider", level=20, cash_naira=2_000_000)    # (the partner is named asset_manager)
     master(db, player, "asset_manager")
     case = ranks.begin(db, player, "asset_manager", NOW9)
     ranks.hand_in(db, player, case["id"], {}, NOW9)

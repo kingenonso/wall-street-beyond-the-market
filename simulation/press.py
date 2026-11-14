@@ -97,13 +97,16 @@ def empire_of(conn: Connection, player_id) -> dict | None:
 
 
 def press_officer(conn: Connection, player_id) -> dict:
-    """The empire this player speaks for: its head, or a Financial Journalist with a seat in it."""
+    """The empire this player speaks for: its head, or any member with a seat in it. (The press office was the
+    Financial Journalist's; with the three builds it is open to every build, as the owner settled on 9 November 2026.)"""
     empire = empire_of(conn, player_id)
     if empire is None or empire["kind"] != "player":
         raise PressError("You do not speak for an empire.")
     if empire["head_player_id"] == player_id:
         return empire
-    raise PressError("The empire's head speaks for it.")
+    if _one(conn, "SELECT 1 AS x FROM empire_seats WHERE empire_id = %s AND player_id = %s", (empire["id"], player_id)):
+        return empire
+    raise PressError("The empire's head, or one of its members, speaks for it.")
 
 
 def speaks_for(conn: Connection, player_id, empire_id) -> bool:
@@ -710,8 +713,10 @@ def ask_spin(conn: Connection, head_id, story_id: int, now: datetime) -> dict:
         story = _one(conn, "SELECT * FROM stories WHERE id = %s AND status = 'published'", (story_id,))
         if story is None or not _about_empire(conn, story, empire["id"]):
             raise PressError("That is not a story about your empire.")
-        j = _one(conn, "SELECT player_id FROM empire_seats WHERE empire_id = %s AND player_id IS NOT NULL"
-                       " ORDER BY slot LIMIT 1", (empire["id"],))
+        # A member writes the reply, never the head who asks for it (the head sits in the chair, slot 0): the Investment
+        # Banker first (the build that took over the journalist's work), then any other member.
+        j = _one(conn, "SELECT player_id FROM empire_seats WHERE empire_id = %s AND player_id IS NOT NULL AND player_id <> %s"
+                       " ORDER BY (build = 'investment_banker') DESC, slot, build LIMIT 1", (empire["id"], head_id))
         if j is None:
             raise PressError("Your empire has no member to ask.")
         try:

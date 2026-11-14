@@ -9,6 +9,7 @@ from psycopg.rows import dict_row
 
 from simulation import careers, derivatives, events, exchange, ledger, lending, newsroom, newsroom_facts
 from simulation import world_data as data
+from simulation.money import naira
 from tests.conftest import ADULT, join
 from tests.test_builds import pro
 from tests.test_careers import NOW9
@@ -121,7 +122,9 @@ def test_l5_one_scoop_per_fact(db):
     rep = _one(db, "SELECT reputation FROM players WHERE id = %s", (j,))["reputation"]
     other = [c for c in newsroom_facts.facts(db, NOW9) if c["kind"] == "results"][1]
     second = write(db, j, [other], now=NOW9)
-    assert second["scoop"] and first["paid"] > 0 and second["paid"] == 0
+    # An independent is paid by the paper that prints the story by its readers; the scoop bonus comes on top only once a day.
+    by_readers = min(second["readers"] * data.FREELANCE_KOBO_PER_READER, naira(data.FREELANCE_MOST_NAIRA))
+    assert second["scoop"] and first["paid"] > 0 and second["paid"] <= by_readers < by_readers + naira(data.SCOOP_BONUS_NAIRA)
     assert _one(db, "SELECT reputation FROM players WHERE id = %s", (j,))["reputation"] == rep
 
 

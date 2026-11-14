@@ -164,8 +164,8 @@ def test_an_empires_charity_builds_its_reputation_and_grants_to_insiders_are_fla
     assert _rep(db, empire["id"]) == rep + 2                                         # ₦50m: two points
     # Grants to its own members: insiders. The Money Watch flags it, privately.
     charity.give(db, team["head"], c["id"], naira(40_000_000), NOW9, from_empire=True)
-    charity.grant(db, team["head"], c["id"], naira(20_000_000), "A study award", NOW9, to_name="scribe")
-    charity.grant(db, team["head"], c["id"], naira(15_000_000), "A study award", NOW9, to_name="ledgerman")
+    charity.grant(db, team["head"], c["id"], naira(20_000_000), "A study award", NOW9, to_name="investment_banker")
+    charity.grant(db, team["head"], c["id"], naira(15_000_000), "A study award", NOW9, to_name="asset_manager")
     assert _rows(db, "SELECT connected FROM charity_grants WHERE to_player IS NOT NULL") == [{"connected": True}, {"connected": True}]
     charity.at_close(db, period, NOW9 + timedelta(hours=1))
     account = _one(db, "SELECT account_id FROM charities WHERE id = %s", (c["id"],))["account_id"]

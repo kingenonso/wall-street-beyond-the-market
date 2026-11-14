@@ -223,13 +223,21 @@ def _allocate_offer(ctx):
     if len(pool) < 6:
         return None
     first = _roll(ctx["player_id"], "ce_allocate", ctx["period"]) % len(pool)
-    chosen = [pool[(first + step) % len(pool)] for step in (0, len(pool) // 3, 2 * len(pool) // 3)]   # three different companies, spread out
-    if len({c[0]["ticker"] for c in chosen}) < 3:
-        return None
-    options = [{"ticker": c["ticker"], "name": c["name"], "profit": profit, "value": share["price"] * share["shares"]}
-               for c, profit, share in chosen]
-    yields = [x["profit"] / x["value"] for x in options]
-    if max(yields) - sorted(yields)[1] < 0.002:            # too close to call fairly
+    options = None
+    for turn in range(len(pool)):
+        # Three different companies, spread out. If the best is too close to call fairly, the next three in turn: the same
+        # every time for one player and quarter, so the work is never refused only because the first draw was close.
+        start = (first + turn) % len(pool)
+        chosen = [pool[(start + step) % len(pool)] for step in (0, len(pool) // 3, 2 * len(pool) // 3)]
+        if len({c[0]["ticker"] for c in chosen}) < 3:
+            continue
+        trial = [{"ticker": c["ticker"], "name": c["name"], "profit": profit, "value": share["price"] * share["shares"]}
+                 for c, profit, share in chosen]
+        yields = [x["profit"] / x["value"] for x in trial]
+        if max(yields) - sorted(yields)[1] >= 0.002:
+            options = trial
+            break
+    if options is None:
         return None
     return {
         "situation": "Your board has money to put to work and three companies it could buy into at today's prices. Before "

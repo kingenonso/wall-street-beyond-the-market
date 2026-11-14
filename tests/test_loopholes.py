@@ -124,7 +124,12 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     part of a leaving parent's stake; shares and money move only through the ledger. Stage 11 added the courts (test_courts*.py):
     a player brings a case and posts a bond, and a defendant settles or fights it; the court finds the number itself from the
     record, so a player cannot name one, and every naira it moves — a bond, a settlement, a judgment paid down — moves only
-    through the ledger."""
+    through the ledger. The fixes of November 2026 added commodities (buying, selling, leasing storage and insuring it: the
+    player's own money, through the ledger), insurance (buying, cancelling, claiming: premiums and claims through the ledger),
+    competition (a forecast, a pitch for a mandate, a call against a rival: none moves money) and government (standing,
+    voting, a budget, the Assembly's votes, a vote of no confidence, the leader's decree and levy, and lobbying: only the
+    leader decrees or proposes a levy, a levy is taken only when the Assembly passes it, and lobbying is paid by an empire's
+    head to the Treasury in the open — every naira through the ledger)."""
     from server.main import app
 
     writes = sorted(
@@ -136,6 +141,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("DELETE", "/api/bonds/swaps/{swap_id}"),
         ("DELETE", "/api/bookkeeping/{engagement_id}"),
         ("DELETE", "/api/career/job"),
+        ("DELETE", "/api/commodities/lease/{storage_id}"),
         ("DELETE", "/api/deals/files/{file_id}/bid"),
         ("DELETE", "/api/empire/application"),
         ("DELETE", "/api/empire/founding"),
@@ -153,6 +159,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("DELETE", "/api/pension-fund/orders/{order_id}"),
         ("DELETE", "/api/pension-fund/savings"),
         ("DELETE", "/api/stakes/{programme_id}"),
+        ("PATCH", "/api/commodities/lease/{storage_id}/insured"),
         ("PATCH", "/api/me/news-alerts"),
         ("PATCH", "/api/me/profile-icon"),
         ("PATCH", "/api/me/settings"),
@@ -185,6 +192,12 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/combinations/join"),
         ("POST", "/api/combinations/merger"),
         ("POST", "/api/combinations/spinoff"),
+        ("POST", "/api/commodities/buy"),
+        ("POST", "/api/commodities/lease"),
+        ("POST", "/api/commodities/sell"),
+        ("POST", "/api/competition/call"),
+        ("POST", "/api/competition/forecast"),
+        ("POST", "/api/competition/pitch"),
         ("POST", "/api/court/cases"),
         ("POST", "/api/court/cases/{case_id}/answer"),
         ("POST", "/api/deals/files/{file_id}/bid"),
@@ -294,11 +307,22 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/fx/window"),
         ("POST", "/api/fx/window/sell"),
         ("POST", "/api/fx/window/{request_id}/cancel"),
+        ("POST", "/api/government/assembly-vote"),
+        ("POST", "/api/government/budget"),
+        ("POST", "/api/government/decree"),
+        ("POST", "/api/government/levy"),
+        ("POST", "/api/government/lobby"),
+        ("POST", "/api/government/no-confidence"),
+        ("POST", "/api/government/stand"),
+        ("POST", "/api/government/vote"),
         ("POST", "/api/indexes"),
         ("POST", "/api/indexes/{code}/change"),
         ("POST", "/api/instruments/exercises/{exercise_id}/cancel"),
         ("POST", "/api/instruments/{code}/exercise"),
         ("POST", "/api/instruments/{code}/trade"),
+        ("POST", "/api/insurance/buy"),
+        ("POST", "/api/insurance/cancel"),
+        ("POST", "/api/insurance/claim"),
         ("POST", "/api/intel/check"),
         ("POST", "/api/intel/give"),
         ("POST", "/api/intel/listings/{listing_id}/buy"),
@@ -989,7 +1013,7 @@ def test_the_database_itself_allows_one_player_per_mailbox(client, player, db):
             "INSERT INTO players (email, email_key, display_name, display_name_key, password_hash, adult_confirmed_at)"
             " VALUES ('Ada+2@example.com', 'ada@example.com', 'Copy', 'copy', 'x', now())"
         )
-    assert refused.value.diag.constraint_name == "players_email_unique"
+    assert refused.value.diag.constraint_name == "players_email_key_unique"        # Ada+2 is the same mailbox as Ada
 
 
 # ---------------------------------------------------------------------------

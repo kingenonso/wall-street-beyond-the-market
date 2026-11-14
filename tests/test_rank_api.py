@@ -52,7 +52,8 @@ def test_a_player_sees_the_gate_ahead_sits_a_case_and_reports_marking(db, client
     assert ledger.balance(db, account) == cash - int(case["fee_kobo"]) and len(case["parts"]) == 3
     # Nothing in what the website receives gives an answer away, or says how the case was drawn.
     text = begun.text
-    assert "answers" not in text and "salt" not in text and "filed_period" not in text and "company_id" not in text
+    # (Keys, not words: the rules say in plain words how many answers must be right.)
+    assert '"answers"' not in text and "salt" not in text and '"filed_period"' not in text and '"company_id"' not in text
     # A company figure travels as text.
     assert all(isinstance(line.get("kobo", ""), str) for part in case["parts"] for line in part["terms"]["given"])
     # Badly shaped papers are refused before they are looked at.

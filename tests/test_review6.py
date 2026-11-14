@@ -200,6 +200,7 @@ def test_nobody_decides_their_own_case_and_an_accused_member_does_not_become_hea
     empires.leave(db, head, NOW9)
     assert _d(db, "SELECT head_player_id FROM empires WHERE id = %s", (empire["id"],))[0]["head_player_id"] == ledgerman
     # And if the accused is the only one left, the case is decided in full, as a computer-run empire decides it.
+    empires.leave(db, partners["risk_manager"][0], NOW9)
     empires.leave(db, ledgerman, NOW9)
     assert _d(db, "SELECT status FROM empire_cases")[0]["status"] == "punished" and empires.seat_of(db, scribe) is None
     assert _d(db, "SELECT kind FROM legal_records WHERE player_id = %s", (scribe,))
@@ -265,8 +266,9 @@ def test_one_pact_of_a_kind_between_two_empires_and_no_reward_for_uncovering_you
     empire, (head, _), partners = founded(db)
     scribe = partners["investment_banker"][0]
     other = computer_empire(db)
-    empires.staff_seat(db, head, "investment_banker", 1, True, NOW9)
-    pact = empires.draft_pact(db, head, other["id"], "alliance", "We stand together against all comers.", NOW9)
+    empires.staff_seat(db, head, "investment_banker", 2, True, NOW9)
+    # (The empire has a banker of its own, so the banker drafts: the head drafts only through staff when there is none.)
+    pact = empires.draft_pact(db, scribe, other["id"], "alliance", "We stand together against all comers.", NOW9)
     assert empires.sign_pact(db, head, pact["id"], NOW9)["status"] == "signed"
     with pytest.raises(empires.EmpireError, match="already have a pact of that kind"):
         empires.draft_pact(db, head, other["id"], "alliance", "We stand together against all comers.", NOW9)
@@ -432,7 +434,7 @@ def test_smaller_things_the_reviewer_found(db, monkeypatch):
     # A seat is for a build: it is given up before the build is changed.
     db.execute("UPDATE players SET build_changed_at = build_changed_at - interval '40 days' WHERE id = %s", (thief,))
     with pytest.raises(careers.CareerError, match="Leave the empire"):
-        careers.choose_build(db, thief, "investment_banker", NOW9)
+        careers.choose_build(db, thief, "risk_manager", NOW9)              # (the thief is a banker: a change to another build)
     # A step that was tried and not passed goes to the staff: a colleague in the same build cannot take it with the answers in hand.
     empire, (head, _), partners = founded(db)
     scribe = partners["investment_banker"][0]

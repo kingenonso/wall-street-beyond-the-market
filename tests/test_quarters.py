@@ -126,6 +126,9 @@ class TestStageTwo:
         # Stage 11: the court's budget, the cost of proving a case, a bond posted and returned, a settlement, and a
         # judgment paid down a quarter at a time.
         market |= {"court_budget", "court_cost", "court_bond", "court_bond_return", "court_settlement", "court_payment"}
+        # The commodities fix: the pension funds' float for the goods market's dealers, set up once. Government: a levy
+        # the Assembly passes, the leader's pay and lobbying (none in this world unless a player does them).
+        market |= {"commodity_float", "levy", "leader_pay", "lobbying"}
         assert kinds - market == {
             "opening_balance", "share_issue", "customer_revenue", "business_purchase", "cost_of_sales", "wages",
             "debt_interest", "company_tax", "debt_repayment", "capital_spending", "dividend",
