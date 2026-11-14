@@ -36,7 +36,7 @@ def founded(db, *, open_it=True, cash=60_000_000, put_in=40_000_000):
     for build, name in (("investment_banker", "investment_banker"), ("asset_manager", "asset_manager"), ("risk_manager", "risk_manager")):
         player, account = pro(db, build, name, level=4, cash_naira=100_000)
         assert empires.apply(db, player, empire["id"], NOW9)["status"] == "waiting"
-        asked = _dicts(db, "SELECT id FROM empire_approvals WHERE player_id = %s AND status = 'waiting'", (player,))[0]["id"]
+        asked = _dicts(db, "SELECT id FROM empire_applications WHERE player_id = %s AND status = 'waiting'", (player,))[0]["id"]
         empires.decide_application(db, head, asked, True, NOW9)
         partners[build] = (player, account)
     if open_it:
