@@ -77,7 +77,7 @@ def do_checks(db, empire, team, file_id, *, well=True, badly=(), skip=()):
     for step in _dicts(db, "SELECT * FROM deal_steps WHERE file_id = %s ORDER BY id", (file_id,)):
         if step["step"] in skip:
             continue
-        who = team["lawyer" if step["build"] == "lawyer" else step["build"]]
+        who = team["investment_banker" if step["build"] == "investment_banker" else step["build"]]
         firm_deals.open_step(db, who, step["id"], LATER)
         answers = right_answers(db, step["id"]) if well and step["step"] not in badly else {k: 0 for k in truth(db, step["id"])}
         if "fair" in answers and not well:
@@ -153,16 +153,16 @@ def test_the_stage_test_a_company_is_checked_by_six_desks_bought_with_a_buyout_l
     sale = open_a_sale(db, "MPK", mode="sealed")
     # The Banker brings it; nobody else may.
     with pytest.raises(empires.EmpireError, match="Investment Banker"):
-        firm_deals.open_file(db, team["accountant"], sale["id"], LATER)
+        firm_deals.open_file(db, team["asset_manager"], sale["id"], LATER)
     file_id = firm_deals.open_file(db, team["investment_banker"], sale["id"], LATER)["file_id"]
     # Nothing can be checked before Legal Counsel signs the confidentiality agreement.
     step = _one(db, "SELECT * FROM deal_steps WHERE file_id = %s AND step = 'accounts'", (file_id,))
     with pytest.raises(empires.EmpireError, match="confidentiality"):
-        firm_deals.open_step(db, team["accountant"], step["id"], LATER)
+        firm_deals.open_step(db, team["asset_manager"], step["id"], LATER)
     view = firm.view(db, team["head"], LATER)["deals"]
     mine = next(s for s in view["sales"] if s["id"] == sale["id"])["file"]
     assert mine["nda"] is False and "data_room" not in mine
-    firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
+    firm_deals.sign_nda(db, team["investment_banker"], file_id, LATER)
     mine = next(s for s in firm.view(db, team["head"], LATER)["deals"]["sales"] if s["id"] == sale["id"])["file"]
     assert mine["data_room"]["papers"] and mine["data_room"]["assets"]
     # A bid before all three desks have signed is refused.
@@ -173,7 +173,7 @@ def test_the_stage_test_a_company_is_checked_by_six_desks_bought_with_a_buyout_l
     draft = {t["code"]: t for t in firm_deals.terms_view(db, sale["id"], empire["id"])}
     changes = {code: "strike" for code, t in draft.items() if t["escape"]}
     changes["escrow"] = "ask"
-    firm_deals.mark_terms(db, team["lawyer"], file_id, changes, LATER)
+    firm_deals.mark_terms(db, team["investment_banker"], file_id, changes, LATER)
     in_force = firm_deals.in_force(db, sale["id"], empire["id"])
     assert in_force.get("escrow") and not in_force.get("as_is") and in_force.get("accounts_warranty")
     quote = firm_deals.loan_quote(db, sale, sale["asking"], 9)
@@ -202,7 +202,7 @@ def test_the_stage_test_a_company_is_checked_by_six_desks_bought_with_a_buyout_l
                                                            "technology": 0, "maintenance_bps": 12_000, "payout_bps": 5000, "borrow": 0, "buy_assets": 1},
                          when)
     with pytest.raises(empires.EmpireError, match="head, the deputy or the Asset Manager"):
-        firm_owned.set_dials(db, team["journalist"], company["id"], {"price_bps": 10_000}, when)
+        firm_owned.set_dials(db, team["investment_banker"], company["id"], {"price_bps": 10_000}, when)
     assets_before = len(private.assets(db, company["id"]))
     assert quarters.close_due_quarters(db, after_quarters(period)) == [period]
     assert len(private.assets(db, company["id"])) == assets_before + 1                  # the new asset it ordered
@@ -227,12 +227,12 @@ def test_a_badly_done_check_finds_nothing_and_a_well_done_one_finds_the_dressed_
                        " ORDER BY c.ticker LIMIT 1")
     sale = open_a_sale(db, dressed["ticker"])
     file_id = firm_deals.open_file(db, team["investment_banker"], sale["id"], LATER)["file_id"]
-    firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
+    firm_deals.sign_nda(db, team["investment_banker"], file_id, LATER)
     step = _one(db, "SELECT * FROM deal_steps WHERE file_id = %s AND step = 'accounts'", (file_id,))
-    firm_deals.open_step(db, team["accountant"], step["id"], LATER)
+    firm_deals.open_step(db, team["asset_manager"], step["id"], LATER)
     gap = truth(db, step["id"])["gap"]
     assert gap >= 900                                    # the accounts claim sales the bank never saw
-    done = firm_deals.hand_in_step(db, team["accountant"], step["id"], {"gap": round(gap / 100, 2)}, LATER)
+    done = firm_deals.hand_in_step(db, team["asset_manager"], step["id"], {"gap": round(gap / 100, 2)}, LATER)
     assert done["score"] == 100 and any("overstate" in w for w in done["found"])
     assert {f["code"] for f in firm_deals.finds(db, empire["id"], sale["company_id"])} == {"dressed_revenue"}
 
@@ -241,7 +241,7 @@ def test_the_auction_is_open_and_each_bid_must_beat_the_highest(db):
     empire, team = firm_of(db, n_cash=60_000_000_000)
     sale = open_a_sale(db, mode="auction")
     file_id = firm_deals.open_file(db, team["investment_banker"], sale["id"], LATER)["file_id"]
-    firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
+    firm_deals.sign_nda(db, team["investment_banker"], file_id, LATER)
     do_checks(db, empire, team, file_id)
     first = firm_deals.place_bid(db, team["head"], file_id, sale["asking"], 0, LATER)
     assert _one(db, "SELECT highest FROM sale_processes WHERE id = %s", (sale["id"],))["highest"] == sale["asking"]
@@ -257,7 +257,7 @@ def test_a_bid_that_loses_hands_back_every_kobo_held(db):
     empire, team = firm_of(db, n_cash=60_000_000_000)
     sale = open_a_sale(db, mode="sealed")
     file_id = firm_deals.open_file(db, team["investment_banker"], sale["id"], LATER)["file_id"]
-    firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
+    firm_deals.sign_nda(db, team["investment_banker"], file_id, LATER)
     do_checks(db, empire, team, file_id)
     firm_deals.place_bid(db, team["head"], file_id, sale["reserve"] // 2, 0, LATER)    # below what the seller would take
     assert quarters.close_due_quarters(db, after_quarters(9)) == [9]
@@ -276,10 +276,10 @@ def test_a_false_promise_is_claimed_against_the_money_held_back(db):
                (Jsonb([{"code": "hidden_debt", "bps": 0, "amount": million_naira(300), "from_period": None, "done": False}]), target["id"]))
     sale = open_a_sale(db, target["ticker"])
     file_id = firm_deals.open_file(db, team["investment_banker"], sale["id"], LATER)["file_id"]
-    firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
+    firm_deals.sign_nda(db, team["investment_banker"], file_id, LATER)
     do_checks(db, empire, team, file_id, skip=("legal",))             # Legal Counsel never reads the registry
     draft = {t["code"]: t for t in firm_deals.terms_view(db, sale["id"], empire["id"])}
-    firm_deals.mark_terms(db, team["lawyer"], file_id, {**{c: "strike" for c, t in draft.items() if t["escape"]}, "escrow": "ask"}, LATER)
+    firm_deals.mark_terms(db, team["investment_banker"], file_id, {**{c: "strike" for c, t in draft.items() if t["escape"]}, "escrow": "ask"}, LATER)
     firm_deals.place_bid(db, team["head"], file_id, sale["asking"] * 13 // 10, 0, LATER)
     assert quarters.close_due_quarters(db, after_quarters(9)) == [9]
     deal = _one(db, "SELECT * FROM deals WHERE empire_id = %s", (empire["id"],))
@@ -287,17 +287,17 @@ def test_a_false_promise_is_claimed_against_the_money_held_back(db):
     when = after_quarters(9) + timedelta(hours=2)
     # Before the tax office's letter arrives, the empire does not know: no claim.
     with pytest.raises(empires.EmpireError, match="does not know"):
-        firm_deals.claim(db, team["lawyer"], deal["id"], "hidden_debt", when)
+        firm_deals.claim(db, team["investment_banker"], deal["id"], "hidden_debt", when)
     assert quarters.close_due_quarters(db, after_quarters(10)) == [10]       # the hidden tax bill falls due
     later = after_quarters(10) + timedelta(hours=2)
     seller_cash = ledger.balance(db, deal["seller_account"])
-    got = firm_deals.claim(db, team["lawyer"], deal["id"], "hidden_debt", later)
+    got = firm_deals.claim(db, team["investment_banker"], deal["id"], "hidden_debt", later)
     assert got["paid"] == million_naira(300) and got["paid"] <= deal["escrow"] + seller_cash
     assert _one(db, "SELECT escrow FROM deals WHERE id = %s", (deal["id"],))["escrow"] == max(deal["escrow"] - got["paid"], 0)
     with pytest.raises(empires.EmpireError, match="has been made"):
-        firm_deals.claim(db, team["lawyer"], deal["id"], "hidden_debt", later)
+        firm_deals.claim(db, team["investment_banker"], deal["id"], "hidden_debt", later)
     with pytest.raises(empires.EmpireError, match="does not know"):
-        firm_deals.claim(db, team["lawyer"], deal["id"], "dressed_revenue", later)
+        firm_deals.claim(db, team["investment_banker"], deal["id"], "dressed_revenue", later)
     assert firm_deals.check_books(db) == [] and ledger.audit(db) == []
 
 

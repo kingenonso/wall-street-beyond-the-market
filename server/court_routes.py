@@ -40,6 +40,8 @@ KINDS = (
      "who": "The regulator, or a shareholder of the company."},
     {"kind": "naked_short", "name": "Naked short selling and failure to deliver",
      "who": "The regulator only."},
+    {"kind": "insurance_fraud", "name": "Insurance fraud: a second attempt ends cover",
+     "who": "The regulator only."},
 )
 
 
@@ -94,7 +96,7 @@ def _page(conn: Connection, player: dict, now: datetime) -> dict:
 
 
 class BringRequest(Request):
-    kind: str = Field(pattern="^(insider|manipulation|undisclosed_stake|naked_short)$")
+    kind: str = Field(pattern="^(insider|manipulation|undisclosed_stake|naked_short|insurance_fraud)$")
     defendant_id: UUID
     company_id: UUID | None = None
 

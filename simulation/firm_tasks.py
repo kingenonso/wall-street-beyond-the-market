@@ -52,18 +52,21 @@ TASK_KINDS = {
     "raise_money": "Raise money for the empire",
 }
 DEFEND_FALL_BPS = 1000              # a holding is under pressure when its price is 10% below what the empire paid on average, or a bid is open for it
+# The chains name three builds, not six (owner, 9 November 2026). The Accountant's check is the Asset Manager's,
+# the Legal Counsel's reading of the paper is the Investment Banker's, and the research note that opened the
+# defence sits with the desk that now keeps the accounts. The wording of each step is kept.
 RAISE_STEPS = (
-    ("investment_banker", None, "Design the raising: a loan, a bond or a stake", "The design, to the Accountant"),
-    ("accountant", None, "Check what the empire can carry", "The check, to the Risk Manager"),
-    ("risk_manager", None, "Approve the risk", "The approval, to the Legal Counsel"),
-    ("lawyer", None, "Read the paper and strike out the traps", "The paper, to the head"),
+    ("investment_banker", None, "Design the raising: a loan, a bond or a stake", "The design, to the Asset Manager"),
+    ("asset_manager", None, "Check what the empire can carry", "The check, to the Risk Manager"),
+    ("risk_manager", None, "Approve the risk", "The approval, to the Investment Banker"),
+    ("investment_banker", None, "Read the paper and strike out the traps", "The paper, to the head"),
     ("head", None, "Sign", "The money, in the empire's account"),
 )
 DEFEND_STEPS = (
-    ("journalist", "jr_results", "Find out what is happening to the company", "A research note, to the Accountant"),
-    ("accountant", "ac_ratios", "Check its accounts: is it still sound?", "A review, to the Risk Manager"),
-    ("risk_manager", "rm_stress", "What would a bad quarter do to it now?", "A risk assessment, to the Legal Counsel"),
-    ("lawyer", "lw_control", "Who controls it, and is a bid in the way?", "An opinion, to the head"),
+    ("asset_manager", "jr_results", "Find out what is happening to the company", "A research note, to the same desk for the accounts"),
+    ("asset_manager", "ac_ratios", "Check its accounts: is it still sound?", "A review, to the Risk Manager"),
+    ("risk_manager", "rm_stress", "What would a bad quarter do to it now?", "A risk assessment, to the Investment Banker"),
+    ("investment_banker", "lw_control", "Who controls it, and is a bid in the way?", "An opinion, to the head"),
     ("head", None, "Decide: hold, or sell", "The decision, recorded and judged as the next quarter closes"),
 )
 HAPPENING_CHANCE_BPS = 2500         # at each Closing Bell, the chance something happens to an empire with players in it
@@ -262,7 +265,7 @@ def _on_decided(conn: Connection, approval: dict, seat: dict, now: datetime) -> 
     if approval["status"] != "approved":
         return
     empire = empires._empire(conn, approval["empire_id"])
-    build = {"raise_check": "accountant", "raise_risk": "risk_manager", "raise_sign": "head"}.get(approval["kind"])
+    build = {"raise_check": "asset_manager", "raise_risk": "risk_manager", "raise_sign": "head"}.get(approval["kind"])
     if build == "head" and approval["payload"].get("kind") == "stake":
         return                                             # a stake offer is done only when the money has come in (see _on_raised)
     if build:
@@ -276,7 +279,7 @@ def _on_raised(conn: Connection, empire: dict, raised: dict, now: datetime) -> N
 
 def _on_read(conn: Connection, empire: dict, doc: dict, now: datetime) -> None:
     if (doc["ref"] or "").startswith("raise:"):
-        _raise_step(conn, empire, "lawyer", doc["reviewed_by"], now)
+        _raise_step(conn, empire, "investment_banker", doc["reviewed_by"], now)
 
 
 # ---------------------------------------------------------------------------
@@ -389,9 +392,9 @@ def head_to_head(conn: Connection, empire: dict) -> dict | None:
 # Events: what the world throws at an empire
 # ---------------------------------------------------------------------------
 HAPPENINGS = {
-    "loan_called": {"title": "A lender calls in its loan", "desks": ["investment_banker", "accountant", "head"]},
-    "holding_collapse": {"title": "A holding's price collapses", "desks": ["journalist", "risk_manager", "head"]},
-    "inspection": {"title": "A regulator inspects the books", "desks": ["accountant", "lawyer", "risk_manager"]},
+    "loan_called": {"title": "A lender calls in its loan", "desks": ["investment_banker", "asset_manager", "head"]},
+    "holding_collapse": {"title": "A holding's price collapses", "desks": ["investment_banker", "risk_manager", "head"]},
+    "inspection": {"title": "A regulator inspects the books", "desks": ["asset_manager", "investment_banker", "risk_manager"]},
     "deadline_offer": {"title": "A buyer makes an offer with a deadline", "desks": ["investment_banker", "risk_manager", "head"]},
 }
 
@@ -472,20 +475,20 @@ def _holdings_value(conn: Connection, empire: dict, shares: dict) -> int:
 
 
 CHOICES = {
-    "loan_called": {"investment_banker": ("repay", "sell", "refinance"), "accountant": ("repay", "sell", "refinance"), "head": ("repay", "sell", "refinance")},
-    "holding_collapse": {"journalist": ("sales", "rating", "market"), "risk_manager": ("hold", "sell"), "head": ("hold", "sell")},
-    "inspection": {"accountant": "amount", "lawyer": ("holdings", "holdings_and_bids", "none"), "risk_manager": ("inside", "outside")},
+    "loan_called": {"investment_banker": ("repay", "sell", "refinance"), "asset_manager": ("repay", "sell", "refinance"), "head": ("repay", "sell", "refinance")},
+    "holding_collapse": {"investment_banker": ("sales", "rating", "market"), "risk_manager": ("hold", "sell"), "head": ("hold", "sell")},
+    "inspection": {"asset_manager": "amount", "investment_banker": ("holdings", "holdings_and_bids", "none"), "risk_manager": ("inside", "outside")},
     "deadline_offer": {"investment_banker": ("above", "below"), "risk_manager": ("accept", "decline"), "head": ("accept", "decline")},
 }
 PROMPTS = {
     ("loan_called", "investment_banker"): "How should the empire pay? Repay from cash, sell holdings, or refinance with a new lender.",
-    ("loan_called", "accountant"): "From the cash and holdings, which way can the empire actually pay?",
+    ("loan_called", "asset_manager"): "From the cash and holdings, which way can the empire actually pay?",
     ("loan_called", "head"): "Your call as head: repay, sell, or refinance.",
-    ("holding_collapse", "journalist"): "What is behind the fall? Its last sales fell, its credit rating changed, or the whole market.",
+    ("holding_collapse", "investment_banker"): "What is behind the fall? Its last sales fell, its credit rating changed, or the whole market.",
     ("holding_collapse", "risk_manager"): "Hold, or sell? Compare the price with what the company is thought to be worth.",
     ("holding_collapse", "head"): "Your call as head: hold, or sell.",
-    ("inspection", "accountant"): "State the quarter's costs in the empire's books to date, in kobo.",
-    ("inspection", "lawyer"): "What is the empire bound to file? Its holdings above the thresholds; its holdings and any bid; or nothing.",
+    ("inspection", "asset_manager"): "State the quarter's costs in the empire's books to date, in kobo.",
+    ("inspection", "investment_banker"): "What is the empire bound to file? Its holdings above the thresholds; its holdings and any bid; or nothing.",
     ("inspection", "risk_manager"): "Is the empire inside its own treasury policy?",
     ("deadline_offer", "investment_banker"): "Is the offer above or below what the company is thought to be worth a share?",
     ("deadline_offer", "risk_manager"): "Accept, or decline?",
@@ -498,9 +501,9 @@ def _truth(h: dict, desk: str):
     if h["kind"] == "loan_called":
         return p["_best"]
     if h["kind"] == "holding_collapse":
-        return p["_cause"] if desk == "journalist" else p["_best"]
+        return p["_cause"] if desk == "investment_banker" and crisis == "holding_collapse" else p["_best"]
     if h["kind"] == "inspection":
-        return {"accountant": p["_costs"], "lawyer": p.get("_filings", "none"), "risk_manager": "inside" if p["_inside"] else "outside"}[desk]
+        return {"asset_manager": p["_costs"], "investment_banker": p.get("_filings", "none"), "risk_manager": "inside" if p["_inside"] else "outside"}[desk]
     if desk == "investment_banker":
         return "above" if p["offer"] > (p["_value"] or 0) else "below"
     return p["_best"]
@@ -508,7 +511,7 @@ def _truth(h: dict, desk: str):
 
 def _mark(h: dict, desk: str, choice: str) -> int:
     truth = _truth(h, desk)
-    if h["kind"] == "inspection" and desk == "accountant":
+    if h["kind"] == "inspection" and desk == "asset_manager":
         try:
             given = int(choice)
         except (TypeError, ValueError):

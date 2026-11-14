@@ -37,18 +37,18 @@ def test_r01_cash_held_for_an_offer_still_counts_in_the_empires_worth(db):
 def test_r02_a_check_fee_is_capped_by_the_deal_and_paid_only_for_good_work(db):
     empire, team = firm_of(db, n_cash=60_000_000_000)
     other, them = house(db, "Delta Partners")
-    audit = firm_practice.found(db, them["accountant"], "audit", "Creek Audit", 0, LATER)["firm_id"]
+    audit = firm_practice.found(db, them["asset_manager"], "audit", "Creek Audit", 0, LATER)["firm_id"]
     sale = open_a_sale(db)
     file_id = firm_deals.open_file(db, team["investment_banker"], sale["id"], LATER)["file_id"]
-    firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
+    firm_deals.sign_nda(db, team["investment_banker"], file_id, LATER)
     step = _one(db, "SELECT * FROM deal_steps WHERE file_id = %s AND step = 'accounts'", (file_id,))
     most = max(min(sale["asking"] * firm_practice.CHECK_FEE_BPS // BPS, firm_practice.JOB_FEE_MOST), firm_practice.JOB_FEE_LEAST)
     with pytest.raises(empires.EmpireError, match="half a percent"):
         firm_practice.send_step(db, team["head"], step["id"], audit, most + 1, LATER)
     job = firm_practice.send_step(db, team["head"], step["id"], audit, most, LATER)["job_id"]
-    firm_practice.open_job(db, them["accountant"], job, LATER)
+    firm_practice.open_job(db, them["asset_manager"], job, LATER)
     cash = ledger.balance(db, empire["account_id"])
-    firm_practice.hand_in_job(db, them["accountant"], job, {}, LATE)                     # a blank check
+    firm_practice.hand_in_job(db, them["asset_manager"], job, {}, LATE)                     # a blank check
     assert ledger.balance(db, empire["account_id"]) == cash
     company = own(db, empire, "RWH")
     sales = firm_owned._quarter_sales(db, company["id"])
@@ -96,7 +96,7 @@ def test_r05_no_success_fee_for_a_pitch_book_that_did_not_hold_up(db):
 
 def test_r06_an_empire_with_things_half_done_cannot_merge_away(db):
     empire, team = firm_of(db, n_cash=2_000_000_000)
-    other, them = house(db, "Delta Partners", builds=("investment_banker", "lawyer"), cash_naira=1_000_000_000)
+    other, them = house(db, "Delta Partners", builds=("investment_banker", "risk_manager", "asset_manager"), cash_naira=1_000_000_000)
     sale = open_a_sale(db)
     firm_deals.open_file(db, them["investment_banker"], sale["id"], LATER)
     with pytest.raises(empires.EmpireError, match="deal file open"):
@@ -194,7 +194,7 @@ def test_r12_a_bank_stands_behind_a_listing_only_with_the_cash_to_do_it(db):
 
 def test_r13_the_empire_of_a_sales_auditor_may_not_buy_the_company(db):
     other, them = house(db, "Delta Partners")
-    firm_practice.found(db, them["accountant"], "audit", "Creek Audit", 0, LATER)
+    firm_practice.found(db, them["asset_manager"], "audit", "Creek Audit", 0, LATER)
     sale = open_a_sale(db)
     assert _one(db, "SELECT 1 FROM firm_jobs WHERE process_id = %s AND kind = 'audit'", (sale["id"],))
     with pytest.raises(empires.EmpireError, match="working for the seller"):

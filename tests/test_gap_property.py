@@ -272,7 +272,7 @@ def test_property_funds_the_trust_and_a_managers_own_fund_under_its_rules(db):
     trust = _one(db, "SELECT * FROM property_funds WHERE manager IS NULL")
     assert trust and _one(db, "SELECT count(*) AS n FROM property_holdings WHERE account_id = %s", (trust["account_id"],))["n"] >= 1
     later = after_quarters(9) + timedelta(hours=13)
-    investor, i_acct = pro(db, "accountant", "unitholder", cash_naira=100_000_000)
+    investor, i_acct = pro(db, "asset_manager", "unitholder", cash_naira=100_000_000)
     bought = propfunds.buy_units(db, i_acct, trust["id"], naira(10_000_000), later)
     assert bought["units"] > 0 and bought["cost"] <= naira(10_000_000)
     sold = propfunds.sell_units(db, i_acct, trust["id"], bought["units"], later)

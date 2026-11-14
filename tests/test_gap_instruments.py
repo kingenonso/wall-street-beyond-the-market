@@ -159,7 +159,7 @@ def test_a_building_sold_and_leased_back_keeps_the_headquarters_until_the_lease_
     headquarters.establish(db, team["head"], building, NOW9)
     cash_before = ledger.balance(db, empire["account_id"])
     with pytest.raises(Exception):
-        leaseback.sell_and_lease_back(db, team["accountant"], building, 8, NOW9, for_empire=True)      # the head's to decide
+        leaseback.sell_and_lease_back(db, team["asset_manager"], building, 8, NOW9, for_empire=True)      # the head's to decide
     done = leaseback.sell_and_lease_back(db, team["head"], building, 8, NOW9, for_empire=True)
     assert ledger.balance(db, empire["account_id"]) == cash_before + done["price"]
     assert done["price"] < done["worth"] and done["rent"] > 0

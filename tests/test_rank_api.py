@@ -18,35 +18,35 @@ def test_a_player_sees_the_gate_ahead_sits_a_case_and_reports_marking(db, client
     assert client.get("/api/ranks").status_code == 401
     assert join(client, ADULT).status_code == 201
     assert client.get("/api/ranks").json()["tracks"] == []                      # no build yet
-    assert client.put("/api/career/build", json={"build": "accountant"}).status_code == 200
+    assert client.put("/api/career/build", json={"build": "asset_manager"}).status_code == 200
     seen = client.get("/api/ranks").json()
     track = seen["tracks"][0]
     assert track["gate"] == 20 and not track["can_begin"] and "Reach Level 20" in track["why_not"] and int(track["fee_kobo"]) > 0
-    assert seen["active"] is None and [t["track"] for t in seen["tracks"]] == ["accountant"]
-    refused = client.post("/api/ranks/cases", json={"track": "accountant"})
+    assert seen["active"] is None and [t["track"] for t in seen["tracks"]] == ["asset_manager"]
+    refused = client.post("/api/ranks/cases", json={"track": "asset_manager"})
     assert refused.status_code == 409 and "Reach Level 20" in refused.json()["detail"]
     # Another build's case, a track that does not exist, and extra fields are refused.
-    assert client.post("/api/ranks/cases", json={"track": "lawyer"}).status_code == 409
+    assert client.post("/api/ranks/cases", json={"track": "investment_banker"}).status_code == 409
     assert client.post("/api/ranks/cases", json={"track": "ceo"}).status_code == 409
     assert client.post("/api/ranks/cases", json={"track": "admin"}).status_code == 422
-    assert client.post("/api/ranks/cases", json={"track": "accountant", "fee_kobo": 0}).status_code == 422
+    assert client.post("/api/ranks/cases", json={"track": "asset_manager", "fee_kobo": 0}).status_code == 422
 
     # The work board now carries the three settings, the map and the tracker.
     board = client.get("/api/objectives").json()
     # (Eight modules in the first band, each three ways; the gap stage's higher bands are listed too, locked until their level.)
     first = [o for o in board["offers"] if objectives.TEMPLATES[o["template"]].level <= 4]
     assert {o["setting"] for o in board["offers"]} == {"solo", "empire", "live"} and len(first) == 24
-    total = len(objectives.modules("accountant"))
+    total = len(objectives.modules("asset_manager"))
     assert board["tracks"][0]["name"] == "Accountant" and board["tracks"][0]["modules"] == total
     assert set(board["weekend"]) == {"open", "opens", "closes", "hours"} and len(board["skills"]) == total
 
     player = client.get("/api/me").json()
     account = ledger.player_account_id(db, player["id"])
-    careers.add_experience(db, player["id"], "accountant", careers.experience_for(20), NOW9)
-    master(db, player["id"], "accountant")
+    careers.add_experience(db, player["id"], "asset_manager", careers.experience_for(20), NOW9)
+    master(db, player["id"], "asset_manager")
     give_cash(db, account, 1_000_000)
     cash = ledger.balance(db, account)
-    begun = client.post("/api/ranks/cases", json={"track": "accountant"})
+    begun = client.post("/api/ranks/cases", json={"track": "asset_manager"})
     assert begun.status_code == 201, begun.text
     case = begun.json()["active"]
     assert ledger.balance(db, account) == cash - int(case["fee_kobo"]) and len(case["parts"]) == 3
@@ -91,7 +91,7 @@ def test_resignation_and_the_vote_are_refused_in_words_when_they_do_not_apply(db
                                ("post", "/api/empire/resignation/acceptance", None),
                                ("put", "/api/empire/resignations/1/offer", {"bonus_kobo": naira(1_000)}),
                                ("delete", "/api/empire/resignations/1", None),
-                               ("post", "/api/empire/head-votes", {"build": "lawyer", "slot": 1})):
+                               ("post", "/api/empire/head-votes", {"build": "investment_banker", "slot": 1})):
         answer = getattr(client, method)(path, json=body) if body is not None else getattr(client, method)(path)
         assert answer.status_code == 409, (path, answer.text)
     for bad in ({"letter": "x" * 601}, {"letter": "bad\x07bell"}, {"letter": "fine", "leaves_at": "now"}):

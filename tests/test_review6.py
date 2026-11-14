@@ -164,7 +164,7 @@ def test_moving_into_or_out_of_a_players_fund_takes_effect_as_the_quarter_closes
 # 6. The early withdrawal was cashed by founding and cancelling: see test_savings (it now goes into the empire, and back).
 def test_a_partners_early_withdrawal_also_goes_back_to_their_savings_when_the_founding_is_cancelled(db):
     empire, (head, _), partners = founded(db, open_it=False, put_in=20_000_000)
-    scribe, scribe_account = partners["journalist"]
+    scribe, scribe_account = partners["investment_banker"]
     savings(db, scribe, 4_000_000)
     before = ledger.balance(db, scribe_account)
     empires.put_in(db, scribe, 0, naira(2_000_000), NOW9)
@@ -190,8 +190,8 @@ def test_a_thief_who_left_before_the_audit_is_still_kept_out(db, monkeypatch):
 # 8. A thief who became head forgave their own case.
 def test_nobody_decides_their_own_case_and_an_accused_member_does_not_become_head(db, monkeypatch):
     empire, (head, _), partners = founded(db)
-    scribe, ledgerman = partners["journalist"][0], partners["accountant"][0]
-    careers.add_experience(db, scribe, "journalist", 5000, NOW9)
+    scribe, ledgerman = partners["investment_banker"][0], partners["asset_manager"][0]
+    careers.add_experience(db, scribe, "investment_banker", 5000, NOW9)
     empires.set_limits(db, head, expense_limit=naira(500_000))
     countersigned(db, empires.divert(db, scribe, naira(400_000), NOW9), ledgerman, NOW9)
     always(monkeypatch, True)
@@ -208,18 +208,18 @@ def test_nobody_decides_their_own_case_and_an_accused_member_does_not_become_hea
 # 9 and 10. A bonus could be paid out of an empire still being founded, and a head could empty an open one with a single bonus.
 def test_pooled_money_cannot_be_spent_before_the_empire_opens_and_bonuses_are_capped(db):
     empire, (head, _), partners = founded(db, open_it=False, put_in=20_000_000)
-    scribe = partners["journalist"][0]
+    scribe = partners["investment_banker"][0]
     with pytest.raises(empires.EmpireError, match="not open yet"):
         empires.pay_bonus(db, head, scribe, naira(1_000), "thanks", NOW9)
     with pytest.raises(empires.EmpireError, match="not open yet"):
-        empires.staff_seat(db, head, "lawyer", 1, True, NOW9)
+        empires.staff_seat(db, head, "investment_banker", 1, True, NOW9)
     empires.cancel_founding(db, head, NOW9)
     sound(db)
 
 
 def test_a_head_cannot_empty_the_empire_through_bonuses(db):
     empire, (head, _), partners = founded(db)
-    scribe = partners["journalist"][0]
+    scribe = partners["investment_banker"][0]
     cash = ledger.balance(db, empire["account_id"])
     with pytest.raises(empires.EmpireError, match="a tenth of the empire's worth"):
         empires.pay_bonus(db, head, scribe, cash, "for services", NOW9)
@@ -231,11 +231,11 @@ def test_a_head_cannot_empty_the_empire_through_bonuses(db):
 # 11. The heading alone said which entries were false, and whose.
 def test_genuine_costs_and_false_ones_share_their_headings(db):
     empire = computer_empire(db)
-    thief, _ = thief_in(db, empire, "lawyer", "mallam", cash=1_000_000)
-    watcher, _ = thief_in(db, empire, "journalist", "watcher")
+    thief, _ = thief_in(db, empire, "investment_banker", "mallam", cash=1_000_000)
+    watcher, _ = thief_in(db, empire, "investment_banker", "watcher")
     empires.divert(db, thief, naira(200_000), NOW9)
     room = empires.war_room(db, watcher, NOW9)
-    legal = [b for b in room["books"] if b["category"] == "Legal fees and filings"]
+    legal = [b for b in room["books"] if b["category"] == "Advisory and legal fees"]
     truth = {r["id"] for r in _d(db, "SELECT id FROM empire_books WHERE empire_id = %s AND NOT genuine", (empire["id"],))}
     assert len(legal) > len(truth) == 1 and len({b["description"] for b in legal}) == 1
     assert "kind" not in room["books"][0]
@@ -246,12 +246,12 @@ def test_genuine_costs_and_false_ones_share_their_headings(db):
 # 12. Staff worked all quarter and were let go before pay day.
 def test_staff_who_are_let_go_are_paid_for_the_quarter_and_the_audit_still_happens(db, monkeypatch):
     empire, (head, _), partners = founded(db)
-    scribe = partners["journalist"][0]
-    empires.staff_seat(db, head, "accountant", 2, True, NOW9)
+    scribe = partners["investment_banker"][0]
+    empires.staff_seat(db, head, "asset_manager", 2, True, NOW9)
     empires.set_limits(db, head, expense_limit=naira(500_000))
     empires.divert(db, scribe, naira(100_000), NOW9)
     cash = ledger.balance(db, empire["account_id"])
-    empires.staff_seat(db, head, "accountant", 2, False, LATE9)
+    empires.staff_seat(db, head, "asset_manager", 2, False, LATE9)
     salary = empires._staff_salary(db, LATE9)
     assert ledger.balance(db, empire["account_id"]) == cash - salary
     always(monkeypatch, True)
@@ -263,9 +263,9 @@ def test_staff_who_are_let_go_are_paid_for_the_quarter_and_the_audit_still_happe
 # 13. Pacts without limit, and a colleague "uncovering" one for experience and reputation.
 def test_one_pact_of_a_kind_between_two_empires_and_no_reward_for_uncovering_your_own_or_a_lawful_one(db, monkeypatch):
     empire, (head, _), partners = founded(db)
-    scribe = partners["journalist"][0]
+    scribe = partners["investment_banker"][0]
     other = computer_empire(db)
-    empires.staff_seat(db, head, "lawyer", 1, True, NOW9)
+    empires.staff_seat(db, head, "investment_banker", 1, True, NOW9)
     pact = empires.draft_pact(db, head, other["id"], "alliance", "We stand together against all comers.", NOW9)
     assert empires.sign_pact(db, head, pact["id"], NOW9)["status"] == "signed"
     with pytest.raises(empires.EmpireError, match="already have a pact of that kind"):
@@ -274,10 +274,10 @@ def test_one_pact_of_a_kind_between_two_empires_and_no_reward_for_uncovering_you
     with pytest.raises(empires.EmpireError, match="does not investigate the empire they sit in"):
         empires.investigate(db, scribe, empire["id"], NOW9)
     assert empires.investigate(db, scribe, other["id"], NOW9)["found"] is False            # their own empire's pact is not theirs to uncover
-    reporter, _ = pro(db, "journalist", "reporter")
-    before = careers.career(db, reporter, "journalist")["experience"]
+    reporter, _ = pro(db, "investment_banker", "reporter")
+    before = careers.career(db, reporter, "investment_banker")["experience"]
     assert empires.investigate(db, reporter, other["id"], NOW9)["found"] is True
-    assert careers.career(db, reporter, "journalist")["experience"] == before               # a lawful pact coming to light is only news
+    assert careers.career(db, reporter, "investment_banker")["experience"] == before               # a lawful pact coming to light is only news
 
 
 # 14. An Asset Manager hopped between computer-run empires and was paid for the same step in each.
@@ -341,12 +341,12 @@ def test_text_that_cannot_be_kept_is_refused_not_a_fault(db):
     from server.main import app
     with TestClient(app, raise_server_exceptions=False) as api:
         join(api, ADULT)
-        api.put("/api/career/build", json={"build": "lawyer"})
+        api.put("/api/career/build", json={"build": "investment_banker"})
         api.post("/api/empires/1/applications")
         assert api.post("/api/empire/messages", json={"body": "hello\u0000world"}).status_code == 422
         assert api.post("/api/empire/pacts", json={"to_empire": 2, "kind": "alliance", "terms": "We stand together\u0000 always."}).status_code == 422
         assert api.post("/api/empire/messages", json={"body": "hello world"}).status_code == 201
-    ada, _ = thief_in(db, computer_empire(db, 2), "accountant", "ada2")
+    ada, _ = thief_in(db, computer_empire(db, 2), "asset_manager", "ada2")
     with pytest.raises(empires.EmpireError):
         empires.say(db, ada, "hello\x00", NOW9)
 
@@ -354,14 +354,14 @@ def test_text_that_cannot_be_kept_is_refused_not_a_fault(db):
 # 18. Several actions worked in the gap between a quarter's end and its close.
 def test_more_is_refused_between_a_quarters_end_and_its_close(db, monkeypatch):
     empire, (head, _), partners = founded(db)
-    scribe, ledgerman = partners["journalist"][0], partners["accountant"][0]
+    scribe, ledgerman = partners["investment_banker"][0], partners["asset_manager"][0]
     empires.set_limits(db, head, expense_limit=naira(500_000), now=NOW9)
     empires.divert(db, scribe, naira(100_000), NOW9)
     always(monkeypatch, True)
     audit = empires.accountant_audit(db, ledgerman, NOW9)
     fund, manager, _ = a_fund(db, fee_bps=50)
     for attempt in (lambda: empires.file_audit(db, ledgerman, audit["id"], [], GAP9),
-                    lambda: empires.staff_seat(db, head, "lawyer", 1, True, GAP9),
+                    lambda: empires.staff_seat(db, head, "investment_banker", 1, True, GAP9),
                     lambda: empires.set_limits(db, head, trade_limit_bps=10_000, now=GAP9),
                     lambda: empires.decide_case(db, head, 1, True, GAP9),
                     lambda: empires.break_pact(db, head, 1, GAP9), lambda: empires.report_pact(db, head, 1, GAP9),
@@ -386,7 +386,7 @@ def test_an_empires_name_is_plain_letters_so_that_it_cannot_pass_for_another(db)
 def test_what_one_fund_or_empire_holds_is_not_shown_on_its_own_line(db):
     fund, manager, _ = a_fund(db)
     give_shares(db, fund["account_id"], "ADF", 3_000_000)
-    outsider, _ = pro(db, "lawyer", "outsider")
+    outsider, _ = pro(db, "investment_banker", "outsider")
     seen = desks_more.lawyer_desk(db, outsider, "ADF", NOW9)
     assert "Others" not in {h["holder"] for h in seen["holders"]}
 
@@ -411,13 +411,13 @@ def test_memberships_books_and_cases_are_guarded_in_the_database(db, monkeypatch
 def test_smaller_things_the_reviewer_found(db, monkeypatch):
     # A Legal Counsel in a computer-run empire can have a lawful pact signed: its head signs the draft at once. An unlawful one is refused.
     one, two = computer_empire(db, 0), computer_empire(db, 1)
-    counsel, _ = thief_in(db, one, "lawyer", "counsel")
+    counsel, _ = thief_in(db, one, "investment_banker", "counsel")
     assert empires.draft_pact(db, counsel, two["id"], "alliance", "We stand together against all comers.", NOW9)["status"] == "signed"
     with pytest.raises(empires.EmpireError, match="will not sign an unlawful pact"):
         empires.draft_pact(db, counsel, two["id"], "rig_bids", "We take turns to win every contract.", NOW9)
     # An Accountant who has left cannot have their audit acted on.
-    thief, _ = thief_in(db, one, "journalist", "thief", cash=1_000_000)
-    auditor, _ = thief_in(db, one, "accountant", "auditor")
+    thief, _ = thief_in(db, one, "investment_banker", "thief", cash=1_000_000)
+    auditor, _ = thief_in(db, one, "asset_manager", "auditor")
     empires.divert(db, thief, naira(50_000), NOW9)
     always(monkeypatch, True)
     audit = empires.accountant_audit(db, auditor, NOW9)
@@ -432,11 +432,11 @@ def test_smaller_things_the_reviewer_found(db, monkeypatch):
     # A seat is for a build: it is given up before the build is changed.
     db.execute("UPDATE players SET build_changed_at = build_changed_at - interval '40 days' WHERE id = %s", (thief,))
     with pytest.raises(careers.CareerError, match="Leave the empire"):
-        careers.choose_build(db, thief, "lawyer", NOW9)
+        careers.choose_build(db, thief, "investment_banker", NOW9)
     # A step that was tried and not passed goes to the staff: a colleague in the same build cannot take it with the answers in hand.
     empire, (head, _), partners = founded(db)
-    scribe = partners["journalist"][0]
-    second, _ = pro(db, "journalist", "second")
+    scribe = partners["investment_banker"][0]
+    second, _ = pro(db, "investment_banker", "second")
     empires.apply(db, second, empire["id"], NOW9)
     empires.decide_application(db, head, _d(db, "SELECT id FROM empire_applications WHERE status = 'waiting'")[0]["id"], True, NOW9)
     empires.start_task(db, head, NOW9)

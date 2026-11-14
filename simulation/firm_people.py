@@ -59,8 +59,8 @@ def offer_contract(conn: Connection, player_id, member_id, notice_days: int, bon
         seat, empire = firm._active(conn, player_id)
         if not firm.player_run(empire):
             raise EmpireError("An empire run by the computer offers no contracts.")
-        is_head, lawyers = empire["head_player_id"] == player_id, firm.desk_members(conn, empire["id"], "lawyer")
-        if seat["build"] != "lawyer" and not (is_head and not lawyers):
+        is_head, lawyers = empire["head_player_id"] == player_id, firm.desk_members(conn, empire["id"], "investment_banker")
+        if seat["build"] != "investment_banker" and not (is_head and not lawyers):
             raise EmpireError("Contracts are drafted by the empire's Legal Counsel (by the head only when there is no Legal Counsel).")
         member = empires.seat_of(conn, member_id)
         if member is None or member["empire_id"] != empire["id"] or member_id == empire["head_player_id"]:
@@ -556,7 +556,7 @@ def view(conn: Connection, seat: dict, empire: dict, state: dict, now: datetime)
     contracts = _rows(conn, "SELECT c.*, p.display_name FROM member_contracts c JOIN players p ON p.id = c.player_id WHERE c.empire_id = %s"
                             " AND c.status IN ('drafted', 'offered', 'signed') ORDER BY c.id", (empire["id"],))
     mine = [c for c in contracts if c["player_id"] == me and c["status"] != "drafted"]
-    may_see_all = is_head or seat["build"] == "lawyer"
+    may_see_all = is_head or seat["build"] == "investment_banker"
     approaches_in = _rows(conn, "SELECT o.*, e.name AS from_name FROM poach_offers o JOIN empires e ON e.id = o.from_empire WHERE o.player_id = %s"
                                 " AND o.status IN ('open', 'matched') ORDER BY o.id", (me,))
     to_match = _rows(conn, "SELECT o.*, e.name AS from_name, p.display_name FROM poach_offers o JOIN empires e ON e.id = o.from_empire"
@@ -577,7 +577,7 @@ def view(conn: Connection, seat: dict, empire: dict, state: dict, now: datetime)
     return {
         "elsewhere": [{"seat_id": o["seat_id"], "name": o["display_name"], "build_name": BUILD_NAMES[o["build"]], "empire": o["empire"]} for o in others],
         "contracts": [contract_public(c) for c in (contracts if may_see_all else mine)],
-        "can_draft": seat["build"] == "lawyer" or (is_head and not firm.desk_members(conn, empire["id"], "lawyer")),
+        "can_draft": seat["build"] == "investment_banker" or (is_head and not firm.desk_members(conn, empire["id"], "investment_banker")),
         "approaches": [{"id": o["id"], "from": o["from_name"], "bonus": o["bonus"], "words": o["words"], "status": o["status"],
                         "matched": o["matched"], "may_go_at": o["match_by"] if o["status"] == "open" else None} for o in approaches_in],
         "to_match": [{"id": o["id"], "from": o["from_name"], "member": o["display_name"], "bonus": o["bonus"], "match_by": o["match_by"]}
@@ -614,10 +614,10 @@ firm.VIEW["people"] = view
 firm.FAILED["confidence"] = _confidence_failed
 firm.ARTICLE_DEFAULTS.update({**CONSTITUTION_DEFAULT, "conduct": CONDUCT_DEFAULT})
 firm.RESOLUTIONS.update({
-    "constitution": firm.Resolution("constitution", "Change the constitution", lambda seat, head: head or seat["build"] == "lawyer",
+    "constitution": firm.Resolution("constitution", "Change the constitution", lambda seat, head: head or seat["build"] == "investment_banker",
                                     _constitution_check, _constitution_carry,
                                     lambda p: "Change the constitution: " + ", ".join(f"{k.replace('_', ' ')} to {v}" for k, v in p.items()), big=True),
-    "conduct": firm.Resolution("conduct", "Set the code of conduct", lambda seat, head: head or seat["build"] == "lawyer",
+    "conduct": firm.Resolution("conduct", "Set the code of conduct", lambda seat, head: head or seat["build"] == "investment_banker",
                                _conduct_check, _conduct_carry,
                                lambda p: f"Code of conduct: theft {p['theft'].replace('_', ' ')}; a missed duty fined ₦{p['missed_duty_fine_naira']:,}"),
     "confidence": firm.Resolution("confidence", "Vote of confidence in the head", lambda seat, head: False, lambda c, e, p, n: p,

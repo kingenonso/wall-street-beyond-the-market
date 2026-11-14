@@ -21,7 +21,7 @@ from server.main import _exchange_time, _terms_as_text, app, current_player
 from server.schemas import Request
 from simulation import careers, leagues, ranks
 
-TRACK = Literal["asset_manager", "accountant", "investment_banker", "risk_manager", "lawyer", "journalist", "ceo"]
+TRACK = Literal["asset_manager", "investment_banker", "risk_manager", "ceo"]
 
 
 def _case(case: dict | None) -> dict | None:
@@ -121,7 +121,7 @@ def report_marking(body: ReportRequest, player: dict = Depends(current_player), 
 
 
 @app.get("/api/league/builds/{build}")
-def players_of_a_build(build: Literal["asset_manager", "accountant", "investment_banker", "risk_manager", "lawyer", "journalist"],
+def players_of_a_build(build: Literal["asset_manager", "asset_manager", "investment_banker", "risk_manager", "investment_banker", "investment_banker"],
                        player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     """Every player ranked within one build. The table is public."""
     limits.allow("league-read", str(player["id"]), attempts=60, per_seconds=60)

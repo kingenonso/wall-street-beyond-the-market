@@ -13,8 +13,8 @@ property are sold here first; companies, banks and media firms will use the same
   * The seller sets a lowest price (the reserve), which also nobody sees. Below it, nothing is sold.
   * The property companies bid for property sold by anybody else, up to what they think it is worth,
     so there is always a buyer at some price.
-  * An empire bids only when its desks have done their checks: Legal Counsel the title, the
-    Accountant a valuation, the Risk Manager the top price, the Investment Banker the money. Then the
+  * An empire bids only when its desks have done their checks: the Investment Banker checks the title, the
+    Asset Manager values the lot, the Risk Manager sets the top price, and the Investment Banker arranges the money. Then the
     head decides, and may not go above the Risk Manager's top price.
 
 Every naira moves through the ledger: held cash sits in the Auction House's own account.
@@ -34,7 +34,7 @@ from simulation import world_data as data
 from simulation.money import BPS
 from simulation.property import PropertyError, _one, _rows, _uniform, money
 
-STEPS = {"title": ("lawyer", "Legal Counsel checks the title"), "valuation": ("accountant", "The Accountant values the lot"),
+STEPS = {"title": ("investment_banker", "Investment Banker checks the title"), "valuation": ("asset_manager", "The Asset Manager values the lot"),
          "limit": ("risk_manager", "The Risk Manager sets the top price"), "money": ("investment_banker", "The Investment Banker arranges the money")}
 log = logging.getLogger("wsbm.auctions")
 STEPS_BUILDS = tuple(build for build, _ in STEPS.values())

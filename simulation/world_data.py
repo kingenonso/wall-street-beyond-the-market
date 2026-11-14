@@ -697,7 +697,11 @@ DEFAULT_LOSS_BPS = 60              # each company newly in default costs this mu
 # ---------------------------------------------------------------------------
 # Stage 6: empires (sections 6, 13 and 15).
 # ---------------------------------------------------------------------------
-EMPIRE_BUILDS = ("investment_banker", "asset_manager", "risk_manager", "accountant", "lawyer", "journalist")
+# The three builds an empire seats, two seats each, under its head: seven places in the Ministry (owner, 9 November
+# 2026). It was six builds and thirteen seats. The retired three are gone from the game, not renamed: the Accountant's
+# audit sits with the Asset Manager, the Legal Counsel's approvals and pacts with the Investment Banker, and the
+# newsroom's work is open to every build. Nothing here may list a build that is not a key of careers.BUILDS.
+EMPIRE_BUILDS = ("investment_banker", "asset_manager", "risk_manager")
 EMPIRE_FOUNDING_LEVEL = 20
 EMPIRE_REGISTRATION_NAIRA = 25_000_000
 EMPIRE_LEAST_HUMANS = 3
@@ -716,7 +720,7 @@ DEBT_FROM_SALARY_BPS = 2500                        # a quarter of each take-home
 REPORT_REWARD_BPS = 1000                           # whoever reports a theft that is proved gets a tenth of it
 REPORTS_A_QUARTER = 3
 REPORT_FINDS_BPS = 9000                            # looking at one reported entry finds a false one nine times in ten
-AUDITOR_BASE_BPS = 5000                            # an Accountant of the thief's own level finds each theft half the time...
+AUDITOR_BASE_BPS = 5000                            # an auditor of the thief's own level finds each theft half the time...
 AUDITOR_PER_LEVEL_BPS = 300                        # ...and 3 points more or less for each level between them
 AUDITOR_RANGE_BPS = (2000, 9000)
 AI_AUDIT_FINDS_BPS = 9500                          # the AI audit is right 95 times in 100
@@ -740,16 +744,15 @@ PACT_KINDS = {
 }
 PACT_BREAK_TRUST = 10
 PACT_EXPOSED_TRUST = 15
-EXPOSE_BASE_BPS = 1500                             # a journalist's chance of uncovering a hidden pact...
-EXPOSE_PER_LEVEL_BPS = 200                         # ...rises with level, up to 55%
-# How each build's false entry is written in the books.
+EXPOSE_BASE_BPS = 1500                             # anyone's chance of uncovering a hidden pact...
+EXPOSE_PER_LEVEL_BPS = 200                         # ...rises with the level they hold, up to 55%
+# What a disguised entry is called in the books, by the desk that entered it. Three builds and the head, since the
+# six became three on 9 November 2026: the professional costs and the legal fees are the Asset Manager's and the
+# Investment Banker's now, and a key here for a build nobody can hold would be a fourth description of the game.
 DISGUISES = {
-    "asset_manager": ("Dealing costs", "Brokerage and dealing costs on the quarter's trades"),
-    "investment_banker": ("Advisory fees", "Outside advisers' fees on deals in progress"),
+    "asset_manager": ("Dealing and professional costs", "Brokerage and dealing costs on the quarter's trades, professional subscriptions and office costs"),
+    "investment_banker": ("Advisory and legal fees", "Outside advisers' fees on deals in progress, counsel's fees and filing costs on matters in hand"),
     "risk_manager": ("Hedging costs", "Cost of protection bought against market moves"),
-    "accountant": ("Office and professional costs", "Professional subscriptions, software and office costs"),
-    "lawyer": ("Legal fees and filings", "Counsel's fees and filing costs on matters in hand"),
-    "journalist": ("Research and sources", "Research subscriptions and payments to sources"),
     "head": ("Management expenses", "Travel, entertaining and management expenses"),
 }
 
@@ -1033,7 +1036,13 @@ MONTE_CARLO_HORIZONS = {"quarter": 7, "year": 28}   # in trading days
 
 # Personal loans.
 PERSONAL_LOAN_SALARY_QUARTERS = 4      # at most a year's salary...
-PERSONAL_LOAN_SPREAD_BPS = 800         # ...at the Central Bank's rate plus 8%...
+PERSONAL_LOAN_SPREAD_BPS = 800         # uninsured spread over the policy rate, for personal loans
+
+# Insurance: the spread narrows when the borrower has active cover in force.
+# INSURED_PERSONAL_LOAN_STEP1_BPS: one step (500 bps) reduction for any cover in force.
+# INSURED_PERSONAL_LOAN_STEP2_BPS: second step (500 bps reduction) if cover > 50% of liabilities.
+INSURED_PERSONAL_LOAN_STEP1_BPS = 500
+INSURED_PERSONAL_LOAN_STEP2_BPS = 500
 PERSONAL_LOAN_TERM_QUARTERS = 8        # ...repaid over two years
 LOAN_MISSES_TO_DEFAULT = 2             # two quarters missed and the loan is in default: no more borrowing until it is cleared
 LOAN_LATE_PENALTY_BPS = 500            # what is unpaid grows by 5% a quarter
@@ -1062,6 +1071,18 @@ OIL_BARRELS_PER_CONTRACT = 10          # an oil contract: ten barrels, valued in
 NAIRA_DOLLARS_PER_CONTRACT = 1_000     # a naira contract: $1,000, valued in naira
 COMMODITY_KOBO_PER_POINT = 1_000_000   # a farm produce, metals or building materials contract: ₦10,000 for each point of its index
 OPTION_STRIKES_BPS = (9000, 10000, 11000)              # share options: strikes at 90%, 100% and 110% of the price when listed
+
+# ---------------------------------------------------------------------------
+# Stage 12: the goods themselves — gold, oil, farm produce and building materials.
+# ---------------------------------------------------------------------------
+COMMODITY_MARKET_FLOAT = 200_000_000_000  # ₦2 billion the pension funds put behind the goods market, so it can bid from its first day (kobo)
+COMMODITY_HEDGE_QUOTES = 3              # the desk quotes at most this many companies a quarter
+COMMODITY_QUOTE_EDGE_BPS = 150          # the desk's price to a client sits this far its own way of the market
+COMMODITY_HEDGE_FEE_BPS = 75            # and it charges this much of the value as its fee
+COMMODITY_CLIENT_TAKE_BPS = 6000        # a client takes a hedge when it is not more than 60% worse than its own idea of the price
+COMMODITY_DESK_DEFAULT_BPS = 4000       # a client that fails pays at most this much of what it owes, ever
+COMMODITY_DESK_LEAST_LIMIT = 50_000_000 # a desk may not be given less than ₦500,000 of risk
+COMMODITY_DESK_MOST_LIMIT_BPS = 2500    # ...nor more than a quarter of the firm's own funds
 INDEX_OPTION_STRIKES_BPS = (9000, 9500, 10000, 10500, 11000)
 OPTION_EXPIRIES = 2                    # options and futures run to the end of this quarter and the next
 OPTION_LEAST_VOLATILITY_BPS = 1500     # the market makers never price a share's swing below 15% a year...
@@ -1090,9 +1111,7 @@ MAKER_SEQUENCE = 2 ** 62               # the market makers' standing quote waits
 UNLOCK_BORROW_LEVEL = 10               # loans against shares and short selling open at Level 10
 UNLOCK_OPTIONS_LEVEL = 15              # buying options at Level 15
 UNLOCK_ADVANCED_LEVEL = 25             # futures, writing options and swaps at Level 25, with the build's own Stage 9 module learned
-STAGE9_MODULE = {"asset_manager": "Leverage and margin", "accountant": "Futures and the cost of carry",
-                 "investment_banker": "Option pricing", "risk_manager": "Value at risk", "lawyer": "Securities lending",
-                 "journalist": "Market positioning"}
+STAGE9_MODULE = {"asset_manager": "Leverage and margin", "investment_banker": "Option pricing", "risk_manager": "Value at risk"}
 SHORT_BAN_SHARE_FALL_BPS = 1500        # the Securities Regulator stops new short sales in a share that falls 15% in a day...
 SHORT_BAN_MARKET_FALL_BPS = 1000       # ...and in every share when the BSX 50 falls 10% in a day...
 SHORT_BAN_DAYS = 3                     # ...for three trading days
@@ -1731,10 +1750,10 @@ COURT_MIN_CLAIM_NAIRA = 100_000             # a claim worth less than this is no
 COURT_BOND_BPS = 1_000                      # a player bringing a case posts a tenth of the claim...
 COURT_BOND_FLOOR_NAIRA = 1_000_000          # ...but never less than ₦1 million
 COURT_SETTLE_BPS = 6_000                    # settling costs six tenths of the claim, paid at once
-COURT_FINE_BPS = {"insider": 10_000, "manipulation": 1_000, "undisclosed_stake": 5_000, "naked_short": 5_000}
+COURT_FINE_BPS = {"insider": 10_000, "manipulation": 1_000, "undisclosed_stake": 5_000, "naked_short": 5_000, "insurance_fraud": 10_000}
 COURT_COSTS_BPS = 500                       # the loser pays a twentieth of the claim as the winner's costs
-COURT_BAN_QUARTERS = {"manipulation": 4, "naked_short": 4}   # a judgment that bans trading, and for how long
-COURT_ENFORCE_BPS = {"insider": 2_500, "manipulation": 2_000, "undisclosed_stake": 3_000, "naked_short": 2_500}
+COURT_BAN_QUARTERS = {"manipulation": 4, "naked_short": 4, "insurance_fraud": 4}   # a judgment that bans trading, and for how long
+COURT_ENFORCE_BPS = {"insider": 2_500, "manipulation": 2_000, "undisclosed_stake": 3_000, "naked_short": 2_500, "insurance_fraud": 2_500}
 COURT_FINE_TO_REGULATOR_BPS = 5_000         # half of every fine funds the regulator; the rest goes to the Treasury
 COURT_PAYMENT_BPS = 2_500                   # a judgment is paid down a quarter at a time, as much as the defendant has
 COURT_REPUTATION = 5                        # a judgment costs the defendant five points of reputation

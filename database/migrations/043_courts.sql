@@ -4,18 +4,19 @@
 -- place where guilt is decided: it is a place where a number is proved and paid. So a case is a claim
 -- with an amount, the evidence that proves the amount, and a remedy that moves money.
 --
--- Four kinds of case in this stage, all against the market:
+-- Five kinds of case in this stage, all against the market:
 --   insider            dealing on confidential information (recorded since Stage 10B)
 --   manipulation       ramping and wash trading (market_trades.same_owner has recorded it since Stage 4)
 --   undisclosed_stake  a holding past 5% that was never made public (stake_disclosures has the last one)
 --   naked_short        borrowed shares that had to be bought in (short_positions has the buy-in)
+--   insurance_fraud    a second attempt on a refused insurance policy (recorded since Stage 12)
 --
 -- The regulator's budget and the compensation fund are ledger accounts, not tables: every naira moves
 -- through the ledger (working rule 7). What the regulator spends is the ledger transaction.
 
 CREATE TABLE court_cases (
     id             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    kind           text NOT NULL CHECK (kind IN ('insider', 'manipulation', 'undisclosed_stake', 'naked_short')),
+    kind           text NOT NULL CHECK (kind IN ('insider', 'manipulation', 'undisclosed_stake', 'naked_short', 'insurance_fraud')),
     status         text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'settled', 'judged', 'withdrawn')),
     defendant_id   uuid NOT NULL REFERENCES players (id),
     claimant_id    uuid REFERENCES players (id),          -- null: the regulator brought it

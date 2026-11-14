@@ -42,7 +42,7 @@ export type Player = {
 };
 export type EmpireBadge = { name: string; place: number | null; is_head: boolean; waiting: number; forming: boolean };
 
-export type BuildCode = "asset_manager" | "accountant" | "investment_banker" | "risk_manager" | "lawyer" | "journalist";
+export type BuildCode = "asset_manager" | "investment_banker" | "risk_manager";
 export type BuildInfo = {
   code: BuildCode; name: string; accent: string; track: string; work: string; earns: string; cannot: string; employer_words: string;
 };
@@ -85,7 +85,13 @@ export type Career = {
     can_retire_early: boolean; pension_bps: number | null; full_pension_bps: number; early_pension_bps: number; early_level: number;
     early_quarters_to_go: number; early_label: string | null;
     retirement_level: number; quarters_to_go: number; retires_label: string | null; early_withdrawal_used: boolean;
+    early_withdrawal_most_bps: number; quarters_worked: number;
     managed_by: string | null; leaving_fund: boolean;
+    /** An estimate, worked out by the server, of what the pot will be worth the day it can be drawn. */
+    projection: null | {
+      value_now_kobo: Kobo; value_then_kobo: Kobo; pension_a_quarter_kobo: Kobo; early_pension_a_quarter_kobo: Kobo;
+      contribution_kobo: Kobo; quarters: number; rate_bps: number; rate_quarters: number; assumptions: string[];
+    };
   };
   events: { kind: string; words: string; at: string }[];
   next_pay_day: string | null;
@@ -763,7 +769,7 @@ export type EmpireRoom = {
   books: BookEntry[]; your_entries: BookEntry[];
   cases: { id: number; amount_kobo: Kobo; status: "open" | "punished" | "forgiven"; repaid_kobo: Kobo; fine_kobo: Kobo; debt_left_kobo: Kobo;
            who: string; category: string; period_label: string }[];
-  audits: { id: number; kind: "accountant" | "staff" | "ai"; period_label: string; from_period_label: string; to_period_label: string;
+  audits: { id: number; kind: "asset_manager" | "staff" | "ai"; period_label: string; from_period_label: string; to_period_label: string;
             fee_kobo: Kobo; examined: number; status: string; reported: number; yours: boolean }[];
   open_audit: null | { id: number; findings: { book_id: number; period_label: string; category: string; amount_kobo: Kobo; yours: boolean }[] };
   can_audit: boolean; audit_season: boolean; ai_audit_fee_kobo: Kobo; ai_audit_done: boolean; next_audit_season: string;
@@ -1028,6 +1034,50 @@ export type DerivativesBoard = { series: Series[]; underlyings: string[]; open: 
   empire: null | { name: string; acts: boolean; head: boolean; build: string; limit_naira: number; committed: Kobo;
     positions: DerivativePosition[]; orders: DerivativeOrder[]; crash_fund: CrashFund } };
 
+// Stage 12: commodities
+export type CommodityGood = {
+  code: string; name: string; unit: string; unit_plural: string; unit_word: string;
+  underlying: string; units_per_contract: number; space: string; space_name: string;
+  units_per_space: number; spread_bps: number; rent_bps: number; insurance_bps: number;
+  loss_bps: number; lost_share_bps: number; least_units: number;
+};
+export type CommodityPrice = {
+  period: number; good: string; spot: number; bid: number; ask: number; previous: number | null;
+};
+export type CommodityLease = {
+  id: number; good: string; capacity: number; insured: boolean; lease_paid: number;
+  opened_period: number; status: "open" | "lost" | "closed"; close_reason: string | null;
+};
+export type CommodityHolding = {
+  id: number; good: string; storage_id: number; units: number; cost: number; bought_period: number;
+};
+export type CommodityTrade = {
+  id: number; good: string; side: "buy" | "sell"; units: number; price: number;
+  storage_id: number | null; period: number; at: string;
+};
+export type CommodityEvent = {
+  id: number; good: string | null; kind: string; amount: number; units: number; words: string;
+  period: number; at: string;
+};
+export type CommodityDesk = {
+  id: number; limit_kobo: number; opened_period: number; status: "open" | "shut";
+  closed_period: number | null;
+};
+export type CommodityQuote = {
+  id: number; company_id: string; company: { ticker: string; name: string } | null;
+  good: string; side: "buy" | "sell"; units: number; price: number; fee: number;
+  expiry_period: number; status: "quoted" | "accepted" | "declined" | "expired" | "settled" | "failed";
+  quoted_period: number; client_paid: number; desk_paid: number;
+};
+export type CommodityHedge = {
+  id: number; series_id: number; contracts: number; placed_at: string;
+};
+export type CommodityPage = {
+  goods: CommodityGood[]; prices: CommodityPrice[]; leases: CommodityLease[];
+  holdings: CommodityHolding[]; trades: CommodityTrade[]; events: CommodityEvent[];
+  desk: CommodityDesk | null; quotes: CommodityQuote[]; hedges: CommodityHedge[];
+};
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   // Anything that changes something may change prices: the shared market answer is asked for again.
   if (options.method && options.method !== "GET") marketShared = null;
@@ -1286,6 +1336,18 @@ export const api = {
   }) => request<SignUpPending>("/auth/signup", { method: "POST", body: JSON.stringify(details) }),
   confirmEmail: (email: string, code: string) =>
     request<Player>("/auth/confirm-email", { method: "POST", body: JSON.stringify({ email, code }) }),
+  // Stage 12: commodities — the goods, the space they are kept in, and the desk that deals in them.
+  commodities: () => request<CommodityPage>("/commodities"),
+  commodityBuy: (body: { good: string; units: number }) =>
+    request<{ result: unknown }>("/commodities/buy", { method: "POST", body: JSON.stringify(body) }),
+  commoditySell: (body: { good: string; units: number }) =>
+    request<{ result: unknown }>("/commodities/sell", { method: "POST", body: JSON.stringify(body) }),
+  commodityLease: (body: { good: string; spaces: number; insured: boolean }) =>
+    request<{ result: unknown }>("/commodities/lease", { method: "POST", body: JSON.stringify(body) }),
+  commodityCloseLease: (storage_id: number) =>
+    request<{ result: unknown }>(`/commodities/lease/${storage_id}`, { method: "DELETE" }),
+  commoditySetInsured: (storage_id: number, insured: boolean) =>
+    request<{ result: unknown }>(`/commodities/lease/${storage_id}/insured`, { method: "PATCH", body: JSON.stringify({ insured }) }),
 };
 
 

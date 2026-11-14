@@ -26,7 +26,7 @@ def ready(db, ticker=None, mode="sealed"):
     empire, team = firm_of(db, n_cash=60_000_000_000)
     sale = open_a_sale(db, ticker, mode=mode)
     file_id = firm_deals.open_file(db, team["investment_banker"], sale["id"], LATER)["file_id"]
-    firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
+    firm_deals.sign_nda(db, team["investment_banker"], file_id, LATER)
     return empire, team, sale, file_id
 
 
@@ -44,10 +44,10 @@ def test_q1_nothing_private_is_seen_without_the_confidentiality_agreement(db, cl
     assert "data_room" not in mine["file"] and "reserve" not in str(mine) and "secrets" not in str(seen)
     step = _one(db, "SELECT id FROM deal_steps WHERE file_id = %s AND step = 'legal'", (file_id,))
     with pytest.raises(empires.EmpireError, match="confidentiality"):
-        firm_deals.open_step(db, team["lawyer"], step["id"], LATER)
-    firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
-    opened = firm_deals.open_step(db, team["lawyer"], step["id"], LATER)
-    assert "_truth" not in str(opened) and "_truth" not in str(firm.view(db, team["lawyer"], LATER))
+        firm_deals.open_step(db, team["investment_banker"], step["id"], LATER)
+    firm_deals.sign_nda(db, team["investment_banker"], file_id, LATER)
+    opened = firm_deals.open_step(db, team["investment_banker"], step["id"], LATER)
+    assert "_truth" not in str(opened) and "_truth" not in str(firm.view(db, team["investment_banker"], LATER))
 
 
 # 2. Can a deal create money?
@@ -71,7 +71,7 @@ def test_q3_cash_held_for_one_bid_cannot_be_bid_again(db):
     cash = ledger.balance(db, empire["account_id"])
     second = open_a_sale(db)
     other_file = firm_deals.open_file(db, team["investment_banker"], second["id"], LATER)["file_id"]
-    firm_deals.sign_nda(db, team["lawyer"], other_file, LATER)
+    firm_deals.sign_nda(db, team["investment_banker"], other_file, LATER)
     db.execute("UPDATE sale_processes SET asking = %s WHERE id IN (%s, %s)", (cash * 6 // 10, sale["id"], second["id"]))
     # Deals this large need a fairness opinion as well: every check is done on both files.
     for f in (file_id, other_file):
@@ -92,7 +92,7 @@ def test_q4_a_head_cannot_sell_the_empires_company_far_below_its_worth(db):
     with pytest.raises(empires.EmpireError, match="giving the members' money away"):
         firm_owned.sell_to_empire(db, team["head"], company["id"], worth, worth // 10, "sealed", LATER)
     with pytest.raises(empires.EmpireError, match="head"):
-        firm_owned.sell_to_empire(db, team["journalist"], company["id"], worth, worth, "sealed", LATER)
+        firm_owned.sell_to_empire(db, team["investment_banker"], company["id"], worth, worth, "sealed", LATER)
 
 
 # 5. Can a head pay a seller far more than a company is worth, to move the empire's money out?
@@ -118,7 +118,7 @@ def test_q6_no_claim_for_what_the_buyer_knew_before_it_bid(db):
     if deal is None:
         pytest.skip("Outbid by a computer-run empire.")
     with pytest.raises(empires.EmpireError, match="priced in"):
-        firm_deals.claim(db, team["lawyer"], deal["id"], "dressed_revenue", after_quarters(9) + timedelta(hours=2))
+        firm_deals.claim(db, team["investment_banker"], deal["id"], "dressed_revenue", after_quarters(9) + timedelta(hours=2))
 
 
 # 7. Can a member act for a desk that is not theirs, or another empire's file?
@@ -126,15 +126,15 @@ def test_q7_each_part_of_a_deal_is_done_only_by_its_desk_and_only_in_its_own_emp
     empire, team, sale, file_id = ready(db)
     step = {s["step"]: s for s in _dicts(db, "SELECT * FROM deal_steps WHERE file_id = %s", (file_id,))}
     with pytest.raises(empires.EmpireError, match="belongs to the"):
-        firm_deals.open_step(db, team["journalist"], step["accounts"]["id"], LATER)
+        firm_deals.open_step(db, team["investment_banker"], step["accounts"]["id"], LATER)
     with pytest.raises(empires.EmpireError, match="Legal Counsel"):
-        firm_deals.mark_terms(db, team["accountant"], file_id, {"as_is": "strike"}, LATER)
+        firm_deals.mark_terms(db, team["asset_manager"], file_id, {"as_is": "strike"}, LATER)
     with pytest.raises(empires.EmpireError, match="head"):
         firm_deals.place_bid(db, team["investment_banker"], file_id, sale["asking"], 0, LATER)
     stranger_head, _ = pro(db, "asset_manager", "outsider", level=20, cash_naira=60_000_000)
     outsider = empires.found(db, stranger_head, "Outside House", million_naira(40), 0, NOW9)
-    clerk = member(db, outsider, stranger_head, "accountant", "outclerk")
-    member(db, outsider, stranger_head, "journalist", "outscribe")
+    clerk = member(db, outsider, stranger_head, "asset_manager", "outclerk")
+    member(db, outsider, stranger_head, "investment_banker", "outscribe")
     empires.open_empire(db, stranger_head, NOW9)
     with pytest.raises(empires.EmpireError, match="no such"):
         firm_deals.open_step(db, clerk, step["accounts"]["id"], LATER)
@@ -155,12 +155,12 @@ def test_q8_no_bid_between_the_end_of_a_quarter_and_its_close(db):
 def test_q9_a_check_handed_in_wrong_does_not_show_the_right_answer(db):
     empire, team, sale, file_id = ready(db)
     step = _one(db, "SELECT * FROM deal_steps WHERE file_id = %s AND step = 'accounts'", (file_id,))
-    firm_deals.open_step(db, team["accountant"], step["id"], LATER)
+    firm_deals.open_step(db, team["asset_manager"], step["id"], LATER)
     right = truth(db, step["id"])["gap"]
-    done = firm_deals.hand_in_step(db, team["accountant"], step["id"], {"gap": 99.99}, LATER)
+    done = firm_deals.hand_in_step(db, team["asset_manager"], step["id"], {"gap": 99.99}, LATER)
     assert done["score"] < 60 and "answer" not in str(done["result"]) and str(right / 100) not in str(done)
     with pytest.raises(empires.EmpireError, match="done"):
-        firm_deals.hand_in_step(db, team["accountant"], step["id"], {"gap": right / 100}, LATER)
+        firm_deals.hand_in_step(db, team["asset_manager"], step["id"], {"gap": right / 100}, LATER)
 
 
 # 10. Can private shares slip onto the exchange, or be counted at nothing (or at a pumped-up value)?

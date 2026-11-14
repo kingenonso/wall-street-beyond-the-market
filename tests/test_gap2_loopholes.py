@@ -46,7 +46,7 @@ def test_l1_no_private_sale_between_an_empire_and_its_own_members(db):
     other = clean(db, kind="shop")
     hand_over(db, other["id"], empire["account_id"])
     with pytest.raises(prop.PropertyError, match="own empire"):
-        conveyancing.offer(db, empire["account_id"], other["id"], {"player": name_of(db, team["accountant"])}, naira(10**9), NOW9)
+        conveyancing.offer(db, empire["account_id"], other["id"], {"player": name_of(db, team["asset_manager"])}, naira(10**9), NOW9)
 
 
 # 2. Can the seller, or anybody else, see what the buyer's checks found?
@@ -151,7 +151,7 @@ def test_l8_property_fund_units_cannot_be_flipped_and_a_manager_does_not_deal_wi
     quarters.close_due_quarters(db, after_quarters(9))
     later = after_quarters(9) + timedelta(hours=13)
     trust = _one(db, "SELECT * FROM property_funds WHERE manager IS NULL")
-    p, acct = pro(db, "accountant", "flipper", cash_naira=100_000_000)
+    p, acct = pro(db, "asset_manager", "flipper", cash_naira=100_000_000)
     start = ledger.balance(db, acct)
     got = propfunds.buy_units(db, acct, trust["id"], naira(5_000_000), later)
     propfunds.sell_units(db, acct, trust["id"], got["units"], later)

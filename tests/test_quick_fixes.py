@@ -74,7 +74,7 @@ def test_early_retirement_opens_at_twenty_quarters_or_level_35_and_pays_less_for
 def test_someone_who_qualifies_for_the_full_pension_is_not_let_take_the_smaller_one(db, monkeypatch):
     player, _ = professional(db, now=NOW9)
     savings(db, player, 1_000_000)
-    careers.add_experience(db, player, "accountant", careers.experience_for(20), NOW9)
+    careers.add_experience(db, player, "asset_manager", careers.experience_for(20), NOW9)
     monkeypatch.setattr(data, "RETIREMENT_LEVEL", 20)
     with pytest.raises(careers.CareerError, match="already qualify for the full pension"):
         careers.retire(db, player, NOW9, early=True)
@@ -84,13 +84,13 @@ def test_someone_who_qualifies_for_the_full_pension_is_not_let_take_the_smaller_
 
 def test_early_retirement_through_the_website(db, client, monkeypatch):
     assert join(client, ADULT).status_code == 201
-    assert client.put("/api/career/build", json={"build": "accountant"}).status_code == 200
+    assert client.put("/api/career/build", json={"build": "asset_manager"}).status_code == 200
     me = client.get("/api/me").json()
     savings(db, me["id"], 1_000_000)
     refused = client.post("/api/career/retirement/pension", json={"early": True})
     assert refused.status_code == 409 and "Early retirement opens at Level 35" in refused.json()["detail"]
-    careers.add_experience(db, me["id"], "accountant", careers.experience_for(20), NOW9)
-    master(db, me["id"], "accountant")
+    careers.add_experience(db, me["id"], "asset_manager", careers.experience_for(20), NOW9)
+    master(db, me["id"], "asset_manager")
     monkeypatch.setattr(data, "EARLY_RETIREMENT_LEVEL", 20)
     seen = client.get("/api/career").json()["retirement"]
     assert seen["can_retire_early"] is True and seen["early_pension_bps"] == 150 and seen["full_pension_bps"] == 250
@@ -109,16 +109,16 @@ def test_the_dot_shows_when_a_rank_case_can_be_begun_or_is_in_hand(db, client):
     assert join(client, ADULT).status_code == 201
     me = client.get("/api/me").json()
     assert me["rank_waiting"] is False and me["unread_messages"] == 0 and me["news_alerts"] is True
-    assert client.put("/api/career/build", json={"build": "accountant"}).status_code == 200
+    assert client.put("/api/career/build", json={"build": "asset_manager"}).status_code == 200
     assert client.get("/api/me").json()["rank_waiting"] is False                 # short of the gate
-    careers.add_experience(db, me["id"], "accountant", careers.experience_for(20), NOW9)
+    careers.add_experience(db, me["id"], "asset_manager", careers.experience_for(20), NOW9)
     assert client.get("/api/me").json()["rank_waiting"] is False                 # at the gate, modules not yet mastered
-    master(db, me["id"], "accountant")
+    master(db, me["id"], "asset_manager")
     assert client.get("/api/me").json()["rank_waiting"] is True                  # the case can be begun
     from tests.test_objectives import give_cash
     from simulation import ledger
     give_cash(db, ledger.player_account_id(db, me["id"]), 1_000_000)
-    assert client.post("/api/ranks/cases", json={"track": "accountant"}).status_code == 201
+    assert client.post("/api/ranks/cases", json={"track": "asset_manager"}).status_code == 201
     assert client.get("/api/me").json()["rank_waiting"] is True                  # a case in hand
 
 

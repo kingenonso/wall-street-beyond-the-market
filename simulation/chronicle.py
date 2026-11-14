@@ -149,11 +149,11 @@ def entries(conn: Connection, layer: str, *, player_id=None, company_ticker: str
 
 
 def add_account(conn: Connection, player_id, entry_id: int, words: str, evidence: list[int], period: int, now: datetime) -> dict:
-    """A journalist's signed account of an entry. Its evidence is their own published stories; its credibility comes
+    """A player's signed account of an entry. Its evidence is their own published stories; its credibility comes
     from how many of those still stand, and from the author's record."""
     player = _one(conn, "SELECT build FROM players WHERE id = %s", (player_id,))
-    if player is None or player["build"] != "journalist":
-        raise ChronicleError("Only a Financial Journalist writes accounts in the Chronicle.")
+    if player is None or player["build"] is None:
+        raise ChronicleError("Only a player with a build writes accounts in the Chronicle.")
     words = " ".join((words or "").split())
     if not 40 <= len(words) <= 1200:
         raise ChronicleError("An account is between 40 and 1,200 characters.")

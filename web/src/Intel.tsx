@@ -33,7 +33,7 @@ function Status({ p }: { p: IntelPiece }) {
 type IntelTab = "today" | "market" | "rumours" | "sources" | "investigations";
 
 export function IntelWork({ player, tab: start, onLoggedOut }: { player: Player; tab?: string; onLoggedOut: () => void }) {
-  const journalist = player.build === "journalist";
+  const journalist = player.build === "investment_banker";
   const known: IntelTab[] = ["today", "market", "rumours", ...(journalist ? (["sources", "investigations"] as IntelTab[]) : [])];
   const [tab, setTab] = useState<IntelTab>(known.includes(start as IntelTab) ? (start as IntelTab) : "today");
   const tabs: [IntelTab, string][] = [["today", "Your tip and pieces"], ["market", "The market"], ["rumours", "Rumours on the record"],
@@ -126,7 +126,7 @@ function Today({ player, onLoggedOut }: { player: Player; onLoggedOut: () => voi
                 <button className="button-quiet" disabled={act.busy || !(give[p.ref] ?? "").trim()} onClick={() => act.run(() => api.post("/intel/give", { ref: p.ref, to: give[p.ref] }), (r) => String(r.words ?? "Given."))}>Pass it on</button>
                 <label className="answer small">Sell copies at ₦<input type="number" min={10000} step={10000} value={price[p.ref] ?? ""} onChange={(e) => setPrice({ ...price, [p.ref]: e.target.value })} /></label>
                 <button className="button-quiet" disabled={act.busy || !Number(price[p.ref])} onClick={() => act.run(() => api.post("/intel/offer", { ref: p.ref, price_naira: Math.round(Number(price[p.ref])) }), "Offered on the market.")}>Offer</button>
-                {player.build === "journalist" && <button className="button-quiet" disabled={act.busy} onClick={() => act.run(() => api.post("/newsroom/lead", { ref: p.ref }), "Added to your story, as an unconfirmed report.")}>Put in my story</button>}
+                {player.build === "investment_banker" && <button className="button-quiet" disabled={act.busy} onClick={() => act.run(() => api.post("/newsroom/lead", { ref: p.ref }), "Added to your story, as an unconfirmed report.")}>Put in my story</button>}
               </div>
             )}
           </div>

@@ -1045,7 +1045,7 @@ class GrantResponse(BaseModel):
 # Stage 5: careers and professional objectives.
 # ---------------------------------------------------------------------------
 
-BuildCode = Literal["asset_manager", "accountant", "investment_banker", "risk_manager", "lawyer", "journalist"]
+BuildCode = Literal["asset_manager", "investment_banker", "risk_manager"]
 
 
 class BuildRequest(Request):
@@ -1191,6 +1191,20 @@ class RetirementEntry(BaseModel):
     paid_out_kobo: Kobo
 
 
+class RetirementProjection(BaseModel):
+    """What the pot would be worth on the day it can be drawn. An estimate, and it names what it assumed."""
+
+    value_now_kobo: Kobo
+    value_then_kobo: Kobo
+    pension_a_quarter_kobo: Kobo
+    early_pension_a_quarter_kobo: Kobo
+    contribution_kobo: Kobo
+    quarters: int
+    rate_bps: int
+    rate_quarters: int
+    assumptions: list[str]
+
+
 class RetirementInfo(BaseModel):
     fund: str
     value_kobo: Kobo
@@ -1214,8 +1228,11 @@ class RetirementInfo(BaseModel):
     quarters_to_go: int
     retires_label: str | None
     early_withdrawal_used: bool
+    early_withdrawal_most_bps: int = 5000
     managed_by: str | None
     leaving_fund: bool
+    quarters_worked: int = 0
+    projection: RetirementProjection | None = None
 
 
 class CareerEvent(BaseModel):

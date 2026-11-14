@@ -38,6 +38,13 @@ from simulation import clock, ledger
 from simulation import world_data as data
 from simulation.money import BPS
 
+# Insurance integration: personal loan spread narrows when the borrower
+# has active insurance in force. Constants defined here to avoid circular
+# imports with the insurance module.
+UNINSURED_PERSONAL_LOAN_SPREAD_BPS = data.PERSONAL_LOAN_SPREAD_BPS
+INSURED_PERSONAL_LOAN_STEP1_BPS = 500   # one step for any cover in force
+INSURED_PERSONAL_LOAN_STEP2_BPS = 500   # second step if cover > 50% liabilities
+
 COLLATERAL = "short:collateral"          # cash held for short sellers
 LENDER = ledger.INVESTORS_INSTITUTIONS  # the pension funds lend shares
 BUYERS = (ledger.INVESTORS_PUBLIC, ledger.INVESTORS_FOUNDERS, "investors:foreign")   # who buy forced sales and sell buy-ins
@@ -364,16 +371,38 @@ def take_personal(conn: Connection, player_id, amount: int, now: datetime) -> di
             raise LendingError(f"Your bank will lend you at most {money(most)} more against your salary.")
         if amount > _bank_room(conn, bank_row["company_id"], state["period"]):
             raise LendingError(f"{bank_row['name']} has no room to lend that much now.")
-        rate = policy_rate(conn) + data.PERSONAL_LOAN_SPREAD_BPS
-        try:
-            ledger.transfer(conn, payer=bank_row["account_id"], receiver=account, amount=amount, kind="personal_loan",
-                            memo=f"A personal loan from {bank_row['name']}", period=state["period"])
-        except ledger.InsufficientFunds:
-            raise LendingError(f"{bank_row['name']} has not the cash to lend that now.") from None
-        loan = _one(conn, "INSERT INTO player_loans (kind, borrower, bank_company_id, principal, outstanding, rate_bps, taken_period,"
-                          " term_quarters, interest_from, at) VALUES ('personal', %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                    (account, bank_row["company_id"], amount, amount, rate, state["period"], data.PERSONAL_LOAN_TERM_QUARTERS, now, now))
-        return {"loan_id": loan["id"], "amount": amount, "rate_bps": rate}
+        # Read the borrower's active insurance policies to narrow the loan spread
+    from simulation import insurance as sim_insurance
+    borrower_policies = sim_insurance._rows(conn, """
+        SELECT kind, limit FROM insurance_policies
+        WHERE player_id = %s AND state = 'active'
+    """, (account,))
+
+    total_cover_kobo = sum(p["limit"] for p in borrower_policies)
+
+    # Apply narrowing: one step for any cover in force, second step if cover > 50% liabilities
+    narrowing = UNINSURED_PERSONAL_LOAN_SPREAD_BPS  # start with uninsured
+    if total_cover_kobo > 0:
+        narrowing -= INSURED_PERSONAL_LOAN_STEP1_BPS  # one step down for any cover
+        borrower_loan = _one(conn, """
+            SELECT principal FROM player_loans
+            WHERE borrower = %s AND kind = 'personal' AND status = 'open'
+            ORDER BY taken_period DESC LIMIT 1
+        """, (account,))
+        if borrower_loan and borrower_loan["principal"] > 0:
+            if total_cover_kobo > borrower_loan["principal"] // 2:
+                narrowing -= INSURED_PERSONAL_LOAN_STEP2_BPS  # second step
+
+    rate = policy_rate(conn) + narrowing
+    try:
+        ledger.transfer(conn, payer=bank_row["account_id"], receiver=account, amount=amount, kind="personal_loan",
+                        memo=f"A personal loan from {bank_row['name']}", period=state["period"])
+    except ledger.InsufficientFunds:
+        raise LendingError(f"{bank_row['name']} has not the cash to lend that now.") from None
+    loan = _one(conn, "INSERT INTO player_loans (kind, borrower, bank_company_id, principal, outstanding, rate_bps, taken_period,"
+                      " term_quarters, interest_from, at) VALUES ('personal', %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                (account, bank_row["company_id"], amount, amount, rate, state["period"], data.PERSONAL_LOAN_TERM_QUARTERS, now, now))
+    return {"loan_id": loan["id"], "amount": amount, "rate_bps": rate}
 
 
 # ---------------------------------------------------------------------------

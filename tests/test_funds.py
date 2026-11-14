@@ -74,7 +74,7 @@ def test_only_an_asset_manager_of_level_twenty_may_launch_and_the_fees_have_ceil
     junior, _ = manager(db, "junior", level=19)
     with pytest.raises(funds.FundError, match="Level 20"):
         launch(db, junior)
-    other, _ = professional(db, "counter", build="accountant", employer=None, now=OPEN, cash_naira=50_000_000)
+    other, _ = professional(db, "counter", build="asset_manager", employer=None, now=OPEN, cash_naira=50_000_000)
     with pytest.raises(funds.FundError, match="Level 20"):
         launch(db, other)
     ada, _ = manager(db)

@@ -101,7 +101,7 @@ def test_tips_are_a_third_real_a_third_false_a_third_already_public_and_the_real
 
 def test_a_journalists_tips_include_pacts_and_thefts_and_a_lawyers_pacts(db):
     w = careers.world_now(db, NOW9)
-    topics = {intel.draw(db, {"id": None, "build": "journalist"}, w["period"], w["day"], NOW9, f"j:{i}")["topic"] for i in range(60)}
+    topics = {intel.draw(db, {"id": None, "build": "investment_banker"}, w["period"], w["day"], NOW9, f"j:{i}")["topic"] for i in range(60)}
     assert "company" in topics
     # With no hidden pact or theft in the world, the tip falls back to a company or a false or public one.
     assert topics <= {"company", "pact", "theft"}
@@ -132,7 +132,7 @@ def test_checking_costs_a_fee_is_mostly_right_and_the_verdict_is_the_holders_own
 
 
 def test_the_market_sells_copies_the_words_only_to_buyers_and_keeps_who_knew_what_when(db):
-    seller = _player(db, "accountant", "seller")
+    seller = _player(db, "asset_manager", "seller")
     buyer = _player(db, "asset_manager", "buyer", cash=10_000_000)
     item = _held_item(db, seller)
     before = ledger.balance(db, ledger.player_account_id(db, seller))
@@ -157,9 +157,9 @@ def test_the_market_sells_copies_the_words_only_to_buyers_and_keeps_who_knew_wha
 
 
 def test_information_is_given_or_leaked_only_to_a_journalist(db):
-    p = _player(db, "lawyer", "giver")
-    j = _player(db, "journalist", "receiver")
-    other = _player(db, "accountant", "notajournalist")
+    p = _player(db, "investment_banker", "giver")
+    j = _player(db, "investment_banker", "receiver")
+    other = _player(db, "asset_manager", "notajournalist")
     item = _held_item(db, p)
     with pytest.raises(intel.IntelError, match="Financial Journalist"):
         intel.give(db, p, item["ref"], "notajournalist", NOW9)
@@ -170,7 +170,7 @@ def test_information_is_given_or_leaked_only_to_a_journalist(db):
 
 
 def test_a_source_takes_two_quarters_is_asked_once_a_day_and_is_right_about_as_often_as_it_is_reliable(db):
-    j = _player(db, "journalist", "sourcer", level=20)
+    j = _player(db, "investment_banker", "sourcer", level=20)
     company = _one(db, "SELECT ticker FROM companies WHERE listed ORDER BY ticker LIMIT 1")
     intel.cultivate(db, j, "company", company["ticker"], NOW9)
     with pytest.raises(intel.IntelError, match="One new source a quarter"):
@@ -196,7 +196,7 @@ def test_a_source_takes_two_quarters_is_asked_once_a_day_and_is_right_about_as_o
 
 
 def test_selling_or_printing_a_sources_hint_may_burn_the_source(db):
-    j = _player(db, "journalist", "burner", level=20)
+    j = _player(db, "investment_banker", "burner", level=20)
     burned = 0
     for i, c in enumerate(_rows(db, "SELECT id, ticker FROM companies WHERE listed ORDER BY ticker LIMIT 10")):
         db.execute("INSERT INTO sources (journalist_id, kind, company_id, started_period, ready_period, reliability_bps, status, at)"
@@ -211,7 +211,7 @@ def test_selling_or_printing_a_sources_hint_may_burn_the_source(db):
 
 def test_an_unconfirmed_report_is_printed_as_such_moves_investors_less_and_is_settled_against_what_happened(db):
     _coming_events(db)
-    j = _player(db, "journalist", "rumourer", level=30)
+    j = _player(db, "investment_banker", "rumourer", level=30)
     db.execute("INSERT INTO journalist_profiles (player_id, following) VALUES (%s, 200000) ON CONFLICT (player_id) DO UPDATE SET following = 200000", (j,))
     w = careers.world_now(db, NOW9)
     live = None
@@ -251,7 +251,7 @@ def test_an_unconfirmed_report_is_printed_as_such_moves_investors_less_and_is_se
 
 
 def test_a_report_proved_wrong_must_be_corrected_and_investors_take_back_what_they_marked(db):
-    j = _player(db, "journalist", "wrongun", level=30)
+    j = _player(db, "investment_banker", "wrongun", level=30)
     db.execute("INSERT INTO journalist_profiles (player_id, following) VALUES (%s, 300000) ON CONFLICT (player_id) DO UPDATE SET following = 300000", (j,))
     w = careers.world_now(db, NOW9)
     quiet = next(c for c in _rows(db, "SELECT id, ticker, name, sector, headquarters FROM companies WHERE listed ORDER BY ticker")
@@ -300,7 +300,7 @@ def test_trading_on_confidential_information_is_kept_for_the_courts(db):
 
 
 def test_a_ministry_source_is_settled_at_the_close_against_the_central_banks_decision(db):
-    j = _player(db, "journalist", "ministry", level=20)
+    j = _player(db, "investment_banker", "ministry", level=20)
     db.execute("INSERT INTO sources (journalist_id, kind, started_period, ready_period, reliability_bps, status, at)"
                " VALUES (%s, 'ministry', 1, 3, 8000, 'active', %s)", (j, NOW9))
     s = _one(db, "SELECT id FROM sources WHERE journalist_id = %s", (j,))
@@ -312,7 +312,7 @@ def test_a_ministry_source_is_settled_at_the_close_against_the_central_banks_dec
 
 
 def test_each_build_sees_its_own_part_of_the_public_record_and_nothing_hidden(db):
-    for build in ("lawyer", "accountant", "investment_banker", "asset_manager", "risk_manager", "journalist"):
+    for build in ("investment_banker", "asset_manager", "investment_banker", "asset_manager", "risk_manager", "investment_banker"):
         p = _player(db, build, f"feed{build}")
         feed = intel.desk_feed(db, p, NOW9)
         assert feed["build"] in intel.BUILD_WORDS.values()

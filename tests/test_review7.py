@@ -34,8 +34,8 @@ def _seat_with(db, head, empire, player, now=NOW9):
 
 
 # 1. The three settings of a module were often the same work: answers seen once, or one purchase, counted three times.
-@pytest.mark.parametrize("build, code", [("journalist", "jr_economy"), ("risk_manager", "rm_inflation"), ("asset_manager", "am_idle"),
-                                         ("risk_manager", "rm_shock"), ("accountant", "ac_ratios")])
+@pytest.mark.parametrize("build, code", [("investment_banker", "jr_economy"), ("risk_manager", "rm_inflation"), ("asset_manager", "am_idle"),
+                                         ("risk_manager", "rm_shock"), ("asset_manager", "ac_ratios")])
 def test_a_module_is_worked_in_one_setting_a_quarter_whichever_is_taken_first(db, build, code):
     player, _ = pro(db, build, level=20, cash_naira=200_000)
     empires.apply(db, player, computer_empire(db)["id"], NOW9)
@@ -68,9 +68,9 @@ def test_one_purchase_is_not_learned_practised_and_proven_at_once(db):
 
 # 2. A failed rank case showed its answers, and parts not drawn on a company were the same on the retry and for a friend.
 def test_a_judged_case_does_not_show_its_answers_while_the_quarter_runs_and_a_retry_is_a_different_case(db):
-    first, _ = pro(db, "journalist", "first", level=20, cash_naira=5_000_000)
-    master(db, first, "journalist")
-    case = ranks.begin(db, first, "journalist", NOW9)
+    first, _ = pro(db, "investment_banker", "first", level=20, cash_naira=5_000_000)
+    master(db, first, "investment_banker")
+    case = ranks.begin(db, first, "investment_banker", NOW9)
     failed = ranks.hand_in(db, first, case["id"], {}, NOW9)
     assert failed["state"] == "failed" and not any("answers" in part for part in failed["result"]["parts"])
     assert all(part["debrief"]["plain"] == "" and part["debrief"]["maths"] == "" for part in failed["result"]["parts"])
@@ -98,17 +98,17 @@ def test_the_bond_in_a_case_is_priced_at_the_cases_own_return_not_the_one_ordina
 
 def test_a_rank_case_is_never_set_on_a_bank_or_an_insurer(db):
     for n in range(12):
-        player, _ = pro(db, "accountant", f"a{n}", level=20, cash_naira=2_000_000)
-        master(db, player, "accountant")
-        ticker = ranks.begin(db, player, "accountant", NOW9)["company"]["ticker"]
+        player, _ = pro(db, "asset_manager", f"a{n}", level=20, cash_naira=2_000_000)
+        master(db, player, "asset_manager")
+        ticker = ranks.begin(db, player, "asset_manager", NOW9)["company"]["ticker"]
         assert _dicts(db, "SELECT sector FROM companies WHERE ticker = %s", (ticker,))[0]["sector"] not in ("banking", "insurance")
 
 
 # 3. A counter-offer outlived the head who made it.
 def test_an_offer_lapses_when_the_head_who_made_it_no_longer_leads(db):
     empire, (old_head, _), partners = founded(db)
-    scribe, scribe_account = partners["journalist"]
-    new_head = partners["accountant"][0]
+    scribe, scribe_account = partners["investment_banker"]
+    new_head = partners["asset_manager"][0]
     empires.resign(db, scribe, "Going.", NOW9)
     letter = empires.war_room(db, old_head, NOW9)["resignations"][0]["id"]
     empires.counter_offer(db, old_head, letter, naira(500_000), naira(10_000_000), "Stay.", NOW9)
@@ -133,12 +133,12 @@ def test_an_offer_lapses_when_the_head_who_made_it_no_longer_leads(db):
 # 4. One character made the server fail when work or a case was handed in.
 def test_a_character_that_cannot_be_kept_is_refused_not_a_fault(db, client):
     assert join(client, ADULT).status_code == 201
-    assert client.put("/api/career/build", json={"build": "accountant"}).status_code == 200
+    assert client.put("/api/career/build", json={"build": "asset_manager"}).status_code == 200
     me = client.get("/api/me").json()["id"]
-    careers.add_experience(db, me, "accountant", careers.experience_for(20), NOW9)
-    master(db, me, "accountant")
+    careers.add_experience(db, me, "asset_manager", careers.experience_for(20), NOW9)
+    master(db, me, "asset_manager")
     give_cash(db, ledger.player_account_id(db, me), 1_000_000)
-    case = client.post("/api/ranks/cases", json={"track": "accountant"}).json()["active"]
+    case = client.post("/api/ranks/cases", json={"track": "asset_manager"}).json()["active"]
     for bad in ({"ac_ratios": {"ebitda": "\u0000"}}, {"ac_ratios": {"ebitda": {"a": "\u0000"}}}, {"ac_ratios": {"ebi\u0000tda": 1}},
                 {"ac\u0000": {"ebitda": 1}}, {"ac_ratios": {"ebitda": {"a\u0007": "x"}}}):
         assert client.post(f"/api/ranks/cases/{case['id']}/hand-in", json={"answers": bad}).status_code == 422
@@ -150,11 +150,11 @@ def test_a_character_that_cannot_be_kept_is_refused_not_a_fault(db, client):
 # 5. League points for growth could be bought with a staged theft, repaid with its fine.
 def test_money_taken_and_paid_back_with_a_fine_is_not_growth(db, monkeypatch):
     empire, (head, _), partners = founded(db)
-    auditor = partners["accountant"][0]
+    auditor = partners["asset_manager"][0]
     quarters.close_due_quarters(db, after_quarters(9))
     now = after_quarters(9) + timedelta(hours=12)
     start = _dicts(db, "SELECT worth FROM empire_worth WHERE empire_id = %s AND period = 9", (empire["id"],))[0]["worth"]
-    friend, _ = pro(db, "lawyer", "friend", level=4, cash_naira=4_000_000)
+    friend, _ = pro(db, "investment_banker", "friend", level=4, cash_naira=4_000_000)
     _seat_with(db, head, empire, friend, now)
     take = start * 22 // 100
     empires.set_limits(db, head, member_id=friend, signing_limit=take, now=now)
@@ -173,9 +173,9 @@ def test_money_taken_and_paid_back_with_a_fine_is_not_growth(db, monkeypatch):
 
 # 6. The leadership track was opened with one kobo: begin a founding, take the work, cancel the founding.
 def test_beginning_a_founding_does_not_open_the_leadership_track(db):
-    player, _ = pro(db, "accountant", level=20, cash_naira=1)
+    player, _ = pro(db, "asset_manager", level=20, cash_naira=1)
     empires.found(db, player, "Paper House", 1, 0, NOW9)
-    assert [t["track"] for t in objectives.board(db, player, NOW9)["tracks"]] == ["accountant"]
+    assert [t["track"] for t in objectives.board(db, player, NOW9)["tracks"]] == ["asset_manager"]
     with pytest.raises(objectives.ObjectiveError, match="not open"):
         objectives.accept(db, player, "ce_return", NOW9)
     with pytest.raises(ranks.RankError, match="not open"):
@@ -185,7 +185,7 @@ def test_beginning_a_founding_does_not_open_the_leadership_track(db):
 # 7. Every member was told who had resigned, and that an offer was made.
 def test_a_resignation_and_an_offer_are_between_the_member_and_the_head(db):
     empire, (head, _), partners = founded(db)
-    scribe, colleague = partners["journalist"][0], partners["accountant"][0]
+    scribe, colleague = partners["investment_banker"][0], partners["asset_manager"][0]
     empires.resign(db, scribe, "A private reason.", NOW9)
     letter = empires.war_room(db, head, NOW9)["resignations"][0]["id"]
     empires.counter_offer(db, head, letter, naira(100_000), None, "Please stay.", NOW9)
@@ -204,7 +204,7 @@ def test_a_resignation_and_an_offer_are_between_the_member_and_the_head(db):
 # 8. A member working out their notice could be voted in as head.
 def test_somebody_who_is_leaving_cannot_be_voted_in_to_lead(db):
     empire, (head, _), partners = founded(db)
-    scribe, colleague = partners["journalist"][0], partners["accountant"][0]
+    scribe, colleague = partners["investment_banker"][0], partners["asset_manager"][0]
     db.execute("UPDATE players SET ceo_since = %s WHERE id = %s", (NOW9, scribe))
     empires.resign(db, scribe, "", NOW9)
     with pytest.raises(empires.EmpireError, match="leaving cannot be voted in"):
@@ -212,16 +212,16 @@ def test_somebody_who_is_leaving_cannot_be_voted_in_to_lead(db):
     empires.withdraw_resignation(db, scribe, NOW9)
     assert empires.vote_head(db, colleague, scribe, NOW9)["votes"] == 1
     # A vote is cast for a seat, because a member is not given colleagues' identifiers.
-    assert empires.vote_for_seat(db, scribe, "journalist", 1, NOW9)["elected"]
+    assert empires.vote_for_seat(db, scribe, "investment_banker", 1, NOW9)["elected"]
     with pytest.raises(empires.EmpireError, match="Nobody holds that seat"):
-        empires.vote_for_seat(db, colleague, "lawyer", 2, NOW9)
+        empires.vote_for_seat(db, colleague, "investment_banker", 2, NOW9)
 
 
 # 9. Reporting one's own unlawful pact cost the other side league points and the reporter none.
 def test_both_sides_of_an_unlawful_pact_lose_league_points_whoever_reports_it(db, monkeypatch):
     empire, (head, _), _ = founded(db)
     rival = computer_empire(db)
-    lawyer, _ = pro(db, "lawyer", "counsel", level=4)
+    lawyer, _ = pro(db, "investment_banker", "counsel", level=4)
     _seat_with(db, head, empire, lawyer)
     unlawful = next(code for code, (_label, legal) in data.PACT_KINDS.items() if not legal)
     always(monkeypatch, True)
@@ -235,7 +235,7 @@ def test_both_sides_of_an_unlawful_pact_lose_league_points_whoever_reports_it(db
 # 10. Somebody who had left, or been removed, was still paid by the empire for work in hand.
 def test_work_in_hand_for_an_empire_ends_with_the_seat(db):
     empire, (head, _), partners = founded(db)
-    ledgerman, account = partners["accountant"]
+    ledgerman, account = partners["asset_manager"]
     taken = objectives.accept(db, ledgerman, "ac_ratios_e", NOW9)
     right = answers_for(db, taken["id"], NOW9)
     empires.sack(db, head, ledgerman, NOW9)
@@ -249,19 +249,19 @@ def test_work_in_hand_for_an_empire_ends_with_the_seat(db):
 
 
 def test_a_build_cannot_be_changed_with_a_rank_case_in_hand(db):
-    player, _ = pro(db, "accountant", level=20, cash_naira=2_000_000)
-    master(db, player, "accountant")
-    ranks.begin(db, player, "accountant", NOW9)
+    player, _ = pro(db, "asset_manager", level=20, cash_naira=2_000_000)
+    master(db, player, "asset_manager")
+    ranks.begin(db, player, "asset_manager", NOW9)
     db.execute("UPDATE players SET build_changed_at = %s WHERE id = %s", (NOW9 - timedelta(days=40), player))
     with pytest.raises(careers.CareerError, match="rank case in hand"):
-        careers.choose_build(db, player, "lawyer", NOW9)
+        careers.choose_build(db, player, "investment_banker", NOW9)
 
 
 # From the two independent answer checks.
 def test_a_contract_or_a_mandate_is_never_decided_on_a_rounding(db):
     """A limit is never set within a tenth of the company's own figure, and the judge tests the exact figure."""
     for n in range(25):
-        player, _ = pro(db, "lawyer", f"l{n}", level=6)
+        player, _ = pro(db, "investment_banker", f"l{n}", level=6)
         t = _dicts(db, "SELECT terms FROM objectives WHERE id = %s", (objectives.accept(db, player, "lw_contract", NOW9)["id"],))[0]["terms"]
         ratio, cover = t["debt"] / (4 * t["ebitda"]), t["operating"] / t["interest"]
         assert abs(ratio - t["most"] / 10) >= 0.1 and abs(cover - t["least"] / 10) >= 0.1
@@ -285,7 +285,7 @@ def test_a_saving_from_a_takeover_is_counted_after_tax_and_a_dividend_must_leave
     # In the live world the test now bites for some companies and not for others.
     calls = set()
     for n in range(30):
-        player, _ = pro(db, "accountant", f"c{n}", level=20)
+        player, _ = pro(db, "asset_manager", f"c{n}", level=20)
         db.execute("UPDATE careers SET rank = 1, experience = %s WHERE player_id = %s", (careers.experience_for(40), player))
         taken = objectives.accept(db, player, "ce_payout", NOW9)
         assert any(g["label"] == "Debt reaching its end date within a year" for g in taken["terms"]["given"])
@@ -296,27 +296,27 @@ def test_a_saving_from_a_takeover_is_counted_after_tax_and_a_dividend_must_leave
 def test_an_overdue_loan_is_said_to_be_overdue_and_the_wording_matches_the_marking(db):
     seen = ""
     for n in range(30):
-        player, _ = pro(db, "lawyer", f"d{n}", level=6)
+        player, _ = pro(db, "investment_banker", f"d{n}", level=6)
         taken = objectives.accept(db, player, "lw_debts", NOW9)
         seen += " ".join(g["text"] for g in taken["terms"]["given"])
         assert "counts as ending within a year" in " ".join(taken["terms"]["task"])
     assert "ends Opening" not in seen
-    player, _ = pro(db, "lawyer", "control", level=6)
+    player, _ = pro(db, "investment_banker", "control", level=6)
     assert "largest holder's share is one of them" in objectives.accept(db, player, "lw_control", NOW9)["terms"]["pass_when"]
-    player, _ = pro(db, "accountant", "income", level=6)
+    player, _ = pro(db, "asset_manager", "income", level=6)
     assert "count interest earned" in " ".join(objectives.accept(db, player, "ac_income", NOW9)["terms"]["task"])
 
 
 def test_the_new_records_are_permanent(db):
     empire, (head, _), partners = founded(db)
-    scribe = partners["journalist"][0]
+    scribe = partners["investment_banker"][0]
     from simulation import leagues
     leagues.award(db, empire["id"], 10, "A task finished", 9, NOW9, reference="task:1")
     empires.resign(db, scribe, "", NOW9)
     empires.withdraw_resignation(db, scribe, NOW9)
-    player, _ = pro(db, "accountant", level=20, cash_naira=2_000_000)
-    master(db, player, "accountant")
-    case = ranks.begin(db, player, "accountant", NOW9)
+    player, _ = pro(db, "asset_manager", level=20, cash_naira=2_000_000)
+    master(db, player, "asset_manager")
+    case = ranks.begin(db, player, "asset_manager", NOW9)
     ranks.hand_in(db, player, case["id"], {}, NOW9)
     ranks.report(db, player, "I believe the cover is wrong here.", NOW9, case_id=case["id"])
     for sql in ("UPDATE league_points SET points = 99", "DELETE FROM league_points", "UPDATE rank_cases SET state = 'passed'",

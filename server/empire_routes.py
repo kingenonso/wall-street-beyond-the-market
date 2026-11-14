@@ -118,7 +118,7 @@ class OfferRequest(Request):
 
 
 class VoteRequest(Request):
-    build: Literal["investment_banker", "asset_manager", "risk_manager", "accountant", "lawyer", "journalist"]
+    build: Literal["investment_banker", "asset_manager", "risk_manager"]
     slot: Literal[1, 2]
 
 
@@ -134,7 +134,7 @@ class LimitsRequest(Request):
 
 
 class StaffRequest(Request):
-    build: Literal["investment_banker", "asset_manager", "risk_manager", "accountant", "lawyer", "journalist"]
+    build: Literal["investment_banker", "asset_manager", "risk_manager"]
     slot: Literal[1, 2]
     staffed: bool
 

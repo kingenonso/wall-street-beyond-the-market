@@ -21,7 +21,7 @@ pytestmark = pytest.mark.world("eight")
 LATE = LATER + timedelta(hours=1)
 
 
-def house(db, name, builds=("accountant", "investment_banker", "risk_manager"), cash_naira=20_000_000_000, tag=None):
+def house(db, name, builds=("asset_manager", "investment_banker", "risk_manager"), cash_naira=20_000_000_000, tag=None):
     """A second empire run by players, with a member at each desk named."""
     tag = tag or name.split()[0].lower()
     head, _ = pro(db, "asset_manager", f"{tag}_head", level=20, cash_naira=60_000_000)
@@ -51,10 +51,10 @@ def test_a_firm_is_founded_from_a_seat_by_the_right_build_and_a_bank_needs_capit
     other, team = house(db, "Delta Partners")
     with pytest.raises(empires.EmpireError, match="founded by an Accountant"):
         firm_practice.found(db, team["investment_banker"], "audit", "Wrong Audit", 0, LATER)
-    made = firm_practice.found(db, team["accountant"], "audit", "Creek Audit", 0, LATER)
+    made = firm_practice.found(db, team["asset_manager"], "audit", "Creek Audit", 0, LATER)
     assert made["firm_id"]
     with pytest.raises(empires.EmpireError, match="already run a firm"):
-        firm_practice.found(db, team["accountant"], "audit", "Creek Audit Two", 0, LATER)
+        firm_practice.found(db, team["asset_manager"], "audit", "Creek Audit Two", 0, LATER)
     with pytest.raises(empires.EmpireError, match="capital"):
         firm_practice.found(db, team["head"], "bank", "Creek Bank", naira(1_000_000), LATER)
     loner, _ = pro(db, "risk_manager", "loner", level=10, cash_naira=1_000_000)
@@ -73,28 +73,28 @@ def test_a_firm_is_founded_from_a_seat_by_the_right_build_and_a_bank_needs_capit
 def test_an_empire_sends_a_check_to_an_outside_firm_which_does_it_and_is_paid_sixty_forty(db):
     empire, team = firm_of(db, n_cash=60_000_000_000)
     other, them = house(db, "Delta Partners")
-    audit = firm_practice.found(db, them["accountant"], "audit", "Creek Audit", 0, LATER)["firm_id"]
+    audit = firm_practice.found(db, them["asset_manager"], "audit", "Creek Audit", 0, LATER)["firm_id"]
     sale = open_a_sale(db)
     file_id = firm_deals.open_file(db, team["investment_banker"], sale["id"], LATER)["file_id"]
     step = _one(db, "SELECT * FROM deal_steps WHERE file_id = %s AND step = 'accounts'", (file_id,))
     with pytest.raises(empires.EmpireError, match="confidentiality"):
         firm_practice.send_step(db, team["head"], step["id"], audit, million_naira(5), LATER)
-    firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
+    firm_deals.sign_nda(db, team["investment_banker"], file_id, LATER)
     with pytest.raises(empires.EmpireError, match="head"):
-        firm_practice.send_step(db, team["accountant"], step["id"], audit, million_naira(5), LATER)
+        firm_practice.send_step(db, team["asset_manager"], step["id"], audit, million_naira(5), LATER)
     job = firm_practice.send_step(db, team["head"], step["id"], audit, million_naira(5), LATER)["job_id"]
     with pytest.raises(empires.EmpireError, match="outside firm"):
-        firm_deals.open_step(db, team["accountant"], step["id"], LATER)
-    opened = firm_practice.open_job(db, them["accountant"], job, LATER)
+        firm_deals.open_step(db, team["asset_manager"], step["id"], LATER)
+    opened = firm_practice.open_job(db, them["asset_manager"], job, LATER)
     assert "_truth" not in str(opened)
-    founder_before, house_before, buyer_before = (cash(db, ledger.player_account_id(db, them["accountant"])), cash(db, other["account_id"]),
+    founder_before, house_before, buyer_before = (cash(db, ledger.player_account_id(db, them["asset_manager"])), cash(db, other["account_id"]),
                                                   cash(db, empire["account_id"]))
-    done = firm_practice.hand_in_job(db, them["accountant"], job, job_truth(db, job), LATE)
+    done = firm_practice.hand_in_job(db, them["asset_manager"], job, job_truth(db, job), LATE)
     assert done["score"] == 100
     assert _one(db, "SELECT status, done_by FROM deal_steps WHERE id = %s", (step["id"],))["status"] == "done"
     assert cash(db, empire["account_id"]) == buyer_before - million_naira(5)
     assert cash(db, other["account_id"]) - house_before == million_naira(3)               # 60% to the founder's empire
-    assert cash(db, ledger.player_account_id(db, them["accountant"])) - founder_before == million_naira(2)
+    assert cash(db, ledger.player_account_id(db, them["asset_manager"])) - founder_before == million_naira(2)
     assert _one(db, "SELECT reputation, jobs_done FROM pro_firms WHERE id = %s", (audit,)) == {"reputation": 51, "jobs_done": 1}
     seen = firm.view(db, team["head"], LATE)["deals"]
     mine = next(s for s in seen["sales"] if s["id"] == sale["id"])
@@ -104,24 +104,24 @@ def test_an_empire_sends_a_check_to_an_outside_firm_which_does_it_and_is_paid_si
 
 def test_founders_have_a_company_on_sale_audited_and_buyers_see_the_opinion(db):
     other, them = house(db, "Delta Partners")
-    audit = firm_practice.found(db, them["accountant"], "audit", "Creek Audit", 0, LATER)["firm_id"]
+    audit = firm_practice.found(db, them["asset_manager"], "audit", "Creek Audit", 0, LATER)["firm_id"]
     dressed = _one(db, "SELECT c.ticker FROM private_profiles p JOIN companies c ON c.id = p.company_id WHERE p.secrets @> '[{\"code\": \"dressed_revenue\"}]'"
                        " AND c.status = 'trading' AND NOT EXISTS (SELECT 1 FROM sale_processes s WHERE s.company_id = c.id AND s.status = 'open')"
                        " ORDER BY c.ticker LIMIT 1")
     sale = open_a_sale(db, dressed["ticker"])
     job = _one(db, "SELECT * FROM firm_jobs WHERE process_id = %s AND kind = 'audit'", (sale["id"],))
     assert job and job["firm_id"] == audit
-    firm_practice.open_job(db, them["accountant"], job["id"], LATER)
+    firm_practice.open_job(db, them["asset_manager"], job["id"], LATER)
     right = job_truth(db, job["id"])
     assert right["opinion"] == "refused"
     # Signing dressed-up accounts clean is the worst thing an auditor can do: its name suffers badly.
     with db.transaction(force_rollback=True):
-        firm_practice.hand_in_job(db, them["accountant"], job["id"], {**right, "opinion": "clean"}, LATE)
+        firm_practice.hand_in_job(db, them["asset_manager"], job["id"], {**right, "opinion": "clean"}, LATE)
         assert _one(db, "SELECT reputation FROM pro_firms WHERE id = %s", (audit,))["reputation"] <= 50 - 15
-    firm_practice.hand_in_job(db, them["accountant"], job["id"], right, LATE)
+    firm_practice.hand_in_job(db, them["asset_manager"], job["id"], right, LATE)
     empire, team = firm_of(db, n_cash=60_000_000_000)
     file_id = firm_deals.open_file(db, team["investment_banker"], sale["id"], LATE)["file_id"]
-    firm_deals.sign_nda(db, team["lawyer"], file_id, LATE)
+    firm_deals.sign_nda(db, team["investment_banker"], file_id, LATE)
     room = firm.view(db, team["head"], LATE)["deals"]
     seen = next(s for s in room["sales"] if s["id"] == sale["id"])["file"]["data_room"]["audit"]
     assert seen == {"firm": "Creek Audit", "reputation": 51, "status": "done", "opinion": "refused"}
@@ -320,12 +320,12 @@ def test_a_block_changes_hands_near_the_market_price_and_never_to_thirty_percent
 def test_a_truce_stops_poaching_and_offers_for_each_others_companies(db):
     empire, team = firm_of(db, n_cash=200_000_000_000)
     other, them = house(db, "Delta Partners")
-    pact = empires.draft_pact(db, team["lawyer"], other["id"], "truce", "We leave each other's people and companies alone.", LATER)
+    pact = empires.draft_pact(db, team["investment_banker"], other["id"], "truce", "We leave each other's people and companies alone.", LATER)
     empires.sign_pact(db, team["head"], pact["id"], LATER)
     empires.sign_pact(db, them["head"], pact["id"], LATER)
     assert empires.in_truce(db, empire["id"], other["id"])
     with pytest.raises(empires.EmpireError, match="truce"):
-        firm_people.poach(db, team["head"], them["accountant"], naira(1_000_000), "Come over.", LATER)
+        firm_people.poach(db, team["head"], them["asset_manager"], naira(1_000_000), "Come over.", LATER)
     target = target_of(db)
     issued = ledger.amount_in_existence(db, target["share_asset"])
     holder = _one(db, "SELECT account_id FROM share_owners WHERE company_id = %s ORDER BY shares DESC LIMIT 1", (target["id"],))["account_id"]
@@ -343,7 +343,7 @@ def test_a_truce_stops_poaching_and_offers_for_each_others_companies(db):
 
 def test_two_empires_merge_by_their_members_votes_and_every_owner_keeps_what_their_share_was_worth(db):
     empire, team = firm_of(db, n_cash=2_000_000_000)
-    other, them = house(db, "Delta Partners", builds=("investment_banker", "lawyer"), cash_naira=1_000_000_000)
+    other, them = house(db, "Delta Partners", builds=("investment_banker", "risk_manager", "asset_manager"), cash_naira=1_000_000_000)
     company = own(db, other, "RWH")
     worth_a, worth_b = empires.worth(db, empire, LATER)["total"], empires.worth(db, other, LATER)["total"]
     value_b = {p["player_id"]: p["value"] for p in firm_money.partners(db, other, LATER)}
@@ -397,7 +397,7 @@ def test_a_company_is_split_off_into_a_new_empire_owned_by_the_same_owners(db):
 def test_money_taken_out_of_an_owned_company_is_found_by_an_audit_firm_and_punished(db):
     empire, team = firm_of(db, n_cash=2_000_000_000)
     other, them = house(db, "Delta Partners")
-    audit = firm_practice.found(db, them["accountant"], "audit", "Creek Audit", 0, LATER)["firm_id"]
+    audit = firm_practice.found(db, them["asset_manager"], "audit", "Creek Audit", 0, LATER)["firm_id"]
     company = own(db, empire, "RWH")
     db.execute("UPDATE empire_seats SET signing_limit = %s WHERE player_id = %s", (million_naira(100), team["investment_banker"]))
     company_cash = cash(db, company["account_id"])
@@ -409,17 +409,17 @@ def test_money_taken_out_of_an_owned_company_is_found_by_an_audit_firm_and_punis
     book = _one(db, "SELECT * FROM empire_books WHERE id = %s", (taken["book_id"],))
     assert not book["genuine"] and book["company_id"] == company["id"]
     job = firm_practice.commission_audit(db, team["head"], company["id"], audit, million_naira(2), LATER)["job_id"]
-    firm_practice.open_job(db, them["accountant"], job, LATER)
+    firm_practice.open_job(db, them["asset_manager"], job, LATER)
     right = job_truth(db, job)
     assert right["consulting"] == amount and right["opinion"] == "refused"
-    firm_practice.hand_in_job(db, them["accountant"], job, right, LATE)
+    firm_practice.hand_in_job(db, them["asset_manager"], job, right, LATE)
     case = _one(db, "SELECT * FROM empire_cases WHERE book_id = %s", (book["id"],))
     assert case and case["player_id"] == team["investment_banker"]
     assert ledger.audit(db) == []
 
 
 def test_a_head_drafting_at_an_empty_banker_desk_signs_the_offer_at_once(db):
-    other, them = house(db, "Delta Partners", builds=("accountant", "lawyer"), cash_naira=200_000_000_000)
+    other, them = house(db, "Delta Partners", builds=("asset_manager", "risk_manager"), cash_naira=200_000_000_000)
     target = target_of(db)
     issued = ledger.amount_in_existence(db, target["share_asset"])
     done = firm_dealmaking.draft_offer(db, them["head"], target["id"], target["reference_price"] * 13 // 10, issued * 6 // 10, LATER)

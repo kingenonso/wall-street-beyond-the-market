@@ -21,9 +21,9 @@ def _one(db, sql, params=()):
 
 def test_work_past_the_desks_budget_waits_for_the_head_and_is_taken_on_when_approved(db):
     empire, team = firm_of(db, n_cash=5_000_000_000)
-    accountant = team["accountant"]
+    accountant = team["asset_manager"]
     db.execute("UPDATE careers SET rank = 1, experience = greatest(experience, 2000) WHERE player_id = %s", (accountant,))
-    firm_money.set_budgets(db, team["head"], {"accountant": naira(1)}, NOW9)
+    firm_money.set_budgets(db, team["head"], {"asset_manager": naira(1)}, NOW9)
     waiting = objectives.accept(db, accountant, "ac_ratios_e", NOW9)
     assert waiting["waiting"] and "budget" in waiting["words"]
     assert not _one(db, "SELECT 1 FROM objectives WHERE player_id = %s AND template = 'ac_ratios_e'", (accountant,))
@@ -41,15 +41,15 @@ def test_work_past_the_desks_budget_waits_for_the_head_and_is_taken_on_when_appr
 
 def test_a_refused_request_takes_nothing_on_and_work_inside_the_budget_goes_straight_through(db):
     empire, team = firm_of(db, n_cash=5_000_000_000)
-    accountant = team["accountant"]
+    accountant = team["asset_manager"]
     db.execute("UPDATE careers SET rank = 1, experience = greatest(experience, 2000) WHERE player_id = %s", (accountant,))
-    firm_money.set_budgets(db, team["head"], {"accountant": naira(1)}, NOW9)
+    firm_money.set_budgets(db, team["head"], {"asset_manager": naira(1)}, NOW9)
     waiting = objectives.accept(db, accountant, "ac_ratios_e", NOW9)
     firm.decide(db, team["head"], waiting["approval_id"], False, "Not this quarter.", NOW9)
     assert not _one(db, "SELECT 1 FROM objectives WHERE player_id = %s AND template = 'ac_ratios_e'", (accountant,))
     # A generous budget: no waiting.
     db.execute("DELETE FROM empire_budgets WHERE empire_id = %s", (empire["id"],))
-    firm_money.set_budgets(db, team["head"], {"accountant": naira(1_000_000_000)}, NOW9)
+    firm_money.set_budgets(db, team["head"], {"asset_manager": naira(1_000_000_000)}, NOW9)
     taken = objectives.accept(db, accountant, "ac_ratios_e", NOW9)
     assert "waiting" not in taken and taken["state"] == "active"
     # The head's own work never waits.

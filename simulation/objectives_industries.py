@@ -157,7 +157,7 @@ def _grocer_profit(f) -> float:
     return _gross_profit(f) * (1 - f["overhead"] / 100)
 
 
-piece("ac_retail_margin", "accountant", "Thin margins and the rent bill", "How far can the shops' sales fall?", 5,
+piece("ac_retail_margin", "asset_manager", "Thin margins and the rent bill", "How far can the shops' sales fall?", 5,
       "A shop that keeps a tenth of what it takes has no room for a fall in sales: the rent does not fall with them.",
       _grocer,
       [Q("gross", "Its gross profit", "millions", lambda f: _gross_profit(f)),
@@ -201,7 +201,7 @@ def _studio_cost(f) -> float:
     return _studio_sales(f) * f["cost"] / 100
 
 
-piece("jn_film_quarter", "journalist", "Reporting a hit-or-miss industry", "A studio's quarter, with and without the hit", 5,
+piece("jn_film_quarter", "investment_banker", "Reporting a hit-or-miss industry", "A studio's quarter, with and without the hit", 5,
       "In an industry where one release decides the quarter, a story that leaves the hit out tells the reader the opposite of the truth.",
       _studio_quarter,
       [Q("sales", "Its sales for the quarter", "millions", lambda f: _studio_sales(f)),
@@ -291,7 +291,7 @@ def _supply_contract(ctx, r):
             "f": {"order": order, "share": share, "fall": fall}}
 
 
-piece("lw_currency_clause", "lawyer", "Contracts for imported goods", "Who carries the currency risk?", 5,
+piece("lw_currency_clause", "investment_banker", "Contracts for imported goods", "Who carries the currency risk?", 5,
       "A price in someone else's money is a risk, and a contract that does not say who carries it will be argued about later.",
       _supply_contract,
       [Q("extra", "The extra cost the fall adds to the order", "millions", lambda f: f["order"] * f["fall"] / 100),

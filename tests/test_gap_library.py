@@ -39,7 +39,7 @@ def test_every_new_piece_is_offered_judged_right_when_right_and_wrong_when_blank
     from psycopg.rows import dict_row
     checked = 0
     for index, track in enumerate(TRACKS):
-        player, _ = pro(db, "accountant" if track == "ceo" else track, f"lib{index}", level=20, cash_naira=1_000_000)
+        player, _ = pro(db, "asset_manager" if track == "ceo" else track, f"lib{index}", level=20, cash_naira=1_000_000)
         db.execute("UPDATE careers SET rank = 4, experience = %s WHERE player_id = %s", (careers.experience_for(100), player))
         ctx = objectives._context(db, player, NOW9)
         for t in [x for x in objectives_gap.NEW if x.build == track]:
@@ -58,10 +58,10 @@ def test_every_new_piece_is_offered_judged_right_when_right_and_wrong_when_blank
 
 
 def test_new_work_is_locked_below_its_level_and_on_the_board_above_it(db):
-    player, _ = pro(db, "accountant", "lowlevel", level=10, cash_naira=1_000_000)
+    player, _ = pro(db, "asset_manager", "lowlevel", level=10, cash_naira=1_000_000)
     with pytest.raises(objectives.ObjectiveError, match="opens at Level 41"):
         objectives.accept(db, player, "ac_income_value", NOW9)
-    high, _ = pro(db, "accountant", "highlevel", level=20, cash_naira=1_000_000)
+    high, _ = pro(db, "asset_manager", "highlevel", level=20, cash_naira=1_000_000)
     db.execute("UPDATE careers SET rank = 4, experience = %s WHERE player_id = %s", (careers.experience_for(60), high))
     taken = objectives.accept(db, high, "ac_income_value", NOW9)
     assert taken["state"] == "active" and "figures" not in taken["terms"]          # the figures behind the answers stay on the server

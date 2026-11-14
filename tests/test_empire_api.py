@@ -21,12 +21,12 @@ def test_a_new_player_joins_an_empire_from_the_first_day_and_uses_the_war_room(d
     # Without a build there is no seat to take.
     refused = client.post(f"/api/empires/{first['id']}/applications")
     assert refused.status_code == 409 and "build" in refused.json()["detail"]
-    assert client.put("/api/career/build", json={"build": "accountant"}).status_code == 200
+    assert client.put("/api/career/build", json={"build": "asset_manager"}).status_code == 200
     joined = client.post(f"/api/empires/{first['id']}/applications")
     assert joined.status_code == 201
     room = joined.json()["room"]
-    assert room["name"] == first["name"] and room["your_build"] == "accountant" and room["run_by_computer"] and not room["is_head"]
-    assert len(room["seats"]) == 12 and sum(1 for s in room["seats"] if s["you"]) == 1
+    assert room["name"] == first["name"] and room["your_build"] == "asset_manager" and room["run_by_computer"] and not room["is_head"]
+    assert len(room["seats"]) == 6 and sum(1 for s in room["seats"] if s["you"]) == 1
     assert room["can_audit"] and not room["can_trade"]
 
     # The chat.
@@ -81,13 +81,13 @@ def test_a_new_player_joins_an_empire_from_the_first_day_and_uses_the_war_room(d
 
 def test_one_players_requests_never_reach_another_empires_room(db, client):
     assert join(client, ADULT).status_code == 201
-    client.put("/api/career/build", json={"build": "lawyer"})
+    client.put("/api/career/build", json={"build": "investment_banker"})
     league = client.get("/api/empires").json()["directory"]["league"]
     client.post(f"/api/empires/{league[0]['id']}/applications")
     client.post("/api/empire/messages", json={"body": "Our secret plan."})
     client.post("/api/auth/logout")
     assert join(client, {**ADULT, "email": "ben@example.com", "display_name": "Ben"}).status_code == 201
-    client.put("/api/career/build", json={"build": "lawyer"})
+    client.put("/api/career/build", json={"build": "investment_banker"})
     assert "Our secret plan." not in client.get("/api/empires").text
     client.post(f"/api/empires/{league[1]['id']}/applications")
     seen = client.get("/api/empires").json()
@@ -118,7 +118,7 @@ def test_the_new_build_screens_have_their_figures_and_show_nothing_hidden(db, cl
     assert book["book"] == "empire" and book["book_name"] == league[0]["name"] and int(book["total_kobo"]) > naira(1_000_000_000)
     assert client.get("/api/desk/risk-manager?book=own").json()["book"] == "own"
     head = client.get("/api/desk/head").json()
-    assert int(head["worth_kobo"]) == int(book["total_kobo"]) and head["staff"] == 11 and head["players"] == 1
+    assert int(head["worth_kobo"]) == int(book["total_kobo"]) and head["staff"] == 6 and head["players"] == 1
     me = client.get("/api/me").json()
     assert me["empire"]["name"] == league[0]["name"] and me["empire"]["is_head"] is False and me["empire"]["place"] in (1, 2, 3, 4, 5)
     for seen in (banker, lawyer, own, book, head):
@@ -130,7 +130,7 @@ def test_the_empires_shares_reach_the_portfolio_page_with_what_they_cost(db, cli
     """The Portfolio and savings page asks for the empire's shares: it gets what each cost, what it is worth and the gain."""
     assert join(client, ADULT).status_code == 201
     assert client.get("/api/empire/shares").json() == {"empire": None}      # no seat, so nothing to show
-    assert client.put("/api/career/build", json={"build": "accountant"}).status_code == 200
+    assert client.put("/api/career/build", json={"build": "asset_manager"}).status_code == 200
     first = client.get("/api/empires").json()["directory"]["league"][0]
     assert client.post(f"/api/empires/{first['id']}/applications").status_code == 201
     seen = client.get("/api/empire/shares").json()

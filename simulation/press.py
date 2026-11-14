@@ -79,8 +79,8 @@ def _words(text: str | None, least: int, most: int, what: str) -> str:
 
 def _journalist(conn: Connection, player_id) -> dict:
     p = _one(conn, "SELECT id, display_name, build FROM players WHERE id = %s", (player_id,))
-    if p is None or p["build"] != "journalist":
-        raise PressError("Only a Financial Journalist can do this.")
+    if p is None or p["build"] is None:
+        raise PressError("Only a player with a build can do this.")
     conn.execute("INSERT INTO journalist_profiles (player_id) VALUES (%s) ON CONFLICT DO NOTHING", (player_id,))
     return p
 
@@ -103,9 +103,7 @@ def press_officer(conn: Connection, player_id) -> dict:
         raise PressError("You do not speak for an empire.")
     if empire["head_player_id"] == player_id:
         return empire
-    if _one(conn, "SELECT 1 AS x FROM empire_seats WHERE empire_id = %s AND player_id = %s AND build = 'journalist'", (empire["id"], player_id)):
-        return empire
-    raise PressError("The empire's head, or its Financial Journalist, speaks for it.")
+    raise PressError("The empire's head speaks for it.")
 
 
 def speaks_for(conn: Connection, player_id, empire_id) -> bool:
@@ -400,7 +398,7 @@ def publish_expose(conn: Connection, player_id, file_id: int, now: datetime) -> 
         conn.execute("UPDATE journalist_profiles SET readers = readers + %s, stories = stories + 1, scoops = scoops + 1,"
                      " credibility = least(credibility + %s, 100), following = following + %s WHERE player_id = %s",
                      (readers, data.EXPOSE_CREDIBILITY, readers * data.FOLLOW_SHARE_BPS // BPS, player_id))
-        careers.add_experience(conn, player_id, "journalist", 150, now)
+        careers.add_experience(conn, player_id, "investment_banker", 150, now)
         from simulation import chronicle
         chronicle.write(conn, "personal", f"story:{story['id']}", "investigation", f"An exposé: {headline}",
                         f"{author['display_name']} published “{headline}” for {outlet_name}: {readers:,} readers.", period, day, now,
@@ -546,7 +544,7 @@ def who_is_looking(conn: Connection, empire_id, now: datetime) -> list[dict]:
             ORDER BY s.id DESC LIMIT 40""",
                    (since, w["period"], w["period"], w["day"], empire_id, empire_id, f'[{{"empire_id": {int(empire_id)}}}]', tickers, empire_id)):
         out.setdefault(s["who"], []).append(f"Wrote: “{s['headline']}”")
-    return sorted(({"journalist": k, "traces": v[:8], "count": len(v)} for k, v in out.items()), key=lambda r: -r["count"])
+    return sorted(({"investment_banker": k, "traces": v[:8], "count": len(v)} for k, v in out.items()), key=lambda r: -r["count"])
 
 
 # ---------------------------------------------------------------------------
@@ -566,8 +564,8 @@ def leak(conn: Connection, player_id, kind: str, to_name: str, now: datetime, *,
         if empire["head_player_id"] == player_id:
             raise PressError("The head speaks for the empire openly; there is nothing for them to leak.")
         to = _one(conn, "SELECT id, build, display_name FROM players WHERE lower(display_name) = lower(%s)", ((to_name or "").strip(),))
-        if to is None or to["build"] != "journalist" or to["id"] == player_id:
-            raise PressError("Pass it to a Financial Journalist, by name.")
+        if to is None or to["id"] == player_id:
+            raise PressError("Pass it to a player, by name.")
         if _one(conn, "SELECT 1 AS x FROM empire_seats WHERE empire_id = %s AND player_id = %s", (empire["id"], to["id"])):
             raise PressError("That journalist sits in your own empire.")
         conn.execute("SELECT pg_advisory_xact_lock(hashtext('leak:' || %s))", (str(player_id),))
@@ -711,10 +709,10 @@ def ask_spin(conn: Connection, head_id, story_id: int, now: datetime) -> dict:
         story = _one(conn, "SELECT * FROM stories WHERE id = %s AND status = 'published'", (story_id,))
         if story is None or not _about_empire(conn, story, empire["id"]):
             raise PressError("That is not a story about your empire.")
-        j = _one(conn, "SELECT player_id FROM empire_seats WHERE empire_id = %s AND build = 'journalist' AND player_id IS NOT NULL"
+        j = _one(conn, "SELECT player_id FROM empire_seats WHERE empire_id = %s AND player_id IS NOT NULL"
                        " ORDER BY slot LIMIT 1", (empire["id"],))
         if j is None:
-            raise PressError("Your empire has no Financial Journalist to ask.")
+            raise PressError("Your empire has no member to ask.")
         try:
             with conn.transaction():
                 row = _one(conn, "INSERT INTO spin_requests (empire_id, head_id, journalist_id, story_id, period, at)"

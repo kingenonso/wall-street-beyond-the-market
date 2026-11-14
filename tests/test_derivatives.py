@@ -194,7 +194,7 @@ def test_the_risk_manager_buys_protection_inside_the_limit_and_the_hedge_is_scor
     ready(db, team["risk_manager"])
     put = series(db, "put", "BSX50", nearest=derivatives.index_now(db, OPEN))
     with pytest.raises(Exception):
-        lending_empire.trade(db, team["journalist"], put["id"], "long", 1, OPEN)
+        lending_empire.trade(db, team["investment_banker"], put["id"], "long", 1, OPEN)
     # No limit signed: above it, the head decides.
     waiting = lending_empire.trade(db, team["risk_manager"], put["id"], "long", 2, OPEN)
     assert waiting["waiting"]

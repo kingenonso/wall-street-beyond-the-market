@@ -45,7 +45,7 @@ def test_the_signing_limit_is_the_same_flat_figure_at_every_level(db, level):
 
 def test_a_player_run_empire_starts_at_the_same_figure_until_its_head_sets_another(db):
     empire, (head, _), partners = founded(db)
-    scribe = partners["journalist"][0]
+    scribe = partners["investment_banker"][0]
     assert empires.war_room(db, scribe, NOW9)["signing_limit"] == naira(500_000)
     assert empires.war_room(db, head, NOW9)["expense_limit"] == naira(500_000)
     empires.set_limits(db, head, expense_limit=naira(50_000))
@@ -58,7 +58,7 @@ def test_a_player_run_empire_starts_at_the_same_figure_until_its_head_sets_anoth
 
 def test_in_a_player_run_empire_a_letter_starts_fourteen_real_days_of_notice(db):
     empire, (head, _), partners = founded(db)
-    scribe, scribe_account = partners["journalist"]
+    scribe, scribe_account = partners["investment_banker"]
     done = empires.resign(db, scribe, "I have had an offer I cannot refuse.", NOW9)
     assert not done["left"] and done["leaves_at"] == NOW9 + timedelta(days=14)
     assert seat(db, scribe) is not None                                         # still a member, still working
@@ -68,7 +68,7 @@ def test_in_a_player_run_empire_a_letter_starts_fourteen_real_days_of_notice(db)
     room = empires.war_room(db, head, NOW9)
     assert [r["name"] for r in room["resignations"]] == ["scribe"] and room["resignations"][0]["letter"].startswith("I have had")
     assert empires.badge(db, head, NOW9)["waiting"] >= 1
-    other = empires.war_room(db, partners["accountant"][0], NOW9)
+    other = empires.war_room(db, partners["asset_manager"][0], NOW9)
     assert other["resignations"] == [] and other["resignation"] is None
     assert not any(s["resigning"] for s in other["seats"])
     assert empires.war_room(db, scribe, NOW9)["resignation"]["leaves_at"] == done["leaves_at"]
@@ -86,7 +86,7 @@ def test_in_a_player_run_empire_a_letter_starts_fourteen_real_days_of_notice(db)
 
 def test_a_letter_can_be_withdrawn_and_the_head_can_let_somebody_go_early(db):
     empire, (head, _), partners = founded(db)
-    scribe, ledgerman = partners["journalist"][0], partners["accountant"][0]
+    scribe, ledgerman = partners["investment_banker"][0], partners["asset_manager"][0]
     empires.resign(db, scribe, "", NOW9)
     empires.withdraw_resignation(db, scribe, NOW9)
     assert empires.run_notices(db, NOW9 + timedelta(days=20)) == 0 and seat(db, scribe) is not None
@@ -104,7 +104,7 @@ def test_a_letter_can_be_withdrawn_and_the_head_can_let_somebody_go_early(db):
 
 def test_the_head_can_make_a_counter_offer_and_it_is_paid_and_set_only_when_accepted(db):
     empire, (head, _), partners = founded(db)
-    scribe, scribe_account = partners["journalist"]
+    scribe, scribe_account = partners["investment_banker"]
     empires.resign(db, scribe, "The pay is too low.", NOW9)
     letter = empires.war_room(db, head, NOW9)["resignations"][0]["id"]
     worth = empires.war_room(db, head, NOW9)["worth"]
@@ -140,7 +140,7 @@ def test_the_head_can_make_a_counter_offer_and_it_is_paid_and_set_only_when_acce
 
 def test_an_offer_the_empire_cannot_pay_does_not_go_through_and_the_letter_stands(db):
     empire, (head, _), partners = founded(db)
-    scribe, _ = partners["journalist"]
+    scribe, _ = partners["investment_banker"]
     empires.resign(db, scribe, "", NOW9)
     letter = empires.war_room(db, head, NOW9)["resignations"][0]["id"]
     empires.counter_offer(db, head, letter, naira(500_000), None, "", NOW9)
@@ -168,7 +168,7 @@ def test_in_a_computer_run_empire_the_member_leaves_when_the_quarter_ends(db):
 
 def test_a_partner_leaves_a_forming_empire_at_once_and_takes_their_money_back(db):
     empire, (head, _), partners = founded(db, open_it=False)
-    scribe, scribe_account = partners["journalist"]
+    scribe, scribe_account = partners["investment_banker"]
     empires.put_in(db, scribe, naira(80_000), 0, NOW9)
     before, pot = ledger.balance(db, scribe_account), ledger.balance(db, empire["account_id"])
     assert empires.resign(db, scribe, "", NOW9)["left"]
@@ -187,12 +187,12 @@ def test_a_head_who_resigns_serves_the_same_notice_and_is_then_followed_by_a_suc
     empires.run_notices(db, NOW9 + timedelta(days=15))
     assert seat(db, head) is None
     fresh = _dicts(db, "SELECT head_player_id FROM empires WHERE id = %s", (empire["id"],))[0]
-    assert fresh["head_player_id"] in (partners["journalist"][0], partners["accountant"][0])
+    assert fresh["head_player_id"] in (partners["investment_banker"][0], partners["asset_manager"][0])
 
 
 def test_being_sacked_overtakes_a_letter(db):
     empire, (head, _), partners = founded(db)
-    scribe = partners["journalist"][0]
+    scribe = partners["investment_banker"][0]
     empires.resign(db, scribe, "", NOW9)
     empires.sack(db, head, scribe, NOW9)
     assert _dicts(db, "SELECT status FROM empire_resignations WHERE player_id = %s", (scribe,))[0]["status"] == "overtaken"
@@ -205,8 +205,8 @@ def test_being_sacked_overtakes_a_letter(db):
 
 def test_a_theft_found_after_the_thief_has_left_is_still_punished_and_their_new_seat_is_for_the_new_head_to_decide(db, monkeypatch):
     old, (old_head, _), old_partners = founded(db)
-    auditor = old_partners["accountant"][0]
-    thief, thief_account = thief_in(db, old, "lawyer", "mallam", cash=2_000_000)
+    auditor = old_partners["asset_manager"][0]
+    thief, thief_account = thief_in(db, old, "investment_banker", "mallam", cash=2_000_000)
     asked = _dicts(db, "SELECT id FROM empire_applications WHERE player_id = %s AND status = 'waiting'", (thief,))[0]["id"]
     empires.decide_application(db, old_head, asked, True, NOW9)
     countersigned(db, empires.divert(db, thief, naira(400_000), NOW9), auditor, NOW9)
@@ -242,7 +242,7 @@ def test_a_theft_found_after_the_thief_has_left_is_still_punished_and_their_new_
 
 def test_a_new_head_sees_the_legal_record_and_decides(db, monkeypatch):
     old = computer_empire(db)
-    thief, _ = thief_in(db, old, "lawyer", "mallam", cash=2_000_000)
+    thief, _ = thief_in(db, old, "investment_banker", "mallam", cash=2_000_000)
     empires.divert(db, thief, naira(300_000), NOW9)
     empires.leave(db, thief, NOW9)
     new, (new_head, _), partners = founded(db)
@@ -261,7 +261,7 @@ def test_a_new_head_sees_the_legal_record_and_decides(db, monkeypatch):
     held = next(s for s in room["seats"] if s["name"] == "mallam")
     assert len(held["legal"]) == 1 and "Savannah Crown Holdings" in held["legal"][0]["words"]
     # A colleague who is not the head is not shown it.
-    mate = empires.war_room(db, partners["accountant"][0], now)
+    mate = empires.war_room(db, partners["asset_manager"][0], now)
     assert next(s for s in mate["seats"] if s["name"] == "mallam")["legal"] == []
     # The head decides: here, to remove them.
     empires.sack(db, new_head, thief, now)
@@ -324,10 +324,10 @@ def test_growth_is_measured_with_money_put_in_by_members_left_out(db):
 
 
 def test_every_player_is_ranked_within_their_build(db):
-    top, _ = pro(db, "lawyer", "top", level=12)
-    low, _ = pro(db, "lawyer", "low", level=3)
-    pro(db, "journalist", "elsewhere", level=19)
-    table = leagues.build_table(db, "lawyer", low)
+    top, _ = pro(db, "investment_banker", "top", level=12)
+    low, _ = pro(db, "investment_banker", "low", level=3)
+    pro(db, "investment_banker", "elsewhere", level=19)
+    table = leagues.build_table(db, "investment_banker", low)
     assert [(p["name"], p["place"]) for p in table["top"]] == [("top", 1), ("low", 2)] and table["your_place"] == 2
     assert table["top"][1]["you"] and "id" not in table["top"][0]
 

@@ -44,7 +44,7 @@ def write(db, player, cards, now=NOW9, **words):
 
 
 def test_a_journalist_publishes_a_checked_story_under_their_name_and_a_first_with_a_fact_is_a_scoop(db):
-    j, account = pro(db, "journalist", "scribe", level=10)
+    j, account = pro(db, "investment_banker", "scribe", level=10)
     card = results_card(db)
     onn = _one(db, "SELECT account_id FROM companies WHERE ticker = 'ONN'")["account_id"]
     before = ledger.balance(db, account)
@@ -59,7 +59,7 @@ def test_a_journalist_publishes_a_checked_story_under_their_name_and_a_first_wit
     prof = newsroom.profile(db, j)
     assert prof["scoops"] == 1 and prof["following"] == out["readers"] * data.FOLLOW_SHARE_BPS // 10_000
     # A second journalist with the same fact is not first with it.
-    other, _ = pro(db, "journalist", "latecomer", level=10)
+    other, _ = pro(db, "investment_banker", "latecomer", level=10)
     assert not write(db, other, [card])["scoop"]
     # A scoop enters the author's own Chronicle.
     assert _one(db, "SELECT 1 AS x FROM chronicle_entries WHERE layer = 'personal' AND player_id = %s AND kind = 'scoop'", (j,))
@@ -67,7 +67,7 @@ def test_a_journalist_publishes_a_checked_story_under_their_name_and_a_first_wit
 
 
 def test_every_fact_is_checked_before_print_and_the_authors_own_view_has_no_figures(db):
-    j, _ = pro(db, "journalist", "careful", level=10)
+    j, _ = pro(db, "investment_banker", "careful", level=10)
     cards = [c for c in newsroom_facts.facts(db, NOW9) if c["kind"] == "results"][:6]
     newsroom.start(db, j, NOW9)
     newsroom.add_fact(db, j, cards[0]["id"], NOW9)
@@ -82,14 +82,14 @@ def test_every_fact_is_checked_before_print_and_the_authors_own_view_has_no_figu
     with pytest.raises(newsroom.NewsroomError, match="not a confirmed fact"):
         newsroom.add_fact(db, j, "results:ZZZ:8", NOW9)
     # Only a Financial Journalist publishes.
-    a, _ = pro(db, "accountant", "notreporter", level=10)
+    a, _ = pro(db, "asset_manager", "notreporter", level=10)
     with pytest.raises(newsroom.NewsroomError, match="Financial Journalist"):
         newsroom.start(db, a, NOW9)
 
 
 def test_no_trading_a_company_from_the_first_draft_until_two_trading_days_after_publication(db):
     empire, team = firm_of(db)
-    j = team["journalist"]
+    j = team["investment_banker"]
     account = ledger.player_account_id(db, j)
     ledger.transfer(db, payer=ledger.account_id(db, ledger.TREASURY), receiver=account, amount=10**10, kind="test_cash", memo="Test cash")
     card = results_card(db)
@@ -111,7 +111,7 @@ def test_no_trading_a_company_from_the_first_draft_until_two_trading_days_after_
 
 
 def test_a_widely_read_true_story_nudges_investors_who_read_it_at_their_own_pace(db):
-    j, _ = pro(db, "journalist", "influencer", level=10)
+    j, _ = pro(db, "investment_banker", "influencer", level=10)
     card = results_card(db, tone=1)
     out = write(db, j, [card])
     assert out["readers"] >= data.WIDELY_READ and out["nudges"]
@@ -126,7 +126,7 @@ def test_a_widely_read_true_story_nudges_investors_who_read_it_at_their_own_pace
     assert company not in newsroom.nudges_today(db, day + timedelta(days=5))
     assert data.NEWS_LAG_DAYS["investors:founders"] is None                                # founders never
     # One nudge per company a day.
-    other, _ = pro(db, "journalist", "echo", level=10)
+    other, _ = pro(db, "investment_banker", "echo", level=10)
     assert not write(db, other, [card])["nudges"]
     # The investors take it in.
     investors.act(db, LATER, force=True)
@@ -137,7 +137,7 @@ def test_a_widely_read_true_story_nudges_investors_who_read_it_at_their_own_pace
 
 def test_interviews_answers_refusals_and_deadlines_go_into_the_story(db):
     empire, team = firm_of(db)
-    j, _ = pro(db, "journalist", "interviewer", level=10)
+    j, _ = pro(db, "investment_banker", "interviewer", level=10)
     card = results_card(db)
     company = _one(db, "SELECT id FROM companies WHERE ticker = %s", (card["tickers"][0],))["id"]
     db.execute("INSERT INTO stake_disclosures (empire_id, company_id, bps, at) VALUES (%s, %s, 500, %s)", (empire["id"], company, NOW9))
@@ -157,14 +157,14 @@ def test_interviews_answers_refusals_and_deadlines_go_into_the_story(db):
     assert len(waiting) == 1
     assert empires_rep(db, empire["id"]) == 50                            # an answer counts only when it goes to print
     with pytest.raises(newsroom.NewsroomError, match="not yours"):
-        newsroom.answer(db, team["accountant"], waiting[0]["id"], "Yes.", NOW9)
+        newsroom.answer(db, team["asset_manager"], waiting[0]["id"], "Yes.", NOW9)
     newsroom.answer(db, team["head"], waiting[0]["id"], "We do not comment on our plans.", NOW9)
     out = newsroom.publish(db, j, LATER)
     body = _one(db, "SELECT body FROM news_items WHERE id = %s", (out["news_item_id"],))["body"]
     assert "We do not comment on our plans." in body
     assert empires_rep(db, empire["id"]) == 51
     # A question left to run out of time is in the story too, and costs the empire.
-    j2, _ = pro(db, "journalist", "patient", level=10)
+    j2, _ = pro(db, "investment_banker", "patient", level=10)
     newsroom.start(db, j2, NOW9)
     newsroom.add_fact(db, j2, card["id"], NOW9)
     newsroom.check_fact(db, j2, card["id"], NOW9)
@@ -181,13 +181,13 @@ def empires_rep(db, empire_id):
 
 def test_an_undeclared_interest_can_be_exposed_and_only_the_verdict_is_shown(db):
     empire, team = firm_of(db)
-    j = team["journalist"]
+    j = team["investment_banker"]
     card = results_card(db)
     company = _one(db, "SELECT share_asset FROM companies WHERE ticker = %s", (card["tickers"][0],))
     ledger.transfer(db, payer=ledger.account_id(db, ledger.INVESTORS_PUBLIC), receiver=empire["account_id"], amount=1000,
                     asset=company["share_asset"], kind="test_shares", memo="Test shares")
     out = write(db, j, [card])                                             # not declared
-    reader, _ = pro(db, "accountant", "watchdog", level=10)
+    reader, _ = pro(db, "asset_manager", "watchdog", level=10)
     rep_before = _one(db, "SELECT reputation FROM players WHERE id = %s", (j,))["reputation"]
     verdict = newsroom.expose(db, reader, out["story_id"], LATER)
     assert verdict["upheld"] and "1000" not in verdict["words"]
@@ -203,7 +203,7 @@ def test_an_undeclared_interest_can_be_exposed_and_only_the_verdict_is_shown(db)
 
 
 def test_a_story_whose_facts_the_record_changes_must_be_corrected_and_late_costs_more(db):
-    j, _ = pro(db, "journalist", "corrector", level=10)
+    j, _ = pro(db, "investment_banker", "corrector", level=10)
     card = results_card(db)
     out = write(db, j, [card])
     _, company_id, period, version = card["source"].split(":")
@@ -289,7 +289,7 @@ def test_a_year_in_review_closes_each_game_year(db):
 
 
 def test_journalists_write_signed_accounts_beside_the_record_with_a_credibility_score(db):
-    j, _ = pro(db, "journalist", "historian", level=10)
+    j, _ = pro(db, "investment_banker", "historian", level=10)
     quarters.close_due_quarters(db, after_quarters(9))
     later = after_quarters(9) + timedelta(hours=12)
     entry = _one(db, "SELECT e.id, c.ticker FROM chronicle_entries e JOIN companies c ON c.id = e.company_id WHERE e.layer = 'company' ORDER BY e.id LIMIT 1")
@@ -305,7 +305,7 @@ def test_journalists_write_signed_accounts_beside_the_record_with_a_credibility_
     assert got["credibility"] > 40
     with pytest.raises(chronicle.ChronicleError, match="already"):
         chronicle.add_account(db, j, entry["id"], words, [], 10, LATER)
-    other, _ = pro(db, "journalist", "rival", level=10)
+    other, _ = pro(db, "investment_banker", "rival", level=10)
     with pytest.raises(chronicle.ChronicleError, match="your own published stories"):
         chronicle.add_account(db, other, entry["id"], words, [out["story_id"]], 10, LATER)
     shown = chronicle.entries(db, "company", company_ticker=entry["ticker"], period_now=11, day_now=1)
@@ -325,12 +325,12 @@ def test_an_empires_reputation_moves_with_fines_audits_and_answers_and_shows_in_
 
 
 def test_pay_rises_with_reach_and_an_independent_is_paid_by_the_paper_that_picks_the_story_up(db):
-    j, _ = pro(db, "journalist", "famous", level=10)
+    j, _ = pro(db, "investment_banker", "famous", level=10)
     db.execute("INSERT INTO journalist_profiles (player_id, following) VALUES (%s, 300000)", (j,))
     assert careers.reach_pay_bps(db, j) == 3000
     db.execute("UPDATE journalist_profiles SET following = 9000000 WHERE player_id = %s", (j,))
     assert careers.reach_pay_bps(db, j) == data.REACH_PAY_MOST_BPS
-    free, account = pro(db, "journalist", "freelancer", level=10)
+    free, account = pro(db, "investment_banker", "freelancer", level=10)
     careers.leave_job(db, free, NOW9)
     before = ledger.balance(db, account)
     out = write(db, free, [results_card(db)])
@@ -344,7 +344,7 @@ def test_the_news_work_comes_three_ways_with_named_editors_who_remember(db):
     for t in objectives_news.NEWS:
         assert {x.setting for x in objectives.TEMPLATES.values() if x.root == t.code} == {"solo", "empire", "live"}
         assert objectives.how_to(t)
-    j, _ = pro(db, "journalist", "editorspet", level=10)
+    j, _ = pro(db, "investment_banker", "editorspet", level=10)
     db.execute("UPDATE careers SET rank = 2, experience = %s WHERE player_id = %s", (careers.experience_for(40), j))
     ctx = objectives._context(db, j, NOW9)
     t = objectives.TEMPLATES["jn_check_story"]
@@ -366,7 +366,7 @@ def test_the_news_work_comes_three_ways_with_named_editors_who_remember(db):
     db.execute("UPDATE client_trust SET trust = 80 WHERE player_id = %s", (j,))
     assert objectives.TEMPLATES["jn_front_page"].offer(ctx) is not None     # the front page, for a journalist they trust
     # An independent journalist (no employer) is offered the editors' work too.
-    free, _ = pro(db, "journalist", "nojob", level=10)
+    free, _ = pro(db, "investment_banker", "nojob", level=10)
     db.execute("UPDATE careers SET rank = 2, experience = %s WHERE player_id = %s", (careers.experience_for(40), free))
     careers.leave_job(db, free, NOW9)
     assert objectives.accept(db, free, "jn_check_story", NOW9)["payer"] == "The Lagoon Herald"
@@ -377,7 +377,7 @@ def test_the_stage_test_a_journalist_verifies_and_publishes_the_price_reacts_and
     in the Chronicle with its chain of causes."""
     quarters.close_due_quarters(db, after_quarters(9))
     now = after_quarters(9) + timedelta(hours=12)
-    j, _ = pro(db, "journalist", "stagetest", level=10)
+    j, _ = pro(db, "investment_banker", "stagetest", level=10)
     w = careers.world_now(db, now)
     # News the wire has not yet carried: a story that is first with it moves investors (one repeating the wire does not).
     cards = [c for c in newsroom_facts.facts(db, now) if c["kind"] == "results" and c["tone"] != 0

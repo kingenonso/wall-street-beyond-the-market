@@ -158,6 +158,24 @@ def player(client):
     return response.json()
 
 
+@pytest.fixture
+def logged_in_player(player):
+    """Alias for the `player` fixture, for the commodity loophole tests."""
+    return player
+
+
+@pytest.fixture
+def fresh_world(db):
+    """Minimal world dict for the commodity loophole tests."""
+    from simulation import commodities, clock
+    return {
+        "conn": db,
+        "commodities": commodities,
+        "now": after_quarters(0),
+        "period": clock.periods_completed(after_quarters(0), clock.effective_start(WORLD_START, 0)),
+    }
+
+
 def money_accounted_for(db) -> int:
     """All the naira that should exist, counted without looking at anybody's balance:
     the opening money, plus what banks still owe the Central Bank on its loans to them.

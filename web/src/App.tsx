@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Player } from "./api";
 import { Auth } from "./Auth";
-import { AccountantRail, AccountantWork, AssetManagerRail, AssetManagerWork, BuildRail } from "./BuildDesk";
+import { AssetManagerRail, AssetManagerWork, BuildRail } from "./BuildDesk";
 import { CareerRail, CareerWork } from "./Career";
 import { CompaniesRail, CompaniesWork } from "./Companies";
 import { CompanyRail, CompanyWork } from "./Company";
@@ -19,6 +19,7 @@ import { PortfolioRail, PortfolioWork } from "./Portfolio";
 import { PropertyRail, PropertyWork } from "./Property";
 import { BorrowRail, BorrowWork } from "./Borrow";
 import { CurrenciesWork } from "./Currencies";
+import { RetirementWork } from "./Retirement";
 import { useRoute } from "./hooks";
 import { ProfileRail, ProfileWork } from "./Profile";
 import { AboutWork, HelpWork, MoreWork, Panel, SearchWork, Shell } from "./Shell";
@@ -29,6 +30,7 @@ import { WorkFocus, WorkRail, WorkWork } from "./Work";
 import { useClock } from "./useClock";
 import { FirmPortal, SharedRecordPage, TalentRail, TalentWork } from "./Talent";
 import { CourtRail, CourtWork } from "./Court";
+import { CommoditiesWork } from "./Commodities";
 
 export function App() {
   // undefined = still checking, null = not logged in.
@@ -84,7 +86,7 @@ export function App() {
   if (player === null) return <Auth live={live} onSignedIn={setPlayer} />;
 
   const [section = "", item] = route;
-  let work = <DeskWork player={player} live={live} onLoggedOut={loggedOut} />;
+  let work = <DeskWork player={player} live={live} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
   let rail = <DeskRail player={player} live={live} onLoggedOut={loggedOut} />;
   let current = "";
   let accent: string | undefined;
@@ -126,6 +128,12 @@ export function App() {
     current = "currencies";
     work = <CurrenciesWork onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <BorrowRail onLoggedOut={loggedOut} />;
+  } else if (section === "retirement") {
+    // The pot was three levels down inside Work › Career; it is a page of its own under Money now, and the
+    // career page keeps one line pointing here so that there is never a second description of it.
+    current = "retirement";
+    work = <RetirementWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <CareerRail player={player} onLoggedOut={loggedOut} />;
   } else if (section === "property") {
     current = "property";
     work = <PropertyWork key={item ?? ""} player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
@@ -138,10 +146,6 @@ export function App() {
     current = "build";
     work = <AssetManagerWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <AssetManagerRail player={player} onLoggedOut={loggedOut} />;
-  } else if (section === "build" && player.build === "accountant") {
-    current = "build";
-    work = <AccountantWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
-    rail = <AccountantRail player={player} onLoggedOut={loggedOut} />;
   } else if (section === "build" && player.build === "investment_banker") {
     current = "build";
     work = <InvestmentBankerWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
@@ -150,11 +154,11 @@ export function App() {
     current = "build";
     work = <RiskManagerWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <BuildRail player={player} onLoggedOut={loggedOut} />;
-  } else if (section === "build" && player.build === "lawyer") {
+  } else if (section === "build" && player.build === "investment_banker") {
     current = "build";
     work = <LawyerWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <BuildRail player={player} onLoggedOut={loggedOut} />;
-  } else if (section === "build" && player.build === "journalist") {
+  } else if (section === "build" && player.build === "investment_banker") {
     current = "build";
     work = <JournalistWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <BuildRail player={player} onLoggedOut={loggedOut} />;
@@ -215,6 +219,10 @@ export function App() {
     current = "court";
     work = <CourtWork onLoggedOut={loggedOut} />;
     rail = <CourtRail />;
+  } else if (section === "commodities") {
+    current = "commodities";
+    work = <CommoditiesWork onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <></>;
   } else if (section === "talent") {
     current = "talent";
     work = <TalentWork key={item ?? ""} player={player} tab={item} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;

@@ -82,7 +82,7 @@ class RaiseRequest(Request):
 
 @app.get("/api/investigations")
 def investigations(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    if player.get("build") != "journalist":
+    if player.get("build") != "investment_banker":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Investigations are for Financial Journalists.")
     return {"files": wire(press.files(conn, player["id"], _exchange_time(conn)))}
 

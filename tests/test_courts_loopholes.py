@@ -161,7 +161,7 @@ def test_l8_a_banned_head_cannot_trade_through_the_empire(db):
     with pytest.raises(exchange.ExchangeError, match="banned"):
         courts.check_trade(db, empire["account_id"], NOW9)
     # A member who is not the head is not banned by the head's order.
-    courts.check_trade(db, ledger.player_account_id(db, team["accountant"]), NOW9)
+    courts.check_trade(db, ledger.player_account_id(db, team["asset_manager"]), NOW9)
 
 
 # 9. Can a continuing breach fill the docket with cases?

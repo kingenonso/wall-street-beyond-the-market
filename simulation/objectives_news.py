@@ -34,7 +34,7 @@ def _jn_check(ctx, r):
             "f": {"pb": profit_before, "pn": profit_now, "s": sales, "rt": rating_now, "ta": told["a"], "tb": told["b"], "tc": told["c"]}}
 
 
-piece("jn_check_story", "journalist", "Checking stories", "Does the story match the record?", 21,
+piece("jn_check_story", "investment_banker", "Checking stories", "Does the story match the record?", 21,
       "No figure goes to print until it has been checked against where it is kept.", _jn_check,
       [choice("a", "Claim A", lambda f: yn(abs((f["pn"] - f["pb"]) / f["pb"] * 100 - f["ta"]) < 0.15), *YES_NO),
        choice("b", "Claim B", lambda f: yn(f["tb"] == f["s"]), *YES_NO),
@@ -66,7 +66,7 @@ def _cred(f) -> float:
     return min(max(f["cr"] / 50, 0.5), 1.5)
 
 
-piece("jn_readers", "journalist", "Readers and reach", "How many will read it?", 23,
+piece("jn_readers", "investment_banker", "Readers and reach", "How many will read it?", 23,
       "Reach comes from the size of the news, how early it is, where it is printed and the name on it.", _jn_readers,
       [Q("readers", "Readers", "number", lambda f: f["st"] * 10 * f["im"] / 100 * f["sc"] * _cred(f) + f["fo"] * 0.3, 50)],
       plain=lambda f, t: f"About {t['readers']:,.0f} readers.", need=1,
@@ -88,7 +88,7 @@ def _jn_scoop(ctx, r):
             "f": {"w": [w for _, w, _ in rows], "y": [mine for _, _, mine in rows]}}
 
 
-piece("jn_scoop", "journalist", "Scoops", "Which were scoops?", 25,
+piece("jn_scoop", "investment_banker", "Scoops", "Which were scoops?", 25,
       "Being first with a confirmed fact is what a scoop is: not first with a guess.", _jn_scoop,
       [choice(k, f"Story {i + 1}", (lambda i: lambda f: yn(f["y"][i] < f["w"][i]))(i), *YES_NO) for i, k in enumerate(("a", "b", "c"))],
       plain=lambda f, t: f"{t['a']}, {t['b']}, {t['c']}.", need=3,
@@ -108,7 +108,7 @@ def _jn_nudge(ctx, r):
             "f": {"rd": readers, "s": 1 if good else -1, "d": day}}
 
 
-piece("jn_nudge", "journalist", "Stories and prices", "How far will it push the price?", 27,
+piece("jn_nudge", "investment_banker", "Stories and prices", "How far will it push the price?", 27,
       "A story moves a price only a little, and only for a while; facts, not opinions, do the moving.", _jn_nudge,
       [Q("first", "Push on day 1 (%)", "percent", lambda f: f["s"] * min(f["rd"] / 1000 * 0.01, 2.0), 0.01),
        Q("left", "Push left on that day (%)", "percent", lambda f: f["s"] * min(f["rd"] / 1000 * 0.01, 2.0) * (5 - (f["d"] - 1)) / 5, 0.01)],
@@ -129,7 +129,7 @@ def _jn_declare(ctx, r):
             "f": {"s": sits, "c": cases}}
 
 
-piece("jn_declare", "journalist", "Declaring an interest", "Must you declare it?", 29,
+piece("jn_declare", "investment_banker", "Declaring an interest", "Must you declare it?", 29,
       "Readers trust a story more when they know who stands to gain from it.", _jn_declare,
       [choice(k, f"Story {i + 1}", (lambda i: lambda f: yn(f["s"][i] and f["c"][i]))(i), *YES_NO) for i, k in enumerate(("a", "b", "c"))],
       plain=lambda f, t: f"{t['a']}, {t['b']}, {t['c']}.", need=3,
@@ -147,7 +147,7 @@ def _jn_ethics(ctx, r):
             "f": {"o": offer}}
 
 
-piece("jn_exclusive", "journalist", "Press ethics", "An exclusive with strings", 31,
+piece("jn_exclusive", "investment_banker", "Press ethics", "An exclusive with strings", 31,
       "A story shaped by its subject is no longer the reader's story.", _jn_ethics,
       [choice("accept", "Accept the offer?", lambda f: "no", *YES_NO), choice("report", "Still report the filed figures?", lambda f: "yes", *YES_NO)],
       plain=lambda f, t: "Decline the strings; the record is yours to report anyway.", need=2,
@@ -171,7 +171,7 @@ def _best(f):
     return scores.index(max(scores))
 
 
-piece("jn_front_page", "journalist", "The front page", "Choose the lead", 36,
+piece("jn_front_page", "investment_banker", "The front page", "Choose the lead", 36,
       "The front page goes to the story that reaches the most people, not the one you like best.", _jn_front,
       [choice("lead", "The lead story", lambda f: ("a", "b", "c")[_best(f)], ("a", "Bank results"), ("b", "A strike"), ("c", "The rate decision")),
        Q("readers", "Its readers", "number", lambda f: f["st"] * 10 * f["i"][_best(f)] / 100 * (1.5 if f["s"][_best(f)] else 1.0), 50)],
@@ -196,7 +196,7 @@ def _ac_press(ctx, r):
             "f": {"b": before, "n": now, "p": printed}}
 
 
-piece("ac_press_check", "accountant", "Checking the press", "Is the paper's figure right?", 26,
+piece("ac_press_check", "asset_manager", "Checking the press", "Is the paper's figure right?", 26,
       "When a figure about your company is printed, check it against the books before anyone replies to it.", _ac_press,
       [Q("change", "Real change (%)", "percent", lambda f: (f["n"] - f["b"]) / f["b"] * 100, 0.1),
        choice("right", "Was the paper right?", lambda f: yn(abs((f["n"] - f["b"]) / f["b"] * 100 - f["p"]) < 0.15), *YES_NO)],
@@ -237,7 +237,7 @@ def _lw_review(ctx, r):
             "f": {"k": [kind for _, kind, _ in order]}}
 
 
-piece("lw_prepublication", "lawyer", "Pre-publication review", "May it run?", 24,
+piece("lw_prepublication", "investment_banker", "Pre-publication review", "May it run?", 24,
       "Print what the record shows, label opinion as opinion, and leave out what nobody can show.", _lw_review,
       [choice(k, f"Sentence {i + 1}", (lambda i: lambda f: yn(f["k"][i] != "unsupported"))(i), *YES_NO) for i, k in enumerate(("a", "b", "c"))],
       plain=lambda f, t: f"{t['a']}, {t['b']}, {t['c']}.", need=3,

@@ -16,7 +16,7 @@ const read = (name: string) => readFileSync(new URL(name, here), "utf8");
 /** The six builds, and the file each screen is written in. The head of an empire is not a build and has its own head. */
 const BUILDS = [
   { screen: "AssetManagerWork", build: "asset manager", file: "BuildDesk.tsx" },
-  { screen: "AccountantWork", build: "accountant", file: "BuildDesk.tsx" },
+  { screen: "AccountantWork", build: "asset_manager", file: "BuildDesk.tsx" },
   { screen: "InvestmentBankerWork", build: "investment banker", file: "Desks2.tsx" },
   { screen: "RiskManagerWork", build: "risk manager", file: "Desks2.tsx" },
   { screen: "LawyerWork", build: "legal counsel", file: "Desks2.tsx" },

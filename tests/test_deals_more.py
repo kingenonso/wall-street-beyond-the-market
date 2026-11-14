@@ -49,18 +49,18 @@ def test_partners_put_in_money_and_own_their_share_of_the_company(db):
     lead, team = firm_of(db, n_cash=60_000_000_000)
     other_head, _ = pro(db, "asset_manager", "partner_head", level=20, cash_naira=60_000_000)
     other = empires.found(db, other_head, "Partner House", million_naira(40), 0, after_quarters(8) + timedelta(hours=3))
-    for build, name in (("journalist", "p1"), ("accountant", "p2")):
+    for build, name in (("investment_banker", "p1"), ("asset_manager", "p2"), ("risk_manager", "p3")):
         member(db, other, other_head, build, name)
     other = empires.open_empire(db, other_head, after_quarters(8) + timedelta(hours=3))
     give_cash(db, other["account_id"], 30_000_000_000)
     sale = open_a_sale(db, "KGO")
     file_id = firm_deals.open_file(db, team["investment_banker"], sale["id"], LATER)["file_id"]
-    firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
+    firm_deals.sign_nda(db, team["investment_banker"], file_id, LATER)
     do_checks(db, lead, team, file_id)
     pledge = sale["asking"] // 4
     invite = firm_deals.invite_partner(db, team["head"], file_id, other["id"], pledge, LATER)
     with pytest.raises(empires.EmpireError, match="head"):
-        firm_deals.answer_partner(db, team["journalist"], invite["partner_id"], True, LATER)
+        firm_deals.answer_partner(db, team["investment_banker"], invite["partner_id"], True, LATER)
     cash = ledger.balance(db, other["account_id"])
     firm_deals.answer_partner(db, other_head, invite["partner_id"], True, LATER)
     assert ledger.balance(db, other["account_id"]) == cash - pledge and firm_deals.check_books(db) == []
@@ -136,7 +136,7 @@ def test_the_100_day_plan_costs_money_at_once_and_may_fail(db):
     company = own(db, empire, "MTH")
     cash = ledger.balance(db, company["account_id"])
     with pytest.raises(empires.EmpireError, match="head"):
-        firm_owned.start_plan(db, team["accountant"], company["id"], "suppliers", LATER)
+        firm_owned.start_plan(db, team["asset_manager"], company["id"], "suppliers", LATER)
     started = firm_owned.start_plan(db, team["head"], company["id"], "suppliers", LATER)
     assert ledger.balance(db, company["account_id"]) == cash - started["cost"]
     with pytest.raises(empires.EmpireError, match="already under way"):
@@ -156,8 +156,8 @@ def test_the_100_day_plan_costs_money_at_once_and_may_fail(db):
 def test_a_company_doctor_is_paid_only_if_the_rescue_works(db):
     failing = next(c for c in _dicts(db, "SELECT * FROM companies WHERE NOT listed AND status = 'trading' ORDER BY ticker")
                    if firm_owned.failing(db, c["id"]))
-    doctor, account = pro(db, "accountant", "doctor")
-    stranger, _ = pro(db, "journalist", "stranger")
+    doctor, account = pro(db, "asset_manager", "doctor")
+    stranger, _ = pro(db, "investment_banker", "stranger")
     with pytest.raises(empires.EmpireError, match="Accountant"):
         firm_owned.propose_rescue(db, stranger, failing["id"], ["cut_costs"], 0, LATER)
     sales = firm_owned._quarter_sales(db, failing["id"])

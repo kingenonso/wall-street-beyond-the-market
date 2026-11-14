@@ -64,7 +64,8 @@ from server.schemas import (
     BondHolding, BondRow, BondsResponse, BondTradeRequest, BondTradeResponse, ConvertRequest, CorporateResponse, CreditSpread,
     AcceptRequest, AccountantDeskResponse, AllocationSlice, AssetDeskResponse, BankInfo, BuildInfo, BuildRequest, CareerEvent,
     CareerInfo, CareerResponse, ExtraSavingRequest, FundRequest, HandInRequest, InterestPaid, JobInfo, ObjectiveOffer, ObjectiveRow, ObjectivesResponse,
-    Opening, OtherBuild, PayInfo, Payslip, PensionFund, PlayerBank, RetirementEntry, RetirementInfo, ReviewStanding, Skill,
+    Opening, OtherBuild, PayInfo, Payslip, PensionFund, PlayerBank, RetirementEntry, RetirementInfo, RetirementProjection,
+    ReviewStanding, Skill,
     StatementQuarter, TickerRequest, WatchRow,
     CurvePoint, GrantResponse, GrantStep, IntegrationQuarter, IntegrationRow, Notice, OfferRow, OwnershipRow, SharesRequest,
     TakeoverRow, VoteRequest, VoteRow, WaitingSwap,
@@ -107,6 +108,11 @@ def _close_due_quarters_once() -> None:
         if conn.execute("SELECT to_regclass('bank_confidence') IS NOT NULL").fetchone()[0]:
             from simulation import crisis
             crisis.tick(conn, now)
+        # Stage 12: insurance — charge premiums, age no-claims, expire cover at the quarter close.
+        if conn.execute("SELECT to_regclass('insurance_policies') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
+            from simulation import insurance as sim_insurance
+            sim_insurance.close_quarter_insurance(conn, now)
+
         # Index funds and ETFs: after each closing bell, every index's level, every ETF's value, fee and daily reset, and index
         # changes coming due (before the funds deal, so an index fund's benchmark is there).
         if conn.execute("SELECT to_regclass('etfs') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
@@ -250,7 +256,7 @@ def _press(conn: Connection, player_id) -> tuple[int, int, int]:
     if conn.execute("SELECT to_regclass('interviews') IS NOT NULL AS ok").fetchone()["ok"] is not True:
         return 0, 0, 0
     row = conn.execute("SELECT (SELECT count(*) FROM interviews i JOIN empires e ON e.id = i.empire_id WHERE (e.head_player_id = %s"
-                       " OR EXISTS (SELECT 1 FROM empire_seats s WHERE s.empire_id = e.id AND s.player_id = %s AND s.build = 'journalist'))"
+                       " OR EXISTS (SELECT 1 FROM empire_seats s WHERE s.empire_id = e.id AND s.player_id = %s AND s.build = 'investment_banker'))"
                        " AND i.journalist_id <> %s AND i.status = 'asked' AND i.due_at > now()) AS q,"
                        " (SELECT count(*) FROM stories WHERE author_id = %s AND correction_due AND correction_id IS NULL) AS c",
                        (player_id, player_id, player_id, player_id)).fetchone()
@@ -258,7 +264,7 @@ def _press(conn: Connection, player_id) -> tuple[int, int, int]:
     if conn.execute("SELECT to_regclass('crises') IS NOT NULL AS ok").fetchone()["ok"]:
         crises = conn.execute("SELECT count(*) AS n FROM crises c JOIN empires e ON e.id = c.empire_id WHERE c.status = 'open' AND c.due_at > now()"
                           " AND (e.head_player_id = %s OR EXISTS (SELECT 1 FROM empire_seats s WHERE s.empire_id = e.id AND s.player_id = %s"
-                          " AND s.build = 'journalist'))", (player_id, player_id)).fetchone()["n"]
+                          " AND s.build = 'investment_banker'))", (player_id, player_id)).fetchone()["n"]
     return q, row["c"], crises
 
 
@@ -1646,7 +1652,12 @@ def _career(conn: Connection, player: dict) -> CareerResponse:
             early_quarters_to_go=savings["early_quarters_to_go"], early_label=savings["early_label"],
             retirement_level=savings["retirement_level"], quarters_to_go=savings["quarters_to_go"],
             retires_label=savings["retires_label"], early_withdrawal_used=savings["early_withdrawal_used"],
-            managed_by=savings["managed_by"] and savings["managed_by"]["name"], leaving_fund=savings["leaving_fund"]),
+            early_withdrawal_most_bps=savings["early_withdrawal_most_bps"], quarters_worked=savings["quarters_worked"],
+            managed_by=savings["managed_by"] and savings["managed_by"]["name"], leaving_fund=savings["leaving_fund"],
+            projection=savings["projection"] and RetirementProjection(
+                **money(savings["projection"], "value_now", "value_then", "pension_a_quarter", "early_pension_a_quarter", "contribution"),
+                quarters=savings["projection"]["quarters"], rate_bps=savings["projection"]["rate_bps"],
+                rate_quarters=savings["projection"]["rate_quarters"], assumptions=savings["projection"]["assumptions"])),
         events=[CareerEvent(**e) for e in seen["events"]], next_pay_day=seen["next_pay_day"],
     )
 
@@ -1853,3 +1864,4 @@ from server import etf_routes  # noqa: E402,F401
 from server import fx_routes  # noqa: E402,F401
 from server import world_routes  # noqa: E402,F401
 from server import court_routes  # noqa: E402,F401
+from server import insurance_routes  # noqa: E402,F401  (importing it adds its routes to the application)

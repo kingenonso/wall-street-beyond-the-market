@@ -76,8 +76,8 @@ def _money(kobo: int) -> str:
 
 def _journalist(conn: Connection, player_id) -> dict:
     player = _one(conn, "SELECT id, display_name, build, reputation FROM players WHERE id = %s", (player_id,))
-    if player is None or player["build"] != "journalist":
-        raise NewsroomError("Only a Financial Journalist can write and publish stories.")
+    if player is None or player["build"] is None:
+        raise NewsroomError("Only a player with a build can write and publish stories.")
     conn.execute("INSERT INTO journalist_profiles (player_id) VALUES (%s) ON CONFLICT DO NOTHING", (player_id,))
     return player
 
@@ -125,7 +125,7 @@ def _session_close(day, extra_days: int) -> datetime:
 # ---------------------------------------------------------------------------
 
 def check_trade(conn: Connection, account, company_id, now: datetime) -> None:
-    """Raise if this account may not trade this company now, because of a story its owner (or its journalist) is writing
+    """Raise if this account may not trade this company now, because of a story its owner (or its writer) is writing
     or has just published."""
     if company_id is None or not _rows(conn, "SELECT to_regclass('story_blocks') IS NOT NULL AS ok")[0]["ok"]:
         return
@@ -136,7 +136,7 @@ def check_trade(conn: Connection, account, company_id, now: datetime) -> None:
             f"until {clock.to_lagos(found['until']):%d %B %H:%M} Lagos time"
         raise exchange.ExchangeError(
             f"No trading in this company {when}: a story about it is being written or has just been published by you or your empire's "
-            "journalist. (A journalist and their empire may not trade around their own story.)")
+            "writer. (A writer and their empire may not trade around their own story.)")
     from simulation import intel
     intel.note_trade(conn, account, company_id, now)
 
@@ -423,7 +423,7 @@ def to_answer(conn: Connection, player_id, now: datetime) -> list[dict]:
     return _rows(conn, "SELECT i.id, i.question, i.due_at, e.name AS empire, p.display_name AS journalist FROM interviews i"
                        " JOIN empires e ON e.id = i.empire_id JOIN players p ON p.id = i.journalist_id"
                        " WHERE (e.head_player_id = %s OR EXISTS (SELECT 1 FROM empire_seats s WHERE s.empire_id = e.id AND s.player_id = %s"
-                       "        AND s.build = 'journalist'))"
+                       "        AND s.build = 'investment_banker'))"
                        " AND i.journalist_id <> %s AND i.status = 'asked' AND i.due_at > %s ORDER BY i.due_at",
                  (player_id, player_id, player_id, now))
 

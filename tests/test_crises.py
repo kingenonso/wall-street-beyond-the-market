@@ -85,7 +85,7 @@ def test_every_banks_savers_are_written_into_the_ledger_and_add_up(db):
 
 
 def test_a_player_saves_takes_out_and_is_paid_interest_on_the_least_kept(db):
-    p, account = pro(db, "accountant", "saver", cash_naira=20_000_000)
+    p, account = pro(db, "asset_manager", "saver", cash_naira=20_000_000)
     with pytest.raises(deposits.SavingsError, match="at least"):
         deposits.put_in(db, p, "IKB", naira(5_000), NOW9)
     with pytest.raises(deposits.SavingsError, match="six banks"):
@@ -156,8 +156,8 @@ def test_a_weak_bank_loses_trust_its_savers_run_the_central_bank_lends_and_the_r
 
 
 def test_a_bank_whose_losses_ate_its_owners_funds_is_closed_savers_above_the_guarantee_bear_the_hole_and_it_is_rescued(db):
-    p, account = pro(db, "accountant", "bigsaver", cash_naira=60_000_000)
-    small, small_account = pro(db, "lawyer", "smallsaver", cash_naira=3_000_000)
+    p, account = pro(db, "asset_manager", "bigsaver", cash_naira=60_000_000)
+    small, small_account = pro(db, "investment_banker", "smallsaver", cash_naira=3_000_000)
     deposits.put_in(db, p, "KCB", naira(50_000_000), NOW9)
     deposits.put_in(db, small, "KCB", naira(3_000_000), NOW9)
     b = weaken(db, "KCB", -200)                         # a hole of 2% of its loans
@@ -307,7 +307,7 @@ def test_the_crisis_test_runs_in_a_sealed_copy_and_leaves_nothing_behind(db):
 
 def test_the_website_shows_trust_and_the_players_own_savings_only(db, client):
     assert join(client, ADULT).status_code == 201
-    other, other_account = pro(db, "accountant", "rich", cash_naira=30_000_000)
+    other, other_account = pro(db, "asset_manager", "rich", cash_naira=30_000_000)
     deposits.put_in(db, other, "IKB", naira(25_000_000), NOW9)
     page = client.get("/api/savings").json()
     assert all(b["mine"] == "0" for b in page["banks"])          # never anybody else's savings

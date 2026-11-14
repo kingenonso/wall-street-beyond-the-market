@@ -57,13 +57,13 @@ def test_the_accountant_values_the_empires_positions_and_is_marked_against_the_t
     db.execute("DELETE FROM desk_duties WHERE empire_id = %s AND code = 'ac_positions'", (empire["id"],))
     duty = duty_of(db, empire["id"], "ac_positions")
     assert duty is not None
-    opened = firm.open_duty(db, team["accountant"], duty["id"], LATER)
+    opened = firm.open_duty(db, team["asset_manager"], duty["id"], LATER)
     assert "_truth" not in opened["terms"] and opened["terms"]["asks"][0]["key"] == "value"
     truth = right(db, duty["id"])
     assert truth["value"] == derivatives.held_value(db, empire["account_id"], LATER)
     with pytest.raises(EmpireError):
         firm.open_duty(db, team["investment_banker"], duty["id"], LATER)                # another desk's duty
-    done = firm.hand_in(db, team["accountant"], duty["id"], truth, LATER)
+    done = firm.hand_in(db, team["asset_manager"], duty["id"], truth, LATER)
     assert done["score"] == 100
     _ = empires
     sound(db)

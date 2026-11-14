@@ -21,7 +21,7 @@ type Tab = "auctions" | "map" | "mine" | "empire" | "projects";
 
 const CITIES = ["Lagos", "Abuja", "Port Harcourt", "Kano", "Aba"];
 const STEP_NAMES = { title: "Legal Counsel checks the title", valuation: "The Accountant values it", limit: "The Risk Manager sets the top price", money: "The Investment Banker arranges the money" } as const;
-const STEP_BUILD = { title: "lawyer", valuation: "accountant", limit: "risk_manager", money: "investment_banker" } as const;
+const STEP_BUILD = { title: "investment_banker", valuation: "asset_manager", limit: "risk_manager", money: "investment_banker" } as const;
 type Step = keyof typeof STEP_NAMES;
 const REASON: Record<Auction["reason"], { tag: string; words: string }> = {
   listing: { tag: "Listing", words: "A property company is selling. It has a lowest price nobody sees." },

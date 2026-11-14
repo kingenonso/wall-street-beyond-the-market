@@ -6,8 +6,12 @@ automatically: income tax to the Government, living costs to the households of t
 work in, and their own saving for retirement. They choose one of the six banks, which pays
 interest on the cash they leave with it. Their level comes from the work they finish.
 
-Nothing here makes money. A player's salary is carved out of the wage bill their employer
-already pays: the player takes the place of one computer-run member of staff.
+The builds are the Asset Manager, the Risk Manager and the Investment Banker. The accountancy,
+law and journalism work the Accountant, Legal Counsel and Financial Journalist used to carry is
+now done at those three desks — the Asset Manager signs the accounts, the Investment Banker
+gives legal approval, and every build may write the news. Nothing here makes money. A player's
+salary is carved out of the wage bill their employer already pays: the player takes the place of
+one computer-run member of staff.
 """
 
 from __future__ import annotations
@@ -25,55 +29,34 @@ from simulation.money import BPS, apply_bps, naira
 BUILDS = {
     "asset_manager": {
         "name": "Asset Manager", "accent": "violet", "track": "Investment management",
-        "work": "Build and rebalance portfolios, analyse shares and bonds, and trade.",
-        "earns": "Salary, and performance pay on portfolio results.",
-        "cannot": "Replace a Risk Manager's assessment where an objective requires one.",
+        "work": "Build and rebalance portfolios, analyse shares and bonds, and trade. Valuate empire positions and assess risk exposure.",
+        "earns": "Salary, and performance pay on portfolio results. Valuation fees.",
+        "cannot": "Give legal approval to deals or sign off on litigation.",
         "employers": ("banking", "insurance"),
         "employer_words": "the banks and the insurers, which run investment desks",
     },
-    "accountant": {
-        "name": "Accountant", "accent": "green", "track": "Accountancy",
-        "work": "Statements, budgets, tax, audit, controls and investigation.",
-        "earns": "Salary, and fees for audit and investigation work.",
-        "cannot": "Decide legal guilt or publish an accusation.",
-        "employers": None,                                   # every company keeps accounts
-        "employer_words": "every company: each one keeps accounts",
-    },
-    "investment_banker": {
-        "name": "Investment Banker", "accent": "purple", "track": "Investment banking",
-        "work": "Takeovers, share and bond issues, valuation, restructuring and negotiation.",
-        "earns": "Salary, deal fees and financing bonuses.",
-        "cannot": "Verify the accounts or sign off the risk.",
-        "employers": ("banking",),
-        "employer_words": "the banks, which arrange deals and raise money for companies",
-    },
     "risk_manager": {
         "name": "Risk Manager", "accent": "orange", "track": "Risk management",
-        "work": "Market, credit, liquidity and operational risk; stress tests; exposure limits.",
-        "earns": "Salary, and bonuses for risk performance and crisis work.",
-        "cannot": "Carry out the legal or financial action that fixes a risk.",
+        "work": "Market, credit, liquidity and operational risk; stress tests; exposure limits; desk oversight; property bubble monitoring; commodities position limits; empire credit assessment.",
+        "earns": "Salary, and bonuses for risk performance and crisis work. Quarterly risk digest earnings.",
+        "cannot": "Carry out the legal or financial action that fixes a risk. That is for the investment banker or head to decide.",
         "employers": ("banking", "insurance"),
         "employer_words": "the banks and the insurers, whose business is carrying risk",
     },
-    "lawyer": {
-        "name": "Legal Counsel", "accent": "silver", "track": "Law",
-        "work": "Contracts, due diligence, title checks, litigation and regulatory filings.",
-        "earns": "Salary, legal fees, and case and transaction bonuses.",
-        "cannot": "Change the financial terms of a deal.",
-        "employers": None,
-        "employer_words": "every company: each one keeps lawyers",
-    },
-    "journalist": {
-        "name": "Financial Journalist", "accent": "blue", "track": "Journalism and research",
-        "work": "Reporting, investigation, source work, and economic and company research.",
-        "earns": "Salary from a media house, and bonuses for publication and investigation.",
-        "cannot": "Declare someone guilty or change market data.",
-        "employers": ("media",),
-        "employer_words": "the media houses",
-        "staff_per_opening": 100,
+    "investment_banker": {
+        "name": "Investment Banker", "accent": "purple", "track": "Investment banking",
+        "work": "Takeovers, share and bond issues, valuation, restructuring and negotiation. Legal counsel and market research are integrated into deal execution.",
+        "earns": "Salary, deal fees and financing bonuses. Legal settlement bonuses and journalist scoop bonuses.",
+        "cannot": "Perform independent risk assessments — that is the Risk Manager's role. Cannot sign off on accounts — that is the Asset Manager's role.",
+        "employers": ("banking",),
+        "employer_words": "the banks, which arrange deals and raise money for companies",
     },
 }
-# A new player cannot choose CEO: it is earned by rising through one of the six.
+# The builds are the Asset Manager, the Risk Manager and the Investment Banker. The
+# accountancy work the Accountant carried is done at the Asset Manager's desk, and the legal
+# and journalism work the Legal Counsel and Financial Journalist carried is done at the
+# Investment Banker's desk. The newsroom is open to every build. A player may hold up to three
+# builds; each keeps its own level.
 LATER_BUILDS: tuple = ()
 
 
@@ -426,8 +409,6 @@ def salaries_due(conn: Connection, company: dict, period: int, wage_index_bps: i
         days = clock.GAME_DAYS_PER_QUARTER - job["started_day"] + 1 if job["started_period"] == period else clock.GAME_DAYS_PER_QUARTER
         worked = has_worked(conn, job["player_id"], period)
         gross = salary_per_quarter(mine["level"], wage_index_bps) * days // clock.GAME_DAYS_PER_QUARTER if worked else 0
-        if job["build"] == "journalist" and gross:
-            gross = gross * (BPS + reach_pay_bps(conn, job["player_id"])) // BPS        # Stage 10: pay rises with reach
         grosses.append(gross)
         saving = _one(conn, "SELECT extra_bps FROM retirement_accounts WHERE player_id = %s", (job["player_id"],))
         packets.append({"extra_bps": saving["extra_bps"] if saving else 0,
@@ -447,16 +428,6 @@ def salaries_due(conn: Connection, company: dict, period: int, wage_index_bps: i
         cash_due = pay["take_home"] + pay["tax"] + pay["living_costs"] + pay["extra_saving"] + pay["employer_match"]
         out.append({**pay, **packet, "cash_due": cash_due})
     return out
-
-
-def reach_pay_bps(conn: Connection, player_id) -> int:
-    """How much more a journalist is paid for the readers who follow their name (Stage 10)."""
-    if not _one(conn, "SELECT to_regclass('journalist_profiles') IS NOT NULL AS ok")["ok"]:
-        return 0
-    row = _one(conn, "SELECT following FROM journalist_profiles WHERE player_id = %s", (player_id,))
-    if not row:
-        return 0
-    return min(row["following"] * data.REACH_PAY_PER_FOLLOWER_BPS_MILLION // 1_000_000, data.REACH_PAY_MOST_BPS)
 
 
 def pay_salaries(conn: Connection, company: dict, households, treasury, pension_funds, packets: list[dict], period: int, owe) -> int:
@@ -801,6 +772,60 @@ def _empires():
 # What the player sees
 # ---------------------------------------------------------------------------
 
+def fund_average_return(conn: Connection, quarters: int = 4) -> dict | None:
+    """What the pension funds earned in an average quarter, over the last few closed quarters.
+
+    This is the one number the retirement projection is allowed to assume, and it is taken from what
+    the funds actually did rather than from a tidy figure invented for the screen. Each quarter is
+    averaged across the six funds first, and then those quarters are averaged, so a quarter in which
+    only some funds reported cannot outvote a quarter in which all six did.
+    """
+    rows = _rows(conn, "SELECT period, avg(return_bps) AS r FROM pension_fund_results GROUP BY period"
+                       " ORDER BY period DESC LIMIT %s", (quarters,))
+    if not rows:
+        return None
+    return {"rate_bps": round(sum(r["r"] for r in rows) / len(rows)), "quarters": len(rows),
+            "from_period": min(r["period"] for r in rows), "to_period": max(r["period"] for r in rows)}
+
+
+def retirement_projection(conn: Connection, player_id, savings: dict, level: int | None,
+                          wage_index_bps: int, opens: dict) -> dict | None:
+    """What the pot would be worth on the day it can be drawn, and what it would then pay each quarter.
+
+    This is an estimate and it says so. It assumes three things and names all three on the screen: the
+    salary stays at its present level, the player keeps saving the same share of it, and the savings
+    earn the funds' average quarter. It is worked out here rather than in the browser because rule 1 of
+    the working rules is that every important figure is calculated in exactly one place.
+    """
+    if savings["retired_period"] is not None:
+        return None                                   # already drawing: there is nothing left to project
+    value = savings_value(conn, player_id)
+    quarters = max(opens["quarters_to_go"], 0)
+    pay = split_salary(salary_per_quarter(level, wage_index_bps), savings["extra_bps"]) if level else None
+    contribution = (pay["pension_yours"] + pay["pension_employer"]) if pay else 0
+    earned = fund_average_return(conn)
+    rate_bps = earned["rate_bps"] if earned else 0
+    # Compound the pot, then the payments into it, a quarter at a time, so the arithmetic is the same
+    # arithmetic the funds themselves would do and there is no closed-form rounding to argue about.
+    pot = value
+    for _ in range(quarters):
+        pot = max(pot + apply_bps(pot, rate_bps), 0) + contribution
+    return {
+        "value_now": value, "quarters": quarters, "contribution": contribution, "rate_bps": rate_bps,
+        "rate_quarters": earned["quarters"] if earned else 0,
+        "value_then": pot, "pension_a_quarter": apply_bps(pot, data.PENSION_PAID_BPS),
+        "early_pension_a_quarter": apply_bps(pot, data.EARLY_PENSION_PAID_BPS),
+        "assumptions": [
+            "Your salary stays where it is now." if level else "You are not being paid a salary yet, so nothing more is being saved.",
+            f"You keep saving {data.PENSION_EMPLOYEE_BPS / 100:g}% of it, plus {savings['extra_bps'] // 100}% extra, "
+            f"and your employer keeps adding its share." if level else "Your employer adds nothing while you are not employed.",
+            f"Your savings earn {rate_bps / 100:.2f}% a quarter, which is what the pension funds averaged over the last "
+            f"{earned['quarters'] if earned else 0} closed quarters." if earned
+            else "There is no record yet of what the pension funds earned, so this assumes they earn nothing.",
+        ],
+    }
+
+
 def profile(conn: Connection, player_id, now: datetime) -> dict:
     """Everything about a player's working life, for their own eyes."""
     player = _one(conn, "SELECT id, display_name, reputation, build, build_changed_at FROM players WHERE id = %s", (player_id,))
@@ -862,9 +887,13 @@ def profile(conn: Connection, player_id, now: datetime) -> dict:
             "retirement_level": data.RETIREMENT_LEVEL, "quarters_to_go": opens["quarters_to_go"],
             "retires_label": clock.period_label(opens["at_period"]) if opens["at_period"] else None,
             "early_withdrawal_used": savings["early_withdrawn_period"] is not None,
+            "early_withdrawal_most_bps": data.EARLY_WITHDRAWAL_MOST_BPS,
             "managed_by": (_one(conn, "SELECT id, name FROM empires WHERE id = %s", (savings["managed_fund_id"],))
                            if savings["managed_fund_id"] else None),
             "leaving_fund": savings["leaving"],
+            "quarters_worked": opens["quarters_worked"],
+            "projection": retirement_projection(conn, player_id, savings, mine["level"] if mine else None,
+                                                state["wage_index_bps"], opens),
         }
     if mine is None:
         return out

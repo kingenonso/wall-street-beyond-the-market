@@ -29,7 +29,7 @@ from psycopg import Connection
 from psycopg.errors import CheckViolation
 from psycopg.rows import tuple_row
 
-from simulation.money import MAX_AMOUNT, is_whole_amount
+from simulation.money import MAX_AMOUNT, is_whole_amount, naira
 
 NGN = "NGN"
 

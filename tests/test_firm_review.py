@@ -10,7 +10,7 @@ from datetime import timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import careers, empires, firm, firm_money, firm_people, firm_risk, firm_tasks, ledger, quarters
+from simulation import careers, empires, firm, firm_money, firm_people, firm_risk, firm_tasks, ledger, lending_empire, quarters
 from simulation import bonds as bond_desk
 from simulation.money import naira
 from tests.conftest import after_quarters
@@ -43,10 +43,10 @@ def _cash(db, player):
 def _borrow(db, empire, team, amount_naira, kind="bond"):
     """The banker designs, the Accountant checks, the Risk Manager agrees, the Legal Counsel strikes every trap, the head signs."""
     asked = firm_money.design_raising(db, team["investment_banker"], kind, naira(amount_naira), 4, LATER)
-    firm.decide(db, team["accountant"], asked["approval_id"], True, "", LATER)
+    firm.decide(db, team["asset_manager"], asked["approval_id"], True, "", LATER)
     firm.decide(db, team["risk_manager"], waiting(db, empire["id"], "raise_risk")["id"], True, "It can carry it.", LATER)
     paper = _one(db, "SELECT * FROM empire_documents WHERE empire_id = %s AND status = 'draft'", (empire["id"],))
-    firm.review_document(db, team["lawyer"], paper["id"], [c["code"] for c in paper["clauses"] if c["trap"]], LATER)
+    firm.review_document(db, team["investment_banker"], paper["id"], [c["code"] for c in paper["clauses"] if c["trap"]], LATER)
     firm.decide(db, team["head"], waiting(db, empire["id"], "raise_sign")["id"], True, "", LATER)
 
 
@@ -109,7 +109,7 @@ def test_f02_new_capital_does_not_dilute_the_partners_already_in(db):
     before_worth, before_units = empires.worth(db, empire, LATER)["total"], firm_money.units_total(db, empire["id"])
     founder_units = _one(db, "SELECT units FROM empire_units WHERE empire_id = %s AND player_id = %s", (empire["id"], head))["units"]
     founder_before = before_worth * founder_units // before_units
-    journalist = partners["journalist"][0]
+    journalist = partners["investment_banker"][0]
     give_cash(db, ledger.player_account_id(db, journalist), 10_000_000)
     empires.put_in(db, journalist, naira(10_000_000), 0, LATER)
     after_worth, after_units = empires.worth(db, empire, LATER)["total"], firm_money.units_total(db, empire["id"])
@@ -125,7 +125,7 @@ def test_f03_a_leaving_partner_is_bought_back_at_no_more_than_their_share_of_the
     founders' money; or after any loss; or when it is worth nothing at all), unit_price() is 1 kobo, so the
     leaver is paid back everything they put in and the partners who stay carry the whole loss."""
     empire, (head, _), partners = founded(db)
-    journalist, accountant = partners["journalist"][0], partners["accountant"][0]
+    journalist, accountant = partners["investment_banker"][0], partners["asset_manager"][0]
     give_cash(db, ledger.player_account_id(db, journalist), 10_000_000)
     empires.put_in(db, journalist, naira(10_000_000), 0, LATER)
     vote = firm.propose(db, head, "constitution", {"leaver_units": "buy_back"}, LATER)
@@ -151,7 +151,7 @@ def test_f04_genuine_costs_and_diverted_costs_come_out_of_one_signing_limit(db):
     what was taken (empires._spent, kind = 'taken'). So a member who has signed for their whole limit in
     training can still divert up to the whole limit again, at once, below the expense threshold."""
     empire, team = firm_of(db)
-    journalist = team["journalist"]
+    journalist = team["investment_banker"]
     seat = empires.seat_of(db, journalist)
     limit = empires.signing_limit(db, seat)
     assert limit == naira(500_000)
@@ -170,7 +170,7 @@ def test_f05_a_cost_split_into_pieces_under_the_threshold_still_reaches_the_acco
     the Accountant's desk."""
     empire, team = firm_of(db)
     db.execute("UPDATE empires SET expense_limit = %s WHERE id = %s", (naira(5_000_000), empire["id"]))
-    taken = [empires.divert(db, team["journalist"], naira(250_000), LATER) for _ in range(4)]
+    taken = [empires.divert(db, team["investment_banker"], naira(250_000), LATER) for _ in range(4)]
     assert any(t["waiting"] for t in taken), "₦1,000,000 was taken in one quarter in four pieces, and none of it waited for the Accountant"
 
 
@@ -179,7 +179,7 @@ def test_f06_the_accountants_own_cost_above_the_threshold_waits_for_somebody(db)
     whose costs nobody looks at is the one who approves everybody else's."""
     empire, team = firm_of(db)
     db.execute("UPDATE empires SET expense_limit = %s WHERE id = %s", (naira(5_000_000), empire["id"]))
-    taken = empires.divert(db, team["accountant"], naira(4_000_000), LATER)
+    taken = empires.divert(db, team["asset_manager"], naira(4_000_000), LATER)
     assert taken["waiting"], "the Accountant took ₦4,000,000 at once, with nobody's approval"
 
 
@@ -189,9 +189,9 @@ def test_f07_a_divert_waiting_for_approval_cannot_be_told_from_a_genuine_cost(db
     request that is not headed 'Training' is a theft, and the Accountant can see it."""
     empire, team = firm_of(db)
     db.execute("UPDATE empires SET expense_limit = %s WHERE id = %s", (naira(5_000_000), empire["id"]))
-    stolen = empires.divert(db, team["journalist"], naira(400_000), LATER)
-    honest = firm_money.sign_cost(db, team["journalist"], "training", naira(400_000), team["lawyer"], LATER)
-    shown = {a["id"]: a for a in firm.view(db, team["accountant"], LATER)["approvals"]["to_decide"]}
+    stolen = empires.divert(db, team["investment_banker"], naira(400_000), LATER)
+    honest = firm_money.sign_cost(db, team["investment_banker"], "training", naira(400_000), team["investment_banker"], LATER)
+    shown = {a["id"]: a for a in firm.view(db, team["asset_manager"], LATER)["approvals"]["to_decide"]}
     s, h = shown[stolen["approval_id"]], shown[honest["approval_id"]]
     genuine_headings = {h["detail"]["heading"]}
     assert s["title"].split(":")[0] == h["title"].split(":")[0] and s["detail"] == h["detail"], "the two requests can be told apart"
@@ -206,7 +206,7 @@ def test_f07_a_divert_waiting_for_approval_cannot_be_told_from_a_genuine_cost(db
 def _rival(db, cash_naira=50_000_000):
     rival_head, _ = pro(db, "asset_manager", "raider", level=20, cash_naira=60_000_000)
     rival = empires.found(db, rival_head, "Raider House", naira(40_000_000), 0, NOW9)
-    for build, name in (("journalist", "r1"), ("accountant", "r2")):
+    for build, name in (("investment_banker", "r1"), ("asset_manager", "r2"), ("risk_manager", "r3")):
         member(db, rival, rival_head, build, name)
     rival = empires.open_empire(db, rival_head, NOW9)
     give_cash(db, rival["account_id"], cash_naira)
@@ -301,7 +301,7 @@ def test_f12_a_raising_request_does_not_show_the_designers_player_number(db):
     firm_money.design_raising(db, team["investment_banker"], "bond", naira(60_000_000), 4, LATER)
     import server.main  # noqa: F401  (the routes import the app first)
     from server.firm_routes import wire
-    seen = str(wire(firm.view(db, team["accountant"], LATER)))
+    seen = str(wire(firm.view(db, team["asset_manager"], LATER)))
     assert str(team["investment_banker"]) not in seen, "the Accountant's view carries the Investment Banker's player number"
 
 
@@ -315,14 +315,14 @@ def test_f13_a_dividend_is_not_paid_out_of_a_profit_that_is_no_longer_the_last_q
     when that quarter closed with a loss (no profit to pay a dividend out of)."""
     empire, team = firm_of(db)
     db.execute("INSERT INTO empire_accounts (empire_id, period, figures) VALUES (%s, 8, %s)", (empire["id"], firm._json({"profit": naira(10_000_000)})))
-    vote = firm.propose(db, team["accountant"], "dividend", {"amount": naira(5_000_000)}, after_quarters(9) - timedelta(hours=24))
+    vote = firm.propose(db, team["asset_manager"], "dividend", {"amount": naira(5_000_000)}, after_quarters(9) - timedelta(hours=24))
     # The quarter closes with a loss (written as the close writes it).
     db.execute("INSERT INTO empire_accounts (empire_id, period, figures) VALUES (%s, 9, %s)", (empire["id"], firm._json({"profit": -naira(50_000_000)})))
     quarters.close_due_quarters(db, after_quarters(9))
     head_cash = _cash(db, team["head"])
     then = after_quarters(9) + timedelta(hours=2)
     try:
-        for who in ("head", "journalist", "risk_manager"):
+        for who in ("head", "investment_banker", "risk_manager"):
             firm.vote(db, team[who], vote["id"], True, then)
     except empires.EmpireError:
         pass
@@ -342,10 +342,10 @@ def test_f14_a_raise_money_task_is_not_finished_by_raising_one_kobo(db):
     with pytest.raises(empires.EmpireError, match="at least"):
         firm_money.design_raising(db, team["investment_banker"], "stake", 1, 0, LATER)
     asked = firm_money.design_raising(db, team["investment_banker"], "stake", naira(5_000_000), 0, LATER)
-    firm.decide(db, team["accountant"], asked["approval_id"], True, "", LATER)
+    firm.decide(db, team["asset_manager"], asked["approval_id"], True, "", LATER)
     firm.decide(db, team["risk_manager"], waiting(db, empire["id"], "raise_risk")["id"], True, "Harmless.", LATER)
     paper = _one(db, "SELECT * FROM empire_documents WHERE empire_id = %s AND status = 'draft'", (empire["id"],))
-    firm.review_document(db, team["lawyer"], paper["id"], [c["code"] for c in paper["clauses"] if c["trap"]], LATER)
+    firm.review_document(db, team["investment_banker"], paper["id"], [c["code"] for c in paper["clauses"] if c["trap"]], LATER)
     firm.decide(db, team["head"], waiting(db, empire["id"], "raise_sign")["id"], True, "", LATER)
     points = _one(db, "SELECT coalesce(sum(points), 0)::int AS p FROM league_points WHERE empire_id = %s AND reference = %s",
                   (empire["id"], f"task:{task['id']}"))["p"]
@@ -361,24 +361,40 @@ def test_f15_the_deputy_does_not_approve_a_bonus_pool_that_pays_the_deputy(db):
     """deciders() only keeps out whoever asked. The Accountant proposes a bonus pool that pays the deputy; when
     the head has not answered in two days the deputy approves it, and pays themselves."""
     empire, team = firm_of(db)
-    firm.name_title(db, team["head"], team["lawyer"], "deputy", NOW9)
-    asked = firm_money.propose_bonuses(db, team["accountant"], {str(team["lawyer"]): naira(1_000_000)}, LATER)
-    cash = _cash(db, team["lawyer"])
+    firm.name_title(db, team["head"], team["investment_banker"], "deputy", NOW9)
+    asked = firm_money.propose_bonuses(db, team["asset_manager"], {str(team["investment_banker"]): naira(1_000_000)}, LATER)
+    cash = _cash(db, team["investment_banker"])
     try:
-        firm.decide(db, team["lawyer"], asked["approval_id"], True, "", NOW9 + timedelta(hours=49))
+        firm.decide(db, team["investment_banker"], asked["approval_id"], True, "", NOW9 + timedelta(hours=49))
     except empires.EmpireError:
         pass
-    assert _cash(db, team["lawyer"]) == cash, "the deputy approved a bonus pool paying the deputy ₦1,000,000"
+    assert _cash(db, team["investment_banker"]) == cash, "the deputy approved a bonus pool paying the deputy ₦1,000,000"
+
+
+def test_f15b_a_short_above_the_limit_waits_without_crashing_the_closing_bell(db):
+    """concerned() walked the payload's "shares" as a map of member to amount, but an empire's short sale files a plain
+    count of shares under that key: the Closing Bell died with TypeError: 'int' object is not iterable, and every
+    empire's approvals stopped being decided. The request now waits for the head, as its kind says it must."""
+    empire, team = firm_of(db)
+    give_shares(db, empire["account_id"], "GGM", 1_000_000)
+    member_of_am = member(db, empire, team["head"], "asset_manager", "trader")
+    asked = lending_empire.short(db, member_of_am, "GGM", 100_000, LATER)
+    assert asked["waiting"], "a short sale with no limit signed went straight through"
+    approval = _one(db, "SELECT * FROM empire_approvals WHERE id = %s", (asked["approval_id"],))
+    assert approval["payload"]["shares"] == 100_000 and approval["desk"] == "head"
+    firm.at_bell(db, LATER)                                    # this raised TypeError before the fix
+    assert _one(db, "SELECT status FROM empire_approvals WHERE id = %s", (approval["id"],))["status"] == "waiting"
+    assert firm.concerned(approval) == {str(member_of_am)}
 
 
 def test_f16_an_accountant_does_not_approve_a_cost_paid_for_themselves(db):
     """The head signs training for the Accountant above the threshold; it goes to the Accountant's desk, and the
     Accountant approves the request that is for the Accountant."""
     empire, team = firm_of(db)
-    asked = firm_money.sign_cost(db, team["head"], "training", naira(400_000), team["accountant"], LATER)
+    asked = firm_money.sign_cost(db, team["head"], "training", naira(400_000), team["asset_manager"], LATER)
     assert asked["waiting"]
     may = firm.deciders(db, waiting(db, empire["id"], "expense"), LATER)
-    assert team["accountant"] not in may, "the Accountant may decide a request that is for the Accountant"
+    assert team["asset_manager"] not in may, "the Accountant may decide a request that is for the Accountant"
 
 
 # ---------------------------------------------------------------------------
@@ -390,9 +406,9 @@ def test_f17_a_lawyers_draft_contract_waits_for_the_head_to_offer_it(db):
     the member may sign it at once. The head never sees it: a Legal Counsel can give a colleague a 0-day notice (so they
     can leave for a rival at once) or a 20% share of the desk's pool, in the empire's name."""
     empire, team = firm_of(db)
-    contract = firm_people.offer_contract(db, team["lawyer"], team["journalist"], 0, 2000, 0, LATER)
+    contract = firm_people.offer_contract(db, team["investment_banker"], team["investment_banker"], 0, 2000, 0, LATER)
     try:
-        firm_people.answer_contract(db, team["journalist"], contract["id"], True, LATER)
+        firm_people.answer_contract(db, team["investment_banker"], contract["id"], True, LATER)
     except empires.EmpireError:
         pass
     row = _one(db, "SELECT * FROM member_contracts WHERE id = %s", (contract["id"],))
@@ -407,8 +423,8 @@ def test_f18_a_decided_request_cannot_be_rewritten(db):
     """empire_approvals_guard stops the status changing, but not who decided, in what capacity, why, or the
     payload: a decided request's record can be rewritten after the fact."""
     empire, team = firm_of(db)
-    request = firm.ask(db, empire, kind="note", desk="lawyer", asked_by=team["accountant"], title="A question", period=9, now=NOW9)
-    firm.decide(db, team["lawyer"], request["id"], False, "No.", LATER)
+    request = firm.ask(db, empire, kind="note", desk="investment_banker", asked_by=team["asset_manager"], title="A question", period=9, now=NOW9)
+    firm.decide(db, team["investment_banker"], request["id"], False, "No.", LATER)
     with pytest.raises(Exception):
         db.execute("UPDATE empire_approvals SET reason = 'Yes, of course.', decided_by = %s, decided_as = 'head', payload = '{\"x\": 1}' WHERE id = %s",
                    (team["head"], request["id"]))
@@ -421,7 +437,7 @@ def test_f19_the_heads_record_cannot_be_rewritten(db):
     firm.ceo_note(db, team["head"], empire["id"], "overrule", "Overruled the Risk Manager.", 9, LATER, reference="test:1")
     with pytest.raises(Exception):
         db.execute("UPDATE ceo_records SET words = 'Nothing happened.', good = true, player_id = %s WHERE reference = 'test:1'",
-                   (team["journalist"],))
+                   (team["investment_banker"],))
 
 
 def test_f20_a_counted_vote_cannot_be_rewritten(db):
@@ -429,7 +445,7 @@ def test_f20_a_counted_vote_cannot_be_rewritten(db):
     votes cast can be changed or deleted."""
     empire, team = firm_of(db)
     vote = firm.propose(db, team["risk_manager"], "treasury", {"cash_least_bps": 2000, "shares_most_bps": 5000}, LATER)
-    for who in ("head", "journalist", "accountant"):
+    for who in ("head", "investment_banker", "asset_manager"):
         firm.vote(db, team[who], vote["id"], True, LATER)
     assert _one(db, "SELECT status FROM empire_resolutions WHERE id = %s", (vote["id"],))["status"] == "passed"
     with pytest.raises(Exception):
@@ -478,7 +494,7 @@ def test_f22_a_thief_sacked_owing_the_empire_is_not_paid_cash_for_their_units_fi
     then vacates the seat; with 'buy back' in the constitution, on_vacate then pays the thief cash for every unit
     (at the rounded-up price). The empire hands the thief cash while the thief still owes it."""
     empire, (head, _), partners = founded(db)
-    journalist, accountant = partners["journalist"][0], partners["accountant"][0]
+    journalist, accountant = partners["investment_banker"][0], partners["asset_manager"][0]
     give_cash(db, ledger.player_account_id(db, journalist), 10_000_000)
     empires.put_in(db, journalist, naira(10_000_000), 0, LATER)
     vote = firm.propose(db, head, "constitution", {"leaver_units": "buy_back"}, LATER)
@@ -488,7 +504,7 @@ def test_f22_a_thief_sacked_owing_the_empire_is_not_paid_cash_for_their_units_fi
     # The thief spends what they took (and has nothing else in cash).
     ledger.transfer(db, payer=ledger.player_account_id(db, journalist), receiver=ledger.account_id(db, ledger.TREASURY),
                     amount=_cash(db, journalist), kind="test_cash", memo="Test: spent")
-    audit = _one(db, "INSERT INTO empire_audits (empire_id, kind, auditor_id, period, from_period, to_period, at) VALUES (%s, 'accountant', %s, 9, 9, 9, %s)"
+    audit = _one(db, "INSERT INTO empire_audits (empire_id, kind, auditor_id, period, from_period, to_period, at) VALUES (%s, 'asset_manager', %s, 9, 9, 9, %s)"
                      " RETURNING id", (empire["id"], accountant, LATER))["id"]
     case = empires._prove(db, empires._empire(db, empire["id"]), book, audit, LATER)
     empires.decide_case(db, head, case["id"], True, LATER)
@@ -509,18 +525,18 @@ def test_f23_a_member_with_a_theft_case_waiting_does_not_become_acting_head_afte
     experienced member whatever is waiting against them."""
     empire, team = firm_of(db)
     db.execute("UPDATE empires SET expense_limit = %s WHERE id = %s", (naira(5_000_000), empire["id"]))
-    taken = empires.divert(db, team["journalist"], naira(200_000), LATER)
+    taken = empires.divert(db, team["investment_banker"], naira(200_000), LATER)
     book = _one(db, "SELECT * FROM empire_books WHERE id = %s", (taken["book_id"],))
-    audit = _one(db, "INSERT INTO empire_audits (empire_id, kind, auditor_id, period, from_period, to_period, at) VALUES (%s, 'accountant', %s, 9, 9, 9, %s)"
-                     " RETURNING id", (empire["id"], team["accountant"], LATER))["id"]
+    audit = _one(db, "INSERT INTO empire_audits (empire_id, kind, auditor_id, period, from_period, to_period, at) VALUES (%s, 'asset_manager', %s, 9, 9, 9, %s)"
+                     " RETURNING id", (empire["id"], team["asset_manager"], LATER))["id"]
     case = empires._prove(db, empires._empire(db, empire["id"]), book, audit, LATER)
     assert _one(db, "SELECT status FROM empire_cases WHERE id = %s", (case["id"],))["status"] == "open"
-    db.execute("UPDATE careers SET experience = %s WHERE player_id = %s", (careers.experience_for(45), team["journalist"]))
+    db.execute("UPDATE careers SET experience = %s WHERE player_id = %s", (careers.experience_for(45), team["investment_banker"]))
     vote = firm.call_vote(db, empire, "confidence", "Confidence?", {"subject_id": str(team["head"])}, 9, LATER)
-    for who in ("accountant", "risk_manager", "lawyer"):
+    for who in ("asset_manager", "risk_manager", "investment_banker"):
         firm.vote(db, team[who], vote["id"], False, LATER)
     head = empires._empire(db, empire["id"])["head_player_id"]
-    assert head != team["journalist"], "a member with a theft case waiting became Acting Head (and now decides cases)"
+    assert head != team["investment_banker"], "a member with a theft case waiting became Acting Head (and now decides cases)"
 
 
 # ---------------------------------------------------------------------------

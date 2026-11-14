@@ -73,7 +73,7 @@ export function NewsWork({ player, tab: start, onLoggedOut }: { player: Player; 
   const [tab, setTab] = useState<NewsTab>(known.includes(start as NewsTab) ? (start as NewsTab) : "wire");
   const choose = (next: NewsTab) => { setTab(next); window.history.replaceState(null, "", `#/news/${next}`); };
   const tabs: [NewsTab, string][] = [["wire", "The wire"], ["stories", "Players' stories"], ["archive", "Archive"], ["chronicle", "The Chronicle"], ["titles", "Titles for sale"],
-    ...(player.build === "journalist" ? [["newsroom", "My newsroom"] as [NewsTab, string]] : []),
+    ...(player.build === "investment_banker" ? [["newsroom", "My newsroom"] as [NewsTab, string]] : []),
     ...((player.press_questions ?? 0) > 0 || tab === "questions" ? [["questions", "Questions for you"] as [NewsTab, string]] : [])];
   return (
     <>
@@ -88,7 +88,7 @@ export function NewsWork({ player, tab: start, onLoggedOut }: { player: Player; 
       {tab === "stories" && <PlayersStories onLoggedOut={onLoggedOut} />}
       {tab === "archive" && <Archive onLoggedOut={onLoggedOut} />}
       {tab === "chronicle" && <><Chronicle player={player} onLoggedOut={onLoggedOut} /><CrisesPanel onLoggedOut={onLoggedOut} /></>}
-      {tab === "newsroom" && player.build === "journalist" && <NewsroomDeskView onLoggedOut={onLoggedOut} />}
+      {tab === "newsroom" && player.build === "investment_banker" && <NewsroomDeskView onLoggedOut={onLoggedOut} />}
       {tab === "questions" && <PressQuestions onLoggedOut={onLoggedOut} />}
       {tab === "titles" && <TitlesView player={player} onLoggedOut={onLoggedOut} />}
     </>

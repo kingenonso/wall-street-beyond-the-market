@@ -241,7 +241,7 @@ def propose(conn: Connection, player_id, *, kind: str, counterparty: dict, side:
                    (kind, account, side, other, bank, notional, barrels, fixed if kind == "rate" else None,
                     fixed if kind in ("oil", "fx") else None, quarters, "signing" if empire else "proposed", player_id, now))
         if empire is not None:
-            _ask(conn, row, empire, "swap_draft", "lawyer", player_id, "proposer", state["period"], now)
+            _ask(conn, row, empire, "swap_draft", "investment_banker", player_id, "proposer", state["period"], now)
             return {"swap_id": row["id"], "waiting": True, "status": "signing"}
         return _after_proposer(conn, row, now)
 
@@ -268,7 +268,7 @@ def accept(conn: Connection, player_id, swap_id: int, now: datetime, *, for_empi
         check_room(conn, account, swap["kind"], swap["notional"], swap["barrels"], now)
         if empire is not None:
             conn.execute("UPDATE swaps SET status = 'countersigning', accepted_by = %s WHERE id = %s", (player_id, swap_id))
-            _ask(conn, swap, empire, "swap_draft", "lawyer", player_id, "counter", state["period"], now)
+            _ask(conn, swap, empire, "swap_draft", "investment_banker", player_id, "counter", state["period"], now)
             return {"swap_id": swap_id, "waiting": True, "status": "countersigning"}
         return _activate(conn, swap, player_id, now)
 

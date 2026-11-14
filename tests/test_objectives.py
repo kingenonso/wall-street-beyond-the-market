@@ -71,7 +71,7 @@ def manager(db, name="ada", *, level=1, cash_naira=0, employer="IKB"):
 def accountant(db, name="ada", *, level=1):
     player, account = professional(db, name, now=NOW9)
     if level > 1:
-        careers.add_experience(db, player, "accountant", careers.experience_for(level), NOW9)
+        careers.add_experience(db, player, "asset_manager", careers.experience_for(level), NOW9)
     return player, account
 
 
@@ -92,14 +92,14 @@ def test_a_new_player_is_hired_completes_an_objective_and_is_paid_by_a_named_pay
     assert client.get("/api/objectives").json()["ready"] is False
 
     # They choose a build, a bank and an employer.
-    assert client.put("/api/career/build", json={"build": "accountant"}).status_code == 200
+    assert client.put("/api/career/build", json={"build": "asset_manager"}).status_code == 200
     assert client.put("/api/career/bank", json={"ticker": "IKB"}).status_code == 200
     employers = client.get("/api/career/employers").json()
     hiring = next(e for e in employers if e["places_left"] > 0 and not e["behind_on_bills"])
     career = client.put("/api/career/job", json={"ticker": hiring["ticker"]}).json()
     assert career["job"]["name"] == hiring["name"] and career["career"]["level"] == 1
     me = client.get("/api/me").json()
-    assert (me["build_name"], me["level"], me["employer"]) == ("Accountant", 1, hiring["name"])
+    assert (me["build_name"], me["level"], me["employer"]) == ("Asset Manager", 1, hiring["name"])
 
     # Work is on offer. They take a piece on: a client and a payer are named before they start.
     board = client.get("/api/objectives").json()
@@ -157,8 +157,8 @@ def test_work_comes_through_an_employer_and_only_for_your_own_build(db):
     player, _ = professional(db, employer=None, now=NOW9)
     with pytest.raises(objectives.ObjectiveError, match="employer"):
         objectives.accept(db, player, "ac_ratios", NOW9)
-    careers.take_job(db, player, "IDC", NOW9)
-    for other in ("am_spread", "nothing", ""):
+    careers.take_job(db, player, "IKB", NOW9)
+    for other in ("zz_invalid", "nothing", ""):
         with pytest.raises(objectives.ObjectiveError):
             objectives.accept(db, player, other, NOW9)
 
@@ -169,7 +169,7 @@ def test_harder_work_opens_with_level(db):
         objectives.accept(db, player, "ac_rating", NOW9)
     locked = {o["template"]: o for o in objectives.board(db, player, NOW9)["offers"]}
     assert not locked["ac_rating"]["available"] and locked["ac_rating"]["why_not"] == "Opens at Level 4."
-    careers.add_experience(db, player, "accountant", careers.experience_for(4), NOW9)
+    careers.add_experience(db, player, "asset_manager", careers.experience_for(4), NOW9)
     assert objectives.accept(db, player, "ac_rating", NOW9)["state"] == "active"
 
 
@@ -187,7 +187,7 @@ def test_each_piece_of_work_once_a_quarter_and_three_in_hand_at_most(db):
     row = state_of(db, first)
     with pytest.raises(psycopg.errors.UniqueViolation):
         db.execute("INSERT INTO objectives (player_id, build, template, module, period, payer_account_id, payer_name, title, terms,"
-                   " reward, experience, accepted_at) VALUES (%s, 'accountant', 'ac_ratios', 'x', %s, %s, 'x', 'x', '{}', 0, 0, now())",
+                   " reward, experience, accepted_at) VALUES (%s, 'asset_manager', 'ac_ratios', 'x', %s, %s, 'x', 'x', '{}', 0, 0, now())",
                    (player, row["period"], row["payer_account_id"]))
 
 
@@ -198,7 +198,7 @@ def test_the_client_is_chosen_by_the_server_and_asking_again_changes_nothing(db)
     other, _ = professional(db, "bola", now=NOW9)
     clients = set()
     for n in range(12):
-        someone, _ = professional(db, f"player{n}", employer="GGM", now=NOW9)
+        someone, _ = professional(db, f"player{n}", employer="IKB", now=NOW9)
         clients.add(objectives.board(db, someone, NOW9)["offers"][0]["client"]["ticker"])
     assert len(clients) > 3                                                          # different players, different clients
 
@@ -307,7 +307,7 @@ def test_finishing_the_income_statement_and_the_tax(db):
     income = figures_for(db, taken["id"])["income_statement"]
     right = {k: income[k] / 1e8 for k in ("operating_profit", "profit_before_tax", "tax", "net_profit")}
     other, _ = professional(db, "bola", now=NOW9)
-    careers.add_experience(db, other, "accountant", careers.experience_for(2), NOW9)
+    careers.add_experience(db, other, "asset_manager", careers.experience_for(2), NOW9)
     theirs = objectives.accept(db, other, "ac_income", NOW9)
     their_income = figures_for(db, theirs["id"])["income_statement"]
     # Everything right but the tax: not passed. The tax is the point.
@@ -319,9 +319,9 @@ def test_finishing_the_income_statement_and_the_tax(db):
 def test_a_sales_forecast_is_judged_by_what_the_company_then_files(db):
     good, _ = accountant(db, level=2)
     bad, _ = professional(db, "bola", now=NOW9)
-    careers.add_experience(db, bad, "accountant", careers.experience_for(2), NOW9)
+    careers.add_experience(db, bad, "asset_manager", careers.experience_for(2), NOW9)
     silent, _ = professional(db, "chi", now=NOW9)
-    careers.add_experience(db, silent, "accountant", careers.experience_for(2), NOW9)
+    careers.add_experience(db, silent, "asset_manager", careers.experience_for(2), NOW9)
     taken = {p: objectives.accept(db, p, "ac_forecast", NOW9) for p in (good, bad, silent)}
     assert objectives.submit(db, bad, taken[bad]["id"], {"revenue": 1.0}, NOW9)["state"] == "active"       # judged later
     with pytest.raises(objectives.ObjectiveError):
@@ -585,7 +585,7 @@ def _finish(db, player, code: str, state: str, period: int) -> None:
     """Record one finished objective directly, for the tests of the record-keeping."""
     account = _dicts(db, "SELECT account_id FROM companies WHERE ticker = 'IDC'")[0]["account_id"]
     row = _dicts(db, "INSERT INTO objectives (player_id, build, template, module, period, payer_account_id, payer_name, title, terms,"
-                     " reward, experience, accepted_at) VALUES (%s, 'accountant', %s, 'x', %s, %s, 'IDC', 'x', '{}', 0, 10, now()) RETURNING *",
+                     " reward, experience, accepted_at) VALUES (%s, 'asset_manager', %s, 'x', %s, %s, 'IDC', 'x', '{}', 0, 10, now()) RETURNING *",
                 (player, code, period, account))[0]
     objectives._finish(db, row, objectives._verdict(state, "test", [], plain="", method="", maths=""), NOW9, 9)
 
@@ -625,7 +625,7 @@ def test_five_failures_in_ten_open_a_review_and_three_passes_close_it(db):
 
 def test_a_review_not_recovered_from_costs_one_level_and_no_money(db):
     player, account = accountant(db)
-    careers.add_experience(db, player, "accountant", careers.experience_for(4) + 50, NOW9)
+    careers.add_experience(db, player, "asset_manager", careers.experience_for(4) + 50, NOW9)
     cash = ledger.balance(db, account)
     for n in range(5):
         _finish(db, player, "ac_ratios", "failed", 100 + n)
@@ -646,7 +646,7 @@ def test_the_skill_tree_shows_what_has_been_learned_and_what_to_practise_again(d
     objectives.submit(db, player, taken["id"], {"closing": 1}, NOW9)
     seen = objectives.board(db, player, NOW9)
     skills = {s["title"]: s for s in seen["skills"]}
-    total = len(objectives.modules("accountant"))           # (the gap stage's higher bands are on the map, locked until their level)
+    total = len(objectives.modules("asset_manager"))           # (the gap stage's higher bands are on the map, locked until their level)
     assert seen["coverage"] == {"learned": 1, "modules": total} and len(skills) == total
     assert skills["The lender's one-page view"]["stage"] == "learned" and not skills["The lender's one-page view"]["practise_again"]
     assert skills["Sort the quarter's cash"]["practise_again"] and skills["Sort the quarter's cash"]["stage"] == "not yet"
@@ -675,17 +675,17 @@ def test_the_doors_are_shut_to_anybody_not_logged_in(client):
                          ("get", "/api/career/banks"), ("get", "/api/desk/asset-manager"), ("get", "/api/desk/accountant")):
         assert getattr(client, method)(path).status_code == 401
     assert client.post("/api/objectives", json={"template": "ac_ratios"}).status_code == 401
-    assert client.put("/api/career/build", json={"build": "accountant"}).status_code == 401
+    assert client.put("/api/career/build", json={"build": "asset_manager"}).status_code == 401
 
 
 def test_the_website_cannot_send_extras_or_reach_another_players_work(db, client):
     other, _ = accountant(db, "bola")
     theirs = objectives.accept(db, other, "ac_ratios", NOW9)
     assert join(client, ADULT).status_code == 201
-    assert client.put("/api/career/build", json={"build": "accountant", "level": 99}).status_code == 422
+    assert client.put("/api/career/build", json={"build": "asset_manager", "level": 99}).status_code == 422
     assert client.put("/api/career/build", json={"build": "ceo"}).status_code == 422
-    client.put("/api/career/build", json={"build": "accountant"})
-    assert client.put("/api/career/job", json={"ticker": "IDC"}).status_code == 409           # no bank chosen yet
+    client.put("/api/career/build", json={"build": "asset_manager"})
+    assert client.put("/api/career/job", json={"ticker": "IKB"}).status_code == 409           # no bank chosen yet
     assert client.post(f"/api/objectives/{theirs['id']}/hand-in", json={"answers": {"ebitda": 1}}).status_code == 409
     assert client.delete(f"/api/objectives/{theirs['id']}").status_code == 409
     assert state_of(db, theirs["id"])["state"] == "active"
@@ -695,17 +695,17 @@ def test_the_website_cannot_send_extras_or_reach_another_players_work(db, client
 
 def test_the_build_screens_have_their_figures(db, client):
     assert join(client, ADULT).status_code == 201
-    client.put("/api/career/build", json={"build": "accountant"})
+    client.put("/api/career/build", json={"build": "asset_manager"})
     client.put("/api/career/bank", json={"ticker": "IKB"})
-    client.put("/api/career/job", json={"ticker": "IDC"})
+    client.put("/api/career/job", json={"ticker": "IKB"})
     desk = client.get("/api/desk/accountant").json()
-    assert desk["ticker"] == "IDC" and desk["is_employer"] and len(desk["quarters"]) == 8 and len(desk["companies"]) == 68
+    assert desk["ticker"] == "IKB" and desk["is_employer"] and len(desk["quarters"]) == 8 and len(desk["companies"]) == 68
     latest = desk["quarters"][0]
     income = {k: int(v) for k, v in latest["income_statement"].items()}
     assert latest["ratios"]["Profit after tax ÷ sales (%)"] == round(income["net_profit"] * 100 / income["revenue"], 2)
     assert client.get("/api/desk/accountant?ticker=ZCB").json()["name"] == "Zuma Capital Bank"
     assert client.get("/api/desk/accountant?ticker=QQQ").status_code == 404
-    mine = client.get("/api/desk/asset-manager").json()
+    mine = client.get("/api/desk/accountant").json()
     assert int(mine["total_kobo"]) == int(mine["cash_kobo"]) == naira(data.GRANT_ON_JOINING_NAIRA)
     assert [a["label"] for a in mine["allocation"]] == ["Cash"] and mine["allocation"][0]["share_bps"] == 10_000
 

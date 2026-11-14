@@ -35,3 +35,6 @@ def apply_bps(amount: int, bps: int) -> int:
 def is_whole_amount(value: object) -> bool:
     """True only for a real whole number. Rejects fractions, text, and True/False."""
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+zero_kobo = 0

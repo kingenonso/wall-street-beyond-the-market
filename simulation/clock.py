@@ -11,6 +11,11 @@ to work these out for itself (design document, section 19, "one owner per value"
 
 Everything here is plain calculation. It reads no database and no system
 clock: the caller passes in the current time. That makes it easy to test.
+
+The one exception is `world_now`, which reads the world state from the
+database so that other modules can ask "what period is it right now?" in one
+call. It is kept here because the period is a clock value, not a business
+rule.
 """
 
 from __future__ import annotations
@@ -19,6 +24,8 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from enum import Enum
 from zoneinfo import ZoneInfo
+
+from psycopg import Connection
 
 LAGOS = ZoneInfo("Africa/Lagos")
 
@@ -181,3 +188,28 @@ def snapshot(moment: datetime, world_start: datetime) -> ClockSnapshot:
         world_started=date is not None,
         game_date=date,
     )
+
+
+def world_now(conn: Connection, now: datetime) -> dict:
+    """The running quarter and the game day in it, read from the world state.
+
+    This is the clock's answer to "what period is it right now?". It reads the
+    world's start and how many quarters have been closed, then reports the
+    quarter the clock says is running. In the moments after a quarter has ended
+    and before it has been closed, that is already the next one.
+
+    Mirrors simulation.careers.world_now so that insurance and other modules
+    can ask the clock directly instead of reaching into the careers module.
+    """
+    world = conn.execute(
+        "SELECT world_start, weeks_ahead, last_closed_period FROM world_state"
+    ).fetchone()
+    if world is None:
+        raise ValueError("The world has not been created yet.")
+    start = effective_start(world["world_start"], world["weeks_ahead"])
+    date = game_date(now, start)
+    return {
+        "period": max(world["last_closed_period"], periods_completed(now, start)) + 1,
+        "day": date.day_of_quarter if date else 1,
+        "started": date is not None,
+    }

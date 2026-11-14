@@ -1,6 +1,6 @@
 """Empires (design document, sections 6, 13 and 15).
 
-An empire has thirteen seats: a head, and two for each of the six builds. It has its own
+An empire has seven places: a head, and two seats for each of the three builds. It has its own
 account in the ledger. Seats nobody holds can be filled by computer-run staff, who work at a
 fixed Level 40, reliably and slowly, and are paid by the empire. Five empires run by the
 computer exist from the first day, so that every player can be in one.
@@ -9,10 +9,10 @@ What is here:
   joining, leaving and founding            a player holds one seat in one empire at a time
   the chain of command                     the head sets limits, approves, pays bonuses, sacks
   trading for the empire                   Asset Managers place the empire's orders, within a limit
-  tasks and handoffs                       work that needs five builds, passed from one to the next
+  tasks and handoffs                       work that needs three builds, passed from one to the next
   the shadow feature                       a member can take the empire's money, disguised in its books
-  audits                                   an Accountant's audit, the staff's audit, and the paid AI audit
-  secret pacts                             hidden agreements between empires, drafted by a Legal Counsel
+  audits                                   the Asset Manager's audit, the staff's audit, and the paid AI audit
+  secret pacts                             hidden agreements between empires, drafted by the Investment Banker
   the War Room                             chat, the tracker, the decision log
 
 Nothing here makes money: every naira is moved from one account to another through the ledger.
@@ -789,7 +789,7 @@ def staff_seat(conn: Connection, head_id, build: str, slot: int, staffed: bool, 
 def _spent(conn: Connection, empire_id, player_id, period: int, *, waiting: bool = True) -> int:
     """What a member has signed for this quarter, genuine or not: both come out of the same limit. It
     is counted across every empire: moving from one empire to the next does not start the limit again.
-    (A pension fund is counted on its own.) Costs still waiting for the Accountant count too."""
+    (A pension fund is counted on its own.) Costs still waiting to be approved count too."""
     fund = _one(conn, "SELECT kind FROM empires WHERE id = %s", (empire_id,))["kind"] == "pension"
     signed = _one(conn, "SELECT coalesce(sum(b.amount), 0)::bigint AS total FROM empire_books b JOIN empires e ON e.id = b.empire_id"
                         " WHERE b.entered_by = %s AND b.period = %s AND b.kind IN ('taken', 'cost') AND (e.kind = 'pension') = %s"
@@ -1094,7 +1094,7 @@ def divert(conn: Connection, player_id, amount: int, now: datetime) -> dict:
         from simulation import firm_money
         waiting = firm_money.divert_needs_approval(conn, seat, amount, now)
         if waiting is not None:
-            # Like any cost above the threshold, it waits for the Accountant's desk. The Accountant sees
+            # Like any cost above the threshold, it waits for the desk that signs the accounts. That desk sees
             # the heading it would go into the books under, and the amount: nothing that marks it out.
             return {"book_id": None, "waiting": True, "approval_id": waiting["id"], "category": category, "amount": amount, "limit": limit,
                     "used": used}
@@ -1232,20 +1232,21 @@ def _auditor_finds_bps(auditor_level: int, thief_level: int) -> int:
 
 
 def accountant_audit(conn: Connection, player_id, now: datetime) -> dict:
-    """An Accountant with a seat audits the empire's books for the last two quarters. What they find
+    """An Asset Manager with a seat audits the empire's books for the last two quarters. What they find
     is shown to them alone; they then decide what goes in the report (see file_audit). How much an
-    audit finds depends on the Accountant's level against the level of whoever disguised the entry.
-    One audit a quarter."""
+    audit finds depends on their level against the level of whoever disguised the entry. One audit a
+    quarter. (The audit was the Accountant's until the six builds became three on 9 November 2026; the
+    fund's name for the audit row stays "asset_manager" so that the record of past audits is not rewritten.)"""
     with conn.transaction():
         state = _open(conn, now)
         seat = seat_of(conn, player_id, lock=True)
-        if seat is None or seat["build"] != "accountant" or seat["empire_status"] != "active":
-            raise EmpireError("Only an Accountant with a seat in the empire can audit its books.")
-        level = careers.career(conn, player_id, "accountant")["level"]
+        if seat is None or seat["build"] != "asset_manager" or seat["empire_status"] != "active":
+            raise EmpireError("Only an Asset Manager with a seat in the empire can audit its books.")
+        level = careers.career(conn, player_id, "asset_manager")["level"]
         try:
             with conn.transaction():
                 audit = _one(conn, "INSERT INTO empire_audits (empire_id, kind, auditor_id, period, from_period, to_period, status, at)"
-                                   " VALUES (%s, 'accountant', %s, %s, %s, %s, 'open', %s) RETURNING *",
+                                   " VALUES (%s, 'asset_manager', %s, %s, %s, %s, 'open', %s) RETURNING *",
                              (seat["empire_id"], player_id, state["period"], state["period"] - 1, state["period"], now))
         except errors.UniqueViolation:
             raise EmpireError("You have already audited the books this quarter.") from None
@@ -1259,7 +1260,7 @@ def accountant_audit(conn: Connection, player_id, now: datetime) -> dict:
 
 
 def file_audit(conn: Connection, player_id, audit_id: int, report: list[int], now: datetime) -> dict:
-    """The Accountant files the audit report, naming the entries they stand behind. Anything they
+    """The auditor files the audit report, naming the entries they stand behind. Anything they
     found and leave out stays hidden: an auditor can look away, and that is on them."""
     with conn.transaction():
         _open(conn, now)
@@ -1267,7 +1268,7 @@ def file_audit(conn: Connection, player_id, audit_id: int, report: list[int], no
         if audit is None:
             raise EmpireError("You have no audit waiting to be filed.")
         seat = seat_of(conn, player_id)
-        if seat is None or seat["empire_id"] != audit["empire_id"] or seat["build"] != "accountant":
+        if seat is None or seat["empire_id"] != audit["empire_id"] or seat["build"] != "asset_manager":
             # They no longer hold the seat they audited from: the audit lapses, with nothing reported.
             conn.execute("UPDATE empire_audits SET reported = '{}', status = 'filed' WHERE id = %s", (audit_id,))
             return {"examined": audit["examined"], "reported": 0}
@@ -1276,14 +1277,14 @@ def file_audit(conn: Connection, player_id, audit_id: int, report: list[int], no
         empire = _empire(conn, audit["empire_id"], lock=True)
         for book in _rows(conn, "SELECT * FROM empire_books WHERE id = ANY(%s) AND NOT found ORDER BY id", (named,)):
             _prove(conn, empire, book, audit_id, now)
-        _log(conn, empire["id"], f"An Accountant's audit of {clock.period_label(audit['from_period'])} and "
+        _log(conn, empire["id"], f"An audit of {clock.period_label(audit['from_period'])} and "
                                  f"{clock.period_label(audit['to_period'])} was filed: {audit['examined']} entries looked at, {len(named)} called false.", now)
         return {"examined": audit["examined"], "reported": len(named)}
 
 
 def _staff_audit(conn: Connection, empire: dict, period: int, now: datetime) -> int:
-    """The empire's computer-run Accountant audits the quarter just closed, and reports everything it finds."""
-    if not _one(conn, "SELECT 1 FROM empire_seats WHERE empire_id = %s AND build = 'accountant' AND ((player_id IS NULL AND staffed)"
+    """The empire's computer-run Asset Manager audits the quarter just closed, and reports everything it finds."""
+    if not _one(conn, "SELECT 1 FROM empire_seats WHERE empire_id = %s AND build = 'asset_manager' AND ((player_id IS NULL AND staffed)"
                       " OR staffed_in_period >= %s)", (empire["id"], period)):
         return 0
     entries = _unfound(conn, empire["id"], period, period)
@@ -1395,18 +1396,18 @@ def report_entry(conn: Connection, player_id, book_id: int, now: datetime) -> di
 
 
 # ---------------------------------------------------------------------------
-# Tasks: work that needs five builds, handed from one to the next
+# Tasks: work that needs three builds, handed from one to the next
 # ---------------------------------------------------------------------------
 INVESTMENT_STEPS = (
-    ("journalist", "jr_results", "Research the company: file the facts of its last results",
-     "A research note on the company, to the Accountant"),
-    ("accountant", "ac_ratios", "Review its accounts: the lender's four figures",
+    ("asset_manager", "jr_results", "Research the company: file the facts of its last results",
+     "A research note on the company, to the same desk for the accounts"),
+    ("asset_manager", "ac_ratios", "Review its accounts: the lender's four figures",
      "A review of the accounts, to the Investment Banker"),
     ("investment_banker", "ib_multiples", "Value it: what are companies like it worth?",
      "A valuation, to the Risk Manager"),
     ("risk_manager", "rm_stress", "Stress its sales: what would a bad quarter do?",
-     "A risk assessment, to the Legal Counsel"),
-    ("lawyer", "lw_control", "Check who controls it, and what a buyer would be bound by",
+     "A risk assessment, to the Investment Banker"),
+    ("investment_banker", "lw_control", "Check who controls it, and what a buyer would be bound by",
      "A legal opinion, to the head for approval"),
     ("head", None, "Approve the investment and its size", "An approved order, to the Asset Manager"),
     ("asset_manager", "em_execute", "Buy the shares for the empire", "The shares, in the empire's account"),
@@ -1457,7 +1458,7 @@ def _start_task(conn: Connection, empire: dict, period: int, now: datetime, star
                      (task["id"], position, build, what, hands_on, template, "current" if position == 1 else "waiting",
                       now if position == 1 else None))
     _log(conn, empire["id"], f"A task was started: to look at {target['name']} ({target['ticker']}) and, if it stands up, invest "
-                             f"up to {_money(amount)}. It needs all six builds.", now)
+                             f"up to {_money(amount)}. It needs all three builds.", now)
     return task
 
 
@@ -1538,8 +1539,8 @@ def _finish_step(conn: Connection, step: dict, now: datetime, done_by=None) -> N
     following = _one(conn, "SELECT * FROM empire_task_steps WHERE task_id = %s AND position = %s FOR UPDATE", (step["task_id"], step["position"] + 1))
     if following is None:
         conn.execute("UPDATE empire_tasks SET status = 'done', done_at = %s WHERE id = %s", (now, step["task_id"]))
-        _log(conn, step["empire_id"], "The task is complete: all six builds each did their part.", now)
-        leagues.award(conn, step["empire_id"], data.LEAGUE_POINTS["task"], "A task finished: all six builds did their part",
+        _log(conn, step["empire_id"], "The task is complete: all three builds each did their part.", now)
+        leagues.award(conn, step["empire_id"], data.LEAGUE_POINTS["task"], "A task finished: all three builds did their part",
                       careers.world_now(conn, now)["period"], now, reference=f"task:{step['task_id']}")
         return
     conn.execute("UPDATE empire_task_steps SET status = 'current', ready_at = %s WHERE id = %s", (now, following["id"]))
@@ -1712,7 +1713,7 @@ def _execute_bell(ctx, objective, day):
 
 def _pact_offer(ctx):
     seat = seat_of(ctx["conn"], ctx["player_id"])
-    if seat is None or seat["build"] != "lawyer" or seat["empire_status"] != "active":
+    if seat is None or seat["build"] != "investment_banker" or seat["empire_status"] != "active":
         return None
     return {
         "situation": f"{seat['empire_name']} wants an agreement with another empire, on paper, that will hold. Drafting it is "
@@ -1751,7 +1752,7 @@ def _pact_close(ctx, objective, period):
 objectives.TEMPLATES.update({t.code: t for t in (
     objectives.Template("em_execute", "asset_manager", "Dealing for a client", "Buy for the empire", 1, 60_000, 100, "market",
                         "Carrying out a decision made by others, at a fair price.", "empire", _execute_offer, bell=_execute_bell, listed=False, setting="empire"),
-    objectives.Template("lw_pact", "lawyer", "Contracts", "Draft a pact and have it signed", 3, 100_000, 150, "market",
+    objectives.Template("lw_pact", "investment_banker", "Contracts", "Draft a pact and have it signed", 3, 100_000, 150, "market",
                         "A contract is a promise the other side can rely on.", "empire", _pact_offer, close=_pact_close, setting="empire", base="lw_contract"),
 )})
 
@@ -1761,20 +1762,20 @@ objectives.TEMPLATES.update({t.code: t for t in (
 # ---------------------------------------------------------------------------
 
 def draft_pact(conn: Connection, player_id, to_empire: int, kind: str, terms: str, now: datetime) -> dict:
-    """A Legal Counsel with a seat drafts a pact with another empire. (Where the empire has no player as
-    Legal Counsel but has staff in the seat, its head may have the staff draft it.)"""
+    """An Investment Banker with a seat drafts a pact with another empire. (Where the empire has no player
+    as its banker but has staff in the seat, its head may have the staff draft it.)"""
     with conn.transaction():
         state = _open(conn, now)
         seat = seat_of(conn, player_id, lock=True)
         if seat is None or seat["empire_status"] != "active":
             raise EmpireError("You hold no seat in an open empire.")
-        staff_lawyer = _one(conn, "SELECT 1 FROM empire_seats WHERE empire_id = %s AND build = 'lawyer' AND player_id IS NULL AND staffed",
+        staff_banker = _one(conn, "SELECT 1 FROM empire_seats WHERE empire_id = %s AND build = 'investment_banker' AND player_id IS NULL AND staffed",
                             (seat["empire_id"],))
-        human_lawyer = _one(conn, "SELECT 1 FROM empire_seats WHERE empire_id = %s AND build = 'lawyer' AND player_id IS NOT NULL",
+        human_banker = _one(conn, "SELECT 1 FROM empire_seats WHERE empire_id = %s AND build = 'investment_banker' AND player_id IS NOT NULL",
                             (seat["empire_id"],))
         is_head = seat["head_player_id"] == player_id
-        if seat["build"] != "lawyer" and not (is_head and staff_lawyer and not human_lawyer):
-            raise EmpireError("A pact is drafted by a Legal Counsel. Recruit one, or hire staff for the seat.")
+        if seat["build"] != "investment_banker" and not (is_head and staff_banker and not human_banker):
+            raise EmpireError("A pact is drafted by the Investment Banker. Recruit one, or hire staff for the seat.")
         if kind not in data.PACT_KINDS:
             raise EmpireError("Choose one of the kinds of pact.")
         other = _empire(conn, to_empire)
@@ -1793,9 +1794,9 @@ def draft_pact(conn: Connection, player_id, to_empire: int, kind: str, terms: st
             raise EmpireError(f"{mine['name']} is run by the computer, and its head will not sign an unlawful pact.")
         pact = _one(conn, "INSERT INTO empire_pacts (kind, legal, from_empire, to_empire, drafted_by, terms, period, at)"
                           " VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
-                    (kind, legal, seat["empire_id"], to_empire, player_id if seat["build"] == "lawyer" else None, terms, state["period"], now))
+                    (kind, legal, seat["empire_id"], to_empire, player_id if seat["build"] == "investment_banker" else None, terms, state["period"], now))
         if mine["head_player_id"] is None:
-            # An empire the computer runs signs its Legal Counsel's lawful draft at once, and sends it to the other side.
+            # An empire the computer runs signs its banker's lawful draft at once, and sends it to the other side.
             _propose(conn, pact, mine, state["period"], now)
             pact = _one(conn, "SELECT * FROM empire_pacts WHERE id = %s", (pact["id"],))
         return pact
@@ -1904,27 +1905,28 @@ def report_pact(conn: Connection, head_id, pact_id: int, now: datetime) -> None:
 
 
 def investigate(conn: Connection, player_id, empire_id: int, now: datetime) -> dict:
-    """A Financial Journalist looks into an empire for hidden pacts: once a quarter. The chance of finding one
-    rises with level. An uncovered pact becomes public; an unlawful one costs both empires trust."""
+    """Anyone may look into an empire for hidden pacts, once a quarter: the newsroom is open to every build
+    (owner, 9 November 2026). The chance of finding one rises with the level the player holds in their own
+    build. An uncovered pact becomes public; an unlawful one costs both empires trust."""
     with conn.transaction():
         state = _open(conn, now)
         player = _one(conn, "SELECT build FROM players WHERE id = %s FOR UPDATE", (player_id,))
-        if player["build"] != "journalist":
-            raise EmpireError("Only a Financial Journalist can investigate an empire.")
+        if not player["build"]:
+            raise EmpireError("Choose a build before you investigate an empire.")
         target = _empire(conn, empire_id)
         if target["kind"] == "pension":
             raise EmpireError("There is no such empire.")
         mine = seat_of(conn, player_id)
         if mine and mine["empire_id"] == empire_id:
-            raise EmpireError("A Financial Journalist does not investigate the empire they sit in.")
-        level = careers.career(conn, player_id, "journalist")["level"]
+            raise EmpireError("You do not investigate the empire you sit in.")
+        level = (careers.career(conn, player_id) or {}).get("level", 1)
         try:
             with conn.transaction():
                 conn.execute("INSERT INTO empire_investigations (journalist_id, period, empire_id, at) VALUES (%s, %s, %s, %s)",
                              (player_id, state["period"], empire_id, now))
         except errors.UniqueViolation:
             raise EmpireError("You have already investigated an empire this quarter.") from None
-        # A pact the Financial Journalist's own empire is party to is not theirs to "uncover".
+        # A pact the investigator's own empire is party to is not theirs to "uncover".
         hidden = _rows(conn, "SELECT * FROM empire_pacts WHERE status = 'signed' AND exposed_at IS NULL AND %s IN (from_empire, to_empire)"
                              " AND NOT (%s IN (from_empire, to_empire)) ORDER BY legal, id FOR UPDATE",
                        (empire_id, mine["empire_id"] if mine else -1))
@@ -1937,8 +1939,8 @@ def investigate(conn: Connection, player_id, empire_id: int, now: datetime) -> d
         return {"found": True, "words": f"You uncovered a hidden pact: {data.PACT_KINDS[pact['kind']][0].lower()}."}
 
 
-def expose_pact(conn: Connection, pact: dict, player_id, period: int, now: datetime, *, how: str = "A journalist uncovered") -> None:
-    """A hidden pact comes to light (a journalist's search or investigation, or a leak). An unlawful one costs both empires trust,
+def expose_pact(conn: Connection, pact: dict, player_id, period: int, now: datetime, *, how: str = "An investigation uncovered") -> None:
+    """A hidden pact comes to light (any player's investigation, the press digging, or a leak). An unlawful one costs both empires trust,
     league points and reputation, and each must answer for it publicly (a crisis statement, Stage 10)."""
     conn.execute("UPDATE empire_pacts SET exposed_at = %s, exposed_by = %s WHERE id = %s", (now, player_id, pact["id"]))
     from simulation import standing  # Stage 10: and in its public reputation
@@ -1950,8 +1952,11 @@ def expose_pact(conn: Connection, pact: dict, player_id, period: int, now: datet
                           reference=f"pact:{pact['id']}")
             standing.change(conn, side, -6, "An unlawful pact it signed came to light", period, now)
         if player_id:
-            # Uncovering an offence is a story. A lawful agreement coming to light is only news.
-            careers.add_experience(conn, player_id, "journalist", 100, now)
+            # Uncovering an offence is a story. A lawful agreement coming to light is only news. The experience
+            # goes to whichever build the uncoverer holds, because the newsroom is open to all three.
+            theirs = _one(conn, "SELECT build FROM players WHERE id = %s", (player_id,))
+            if theirs and theirs["build"] and careers.career(conn, player_id, theirs["build"]):
+                careers.add_experience(conn, player_id, theirs["build"], 100, now)
             conn.execute("UPDATE players SET reputation = least(reputation + 2, 100) WHERE id = %s", (player_id,))
     names = {e: _one(conn, "SELECT name FROM empires WHERE id = %s", (e,))["name"] for e in (pact["from_empire"], pact["to_empire"])}
     for side in (pact["from_empire"], pact["to_empire"]):
@@ -2246,7 +2251,7 @@ def war_room(conn: Connection, player_id, now: datetime) -> dict | None:
         "books": books, "your_entries": mine, "cases": cases,
         "audits": [{**a, "yours": a["auditor_id"] == player_id, "auditor_id": None} for a in audits],
         "open_audit": open_audit and {"id": open_audit["id"], "findings": findings},
-        "can_audit": seat["build"] == "accountant", "audit_season": audit_season(state["period"]),
+        "can_audit": seat["build"] == "asset_manager", "audit_season": audit_season(state["period"]),
         "ai_audit_fee": ai_audit_fee(conn, empire, now), "ai_audit_done": bool(_one(
             conn, "SELECT 1 FROM empire_audits WHERE empire_id = %s AND kind = 'ai' AND period = %s", (empire["id"], state["period"]))),
         "next_audit_season": clock.period_label((state["period"] // data.AUDIT_SEASON_EVERY + (0 if audit_season(state["period"]) else 1))
@@ -2255,7 +2260,7 @@ def war_room(conn: Connection, player_id, now: datetime) -> dict | None:
                    "with": p["to_name"] if p["from_empire"] == empire["id"] else p["from_name"], "ours": p["from_empire"] == empire["id"],
                    "exposed": p["exposed_at"] is not None} for p in pacts],
         "pact_kinds": [{"code": code, "label": label, "legal": legal} for code, (label, legal) in data.PACT_KINDS.items()],
-        "can_draft": seat["build"] == "lawyer" or is_head, "shared": shared,
+        "can_draft": seat["build"] == "investment_banker" or is_head, "shared": shared,
         "others": [{"id": e["id"], "name": e["name"]} for e in table if e["id"] != empire["id"]],
         "applications": [{"id": a["id"], "display_name": a["display_name"], "build": a["build"], "legal": _legal(conn, a["player_id"])}
                          for a in _rows(conn, "SELECT a.id, a.player_id, p.display_name, a.build FROM empire_applications a"

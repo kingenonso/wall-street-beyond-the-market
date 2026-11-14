@@ -6,7 +6,8 @@ import { formatNaira, formatPercent } from "./format";
 import { useLoad } from "./hooks";
 import { LevelPanel, PayPanel, ProgressTracker } from "./Parts";
 import { PensionFundsPanel } from "./Pensions";
-import { Change, Failed, Loading, Panel, Rating } from "./Shell";
+import { RetirementLine } from "./Retirement";
+import { Failed, Loading, Panel, Rating } from "./Shell";
 
 type Props = { player: Player; onLoggedOut: () => void; onChanged: () => void };
 
@@ -156,106 +157,6 @@ function Payslips({ career }: { career: Career }) {
   );
 }
 
-function Retirement({ career, act }: { career: Career; act: ReturnType<typeof useAction> }) {
-  const savings = career.retirement;
-  if (!savings) return null;
-  const pay = career.pay;
-  return (
-    <Panel title="Retirement savings" aside={savings.retired ? "Your pension is being paid" : "Locked until retirement"}>
-      <div className="headline"><span className="figure-small mono">{formatNaira(savings.value_kobo)}</span>
-        <span className="muted small">{savings.managed_by ? `with ${savings.managed_by}, a fund run by a player` : "with the pension funds, in your name"}</span>
-        {savings.sound_finances && <span className="tag tag-passed">✓ Sound finances</span>}
-      </div>
-      <p className="small">
-        Part of every salary is saved for you and your employer adds more. You choose the kind of fund that looks after it.
-        It can be changed once in a game year, and a change takes effect from the next quarter. It is not cash: it cannot be
-        spent or traded. No fund is safe from a bad quarter: each one's weakness is written beside it.
-      </p>
-      {savings.funds.map((fund) => (
-        <div key={fund.code} className={fund.code === savings.fund && !savings.managed_by ? "definition row-chosen" : "definition"}>
-          <div className="row">
-            <span className="strong">{fund.code === savings.fund && !savings.managed_by ? "✓ " : ""}{fund.name}</span>
-            <span>
-              {fund.last_return_bps !== null && <span className="small">last quarter <Change bps={fund.last_return_bps} /> </span>}
-              {fund.code !== savings.fund && !savings.managed_by && <button className="button-quiet" disabled={act.busy || !savings.can_change} onClick={() => act.run(() => api.chooseFund(fund.code))}>Move here</button>}
-            </span>
-          </div>
-          <div className="muted small">
-            {fund.shares_bps / 100}% shares, {fund.bonds_bps / 100}% bonds{fund.cash_bps ? `, ${fund.cash_bps / 100}% cash` : ""} · {fund.who_for}
-          </div>
-          <div className="small"><span className="change-up">▲ {fund.good}.</span> <span className="change-down">▼ {fund.bad}.</span></div>
-          {fund.best_bps !== null && fund.worst_bps !== null && (
-            <div className="muted small">
-              Best quarter <Change bps={fund.best_bps} /> · worst quarter <Change bps={fund.worst_bps} />
-              {fund.year_bps !== null && <> · over the last game year <Change bps={fund.year_bps} /></>}
-              {fund.year_after_prices_bps !== null && <> · after rising prices <Change bps={fund.year_after_prices_bps} /></>}
-            </div>
-          )}
-        </div>
-      ))}
-
-      <div className="why-title">Save more, and be rewarded for it</div>
-      <p className="small">
-        You may save up to {savings.most_extra_bps / 100}% of your salary on top of the usual amount. What you save extra is taken
-        before income tax, so you pay less tax; your employer matches it, naira for naira, up to {savings.match_most_bps / 100}% of
-        your salary; and savings worth two quarters of salary earn the "sound finances" mark, which employers look for.
-        Your one early withdrawal (up to half) may be used to found an empire{savings.early_withdrawal_used ? ": you have used it" : ""}.
-      </p>
-      <div className="row">
-        <span>Extra saving from each salary</span>
-        <span>
-          {[0, 500, 1000, 1500, 2000].filter((bps) => bps <= savings.most_extra_bps).map((bps) => (
-            <button key={bps} className={savings.extra_bps === bps ? "button-outline" : "button-quiet"} disabled={act.busy} aria-pressed={savings.extra_bps === bps}
-                    onClick={() => act.run(() => api.setExtraSaving(bps))}>{bps / 100}%</button>
-          ))}
-        </span>
-      </div>
-      {pay && savings.extra_bps > 0 && (
-        <div className="muted small">At your level: {formatNaira(pay.extra_saving_kobo)} extra saved each quarter, and {formatNaira(pay.employer_match_kobo)} added by your employer.</div>
-      )}
-
-      <div className="why-title">When is retirement?</div>
-      {savings.retired ? (
-        <p className="small">✓ Your pension is paid every quarter: {formatPercent(savings.pension_bps ?? savings.full_pension_bps, 1)} of your savings each time{savings.pension_bps !== null && savings.pension_bps < savings.full_pension_bps ? " (an early pension, smaller for good)" : ""}. You may keep working.</p>
-      ) : (
-        <>
-          <p className="small">
-            <strong>Full pension</strong> ({formatPercent(savings.full_pension_bps, 1)} of your savings each quarter): at Level {savings.retirement_level}, or after forty quarters of work (forty real weeks), whichever comes first.
-            {savings.can_retire ? " You may begin it now." : savings.retires_label ? ` For you that is ${savings.retires_label}: ${savings.quarters_to_go} quarters to go.` : " Only quarters you were paid a salary for count."}
-          </p>
-          <p className="small">
-            <strong>Early pension</strong> ({formatPercent(savings.early_pension_bps, 1)} each quarter, smaller for good): at Level {savings.early_level}, or after twenty quarters of work.
-            {savings.can_retire_early ? " You may begin it now." : !savings.can_retire && savings.early_label ? ` For you that is ${savings.early_label}: ${savings.early_quarters_to_go} quarters to go.` : ""}
-            {" "}Either way the pension is paid every quarter, and you may keep working. Retiring early is the real trade-off: money sooner, less of it.
-          </p>
-          {savings.can_retire && <button className="button-outline" disabled={act.busy} onClick={() => act.run(() => api.beginPension(false))}>Begin my full pension</button>}
-          {savings.can_retire_early && <button className="button-outline" disabled={act.busy} onClick={() => act.run(() => api.beginPension(true))}>Begin an early pension ({formatPercent(savings.early_pension_bps, 1)})</button>}
-        </>
-      )}
-
-      {savings.entries.length > 0 && (
-        <div className="scroll" tabIndex={0}>
-          <table>
-            <thead><tr><th scope="col">Quarter</th><th scope="col" className="num">You paid in</th><th scope="col" className="num">Employer paid in</th><th scope="col" className="num">The fund earned</th><th scope="col" className="num">Pension paid</th><th scope="col" className="num">Savings</th></tr></thead>
-            <tbody>
-              {savings.entries.map((entry) => (
-                <tr key={entry.period_label}>
-                  <th scope="row">{entry.period_label} <span className="muted small">{entry.fund === "managed" ? "player-run fund" : entry.fund}</span></th>
-                  <td className="num mono">{formatNaira(entry.paid_in_by_you_kobo)}</td>
-                  <td className="num mono">{formatNaira(entry.paid_in_by_employer_kobo)}</td>
-                  <td className={entry.growth_kobo.startsWith("-") ? "num mono change-down" : "num mono"}>{entry.growth_kobo.startsWith("-") ? "▼ " : ""}{formatNaira(entry.growth_kobo.replace("-", ""))}</td>
-                  <td className="num mono">{BigInt(entry.paid_out_kobo) > 0n ? formatNaira(entry.paid_out_kobo) : "—"}</td>
-                  <td className="num mono strong">{formatNaira(entry.closing_kobo)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Panel>
-  );
-}
-
 export function CareerWork({ player, onLoggedOut, onChanged }: Props) {
   const career = useLoad(api.career, `career:${player.build}:${player.employer}`, onLoggedOut);
   const act = useAction(() => { career.reload(); onChanged(); });
@@ -289,7 +190,7 @@ export function CareerWork({ player, onLoggedOut, onChanged }: Props) {
         </>
       )}
       <Payslips career={data} />
-      <Retirement career={data} act={act} />
+      <RetirementLine career={data} />
       {data.build && <PensionFundsPanel player={player} onLoggedOut={onLoggedOut} onChanged={() => { career.reload(); onChanged(); }} />}
       {data.interest.length > 0 && (
         <Panel title="Interest from your bank">

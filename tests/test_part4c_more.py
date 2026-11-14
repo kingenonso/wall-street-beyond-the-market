@@ -513,7 +513,7 @@ def test_objective_am_growth_rates(db):
 
 def test_objective_ac_retail_margin(db):
     """The Accountant: a grocer's margin, and how little its sales may fall."""
-    f, answers, verdict = sits(db, "accountant", "ac_retail_margin", "grocer")
+    f, answers, verdict = sits(db, "asset_manager", "ac_retail_margin", "grocer")
     gross = f["sales"] * f["margin"] / 100
     profit = gross * (1 - f["overhead"] / 100)
     assert abs(answers["gross"] - gross) <= 0.011 and abs(answers["profit"] - profit) <= 0.011
@@ -525,7 +525,7 @@ def test_objective_ac_retail_margin(db):
 
 def test_objective_jn_film_quarter(db):
     """The Journalist: a studio's quarter, and what it looks like without the hit."""
-    f, answers, verdict = sits(db, "journalist", "jn_film_quarter", "film")
+    f, answers, verdict = sits(db, "investment_banker", "jn_film_quarter", "film")
     sales = f["hit"] + f["other"]
     cost = sales * f["cost"] / 100
     assert abs(answers["sales"] - sales) <= 0.011 and abs(answers["profit"] - (sales - cost)) <= 0.011
@@ -536,7 +536,7 @@ def test_objective_jn_film_quarter(db):
     assert "hit" in verdict["debrief"]["plain"].lower()
     # Entertainment is a subject for the journalist, not an employer: this is the journalist's piece, and no
     # build is given a film company to work for (decided 3 November 2026, in the checklist).
-    assert objectives.TEMPLATES["jn_film_quarter"].build == "journalist"
+    assert objectives.TEMPLATES["jn_film_quarter"].build == "investment_banker"
 
 
 def test_objective_rm_gas_cost(db):
@@ -558,7 +558,7 @@ def test_objective_rm_gas_cost(db):
 
 def test_objective_lw_currency_clause(db):
     """The Legal Counsel: a supply contract, and who carries the currency risk."""
-    f, answers, verdict = sits(db, "lawyer", "lw_currency_clause", "clause")
+    f, answers, verdict = sits(db, "investment_banker", "lw_currency_clause", "clause")
     extra = f["order"] * f["fall"] / 100
     assert abs(answers["extra"] - extra) <= 0.011
     assert abs(answers["buyer_pays"] - extra * f["share"] / 100) <= 0.011
@@ -591,7 +591,7 @@ def test_the_industry_insight_counts_the_new_industries(db):
     assert all(sum(1 for c in data.COMPANIES if c.sector == code and not c.listed) == 1 for code in NEW)
 
     # And the work itself, worked on a new industry: the journalist's league table, for each of the six, marked right.
-    player, _ = pro(db, "journalist", "leader", level=5, cash_naira=1_000_000)
+    player, _ = pro(db, "investment_banker", "leader", level=5, cash_naira=1_000_000)
     ctx = objectives._context(db, player, NOW9)
     piece = objectives.TEMPLATES["jr_league"]
     for code in NEW:
@@ -810,7 +810,7 @@ def test_a_company_of_a_new_industry_is_audited_and_the_fees_taken_from_it_are_f
     # fees", written into the empire's books as a cost of the company, and found by an independent audit firm.
     empire, team = firm_of(db, n_cash=2_000_000_000)
     other, them = house(db, "Delta Partners")
-    audit = firm_practice.found(db, them["accountant"], "audit", "Creek Audit", 0, LATER)["firm_id"]
+    audit = firm_practice.found(db, them["asset_manager"], "audit", "Creek Audit", 0, LATER)["firm_id"]
     held = still_with_founders(db)
     assert held, "no company of the six is still held by its founders, so none could be bought and audited"
     company = own(db, empire, held[0]["ticker"])
@@ -828,10 +828,10 @@ def test_a_company_of_a_new_industry_is_audited_and_the_fees_taken_from_it_are_f
 
     # An audit is commissioned on the same terms as at any other company, and it finds the fees.
     job = firm_practice.commission_audit(db, team["head"], company["id"], audit, million_naira(2), LATER)["job_id"]
-    firm_practice.open_job(db, them["accountant"], job, LATER)
+    firm_practice.open_job(db, them["asset_manager"], job, LATER)
     right = job_truth(db, job)
     assert right["consulting"] == amount and right["opinion"] == "refused"
-    firm_practice.hand_in_job(db, them["accountant"], job, right, LATER + timedelta(hours=1))
+    firm_practice.hand_in_job(db, them["asset_manager"], job, right, LATER + timedelta(hours=1))
     case = _one(db, "SELECT * FROM empire_cases WHERE book_id = %s", (book["id"],))
     assert case and case["player_id"] == team["investment_banker"]
     assert ledger.audit(db) == []
@@ -860,10 +860,10 @@ def test_a_company_of_a_new_industry_is_rescued_from_failure(db):
 
     empire, team = firm_of(db, n_cash=2_000_000_000)
     company = own(db, empire, trouble["ticker"])
-    doctor, account = pro(db, "accountant", "new_industry_doctor")
+    doctor, account = pro(db, "asset_manager", "new_industry_doctor")
     sales = firm_owned._quarter_sales(db, company["id"])
     with pytest.raises(empires.EmpireError, match="from outside"):
-        firm_owned.propose_rescue(db, team["accountant"], company["id"], ["cut_costs"], 0, when)
+        firm_owned.propose_rescue(db, team["asset_manager"], company["id"], ["cut_costs"], 0, when)
     with pytest.raises(empires.EmpireError, match="5%"):
         firm_owned.propose_rescue(db, doctor, company["id"], ["cut_costs"], sales, when)
     plan = firm_owned.propose_rescue(db, doctor, company["id"], ["cut_costs"], sales * 2 // 100, when)
@@ -912,7 +912,7 @@ def test_a_private_new_company_can_be_bought_and_listed(db):
     empire, team = firm_of(db, n_cash=60_000_000_000)
     sale = open_a_sale(db, company["ticker"], mode="sealed")
     file_id = firm_deals.open_file(db, team["investment_banker"], sale["id"], LATER)["file_id"]
-    firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
+    firm_deals.sign_nda(db, team["investment_banker"], file_id, LATER)
     do_checks(db, empire, team, file_id)
     # Above what a computer-run buyer will offer (it bids no more than the company is worth), and inside the
     # rule that no bid may be above 150% of what the company is worth or of the asking price.

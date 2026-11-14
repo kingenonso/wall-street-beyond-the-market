@@ -28,7 +28,7 @@ def _held(db):
 
 def test_1_a_price_at_the_limit_with_a_mortgage_settles_to_the_kobo(db):
     a = lot(db, a_unit(db, "Lagos")["id"])
-    player, account = pro(db, "accountant", "exact", level=20, cash_naira=900_000_000)
+    player, account = pro(db, "asset_manager", "exact", level=20, cash_naira=900_000_000)
     bank = a_bank(db)
     # Odd figures, so the hold (worked out on the limit) and the price's parts round differently.
     auctions.place_bid(db, account, a["id"], a["start_price"] + 7, LATER, player_id=player, mortgage_bank=bank["id"], mortgage_bps=7900)
@@ -41,14 +41,14 @@ def test_1_a_price_at_the_limit_with_a_mortgage_settles_to_the_kobo(db):
 
 def test_1_sellers_sharing_a_property_are_paid_every_kobo_and_a_bad_lot_never_stops_the_rest(db, monkeypatch):
     p = a_unit(db, "Abuja")
-    owners = [pro(db, "accountant", f"own{n}", cash_naira=0)[1] for n in range(3)]
+    owners = [pro(db, "asset_manager", f"own{n}", cash_naira=0)[1] for n in range(3)]
     db.execute("DELETE FROM property_holdings WHERE property_id = %s", (p["id"],))
     for account, share in zip(owners, (3333, 3333, 3334)):
         db.execute("INSERT INTO property_holdings (property_id, account_id, share_bps, since_period) VALUES (%s, %s, %s, 8)", (p["id"], account, share))
     seller = owners[2]
     with db.transaction():
         auction = auctions._open_auction(db, p["id"], seller, "owner", 0, 1001, 5000, NOW9, 9)
-    buyer, buyer_account = pro(db, "lawyer", "buyer", cash_naira=900_000_000)
+    buyer, buyer_account = pro(db, "investment_banker", "buyer", cash_naira=900_000_000)
     auctions.place_bid(db, buyer_account, auction, 1001, LATER, player_id=buyer)
     # Another lot whose settling fails is ended unsold instead of stopping the run.
     other = lot(db, a_unit(db, "Kano")["id"])
@@ -62,8 +62,8 @@ def test_1_sellers_sharing_a_property_are_paid_every_kobo_and_a_bad_lot_never_st
 
 def test_2_a_partner_cannot_agree_once_the_auction_has_ended_and_waiting_asks_are_released(db):
     a = lot(db, a_unit(db, "Aba")["id"])
-    lead, lead_account = pro(db, "accountant", "lead", cash_naira=900_000_000)
-    friend, friend_account = pro(db, "lawyer", "friend", cash_naira=900_000_000)
+    lead, lead_account = pro(db, "asset_manager", "lead", cash_naira=900_000_000)
+    friend, friend_account = pro(db, "investment_banker", "friend", cash_naira=900_000_000)
     ask = auctions.ask_partner(db, lead_account, a["id"], friend_account, 3000, LATER)
     auctions.place_bid(db, lead_account, a["id"], a["start_price"], LATER, player_id=lead)
     with pytest.raises(prop.PropertyError, match="not taking bids"):
@@ -83,8 +83,8 @@ def test_3_an_empire_shares_a_bid_only_after_its_checks_within_its_top_price_and
     ask = auctions.ask_partner(db, friend_account, a["id"], empire["account_id"], 9000, LATER)
     with pytest.raises(prop.PropertyError, match="Still to do"):
         auctions.answer_partner(db, empire["account_id"], ask, True, a["fair"], LATER)
-    auctions.check(db, team["lawyer"], a["id"], "title", {}, LATER)
-    auctions.check(db, team["accountant"], a["id"], "valuation", {"value": a["fair"]}, LATER)
+    auctions.check(db, team["investment_banker"], a["id"], "title", {}, LATER)
+    auctions.check(db, team["asset_manager"], a["id"], "valuation", {"value": a["fair"]}, LATER)
     auctions.check(db, team["risk_manager"], a["id"], "limit", {"limit": a["fair"]}, LATER)
     auctions.check(db, team["investment_banker"], a["id"], "money", {"mortgage_bps": 0}, LATER)
     with pytest.raises(prop.PropertyError, match="top price"):
@@ -92,10 +92,10 @@ def test_3_an_empire_shares_a_bid_only_after_its_checks_within_its_top_price_and
     auctions.answer_partner(db, empire["account_id"], ask, True, a["fair"], LATER)
     # A member's property: refused even with every check done.
     p = a_unit(db, "Abuja")
-    seller = ledger.player_account_id(db, team["accountant"])
+    seller = ledger.player_account_id(db, team["asset_manager"])
     hand_over(db, p["id"], seller)
     member_lot = auctions.owner_list(db, seller, p["id"], 0, NOW9)
-    for step, answer, who in (("title", {}, "lawyer"), ("valuation", {"value": 10**9}, "accountant"), ("limit", {"limit": 10**9}, "risk_manager"),
+    for step, answer, who in (("title", {}, "investment_banker"), ("valuation", {"value": 10**9}, "asset_manager"), ("limit", {"limit": 10**9}, "risk_manager"),
                               ("money", {"mortgage_bps": 0}, "investment_banker")):
         auctions.check(db, team[who], member_lot, step, answer, LATER)
     ask2 = auctions.ask_partner(db, friend_account, member_lot, empire["account_id"], 9000, LATER)
@@ -106,7 +106,7 @@ def test_3_an_empire_shares_a_bid_only_after_its_checks_within_its_top_price_and
 
 def test_4_a_lone_top_price_at_or_above_the_reserve_buys_at_the_reserve(db):
     a = _one(db, "SELECT * FROM auctions WHERE status = 'open' AND property_id IS NOT NULL AND opens_at <= %s ORDER BY fair LIMIT 1", (NOW9,))
-    player, account = pro(db, "accountant", "lone", cash_naira=900_000_000)
+    player, account = pro(db, "asset_manager", "lone", cash_naira=900_000_000)
     seller_before = ledger.balance(db, a["seller"])
     done = auctions.place_bid(db, account, a["id"], a["fair"], LATER, player_id=player)
     assert done["price"] == a["start_price"]                      # the lowest price is never shown while it runs
@@ -148,11 +148,11 @@ def test_6_a_lot_is_searched_once_for_an_empire_and_the_fee_is_in_its_books(db):
     empire, team = firm_of(db)
     a = lot(db, a_unit(db, "Lagos")["id"])
     before = ledger.balance(db, empire["account_id"])
-    first = auctions.check(db, team["lawyer"], a["id"], "title", {}, LATER)
+    first = auctions.check(db, team["investment_banker"], a["id"], "title", {}, LATER)
     after_one = ledger.balance(db, empire["account_id"])
     assert after_one < before
     for _ in range(5):
-        assert auctions.check(db, team["lawyer"], a["id"], "title", {}, LATER) == first
+        assert auctions.check(db, team["investment_banker"], a["id"], "title", {}, LATER) == first
     assert ledger.balance(db, empire["account_id"]) == after_one
     assert _one(db, "SELECT count(*) AS n FROM empire_books WHERE empire_id = %s AND description LIKE 'Title search%%'", (empire["id"],))["n"] == 1
 
@@ -165,7 +165,7 @@ def test_7_a_member_does_not_buy_the_empires_property_for_themselves(db):
     head_account = ledger.player_account_id(db, team["head"])
     give = 900_000_000_00
     ledger.transfer(db, payer=ledger.account_id(db, ledger.TREASURY), receiver=head_account, amount=give, kind="test_cash", memo="Test: cash")
-    for who in ("head", "accountant"):
+    for who in ("head", "asset_manager"):
         with pytest.raises(prop.PropertyError, match="your empire's property"):
             auctions.place_bid(db, ledger.player_account_id(db, team[who]), auction, auctions.minimum(auctions._auction(db, auction)), LATER,
                                player_id=team[who])
@@ -223,7 +223,7 @@ def test_11_a_risk_manager_who_asked_for_the_upkeep_is_not_blamed_and_the_head_w
 
 def test_12_one_bidders_bids_are_placed_one_at_a_time(db):
     a = lot(db, a_unit(db, "Kano")["id"])
-    player, account = pro(db, "accountant", "twice", cash_naira=900_000_000)
+    player, account = pro(db, "asset_manager", "twice", cash_naira=900_000_000)
     with psycopg.connect(TEST_DATABASE_URL, autocommit=True) as other:
         with other.transaction():
             other.execute("SELECT pg_advisory_xact_lock(hashtext('bidder:' || %s::text))", (str(account),))

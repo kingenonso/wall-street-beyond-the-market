@@ -180,7 +180,7 @@ export function Archive({ onLoggedOut }: { onLoggedOut: () => void }) {
 export function Chronicle({ player, onLoggedOut }: { player: Player; onLoggedOut: () => void }) {
   const [layer, setLayer] = useState<"world" | "company" | "personal">("world");
   const { data, error, loading, reload } = useLoad(() => api.chronicle(layer), `chronicle:${layer}`, onLoggedOut);
-  const mine = useLoad(() => (player.build === "journalist" ? api.newsroom() : Promise.resolve(null)), "chronicle-mine", onLoggedOut);
+  const mine = useLoad(() => (player.build === "investment_banker" ? api.newsroom() : Promise.resolve(null)), "chronicle-mine", onLoggedOut);
   const act = useRun(reload, onLoggedOut);
   const [writing, setWriting] = useState<number | null>(null);
   const [words, setWords] = useState("");
@@ -207,7 +207,7 @@ export function Chronicle({ player, onLoggedOut }: { player: Player; onLoggedOut
             </blockquote>
           ))}
           {layer !== "personal" && <Why keyName={e.ref} />}
-          {layer !== "personal" && player.build === "journalist" && (writing === e.id ? (
+          {layer !== "personal" && player.build === "investment_banker" && (writing === e.id ? (
             <form className="stack-form" onSubmit={(ev) => { ev.preventDefault(); act.run(() => api.post(`/chronicle/${e.id}/accounts`, { words, evidence }), (r) => `Your account is in the Chronicle, with credibility ${r.credibility}.`); setWriting(null); }}>
               <label className="answer">Your account (40 to 1,200 characters)<textarea maxLength={1200} rows={4} value={words} onChange={(ev) => setWords(ev.target.value)} /></label>
               <fieldset className="small"><legend>Evidence: your own published stories</legend>

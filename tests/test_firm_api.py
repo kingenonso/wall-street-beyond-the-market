@@ -23,24 +23,24 @@ def test_a_member_sees_the_firm_does_a_duty_and_never_sees_a_colleagues_player_n
     assert join(client, ADULT).status_code == 201
     outside = client.get("/api/firm").json()
     assert outside["firm"] is None and isinstance(outside["stake_offers"], list)
-    assert client.put("/api/career/build", json={"build": "accountant"}).status_code == 200
+    assert client.put("/api/career/build", json={"build": "asset_manager"}).status_code == 200
     first = client.get("/api/empires").json()["directory"]["league"][0]
     assert client.post(f"/api/empires/{first['id']}/applications").status_code == 201
     # A colleague in the same empire.
-    other, _ = pro(db, "lawyer", "colleague")
+    other, _ = pro(db, "investment_banker", "colleague")
     empires.apply(db, other, first["id"], NOW9)
     seen = client.get("/api/firm").json()["firm"]
     assert seen["name"] == first["name"] and not seen["is_head"] and not seen["player_run"]
     assert str(other) not in str(seen)                               # colleagues are named by seat, never by player number
-    assert any(r["build"] == "lawyer" and not r["you"] for r in seen["roster"])
-    desk = next(d for d in seen["duties"]["desks"] if d["build"] == "accountant")
+    assert any(r["build"] == "investment_banker" and not r["you"] for r in seen["roster"])
+    desk = next(d for d in seen["duties"]["desks"] if d["build"] == "asset_manager")
     assert desk["yours"] and desk["duties"]
     duty = next(d for d in desk["duties"] if d["yours"] and d["title"] == "Close the books")
     opened = client.post(f"/api/firm/duties/{duty['id']}/open")
     assert opened.status_code == 200, opened.text
     shown = opened.json()["firm"]
     assert "_truth" not in str(shown)
-    mine = next(d for d in next(d for d in shown["duties"]["desks"] if d["build"] == "accountant")["duties"] if d["id"] == duty["id"])
+    mine = next(d for d in next(d for d in shown["duties"]["desks"] if d["build"] == "asset_manager")["duties"] if d["id"] == duty["id"])
     assert mine["opened"] and mine["terms"]["asks"]
     # Answers of the wrong shape are refused before they reach the desk.
     assert client.post(f"/api/firm/duties/{duty['id']}/hand-in", json={"answers": {"costs": "x" * 700}}).status_code == 422
@@ -50,7 +50,7 @@ def test_a_member_sees_the_firm_does_a_duty_and_never_sees_a_colleagues_player_n
     again = client.post(f"/api/firm/duties/{duty['id']}/hand-in", json={"answers": {"costs": 0, "profit": 0}})
     assert again.status_code == 409
     # A duty of another desk, or a duty in another empire, is refused in words.
-    lawyer_duty = _dicts(db, "SELECT id FROM desk_duties WHERE empire_id = %s AND build = 'lawyer' LIMIT 1", (first["id"],))
+    lawyer_duty = _dicts(db, "SELECT id FROM desk_duties WHERE empire_id = %s AND build = 'investment_banker' LIMIT 1", (first["id"],))
     if lawyer_duty:
         assert client.post(f"/api/firm/duties/{lawyer_duty[0]['id']}/open").status_code == 409
     elsewhere = _dicts(db, "SELECT id FROM desk_duties WHERE empire_id <> %s LIMIT 1", (first["id"],))

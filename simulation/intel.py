@@ -40,8 +40,7 @@ class IntelError(Exception):
     """Something the rules of the Intelligence Market do not allow. The words are for the player."""
 
 
-BUILD_WORDS = {"journalist": "Financial Journalist", "lawyer": "Legal Counsel", "accountant": "Accountant",
-               "asset_manager": "Asset Manager", "risk_manager": "Risk Manager", "investment_banker": "Investment Banker"}
+BUILD_WORDS = {"asset_manager": "Asset Manager", "risk_manager": "Risk Manager", "investment_banker": "Investment Banker"}
 VERDICTS = {"holds": "It checks out.", "fails": "It does not check out.", "nothing_new": "Nothing new: it is already public."}
 STATUS_WORDS = {"rumour": "a rumour", "lead": "a lead", "verified": "verified", "disproved": "disproved"}
 GOOD_WORDS = ("good news is coming", "something good is coming", "a lift is coming")
@@ -208,9 +207,7 @@ def _empires(conn: Connection) -> list[dict]:
 
 
 def _tip_topic(build: str, r: int) -> str:
-    if build == "journalist":
-        return "company" if r < 5000 else "pact" if r < 7500 else "theft"
-    if build == "lawyer":
+    if build == "investment_banker":
         return "pact" if r < 6000 else "company"
     return "company"
 
@@ -388,7 +385,7 @@ def give(conn: Connection, player_id, ref: str, to_name: str, now: datetime) -> 
         to = _one(conn, "SELECT id, build, display_name FROM players WHERE lower(display_name) = lower(%s)", ((to_name or "").strip(),))
         if to is None or to["id"] == player_id:
             raise IntelError("There is no other player of that name.")
-        if to["build"] != "journalist":
+        if to["build"] != "investment_banker":
             raise IntelError("Information is given to a Financial Journalist, who can check it and print it.")
         if not hold(conn, item["id"], to["id"], "given", now, from_player=player_id):
             raise IntelError(f"{to['display_name']} already holds it.")
@@ -481,7 +478,7 @@ def mine(conn: Connection, player_id, now: datetime, limit: int = 40) -> list[di
 
 def _journalist(conn: Connection, player_id) -> dict:
     p = _player(conn, player_id)
-    if p["build"] != "journalist":
+    if p["build"] != "investment_banker":
         raise IntelError("Only a Financial Journalist builds sources.")
     return p
 
@@ -493,7 +490,7 @@ def sources_allowed(level: int) -> int:
 def cultivate(conn: Connection, player_id, kind: str, ticker: str | None, now: datetime) -> dict:
     """Begin building a source inside a company, or in the ministries. It takes two quarters; one new source a quarter."""
     _journalist(conn, player_id)
-    level = _level(conn, player_id, "journalist")
+    level = _level(conn, player_id, "investment_banker")
     w = _now(conn, now)
     with conn.transaction():
         conn.execute("SELECT pg_advisory_xact_lock(hashtext('sources:' || %s))", (str(player_id),))
@@ -717,15 +714,8 @@ def desk_feed(conn: Connection, player_id, now: datetime, limit: int = 12) -> di
     w = _now(conn, now)
     build = p["build"]
     items: list[dict] = []
-    if build == "lawyer":
-        for r in _rows(conn, "SELECT a.name AS a, b.name AS b, p.legal, p.exposed_at FROM empire_pacts p JOIN empires a ON a.id = p.from_empire"
-                             " JOIN empires b ON b.id = p.to_empire WHERE p.exposed_at IS NOT NULL ORDER BY p.exposed_at DESC LIMIT %s", (limit,)):
-            items.append({"what": f"{'An unlawful' if not r['legal'] else 'A lawful'} pact between {r['a']} and {r['b']} came to light.",
-                          "at": r["exposed_at"]})
-        for r in _rows(conn, "SELECT e.name, r.why, r.at FROM empire_reputation r JOIN empires e ON e.id = r.empire_id"
-                             " WHERE r.change < 0 AND (r.why LIKE 'Fined:%%' OR r.why LIKE '%%came to light%%') ORDER BY r.id DESC LIMIT %s", (limit,)):
-            items.append({"what": f"{r['name']}: {r['why']}", "at": r["at"]})
-    elif build == "accountant":
+    if build == "asset_manager":
+        # accounts and filings (formerly Accountant)
         for r in _rows(conn, "SELECT c.name, r.period, max(r.version) AS v FROM company_reports r JOIN companies c ON c.id = r.company_id"
                              " GROUP BY c.name, r.period HAVING max(r.version) > 1 ORDER BY r.period DESC LIMIT %s", (limit,)):
             items.append({"what": f"{r['name']} restated its accounts for {clock.period_label(r['period'])}.", "at": None})
@@ -736,7 +726,20 @@ def desk_feed(conn: Connection, player_id, now: datetime, limit: int = 12) -> di
                 ORDER BY r.net_profit DESC LIMIT %s""", (limit,)):
             items.append({"what": f"{r['name']} reported a profit for {clock.period_label(r['period'])}, but its cash fell by a fifth or more:"
                                   " worth a look at where the money went.", "at": None})
+        for r in _rows(conn, "SELECT s.headline, s.lead_outcome, s.published_at FROM stories s WHERE s.status = 'published' AND s.lead IS NOT NULL"
+                             " AND (s.period < %s OR (s.period = %s AND s.day <= %s)) ORDER BY s.published_at DESC LIMIT %s",
+                       (w["period"], w["period"], w["day"], limit)):
+            outcome = {"confirmed": "borne out", "disproved": "proved wrong", None: "not yet settled"}[r["lead_outcome"]]
+            items.append({"what": f"Unconfirmed report: “{r['headline']}”: {outcome}.", "at": r["published_at"]})
     elif build == "investment_banker":
+        # legal/pacts and deals (formerly Legal Counsel + Investment Banker)
+        for r in _rows(conn, "SELECT a.name AS a, b.name AS b, p.legal, p.exposed_at FROM empire_pacts p JOIN empires a ON a.id = p.from_empire"
+                             " JOIN empires b ON b.id = p.to_empire WHERE p.exposed_at IS NOT NULL ORDER BY p.exposed_at DESC LIMIT %s", (limit,)):
+            items.append({"what": f"{'An unlawful' if not r['legal'] else 'A lawful'} pact between {r['a']} and {r['b']} came to light.",
+                          "at": r["exposed_at"]})
+        for r in _rows(conn, "SELECT e.name, r.why, r.at FROM empire_reputation r JOIN empires e ON e.id = r.empire_id"
+                             " WHERE r.change < 0 AND (r.why LIKE 'Fined:%%' OR r.why LIKE '%%came to light%%') ORDER BY r.id DESC LIMIT %s", (limit,)):
+            items.append({"what": f"{r['name']}: {r['why']}", "at": r["at"]})
         for r in _rows(conn, "SELECT e.name AS empire, c.name, s.at FROM stake_disclosures s JOIN empires e ON e.id = s.empire_id"
                              " JOIN companies c ON c.id = s.company_id WHERE s.bps > 0 ORDER BY s.at DESC LIMIT %s", (limit,)):
             items.append({"what": f"{r['empire']} disclosed a stake in {r['name']}.", "at": r["at"]})
@@ -744,19 +747,18 @@ def desk_feed(conn: Connection, player_id, now: datetime, limit: int = 12) -> di
                              " WHERE t.opens_period <= %s ORDER BY t.id DESC LIMIT %s", (w["period"], limit)):
             items.append({"what": f"A takeover offer for {r['target']}, made in {clock.period_label(r['opens_period'])} ({r['status']}).",
                           "at": None})
-    elif build in ("asset_manager", "risk_manager"):
+    elif build == "risk_manager":
         for r in _rows(conn, "SELECT s.headline, s.lead_outcome, s.published_at FROM stories s WHERE s.status = 'published' AND s.lead IS NOT NULL"
                              " AND (s.period < %s OR (s.period = %s AND s.day <= %s)) ORDER BY s.published_at DESC LIMIT %s",
                        (w["period"], w["period"], w["day"], limit)):
             outcome = {"confirmed": "borne out", "disproved": "proved wrong", None: "not yet settled"}[r["lead_outcome"]]
             items.append({"what": f"Unconfirmed report: “{r['headline']}”: {outcome}.", "at": r["published_at"]})
-        if build == "risk_manager":
-            for e in _rows(conn, "SELECT kind, location, sector, day FROM events WHERE period = %s AND day <= %s AND severe ORDER BY day DESC LIMIT %s",
-                           (w["period"], w["day"], limit)):
-                items.append({"what": f"A severe {e['kind'].replace('_', ' ')} on day {e['day']}"
-                                      + (f" in {e['location']}" if e["location"] else "") + ".", "at": None})
-    elif build == "journalist":
-        for s in sources(conn, player_id, now):
-            items.append({"what": f"Your source {'inside ' + s['where'] if s['kind'] == 'company' else 'in the ministries'}: {s['status']}"
-                                  + (f", ready {s['ready']}" if s["status"] == "cultivating" else "") + ".", "at": None})
+        for e in _rows(conn, "SELECT kind, location, sector, day FROM events WHERE period = %s AND day <= %s AND severe ORDER BY day DESC LIMIT %s",
+                       (w["period"], w["day"], limit)):
+            items.append({"what": f"A severe {e['kind'].replace('_', ' ')} on day {e['day']}"
+                                  + (f" in {e['location']}" if e["location"] else "") + ".", "at": None})
+    # newsroom/sources are open to every build now
+    for s in sources(conn, player_id, now):
+        items.append({"what": f"Your source {'inside ' + s['where'] if s['kind'] == 'company' else 'in the ministries'}: {s['status']}"
+                              + (f", ready {s['ready']}" if s["status"] == "cultivating" else "") + ".", "at": None})
     return {"build": BUILD_WORDS.get(build, build), "items": items[:limit * 2]}

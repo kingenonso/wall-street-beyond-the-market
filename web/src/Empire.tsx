@@ -482,7 +482,7 @@ function Books({ room, act }: { room: EmpireRoom; act: Act }) {
 
 function Audits({ room, act }: { room: EmpireRoom; act: Act }) {
   const [chosen, setChosen] = useState<number[]>([]);
-  const KIND = { accountant: "An Accountant's audit", staff: "The staff Accountant's audit", ai: "The artificial-intelligence audit" } as const;
+  const KIND = { asset_manager: "The Asset Manager's audit", staff: "The staff Accountant's audit", ai: "The artificial-intelligence audit" } as const;
   return (
     <Panel title="Audits and what follows" aside={room.audit_season ? "● Audit season: the artificial-intelligence audit can be hired" : `Next audit season: ${room.next_audit_season}`}>
       {room.open_audit && (

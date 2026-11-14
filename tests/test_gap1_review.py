@@ -102,7 +102,7 @@ def test_r5_an_empires_bank_swap_takes_the_banks_price_when_signed(db):
     asked = swaps.propose(db, banker, kind="rate", counterparty={"bank": bank_id(db)}, side="receive_fixed", quarters=2,
                           notional=naira(100_000_000), now=NOW9, for_empire=True)
     db.execute("UPDATE swaps SET fixed_bps = 9000 WHERE id = %s", (asked["swap_id"],))          # a stale price from long ago
-    for kind, who in (("swap_draft", team["lawyer"]), ("swap_risk", team["risk_manager"]), ("swap_sign", team["head"])):
+    for kind, who in (("swap_draft", team["investment_banker"]), ("swap_risk", team["risk_manager"]), ("swap_sign", team["head"])):
         approval = _one(db, "SELECT * FROM empire_approvals WHERE empire_id = %s AND kind = %s AND status = 'waiting'", (empire["id"], kind))
         firm.decide(db, who, approval["id"], True, "Agreed.", NOW9)
     s = _one(db, "SELECT * FROM swaps WHERE id = %s", (asked["swap_id"],))

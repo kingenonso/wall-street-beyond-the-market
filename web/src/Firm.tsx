@@ -856,8 +856,7 @@ function Board({ f }: { f: Any }) {
 // ---------------------------------------------------------------------------
 
 const BUILD_COLOUR: Record<string, string> = {
-  asset_manager: "var(--build-am)", accountant: "var(--build-ac)", investment_banker: "var(--build-ib)", risk_manager: "var(--build-rm)",
-  lawyer: "var(--build-lc)", journalist: "var(--build-fj)",
+  asset_manager: "var(--build-am)", investment_banker: "var(--build-ib)", risk_manager: "var(--build-rm)",
 };
 
 /** The empire's seats, each coloured by its member's build, with the empty seats shown dashed. Two seats for each

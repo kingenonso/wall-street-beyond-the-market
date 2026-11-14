@@ -115,7 +115,7 @@ def test_what_could_happen_uses_public_figures_and_charges_after_the_free_run(db
     import inspect
     assert "fortune_seed" not in inspect.getsource(montecarlo) and "stochastic" not in inspect.getsource(montecarlo)
     with pytest.raises(montecarlo.MonteCarloError):
-        broke, _ = pro(db, "lawyer", "onlycash", cash_naira=1)
+        broke, _ = pro(db, "investment_banker", "onlycash", cash_naira=1)
         montecarlo.run(db, broke, "portfolio", LATER)
     sound(db)
 
@@ -125,7 +125,7 @@ def test_what_could_happen_uses_public_figures_and_charges_after_the_free_run(db
 # ---------------------------------------------------------------------------
 
 def test_a_personal_loan_is_limited_by_salary_and_repaid_over_two_years(db):
-    player, account = pro(db, "accountant", "borrower", level=10, cash_naira=0)
+    player, account = pro(db, "asset_manager", "borrower", level=10, cash_naira=0)
     most = lending.personal_limit(db, player, NOW9)
     assert most > 0
     with pytest.raises(lending.LendingError, match="at most"):
@@ -142,7 +142,7 @@ def test_a_personal_loan_is_limited_by_salary_and_repaid_over_two_years(db):
 
 def test_two_missed_payments_put_a_loan_in_default_and_stop_more_borrowing(db):
     from simulation import careers
-    player, account = pro(db, "accountant", "late", level=10, cash_naira=0)
+    player, account = pro(db, "asset_manager", "late", level=10, cash_naira=0)
     taken = lending.take_personal(db, player, naira(100_000), NOW9)
     ledger.transfer(db, payer=account, receiver=ledger.account_id(db, ledger.TREASURY), amount=ledger.balance(db, account),
                     kind="test_cash", memo="Test: spent")
@@ -299,7 +299,7 @@ def test_an_empire_borrows_and_shorts_inside_the_risk_managers_limits_and_above_
     empire, team = firm_of(db)
     give_shares(db, empire["account_id"], "IDC", 50_000_000)
     with pytest.raises(Exception, match="Risk Manager"):
-        lending_empire.set_limits(db, team["accountant"], 1_000_000, 0, NOW9)
+        lending_empire.set_limits(db, team["asset_manager"], 1_000_000, 0, NOW9)
     asked = lending_empire.set_limits(db, team["risk_manager"], 1_000_000, 0, NOW9)
     assert asked["waiting"] and asked["borrow_limit_naira"] == 0            # raising a limit needs the head
     signed(db, team, 1_000_000, 0, NOW9)
@@ -317,7 +317,7 @@ def test_an_empire_borrows_and_shorts_inside_the_risk_managers_limits_and_above_
     firm.decide(db, team["head"], approval["id"], True, "", LATER)
     assert lending.margin_owed(db, empire["account_id"]) == naira(1_400_000)
     with pytest.raises(Exception):
-        lending_empire.short(db, team["journalist"], "GGM", 100, NOW9)
+        lending_empire.short(db, team["investment_banker"], "GGM", 100, NOW9)
     sound(db)
 
 

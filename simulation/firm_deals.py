@@ -35,15 +35,15 @@ from simulation.money import BPS, apply_bps, million_naira
 
 ESCROW = "deals:escrow"
 STEPS = {   # step -> (desk, title, why)
-    "background": ("journalist", "Background digging",
+    "background": ("investment_banker", "Background digging",
                    "What the papers leave out: who its customers are, and what is about to change."),
-    "accounts": ("accountant", "Check the accounts against the bank",
+    "accounts": ("asset_manager", "Check the accounts against the bank",
                  "Management accounts can be dressed up. Bank statements cannot."),
     "valuation": ("investment_banker", "Value the company",
                   "What it is worth decides what to bid. The banker who brings a deal answers for this figure."),
     "stress": ("risk_manager", "Stress test and site inspection",
                "Can it carry the loan if things go wrong, and are its assets what the papers say?"),
-    "legal": ("lawyer", "Ownership and contracts",
+    "legal": ("investment_banker", "Ownership and contracts",
               "What the registry and the courts hold on it: charges, claims and suits."),
     "fairness": ("investment_banker", "Fairness opinion",
                  "Before a large deal, a banker signs whether the price is fair."),
@@ -175,7 +175,7 @@ def sign_nda(conn: Connection, player_id, file_id: int, now: datetime) -> dict:
         found = _file(conn, empire["id"], file_id, lock=True)
         if found["nda_at"]:
             raise EmpireError("The confidentiality agreement is already signed.")
-        if not _desk_ok(conn, empire, seat, "lawyer"):
+        if not _desk_ok(conn, empire, seat, "investment_banker"):
             raise EmpireError("A confidentiality agreement is drafted by the empire's Legal Counsel.")
         _sign_nda(conn, empire, found, player_id, now)
         return {"signed": True}
@@ -450,7 +450,7 @@ def _staff_steps(conn: Connection, now: datetime) -> None:
                 continue
             empire = empires._empire(conn, found["empire_id"])
             if not found["nda_at"]:
-                if firm.desk_staffed(conn, empire["id"], "lawyer") and not firm.desk_members(conn, empire["id"], "lawyer"):
+                if firm.desk_staffed(conn, empire["id"], "investment_banker") and not firm.desk_members(conn, empire["id"], "investment_banker"):
                     _sign_nda(conn, empire, found, None, now)
                 continue
             sale = _process(conn, found["process_id"])
@@ -476,7 +476,7 @@ def mark_terms(conn: Connection, player_id, file_id: int, changes: dict, now: da
         _open(conn, now)
         seat, empire = _seat(conn, player_id)
         found = _file(conn, empire["id"], file_id, lock=True)
-        if not _desk_ok(conn, empire, seat, "lawyer"):
+        if not _desk_ok(conn, empire, seat, "investment_banker"):
             raise EmpireError("The sale agreement is negotiated by the empire's Legal Counsel.")
         if not found["nda_at"] or found["status"] != "open":
             raise EmpireError("The agreement can be argued over only while the file is open and the data room signed for.")
@@ -518,7 +518,7 @@ def answer_terms(conn: Connection, player_id, process_id: int, buyer_empire_id: 
         sale = _process(conn, process_id, lock=True)
         if sale["seller_empire_id"] != empire["id"] or sale["status"] != "open":
             raise EmpireError("Your empire is not selling that company.")
-        if not _desk_ok(conn, empire, seat, "lawyer") and empire["head_player_id"] != player_id:
+        if not _desk_ok(conn, empire, seat, "investment_banker") and empire["head_player_id"] != player_id:
             raise EmpireError("A buyer's changes are answered by Legal Counsel or the head.")
         if _one(conn, "SELECT 1 FROM deal_bids WHERE process_id = %s AND empire_id = %s AND status = 'live'", (process_id, buyer_empire_id)):
             raise EmpireError("That buyer has bid: the agreement it bid on is settled.")
@@ -732,7 +732,7 @@ def place_bid(conn: Connection, head_id, file_id: int, amount: int, loan: int, n
             except ledger.InsufficientFunds:
                 raise EmpireError(f"The empire's part of the price is {_money(equity)}, held while the bid stands. It has not the cash.") from None
         signed = {"banker": str(found["brought_by"]) if found["brought_by"] else "staff",
-                  "accountant": str(steps["accounts"]["done_by"]) if steps["accounts"]["done_by"] else "staff",
+                  "asset_manager": str(steps["accounts"]["done_by"]) if steps["accounts"]["done_by"] else "staff",
                   "risk_manager": str(steps["stress"]["done_by"]) if steps["stress"]["done_by"] else "staff", "head": str(head_id)}
         if live:
             conn.execute("UPDATE deal_bids SET amount = %s, clause_charge = %s, equity = %s, loan = %s, lender_account = %s, loan_rate_bps = %s,"
@@ -1065,7 +1065,7 @@ def claim(conn: Connection, player_id, deal_id: int, code: str, now: datetime) -
     with conn.transaction():
         state = _open(conn, now)
         seat, empire = _seat(conn, player_id)
-        if not _desk_ok(conn, empire, seat, "lawyer") and empire["head_player_id"] != player_id:
+        if not _desk_ok(conn, empire, seat, "investment_banker") and empire["head_player_id"] != player_id:
             raise EmpireError("A claim is made by Legal Counsel or the head.")
         deal = _one(conn, "SELECT * FROM deals WHERE id = %s AND empire_id = %s FOR UPDATE", (deal_id, empire["id"]))
         if deal is None:
@@ -1320,8 +1320,8 @@ def _file_view(conn: Connection, f: dict, sale: dict, seat: dict, empire: dict, 
                 for r in _rows(conn, "SELECT p.*, e.name FROM deal_partners p JOIN empires e ON e.id = p.empire_id WHERE p.bid_id = %s ORDER BY p.id",
                                (bid["id"],))] if bid else []
     out = {"id": f["id"], "status": f["status"], "nda": f["nda_at"] is not None, "steps": steps, "valuation": f["valuation"],
-           "can_sign_nda": f["nda_at"] is None and _desk_ok(conn, empire, seat, "lawyer"),
-           "can_negotiate": _desk_ok(conn, empire, seat, "lawyer"), "is_head": empire["head_player_id"] == me,
+           "can_sign_nda": f["nda_at"] is None and _desk_ok(conn, empire, seat, "investment_banker"),
+           "can_negotiate": _desk_ok(conn, empire, seat, "investment_banker"), "is_head": empire["head_player_id"] == me,
            "bid": {"amount": bid["amount"], "charge": bid["clause_charge"], "equity": bid["equity"], "loan": bid["loan"], "status": bid["status"],
                    "mezzanine": bid.get("mezzanine") or 0, "earnout": bid.get("earnout") or 0}
                   if bid and bid["status"] == "live" else None,
@@ -1347,7 +1347,7 @@ def waiting(conn: Connection, seat: dict, empire: dict, now: datetime) -> int:
                    (empire["id"],)):
         if _desk_ok(conn, empire, seat, s["build"]) and s["assigned_to"] in (None, me):
             n += 1
-    if _desk_ok(conn, empire, seat, "lawyer"):
+    if _desk_ok(conn, empire, seat, "investment_banker"):
         n += _one(conn, "SELECT count(*) AS n FROM deal_files f JOIN sale_processes p ON p.id = f.process_id WHERE f.empire_id = %s"
                         " AND f.status = 'open' AND p.status = 'open' AND f.nda_at IS NULL", (empire["id"],))["n"]
     if empire["head_player_id"] == me:

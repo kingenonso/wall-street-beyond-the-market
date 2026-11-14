@@ -33,7 +33,7 @@ def _rows(db, sql, params=()):
 
 
 def _reporter(db, name="digger", level=40):
-    p, _ = pro(db, "journalist", name, level=level, cash_naira=5_000_000)
+    p, _ = pro(db, "investment_banker", name, level=level, cash_naira=5_000_000)
     return p
 
 
@@ -80,7 +80,7 @@ def test_an_investigation_finds_documents_only_where_there_is_something_and_its_
         press.dig(db, j, clean["id"], NOW9 + 7 * DAY)
     press.drop_file(db, j, clean["id"])
     # Money taken and dressed up in the books: the documents point at it, one by one.
-    book = _theft(db, empire, team["accountant"])
+    book = _theft(db, empire, team["asset_manager"])
     f, when = _investigate(db, j, empire, start=NOW9 + 9 * DAY)
     assert f["can_publish"] and f["documents"] == data.DOCUMENTS_NEEDED
     assert "basis" not in f and not any("Office supplies" in n for n in f["notes"])     # the file never names the entry
@@ -132,7 +132,7 @@ def test_a_crisis_answered_honestly_and_quickly_costs_least_denial_of_a_truth_co
                               item_id=item["id"])
         before = _rep(db, empire["id"])
         if stance:
-            press.answer_crisis(db, team["journalist"], c["id"], stance, "We have looked into this and here is our answer.", NOW9)
+            press.answer_crisis(db, team["investment_banker"], c["id"], stance, "We have looked into this and here is our answer.", NOW9)
         else:
             press.tick(db, NOW9 + timedelta(hours=data.CRISIS_HOURS + 1))
         assert _rep(db, empire["id"]) == before                                       # nothing yet: the truth is not out
@@ -148,7 +148,7 @@ def test_a_crisis_answered_honestly_and_quickly_costs_least_denial_of_a_truth_co
     # Only the head or the empire's journalist speaks for it; a closed matter cannot be answered; no figures.
     c = press.open_crisis(db, empire["id"], "report", "story:9999", "Another report.", "true", NOW9)
     with pytest.raises(press.PressError, match="speaks for it"):
-        press.answer_crisis(db, team["accountant"], c["id"], "admit", "We have looked into this matter.", NOW9)
+        press.answer_crisis(db, team["asset_manager"], c["id"], "admit", "We have looked into this matter.", NOW9)
     with pytest.raises(press.PressError, match="in words"):
         press.answer_crisis(db, team["head"], c["id"], "admit", "We lost 5 million naira.", NOW9)
     with pytest.raises(press.PressError, match="closed"):
@@ -168,18 +168,18 @@ def test_the_press_office_answers_for_the_empire_and_sees_who_has_been_looking_f
     newsroom.start(db, j, NOW9)
     newsroom.add_fact(db, j, card["id"], NOW9)
     newsroom.ask(db, j, ticker=None, empire_name=empire["name"], question="Will the empire buy more of this company?", now=NOW9)
-    waiting = newsroom.to_answer(db, team["journalist"], NOW9)
+    waiting = newsroom.to_answer(db, team["investment_banker"], NOW9)
     assert len(waiting) == 1                                                     # the empire's journalist sees it
-    assert newsroom.to_answer(db, team["accountant"], NOW9) == []
+    assert newsroom.to_answer(db, team["asset_manager"], NOW9) == []
     with pytest.raises(newsroom.NewsroomError, match="not yours"):
-        newsroom.answer(db, team["accountant"], waiting[0]["id"], "No comment.", NOW9)
-    newsroom.answer(db, team["journalist"], waiting[0]["id"], "We do not comment on our plans.", NOW9)
+        newsroom.answer(db, team["asset_manager"], waiting[0]["id"], "No comment.", NOW9)
+    newsroom.answer(db, team["investment_banker"], waiting[0]["id"], "We do not comment on our plans.", NOW9)
     newsroom.check_fact(db, j, card["id"], NOW9)
     newsroom.publish(db, j, NOW9)
     # A private investigation file leaves no trace the empire can see.
     press.open_file(db, _reporter(db, "quiet"), empire["name"], None, NOW9)
     looking = press.who_is_looking(db, empire["id"], NOW9 + timedelta(hours=1))
-    names = [r["journalist"] for r in looking]
+    names = [r["investment_banker"] for r in looking]
     assert names == ["outsider"]
     assert any(t.startswith("Asked:") for t in looking[0]["traces"]) and any(t.startswith("Wrote:") for t in looking[0]["traces"])
 
@@ -189,18 +189,18 @@ def test_a_member_can_leak_only_what_is_so_the_empire_suffers_the_leak_and_may_h
     j = _reporter(db, "receiver", level=30)
     company = _one(db, "SELECT id, ticker, share_asset FROM companies WHERE listed ORDER BY ticker LIMIT 1")
     with pytest.raises(press.PressError, match="holds no shares"):
-        press.leak(db, team["accountant"], "holding", "receiver", NOW9, ticker=company["ticker"])
+        press.leak(db, team["asset_manager"], "holding", "receiver", NOW9, ticker=company["ticker"])
     from tests.test_objectives import give_shares
     give_shares(db, empire["account_id"], company["ticker"], 1000)
     with pytest.raises(press.PressError, match="head speaks"):
         press.leak(db, team["head"], "holding", "receiver", NOW9, ticker=company["ticker"])
     with pytest.raises(press.PressError, match="Financial Journalist"):
-        press.leak(db, team["accountant"], "holding", "warden", NOW9, ticker=company["ticker"])
-    press.leak(db, team["accountant"], "holding", "receiver", NOW9, ticker=company["ticker"])
+        press.leak(db, team["asset_manager"], "holding", "warden", NOW9, ticker=company["ticker"])
+    press.leak(db, team["asset_manager"], "holding", "receiver", NOW9, ticker=company["ticker"])
     with pytest.raises(press.PressError, match="this quarter already"):
-        press.leak(db, team["accountant"], "holding", "receiver", NOW9, ticker=company["ticker"])
+        press.leak(db, team["asset_manager"], "holding", "receiver", NOW9, ticker=company["ticker"])
     held = intel.mine(db, j, NOW9)[0]
-    assert held["how"] == "leaked" and held["confidential"] and "accountant" not in repr(held).lower()
+    assert held["how"] == "leaked" and held["confidential"] and "asset_manager" not in repr(held).lower()
     assert "ledgerman" not in repr(held)                                         # the leaker's name is not on it
     # Printed: a leak to the press, and a crisis to answer.
     newsroom.start(db, j, NOW9)
@@ -211,13 +211,13 @@ def test_a_member_can_leak_only_what_is_so_the_empire_suffers_the_leak_and_may_h
     assert len(leaks) == 1 and "member" not in repr(leaks)
     # The hunt: once, by the head or the empire's journalist; the result goes to the hunter.
     with pytest.raises(press.PressError, match="speaks for it"):
-        press.hunt(db, team["lawyer"], leaks[0]["id"], NOW9)
+        press.hunt(db, team["investment_banker"], leaks[0]["id"], NOW9)
     got = press.hunt(db, team["head"], leaks[0]["id"], NOW9)
     assert got["found"] in (True, False)
     if got["found"]:
         assert "ledgerman" in got["words"]
     with pytest.raises(press.PressError, match="already"):
-        press.hunt(db, team["journalist"], leaks[0]["id"], NOW9)
+        press.hunt(db, team["investment_banker"], leaks[0]["id"], NOW9)
 
 
 def test_a_leaked_pact_comes_to_light_when_printed_and_a_hidden_pact_can_leak_on_its_own(db, monkeypatch):
@@ -225,7 +225,7 @@ def test_a_leaked_pact_comes_to_light_when_printed_and_a_hidden_pact_can_leak_on
     rival = _one(db, "SELECT * FROM empires WHERE kind = 'computer' ORDER BY id LIMIT 1")
     pact = _pact(db, empire["id"], rival["id"])
     j = _reporter(db, "pactreceiver")
-    press.leak(db, team["lawyer"], "pact", "pactreceiver", NOW9, pact_id=pact["id"])
+    press.leak(db, team["investment_banker"], "pact", "pactreceiver", NOW9, pact_id=pact["id"])
     held = intel.mine(db, j, NOW9)[0]
     newsroom.start(db, j, NOW9)
     newsroom.add_lead(db, j, held["ref"], NOW9)
@@ -253,23 +253,23 @@ def test_spin_or_refuse_refusing_keeps_a_clean_name_and_spin_can_come_out(db, mo
     db.execute("INSERT INTO stake_disclosures (empire_id, company_id, bps, at) VALUES (%s, %s, 500, %s)", (empire["id"], company, NOW9))
     story = write(db, j, [card])
     with pytest.raises(press.PressError, match="Only the head"):
-        press.ask_spin(db, team["journalist"], story["story_id"], NOW9)
+        press.ask_spin(db, team["investment_banker"], story["story_id"], NOW9)
     req = press.ask_spin(db, team["head"], story["story_id"], NOW9)["request_id"]
-    rep = _one(db, "SELECT reputation FROM players WHERE id = %s", (team["journalist"],))["reputation"]
-    press.decide_spin(db, team["journalist"], req, False, None, NOW9)
-    assert _one(db, "SELECT reputation FROM players WHERE id = %s", (team["journalist"],))["reputation"] == rep + data.SPIN_REFUSED_REPUTATION
+    rep = _one(db, "SELECT reputation FROM players WHERE id = %s", (team["investment_banker"],))["reputation"]
+    press.decide_spin(db, team["investment_banker"], req, False, None, NOW9)
+    assert _one(db, "SELECT reputation FROM players WHERE id = %s", (team["investment_banker"],))["reputation"] == rep + data.SPIN_REFUSED_REPUTATION
     # Going along: the reply goes out and helps the empire, for now.
     db.execute("DELETE FROM spin_requests WHERE id = %s", (req,))
     req = press.ask_spin(db, team["head"], story["story_id"], NOW9)["request_id"]
     before = _rep(db, empire["id"])
-    press.decide_spin(db, team["journalist"], req, True, "The company is doing far better than this story would have you think.", NOW9)
+    press.decide_spin(db, team["investment_banker"], req, True, "The company is doing far better than this story would have you think.", NOW9)
     assert _rep(db, empire["id"]) == before + data.SPIN_REPUTATION
     reply = _one(db, "SELECT * FROM news_items WHERE kind = 'reply'")
     # Somebody raises it: upheld, and it costs the empire and the journalist.
     raiser = _reporter(db, "watchdog")
-    cred = newsroom.profile(db, team["journalist"])["credibility"]
+    cred = newsroom.profile(db, team["investment_banker"])["credibility"]
     assert press.raise_spin(db, raiser, reply["id"], NOW9)["upheld"]
-    assert newsroom.profile(db, team["journalist"])["credibility"] == cred - data.SPIN_EXPOSED_CREDIBILITY
+    assert newsroom.profile(db, team["investment_banker"])["credibility"] == cred - data.SPIN_EXPOSED_CREDIBILITY
     assert _rep(db, empire["id"]) == before + data.SPIN_REPUTATION - data.SPIN_EXPOSED_EMPIRE_REPUTATION
     with pytest.raises(press.PressError, match="already raised"):
         press.raise_spin(db, raiser, reply["id"], NOW9)
@@ -287,7 +287,7 @@ def test_spin_not_raised_may_still_come_out_at_a_close(db, monkeypatch):
     db.execute("INSERT INTO stake_disclosures (empire_id, company_id, bps, at) VALUES (%s, %s, 500, %s)", (empire["id"], company, NOW9))
     story = write(db, j, [card])
     req = press.ask_spin(db, team["head"], story["story_id"], NOW9)["request_id"]
-    press.decide_spin(db, team["journalist"], req, True, "The company is doing far better than this story would have you think.", NOW9)
+    press.decide_spin(db, team["investment_banker"], req, True, "The company is doing far better than this story would have you think.", NOW9)
     monkeypatch.setattr(data, "SPIN_COMES_OUT_BPS", 10_000)
     press.at_close(db, careers.world_now(db, NOW9)["period"], NOW9)
     assert _one(db, "SELECT exposed FROM spin_requests WHERE id = %s", (req,))["exposed"]
@@ -303,23 +303,23 @@ def test_the_fact_checking_desk_checks_a_members_tip_and_rumours_can_be_planted_
                       useful_until=NOW9 + timedelta(hours=4))
     intel.hold(db, item["id"], team["head"], "found", NOW9)
     from tests.test_objectives import give_cash
-    give_cash(db, ledger.player_account_id(db, team["journalist"]), 1_000_000)
-    before = ledger.balance(db, ledger.player_account_id(db, team["journalist"]))
-    got = press.fact_check(db, team["journalist"], "chief", item["ref"], NOW9)
+    give_cash(db, ledger.player_account_id(db, team["investment_banker"]), 1_000_000)
+    before = ledger.balance(db, ledger.player_account_id(db, team["investment_banker"]))
+    got = press.fact_check(db, team["investment_banker"], "chief", item["ref"], NOW9)
     assert got["verdict"] in ("holds", "fails")
-    assert ledger.balance(db, ledger.player_account_id(db, team["journalist"])) == before - naira(data.CHECK_FEE_NAIRA)
+    assert ledger.balance(db, ledger.player_account_id(db, team["investment_banker"])) == before - naira(data.CHECK_FEE_NAIRA)
     mine = next(i for i in intel.mine(db, team["head"], NOW9) if i["ref"] == item["ref"])
     assert mine["check"] in intel.VERDICTS.values()
     with pytest.raises(press.PressError, match="no member"):
-        press.fact_check(db, team["journalist"], "nobody", item["ref"], NOW9)
+        press.fact_check(db, team["investment_banker"], "nobody", item["ref"], NOW9)
     # A planted rumour: its truth is decided by the world, and who planted it is kept but never sent.
-    planted = press.plant(db, team["journalist"], ticker=None, empire_name=_one(db, "SELECT name FROM empires WHERE kind = 'computer' LIMIT 1")["name"],
+    planted = press.plant(db, team["investment_banker"], ticker=None, empire_name=_one(db, "SELECT name FROM empires WHERE kind = 'computer' LIMIT 1")["name"],
                           tone=-1, now=NOW9)
     assert "planted" not in repr(planted) and "truth" not in repr(planted)
     row = _one(db, "SELECT planted_by, truth FROM intel_items WHERE ref = %s", (planted["ref"],))
-    assert row["planted_by"] == team["journalist"] and row["truth"] == "unknown"      # nothing hidden was read to start it
+    assert row["planted_by"] == team["investment_banker"] and row["truth"] == "unknown"      # nothing hidden was read to start it
     with pytest.raises(press.PressError, match="One rumour a day"):
-        press.plant(db, team["journalist"], ticker=_one(db, "SELECT ticker FROM companies WHERE listed LIMIT 1")["ticker"], empire_name=None,
+        press.plant(db, team["investment_banker"], ticker=_one(db, "SELECT ticker FROM companies WHERE listed LIMIT 1")["ticker"], empire_name=None,
                     tone=1, now=NOW9 + timedelta(hours=2))
 
 

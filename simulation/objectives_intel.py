@@ -32,7 +32,7 @@ def _jn_source_odds(ctx, r):
             "f": {"r": reliability, "c": right, "said": said}}
 
 
-piece("jn_source_odds", "journalist", "Sources", "How far can you trust it?", 33,
+piece("jn_source_odds", "investment_banker", "Sources", "How far can you trust it?", 33,
       "A hint is only as good as its source, and a check is only as good as its checker: weigh both before you print.", _jn_source_odds,
       [Q("odds", "Chance it is true (%)", "percent", _odds, 0.5),
        choice("likely", "More likely true than not?", lambda f: yn(_odds(f) > 50), *YES_NO)],
@@ -58,7 +58,7 @@ def _jn_expose(ctx, r):
             "f": {"d": docs, "s": second, "o": out}}
 
 
-piece("jn_expose_ready", "journalist", "Investigations", "Is the exposé ready?", 38,
+piece("jn_expose_ready", "investment_banker", "Investigations", "Is the exposé ready?", 38,
       "Nothing goes to print without the documents and a second source: that is what makes an exposé stand.", _jn_expose,
       [choice("run", "May it run?", lambda f: yn(f["d"] >= data.DOCUMENTS_NEEDED and f["s"] and not f["o"]), *YES_NO),
        Q("more", "More documents needed", "number", lambda f: max(data.DOCUMENTS_NEEDED - f["d"], 0), 0)],
@@ -94,7 +94,7 @@ def _jn_rate(ctx, r):
             "f": f}
 
 
-piece("jn_rate_read", "journalist", "Reading the Central Bank", "Reading the Central Bank", 40,
+piece("jn_rate_read", "investment_banker", "Reading the Central Bank", "Reading the Central Bank", 40,
       "The Central Bank publishes its rule: read the numbers it reads, and you can call the decision before it comes.", _jn_rate,
       [Q("rate", "Its rate (%)", "percent", _next_rate, 0.01)],
       plain=lambda f, t: f"{t['rate']:.2f}%.", need=1,
@@ -116,7 +116,7 @@ def _jn_foreign(ctx, r):
             "f": {"s": start, "mv": move, "e": end}}
 
 
-piece("jn_foreign_money", "journalist", "Foreign money", "Did foreign money come or go?", 42,
+piece("jn_foreign_money", "investment_banker", "Foreign money", "Did foreign money come or go?", 42,
       "Holdings change both because prices move and because investors buy or sell: take the price out to see the money.", _jn_foreign,
       [Q("flow", "Net bought (₦m)", "millions", lambda f: f["e"] - f["s"] * (1 + f["mv"] / 100), 0.5)],
       plain=lambda f, t: f"{'Bought' if t['flow'] >= 0 else 'Sold'} about {m(abs(t['flow']))} net.", need=1,
@@ -134,7 +134,7 @@ def _jn_oil(ctx, r):
             "f": {"o": oil, "n": naira}}
 
 
-piece("jn_oil_naira", "journalist", "Oil and the naira", "Oil, the naira, and energy at home", 44,
+piece("jn_oil_naira", "investment_banker", "Oil and the naira", "Oil, the naira, and energy at home", 44,
       "Two moves together: what oil costs abroad, and how many naira a dollar costs.", _jn_oil,
       [Q("energy", "Energy at home (%)", "percent", lambda f: ((1 + f["o"] / 100) * (1 + f["n"] / 100) - 1) * 100, 0.1),
        choice("dearer", "A weaker naira makes it dearer?", lambda f: "yes", *YES_NO)],
@@ -160,7 +160,7 @@ def _thinnest(f):
     return min(f["rows"], key=lambda x: x[1] / x[2])
 
 
-piece("jn_company_risk", "journalist", "Company risk", "Who is closest to trouble?", 47,
+piece("jn_company_risk", "investment_banker", "Company risk", "Who is closest to trouble?", 47,
       "Interest cover tells you how many times over a company's profit pays its lenders: the thinner it is, the nearer the edge.", _jn_risk,
       [choice("which", "Thinnest cover", lambda f: _thinnest(f)[0], *[(n, n) for n in ("Kogi Ridge Cement", "Oguta Airways", "Benue Harvest Foods")]),
        Q("cover", "Its cover (times)", "times", lambda f: _thinnest(f)[1] / _thinnest(f)[2], 0.05)],

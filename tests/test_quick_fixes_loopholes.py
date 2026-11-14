@@ -152,7 +152,7 @@ def test_q8_the_early_pension_is_fixed_for_good_and_no_rate_is_chosen_by_the_pla
 def test_q9_only_an_asset_manager_or_the_head_trades_with_the_empires_money(db):
     empire, team = firm_of(db)
     cash = ledger.balance(db, empire["account_id"])
-    for build in ("lawyer", "risk_manager", "investment_banker", "accountant", "journalist"):
+    for build in ("investment_banker", "risk_manager", "investment_banker", "asset_manager", "investment_banker"):
         with pytest.raises(empires.EmpireError, match="Only the empire's Asset Managers, and its head"):
             empires.trade_shares(db, team[build], ticker="IDC", side="buy", kind="limit", quantity=10, limit_price=10_000, now=NOW9)
         with pytest.raises(empires.EmpireError, match="Only the empire's Asset Managers, and its head"):

@@ -109,7 +109,7 @@ def test_7_only_the_head_banker_or_asset_manager_deals_for_an_empire(db):
     emp = empires._empire(db, empire["id"] if isinstance(empire, dict) else empire)
     fx.street_deal(db, head, "buy", "USD", 10_000_000, t9, for_empire=True)
     world.deal(db, head, "TSRN", "buy", 10, t9, for_empire=True)
-    outsider, _ = pro(db, "accountant", "outsider")
+    outsider, _ = pro(db, "asset_manager", "outsider")
     with pytest.raises(world.WorldError):
         world.deal(db, outsider, "TSRN", "sell", 10, t9, for_empire=True)
     assert ledger.balance(db, emp["account_id"], _co(db, "TSRN")["asset"]) == 10

@@ -89,7 +89,7 @@ def test_q2_a_new_industry_company_does_not_move_value_to_its_owner(db):
     empire, team = firm_of(db, n_cash=60_000_000_000)
     sale = open_a_sale(db, "ILD")
     file_id = firm_deals.open_file(db, team["investment_banker"], sale["id"], LATER)["file_id"]
-    firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
+    firm_deals.sign_nda(db, team["investment_banker"], file_id, LATER)
     do_checks(db, empire, team, file_id)
 
     # Overpaying is refused outright: no bid may be far above both the asking price and what the company

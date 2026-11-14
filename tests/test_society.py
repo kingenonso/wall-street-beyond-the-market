@@ -74,7 +74,7 @@ def test_five_titles_begin_with_the_government_which_sells_them_one_at_a_time_an
 
 
 def test_a_player_wins_a_title_at_auction_and_earns_from_its_readers(db):
-    p, account = pro(db, "journalist", "publisher", level=20, cash_naira=200_000_000)
+    p, account = pro(db, "investment_banker", "publisher", level=20, cash_naira=200_000_000)
     a = _open_title_auction(db)
     when = max(a["opens_at"], NOW9) + timedelta(minutes=1)
     with pytest.raises(PropertyError, match="outright"):
@@ -103,7 +103,7 @@ def test_a_player_wins_a_title_at_auction_and_earns_from_its_readers(db):
     assert result["to_owner"] == result["profit"] and ledger.balance(db, account) >= before + result["to_owner"]
     assert media.title(db, t["id"])["audience"] >= t["audience"]
     # Someone outside cannot print in it.
-    other, _ = pro(db, "journalist", "outsider", level=10)
+    other, _ = pro(db, "investment_banker", "outsider", level=10)
     newsroom.start(db, other, after_quarters(9) + timedelta(hours=2))
     with pytest.raises(newsroom.NewsroomError, match="own"):
         newsroom.set_title(db, other, t["id"], after_quarters(9) + timedelta(hours=2))
@@ -122,8 +122,8 @@ def test_an_empire_bids_for_a_title_without_the_property_checks_and_its_journali
     auctions.run(db, a["ends_at"] + timedelta(minutes=1))
     t = media.title(db, a["title_id"])
     assert t["owner_empire"] == empire["id"]
-    assert [x["id"] for x in media.mine(db, team["journalist"])] == [t["id"]]
-    assert media.mine(db, team["head"]) and media.title_for(db, team["journalist"], t["id"])
+    assert [x["id"] for x in media.mine(db, team["investment_banker"])] == [t["id"]]
+    assert media.mine(db, team["head"]) and media.title_for(db, team["investment_banker"], t["id"])
 
 
 # ---------------------------------------------------------------------------
@@ -131,12 +131,12 @@ def test_an_empire_bids_for_a_title_without_the_property_checks_and_its_journali
 # ---------------------------------------------------------------------------
 
 def test_a_charity_is_founded_given_to_and_grants_to_its_cause_and_giving_builds_reputation(db):
-    p, account = pro(db, "accountant", "giver", level=10, cash_naira=50_000_000)
+    p, account = pro(db, "asset_manager", "giver", level=10, cash_naira=50_000_000)
     with pytest.raises(charity.CharityError, match="at least"):
         charity.found(db, p, "Small Hands", "education", "Lagos", naira(500_000), NOW9)
     c = charity.found(db, p, "Bright Futures", "education", "Lagos", naira(12_000_000), NOW9)
     assert c["given"] == naira(12_000_000) and c["yours"]
-    friend, _ = pro(db, "lawyer", "friend", level=4, cash_naira=1_000_000)
+    friend, _ = pro(db, "investment_banker", "friend", level=4, cash_naira=1_000_000)
     charity.give(db, friend, c["id"], naira(100_000), NOW9)
     households = _one(db, "SELECT account_id FROM households WHERE location = 'Lagos'")["account_id"]
     before = ledger.balance(db, households)
@@ -172,7 +172,7 @@ def test_an_empires_charity_builds_its_reputation_and_grants_to_insiders_are_fla
     flagged = _one(db, "SELECT reason FROM money_watch_flags WHERE account_id = %s", (account,))
     assert flagged and "connected" in flagged["reason"]
     # A journalist investigates the charity: three documents, a second source, and the exposé.
-    j, _ = pro(db, "journalist", "charitywatch", level=40, cash_naira=1_000_000)
+    j, _ = pro(db, "investment_banker", "charitywatch", level=40, cash_naira=1_000_000)
     f = press.open_file(db, j, None, None, NOW9, charity_name="Lagoon Relief")
     t = NOW9
     for _ in range(60):
@@ -193,10 +193,10 @@ def test_an_empires_charity_builds_its_reputation_and_grants_to_insiders_are_fla
 
 
 def test_a_clean_charity_gives_an_investigator_nothing(db):
-    p, _ = pro(db, "accountant", "cleangiver", level=10, cash_naira=20_000_000)
+    p, _ = pro(db, "asset_manager", "cleangiver", level=10, cash_naira=20_000_000)
     c = charity.found(db, p, "Clean Water Kano", "water", "Kano", naira(5_000_000), NOW9)
     charity.grant(db, p, c["id"], naira(4_000_000), "Boreholes in three villages", NOW9)
-    j, _ = pro(db, "journalist", "cleanwatch", level=40)
+    j, _ = pro(db, "investment_banker", "cleanwatch", level=40)
     f = press.open_file(db, j, None, None, NOW9, charity_name="Clean Water Kano")
     t = NOW9
     for _ in range(10):
@@ -204,7 +204,7 @@ def test_a_clean_charity_gives_an_investigator_nothing(db):
         t += DAY
     assert f["documents"] == 0
     # A journalist does not investigate their own charity.
-    own, _ = pro(db, "journalist", "owncharity", level=20, cash_naira=5_000_000)
+    own, _ = pro(db, "investment_banker", "owncharity", level=20, cash_naira=5_000_000)
     charity.found(db, own, "Arts for Aba", "arts", "Aba", naira(1_000_000), NOW9)
     with pytest.raises(press.PressError, match="own charity"):
         press.open_file(db, own, None, None, NOW9, charity_name="Arts for Aba")

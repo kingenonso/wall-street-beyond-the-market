@@ -74,6 +74,7 @@
   color-scheme: light;
 }
 
+
 * { box-sizing: border-box; }
 html, body, #root { min-height: 100%; }
 
@@ -117,9 +118,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, rect:focus-visible {
 
 .app { min-height: 100vh; display: flex; flex-direction: column; }
 
-/* The strip: three groups. Left is navigation and the game's own pages, the middle is the switches that
-   change the whole world and is set apart by a rule, the right says what you are looking at and who you
-   are. Everything is one line, small, and monospace, as a terminal's strip is. */
+/* The strip: two groups. Left is navigation and the game's own pages, the right says what you are
+   looking at and who you are. Everything is one line, small, and monospace, as a terminal's strip is.
+   (A third, middle group of world switches stood here until 9 November 2026 and was taken out.) */
 .topbar {
   display: flex; align-items: center; gap: 0; flex-wrap: wrap; min-height: 40px;
   padding: 2px 10px;
@@ -130,7 +131,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, rect:focus-visible {
 }
 .strip-left { display: flex; align-items: center; gap: 2px; }
 .strip-right { display: flex; align-items: center; gap: 10px; margin-left: auto; padding-left: 12px; }
-.strip-world { display: flex; align-items: center; gap: 0; margin-left: 18px; padding: 0 10px 0 14px; border-left: 1px solid var(--border-strong); }
 
 .strip-menu { position: relative; }
 .strip-item {
@@ -144,7 +144,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, rect:focus-visible {
 .strip-item:disabled { color: var(--muted); opacity: 0.55; cursor: default; }
 .strip-caret { color: var(--muted); font-size: 9px; }
 .strip-item[aria-expanded="true"] .strip-caret { color: var(--head-soft); }
-.strip-world-item { font-size: 11.5px; }
 
 .strip-sheet {
   position: absolute; top: calc(100% + 4px); left: 0; min-width: 220px; z-index: 50;
@@ -174,7 +173,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, rect:focus-visible {
 .tape-date .strong { color: var(--gold); }
 
 @media (max-width: 900px) {
-  .strip-world { display: none; }
   .strip-item { padding: 6px; }
   .tape-date { padding: 5px 10px; }
 }
@@ -1518,3 +1516,63 @@ th[aria-sort="ascending"] .sort-head, th[aria-sort="descending"] .sort-head { co
 .strip-item .waiting-dot {
   position: static; display: inline-block; width: 7px; height: 7px; margin-left: 6px; vertical-align: middle; border: 0;
 }
+
+/* Command line verb buttons */
+.command-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.verb-btn-green {
+  color: var(--up);
+  border-color: var(--up);
+  background: color-mix(in srgb, var(--up) 20%, transparent);
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.verb-btn-blue {
+  color: var(--gold);
+  border-color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 20%, transparent);
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.verb-btn-orange {
+  color: var(--warn);
+  border-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.command-enter {
+  color: var(--muted);
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+}
+
+.command-help {
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 4px 8px;
+  cursor: help;
+  font-size: 14px;
+}
+
+.command-help:hover {
+  color: var(--text);
+}
+

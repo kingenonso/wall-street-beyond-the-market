@@ -36,7 +36,7 @@ def hire(conn: Connection, client_id, adviser_key: str, fee: int, now: datetime)
         if adviser == client_id:
             raise EmpireError("You cannot be your own bookkeeper.")
         player = _one(conn, "SELECT id, build, display_name FROM players WHERE id = %s", (adviser,))
-        if player is None or player["build"] != "accountant":
+        if player is None or player["build"] != "asset_manager":
             raise EmpireError("A bookkeeper is an Accountant.")
         if not firm._whole(fee, naira(FEE_LEAST_NAIRA), naira(FEE_MOST_NAIRA)):
             raise EmpireError(f"A fee from {_money(naira(FEE_LEAST_NAIRA))} to {_money(naira(FEE_MOST_NAIRA))}.")
@@ -120,8 +120,8 @@ def deliver(conn: Connection, adviser_id, engagement_id: int, net: int, biggest:
                                       memo="A bookkeeper's fee for the quarter's report", period=state["period"], reference=f"engagement:{engagement_id}")
         conn.execute("UPDATE client_engagements SET status = 'done', report = %s, done_at = %s WHERE id = %s", (firm._json(report), now, engagement_id))
         if score:
-            mine = careers.career(conn, adviser_id, "accountant")
-            careers.add_experience(conn, adviser_id, "accountant", firm.DUTY_EXPERIENCE * score // 100 * (1 + (mine["rank"] if mine else 0)), now)
+            mine = careers.career(conn, adviser_id, "asset_manager")
+            careers.add_experience(conn, adviser_id, "asset_manager", firm.DUTY_EXPERIENCE * score // 100 * (1 + (mine["rank"] if mine else 0)), now)
         if empire:
             _log(conn, empire["id"], f"The Accountant's desk earned {_money(to_empire)} from a client's bookkeeping.", now)
         return {"score": score, "paid": paid, "to_empire": to_empire}
@@ -156,7 +156,7 @@ def view(conn: Connection, player_id, now: datetime) -> dict:
     clients = _rows(conn, "SELECT c.*, p.display_name AS client FROM client_engagements c JOIN players p ON p.id = c.client_id WHERE c.adviser_id = %s"
                           " ORDER BY c.id DESC LIMIT 12", (player_id,))
     advisers = _rows(conn, "SELECT p.id, p.display_name, p.reputation, (SELECT avg(rating)::numeric(3, 1) FROM client_engagements e WHERE e.adviser_id = p.id"
-                           " AND e.rating IS NOT NULL) AS stars FROM players p WHERE p.build = 'accountant' AND p.id <> %s ORDER BY p.reputation DESC, p.display_name"
+                           " AND e.rating IS NOT NULL) AS stars FROM players p WHERE p.build = 'asset_manager' AND p.id <> %s ORDER BY p.reputation DESC, p.display_name"
                            " LIMIT 20", (player_id,))
 
     def public(row, as_client):
@@ -180,7 +180,7 @@ def _adviser_key(conn: Connection, adviser_id, period: int) -> str:
 
 
 def adviser_by_key(conn: Connection, key: str, period: int):
-    for a in _rows(conn, "SELECT id FROM players WHERE build = 'accountant'"):
+    for a in _rows(conn, "SELECT id FROM players WHERE build = 'asset_manager'"):
         if _adviser_key(conn, a["id"], period) == key:
             return a["id"]
     raise EmpireError("There is no such bookkeeper.")

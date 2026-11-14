@@ -33,9 +33,9 @@ def hand(db, company, account, shares):
 def test_q1_no_empire_hires_a_firm_run_from_inside_itself(db):
     empire, team = firm_of(db, n_cash=60_000_000_000)
     sale = open_a_sale(db)                     # opened before the firm exists, so it is not the sale's auditor
-    own_firm = firm_practice.found(db, team["accountant"], "audit", "Inside Audit", 0, LATER)["firm_id"]
+    own_firm = firm_practice.found(db, team["asset_manager"], "audit", "Inside Audit", 0, LATER)["firm_id"]
     file_id = firm_deals.open_file(db, team["investment_banker"], sale["id"], LATER)["file_id"]
-    firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
+    firm_deals.sign_nda(db, team["investment_banker"], file_id, LATER)
     step = _one(db, "SELECT * FROM deal_steps WHERE file_id = %s AND step = 'accounts'", (file_id,))
     with pytest.raises(empires.EmpireError, match="not an outside firm"):
         firm_practice.send_step(db, team["head"], step["id"], own_firm, million_naira(5), LATER)
@@ -123,11 +123,11 @@ def test_q5_no_stake_or_block_reaches_thirty_percent(db):
 def test_q6_the_truth_behind_jobs_and_defences_never_leaves_the_server(db, client):
     empire, team = firm_of(db, n_cash=200_000_000_000)
     other, them = house(db, "Delta Partners")
-    firm_practice.found(db, them["accountant"], "audit", "Creek Audit", 0, LATER)
+    firm_practice.found(db, them["asset_manager"], "audit", "Creek Audit", 0, LATER)
     sale = open_a_sale(db)
     job = _one(db, "SELECT * FROM firm_jobs WHERE process_id = %s AND kind = 'audit'", (sale["id"],))
-    firm_practice.open_job(db, them["accountant"], job["id"], LATER)
-    seen = firm.view(db, them["accountant"], LATER)
+    firm_practice.open_job(db, them["asset_manager"], job["id"], LATER)
+    seen = firm.view(db, them["asset_manager"], LATER)
     assert "_truth" not in str(seen) and "secrets" not in str(seen["practice"])
     target = target_of(db)
     issued = ledger.amount_in_existence(db, target["share_asset"])
@@ -147,21 +147,21 @@ def test_q7_each_act_belongs_to_its_desk_its_firm_and_its_empire(db):
     target = target_of(db)
     issued = ledger.amount_in_existence(db, target["share_asset"])
     with pytest.raises(empires.EmpireError, match="Investment Banker"):
-        firm_dealmaking.draft_offer(db, team["accountant"], target["id"], target["reference_price"] * 12 // 10, issued * 6 // 10, LATER)
+        firm_dealmaking.draft_offer(db, team["asset_manager"], target["id"], target["reference_price"] * 12 // 10, issued * 6 // 10, LATER)
     with pytest.raises(empires.EmpireError, match="Asset Manager"):
-        firm_dealmaking.start_stake(db, team["lawyer"], target["id"], 1000, target["reference_price"], LATER)
-    audit = firm_practice.found(db, them["accountant"], "audit", "Creek Audit", 0, LATER)["firm_id"]
+        firm_dealmaking.start_stake(db, team["investment_banker"], target["id"], 1000, target["reference_price"], LATER)
+    audit = firm_practice.found(db, them["asset_manager"], "audit", "Creek Audit", 0, LATER)["firm_id"]
     sale = open_a_sale(db)
     job = _one(db, "SELECT id FROM firm_jobs WHERE firm_id = %s", (audit,))
     with pytest.raises(empires.EmpireError, match="do not run a firm"):
-        firm_practice.open_job(db, team["accountant"], job["id"], LATER)
+        firm_practice.open_job(db, team["asset_manager"], job["id"], LATER)
     hand(db, target, empire["account_id"], issued // 10)
     block = firm_dealmaking.offer_block(db, team["head"], other["id"], target["id"], issued // 20, corporate._market_price(db, target["id"]), LATER)
     with pytest.raises(empires.EmpireError, match="head"):
         firm_dealmaking.answer_block(db, them["investment_banker"], block["block_id"], True, LATER)
     company = own(db, empire, "RWH")
     with pytest.raises(empires.EmpireError, match="does not control"):
-        firm_dealmaking.take_from_company(db, them["accountant"], company["id"], million_naira(1), LATER)
+        firm_dealmaking.take_from_company(db, them["asset_manager"], company["id"], million_naira(1), LATER)
     assert sale
 
 
@@ -174,13 +174,13 @@ def test_q8_nothing_is_done_between_the_end_of_a_quarter_and_its_close(db):
     with pytest.raises(empires.EmpireError):
         firm_dealmaking.draft_offer(db, team["investment_banker"], target["id"], target["reference_price"] * 12 // 10, issued * 6 // 10, ended)
     with pytest.raises(empires.EmpireError):
-        firm_practice.found(db, team["accountant"], "audit", "Late Audit", 0, ended)
+        firm_practice.found(db, team["asset_manager"], "audit", "Late Audit", 0, ended)
 
 
 # 9. Can an empire escape its debts, or a claim, by merging into another?
 def test_q9_an_empire_with_debts_or_things_half_done_cannot_merge_away(db):
     empire, team = firm_of(db, n_cash=2_000_000_000)
-    other, them = house(db, "Delta Partners", builds=("investment_banker", "lawyer"), cash_naira=1_000_000_000)
+    other, them = house(db, "Delta Partners", builds=("investment_banker", "risk_manager", "asset_manager"), cash_naira=1_000_000_000)
     db.execute("INSERT INTO empire_debts (empire_id, kind, lender_account, lender_name, principal, outstanding, rate_bps, taken_period, due_period, at)"
                " VALUES (%s, 'loan', %s, 'A bank', 100, 100, 1000, 9, 13, %s)", (other["id"], empire["account_id"], LATER))
     with pytest.raises(empires.EmpireError, match="repay its debts first"):

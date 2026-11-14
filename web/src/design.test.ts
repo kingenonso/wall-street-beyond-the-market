@@ -163,12 +163,10 @@ describe("the strip across the top", () => {
   const shell = readFileSync(new URL("./Shell.tsx", import.meta.url), "utf8");
   const ticker = readFileSync(new URL("./Ticker.tsx", import.meta.url), "utf8");
 
-  it("is three groups, and sets the world's switches apart from the navigation", () => {
-    for (const group of [".strip-left", ".strip-world", ".strip-right"]) {
+  it("is two groups: what you can go to, and where you are", () => {
+    for (const group of [".strip-left", ".strip-right"]) {
       expect(rule(group), `${group} has lost its layout`).toMatch(/display:\s*flex/);
     }
-    // The middle group is not a page among pages: a rule keeps the eye from reading it as navigation.
-    expect(rule(".strip-world")).toMatch(/border-left/);
   });
 
   it("puts the game's date and the market's state on the tape row, not in the strip", () => {
@@ -178,21 +176,25 @@ describe("the strip across the top", () => {
   });
 
   /**
-   * The loophole check for the four switches that have no engine behind them — the law firm, the two
-   * autopilots, the cheats and insurance. A button that looks ready and does nothing is a lie to the
-   * player, so while a switch is unbuilt it must be shown dimmed and disabled, which is also what the
-   * colour grammar already means by dimmed. When one of them is built, this test changes with it, in
-   * the same commit, and that change is the reminder that the others are still dark.
+   * The owner's decision of 9 November 2026: the row of four dimmed world switches comes out of the
+   * strip. This is the guard on that decision, and it is deliberately the opposite of the guard it
+   * replaces.
+   *
+   * The old guard held the four switches in place and demanded they stay dimmed, on the argument that
+   * a switch with no engine behind it is a lie to the player. The owner looked at the row and reached
+   * the stronger version of the same conclusion: a row of switches you can never press is not honesty,
+   * it is furniture — you stop seeing it, and it costs the strip a third of its width. Insurance is now
+   * a real thing to buy under Money, and this test fails the day the three unbuilt ones come back.
    */
-  it("ships no switch that pretends to work before its engine does", () => {
+  it("carries no world switches, and Insurance is a page rather than a switch", () => {
+    // The words themselves may appear in prose: the comment above Strip records what stood there and
+    // why it went. What may not come back is the switch, so the guard looks for the switch's shape.
     for (const label of ["Change Law Firm", "Toggle Global Autopilot", "Cheats", "Insurance"]) {
-      expect(shell, `the strip has lost the ${label} switch`).toContain(`label="${label}"`);
+      expect(shell, `the ${label} switch has crept back into the strip`).not.toContain(`label="${label}"`);
     }
-    const start = shell.indexOf("function WorldSwitch");
-    expect(start, "no WorldSwitch in Shell.tsx").toBeGreaterThan(-1);
-    const body = shell.slice(start, shell.indexOf("\n}", start));
-    expect(body, "WorldSwitch now renders a button that does something, but no engine exists yet").toMatch(/disabled/);
-    expect(rule(".strip-item:disabled")).toMatch(/opacity|color/);
+    expect(shell, "the strip still draws a middle group").not.toContain("strip-world");
+    expect(shell, "WorldSwitch has come back").not.toContain("function WorldSwitch");
+    expect(css, "the middle group's layout rule has come back").not.toContain(".strip-world");
   });
 
   it("keeps the search line reachable now that it is not in the strip", () => {
@@ -275,5 +277,58 @@ describe("the column that never moves", () => {
     expect(column).toMatch(/\{item\.change\}/);
     // The quotes are read the first time somebody asks for them, not on every screen in the game.
     expect(column).toMatch(/quotesSeen/);
+  });
+});
+
+/**
+ * The owner's complaint of 9 November 2026: "I can't find a place to repay my loan."
+ *
+ * The button existed. It was at the foot of Money › Borrow, below two large panels offering to lend
+ * more, and it only appeared once a loan existed. So the fix is about where things stand on a page,
+ * and about there being one of them: a guard on the order, a guard on the button that settles a loan
+ * in full, and a guard that the old second copy of the repayment form is gone for good.
+ */
+describe("where a debt is repaid", () => {
+  const desk = readFileSync(new URL("./Desk.tsx", import.meta.url), "utf8");
+  const borrow = readFileSync(new URL("./Borrow.tsx", import.meta.url), "utf8");
+  const debts = readFileSync(new URL("./Debts.tsx", import.meta.url), "utf8");
+
+  it("is one panel, drawn on the desk and on Borrow", () => {
+    expect(desk, "the desk no longer says what is owed").toMatch(/<DebtsPanel[\s\S]*?where="desk"/);
+    expect(borrow, "Borrow no longer says what is owed").toMatch(/<DebtsPanel[\s\S]*?where="borrow"/);
+  });
+
+  it("stands above the offer to lend more, never below it", () => {
+    // Read where the page actually draws them, not where the file happens to define them: LoansTab and
+    // ShortsTab are functions written higher up the file but drawn lower on the page.
+    const page = borrow.slice(borrow.indexOf("export function BorrowWork"));
+    const panel = page.indexOf("<DebtsPanel");
+    expect(panel, "Borrow no longer draws the panel at all").toBeGreaterThan(-1);
+    for (const drawn of ["{tab === \"loans\" && <LoansTab", "{tab === \"shorts\" && <ShortsTab", "{tab === \"empire\" && b.empire"]) {
+      const at = page.indexOf(drawn);
+      expect(at, `Borrow has lost ${drawn}`).toBeGreaterThan(-1);
+      expect(panel, `what you owe has slipped below ${drawn}`).toBeLessThan(at);
+    }
+  });
+
+  it("can settle a loan in full, not only in slices", () => {
+    expect(debts, "there is no way to pay a loan off in one go").toMatch(/Pay it all off/);
+    // Paying it all passes the whole outstanding figure, and the server clamps it; nothing is trusted from here.
+    expect(debts).toMatch(/wholeKobo\(row\.loan\.outstanding\)/);
+    // The two figures a repay form must never invent: the rate and the amount owed come from the server.
+    expect(debts).toMatch(/formatPercent\(loan\.rate_bps/);
+    expect(debts).toMatch(/formatNaira\(row\.loan\.outstanding\)/);
+  });
+
+  it("says where a mortgage is repaid instead of pretending to own that button", () => {
+    expect(debts).toMatch(/A mortgage is repaid with the property it is secured on/);
+    expect(debts).toMatch(/href="#\/property"/);
+  });
+
+  it("has exactly one repayment form in the front end", () => {
+    // The old copy inside Borrow's Loans tab was removed in the same change. If it comes back, a player
+    // can meet two repayment boxes for one loan and not know which the server will honour.
+    expect(borrow, "the old Loans panel is back in Borrow.tsx").not.toMatch(/title="Loans"/);
+    expect(borrow.match(/\/repay`/g)?.length ?? 0, "Borrow.tsx posts a repayment of its own again").toBe(0);
   });
 });

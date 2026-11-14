@@ -29,8 +29,8 @@ MONEY = {"owned", "owed", "borrow_room", "principal", "outstanding", "interest_a
          "closing", "cash", "shares", "bonds", "debt", "capital_in", "paid_out", "total_costs", "income_received", "profit", "dividend_room",
          "budget", "spent", "expense_threshold", "loan_least", "bond_least", "total", "amount", "cost", "covered", "cover", "claimed", "premium",
          "most", "bonus", "matched", "fee", "to_empire", "fee_least", "fee_most", "owed_now", "owed_after", "offer", "price", "loss", "reference", "worth", "paid", "start_worth", "payout"}
-BUILD = Literal["investment_banker", "asset_manager", "risk_manager", "accountant", "lawyer", "journalist"]
-DESK = Literal["investment_banker", "asset_manager", "risk_manager", "accountant", "lawyer", "journalist", "head"]
+BUILD = Literal["investment_banker", "asset_manager", "risk_manager"]
+DESK = Literal["investment_banker", "asset_manager", "risk_manager", "head"]
 Kobo = Annotated[int, Field(gt=0, le=1_000_000_000_000_000, strict=True)]
 
 

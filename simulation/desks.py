@@ -2,7 +2,7 @@
 
 The Asset Manager's screen is built on what the player owns. The Accountant's screen is built
 on companies' filed accounts. Nothing here is hidden knowledge: an Accountant sees the same
-filings as everybody else, laid out the way an accountant works with them.
+filings as everybody else, laid out the way the Asset Manager works with the accounts.
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ def _ratios(figures: dict) -> dict:
     }
 
 
-def accountant_desk(conn: Connection, player_id, ticker: str | None, now: datetime) -> dict | None:
+def asset_manager_accounts_desk(conn: Connection, player_id, ticker: str | None, now: datetime) -> dict | None:
     """The Accountant's workspace on one company: its filed statements quarter by quarter, the
     ratios, its tax, and the list of companies behind on what they owe."""
     job = _rows(conn, "SELECT c.ticker FROM employments e JOIN companies c ON c.id = e.company_id"
@@ -118,3 +118,7 @@ def accountant_desk(conn: Connection, player_id, ticker: str | None, now: dateti
     return {"ticker": company["ticker"], "name": company["name"], "sector": company["sector"],
             "is_employer": company["ticker"] == employer, "quarters": quarters, "companies": companies, "watch": watch,
             "tax_rate_bps": tax_rate}
+
+
+def accountant_desk(conn, player_id, ticker, now):
+    return asset_manager_accounts_desk(conn, player_id, ticker, now)

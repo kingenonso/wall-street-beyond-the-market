@@ -31,7 +31,7 @@ from simulation.empires import EmpireError, _log, _money, _one, _open, _rows, _t
 from simulation.money import BPS, apply_bps, million_naira
 
 KINDS = {   # kind -> (build that may found it, what it is called, what it does)
-    "audit": ("accountant", "Audit firm", "Audits companies before a sale, and checks the accounts on a deal."),
+    "audit": ("asset_manager", "Audit firm", "Audits companies before a sale, and checks the accounts on a deal."),
     "risk": ("risk_manager", "Risk consultancy", "Stress-tests and inspects companies on a deal."),
     "advisory": ("investment_banker", "Advisory firm", "Runs sales, values companies, writes fairness opinions, restructures debts."),
     "bank": ("asset_manager", "Small bank", "Lends to empires from its capital, and underwrites listings."),
@@ -381,7 +381,7 @@ def _finish_audit(conn: Connection, f: dict, job: dict, opinion: str, well: bool
         words += " The auditor found money taken out of the company by insiders."
     if not right:
         _reputation(conn, f["id"], REPUTATION_MISSED if opinion == "clean" else REPUTATION_BAD)
-    firm.sign_opinion(conn, f["founder_id"], "accountant", owner["empire_id"] if owner else None, "audit_opinion",
+    firm.sign_opinion(conn, f["founder_id"], "asset_manager", owner["empire_id"] if owner else None, "audit_opinion",
                       f"Audit of {company['name']}: {opinion}", {"job_id": job["id"], "opinion": opinion}, period, None, now)
     opinion_id = _one(conn, "SELECT id FROM signed_opinions WHERE player_id = %s ORDER BY id DESC LIMIT 1", (f["founder_id"],))["id"]
     firm.settle_opinion(conn, opinion_id, "right" if right else "wrong",

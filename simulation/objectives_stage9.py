@@ -363,7 +363,7 @@ T = o.Template
 o.TEMPLATES.update({t.code: t for t in (
     T("am_margin", "asset_manager", "Leverage and margin", "Will the loan bring a margin call?", 3, 80_000, 120, "hand_in",
       "Borrowing against shares multiplies gains and losses; a fall can bring a margin call.", "employer", _margin_offer, submit=_margin_submit),
-    T("ac_carry", "accountant", "Futures and the cost of carry", "Is the future fairly priced?", 3, 80_000, 120, "hand_in",
+    T("ac_carry", "asset_manager", "Futures and the cost of carry", "Is the future fairly priced?", 3, 80_000, 120, "hand_in",
       "A future's fair price is today's price carried at the interest rate to the day it settles.", "employer", _carry_offer, submit=_carry_submit),
     T("ib_parity", "investment_banker", "Option pricing", "Price the put from the call", 4, 100_000, 150, "hand_in",
       "A call less a put at the same strike and date is worth the share less the strike's value today.", "employer", _parity_offer,
@@ -371,9 +371,9 @@ o.TEMPLATES.update({t.code: t for t in (
     T("rm_var", "risk_manager", "Value at risk", "Is the position within its loss limit?", 3, 80_000, 120, "hand_in",
       "Value at risk: how much could be lost, one time in twenty, over a few days, if the past is a fair guide.", "employer", _var_offer,
       submit=_var_submit),
-    T("lw_lending", "lawyer", "Securities lending", "Read the lending agreement after a rise", 3, 80_000, 120, "hand_in",
+    T("lw_lending", "investment_banker", "Securities lending", "Read the lending agreement after a rise", 3, 80_000, 120, "hand_in",
       "A borrower of shares must keep the collateral up and pay the lender every dividend.", "employer", _lending_offer, submit=_lending_submit),
-    T("jn_short", "journalist", "Market positioning", "Report the bets against a share", 2, 60_000, 100, "hand_in",
+    T("jn_short", "investment_banker", "Market positioning", "Report the bets against a share", 2, 60_000, 100, "hand_in",
       "Short interest and days to cover show how many bet on a fall, and how hard it would be for them to get out.", "employer",
       _interest_offer, submit=_interest_submit),
 )})

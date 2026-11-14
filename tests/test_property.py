@@ -134,7 +134,7 @@ def test_a_property_company_that_still_owns_everything_earns_its_rent_inside_its
 # ---------------------------------------------------------------------------
 
 def test_a_player_buys_a_listed_unit_with_a_mortgage_and_owns_it_after_the_countdown(db):
-    player, account = pro(db, "accountant", "buyer", level=10, cash_naira=200_000_000)
+    player, account = pro(db, "asset_manager", "buyer", level=10, cash_naira=200_000_000)
     a = _one(db, "SELECT a.* FROM auctions a WHERE a.status = 'open' AND a.property_id IS NOT NULL AND a.opens_at <= %s ORDER BY a.fair LIMIT 1", (NOW9,))
     company_before = ledger.balance(db, a["seller"])
     bank = a_bank(db)
@@ -160,7 +160,7 @@ def test_a_player_buys_a_listed_unit_with_a_mortgage_and_owns_it_after_the_count
 
 
 def test_a_lone_bid_below_the_sellers_lowest_price_does_not_buy(db):
-    player, account = pro(db, "accountant", "buyer", level=10, cash_naira=200_000_000)
+    player, account = pro(db, "asset_manager", "buyer", level=10, cash_naira=200_000_000)
     a = _one(db, "SELECT a.* FROM auctions a WHERE a.status = 'open' AND a.property_id IS NOT NULL AND a.opens_at <= %s ORDER BY a.fair LIMIT 1", (NOW9,))
     before = ledger.balance(db, account)
     auctions.place_bid(db, account, a["id"], a["reserve"] - 1, LATER, player_id=player)
@@ -172,8 +172,8 @@ def test_a_lone_bid_below_the_sellers_lowest_price_does_not_buy(db):
 
 
 def test_a_bid_at_or_above_the_reserve_buys_it_and_the_company_books_the_sale(db):
-    player, account = pro(db, "accountant", "buyer", level=10, cash_naira=200_000_000)
-    rival, rival_account = pro(db, "lawyer", "rival", level=10, cash_naira=200_000_000)
+    player, account = pro(db, "asset_manager", "buyer", level=10, cash_naira=200_000_000)
+    rival, rival_account = pro(db, "investment_banker", "rival", level=10, cash_naira=200_000_000)
     a = _one(db, "SELECT a.* FROM auctions a WHERE a.status = 'open' AND a.property_id IS NOT NULL AND a.opens_at <= %s ORDER BY a.fair LIMIT 1", (NOW9,))
     seller_before = ledger.balance(db, a["seller"])
     bank = a_bank(db)
@@ -206,8 +206,8 @@ def test_a_bid_at_or_above_the_reserve_buys_it_and_the_company_books_the_sale(db
 def test_a_late_bid_adds_five_minutes_and_a_leading_bid_cannot_be_withdrawn(db):
     p = a_unit(db, "Aba")
     a = lot(db, p["id"])
-    one, one_account = pro(db, "accountant", "one", cash_naira=500_000_000)
-    two, two_account = pro(db, "lawyer", "two", cash_naira=500_000_000)
+    one, one_account = pro(db, "asset_manager", "one", cash_naira=500_000_000)
+    two, two_account = pro(db, "investment_banker", "two", cash_naira=500_000_000)
     first = auctions.place_bid(db, one_account, a["id"], a["start_price"] * 2, LATER, player_id=one)
     with pytest.raises(prop.PropertyError, match="cannot be withdrawn"):
         auctions.withdraw(db, one_account, first["bid_id"], LATER)
@@ -225,7 +225,7 @@ def test_a_late_bid_adds_five_minutes_and_a_leading_bid_cannot_be_withdrawn(db):
 
 def test_computer_bidders_join_a_forced_sale_and_an_outbid_player_gets_their_cash_back(db):
     p = a_unit(db, "Lagos")
-    owner, owner_account = pro(db, "accountant", "owner", cash_naira=0)
+    owner, owner_account = pro(db, "asset_manager", "owner", cash_naira=0)
     hand_over(db, p["id"], owner_account)
     with db.transaction():
         auction = auctions.force_sale(db, p["id"], "tax", 9, NOW9)
@@ -233,7 +233,7 @@ def test_computer_bidders_join_a_forced_sale_and_an_outbid_player_gets_their_cas
     assert computers, "property companies bid at a forced sale"
     a = auctions._auction(db, auction)
     assert a["reserve"] == 0 and a["leader"] is not None
-    bidder, bidder_account = pro(db, "lawyer", "bargain", cash_naira=500_000_000)
+    bidder, bidder_account = pro(db, "investment_banker", "bargain", cash_naira=500_000_000)
     before = ledger.balance(db, bidder_account)
     low = auctions.minimum(a)
     done = auctions.place_bid(db, bidder_account, auction, low, LATER, player_id=bidder)
@@ -248,8 +248,8 @@ def test_computer_bidders_join_a_forced_sale_and_an_outbid_player_gets_their_cas
 def test_partners_share_a_bid_and_then_the_property(db):
     p = a_unit(db, "Abuja")
     a = lot(db, p["id"])
-    lead, lead_account = pro(db, "accountant", "lead", cash_naira=500_000_000)
-    friend, friend_account = pro(db, "lawyer", "friend", cash_naira=500_000_000)
+    lead, lead_account = pro(db, "asset_manager", "lead", cash_naira=500_000_000)
+    friend, friend_account = pro(db, "investment_banker", "friend", cash_naira=500_000_000)
     ask = auctions.ask_partner(db, lead_account, a["id"], friend_account, 4000, LATER)
     with pytest.raises(prop.PropertyError):
         auctions.place_bid(db, lead_account, a["id"], a["start_price"], LATER, player_id=lead, partner=ask)
@@ -266,7 +266,7 @@ def test_partners_share_a_bid_and_then_the_property(db):
 
 
 def test_a_mortgage_is_limited_to_four_years_of_salary_and_needs_a_fifth_paid_down(db):
-    player, account = pro(db, "accountant", "salaried", level=5, cash_naira=0)
+    player, account = pro(db, "asset_manager", "salaried", level=5, cash_naira=0)
     salary = careers.salary_per_quarter(careers.career(db, player)["level"], careers.world_now(db, NOW9)["wage_index_bps"])
     huge = naira(10_000_000_000)
     assert prop.mortgage_limit(db, account, huge, NOW9) == salary * 16
@@ -276,7 +276,7 @@ def test_a_mortgage_is_limited_to_four_years_of_salary_and_needs_a_fifth_paid_do
                " VALUES (1, %s, %s, %s, %s, 1000, 8, 40, %s)", (account, a_bank(db)["id"], salary * 10, salary * 10, NOW9))
     assert prop.mortgage_limit(db, account, huge, NOW9) == salary * 6
     # No job, no mortgage.
-    jobless, jobless_account = pro(db, "lawyer", "idle", cash_naira=0)
+    jobless, jobless_account = pro(db, "investment_banker", "idle", cash_naira=0)
     careers.leave_job(db, jobless, NOW9)
     assert prop.mortgage_limit(db, jobless_account, naira(1_000_000), NOW9) == 0
 
@@ -287,7 +287,7 @@ def test_a_mortgage_is_limited_to_four_years_of_salary_and_needs_a_fifth_paid_do
 
 def test_an_owner_is_paid_rent_and_pays_tax_and_upkeep_at_the_close(db):
     p = a_unit(db, "Lagos")
-    owner, owner_account = pro(db, "accountant", "landlord", cash_naira=50_000_000)
+    owner, owner_account = pro(db, "asset_manager", "landlord", cash_naira=50_000_000)
     hand_over(db, p["id"], owner_account)
     before = ledger.balance(db, owner_account)
     quarters.close_due_quarters(db, after_quarters(9))
@@ -305,7 +305,7 @@ def test_an_owner_is_paid_rent_and_pays_tax_and_upkeep_at_the_close(db):
 
 def test_without_upkeep_a_building_wears_five_times_faster_and_renovation_restores_it(db):
     p = a_unit(db, "Kano")
-    owner, owner_account = pro(db, "accountant", "landlord", cash_naira=50_000_000)
+    owner, owner_account = pro(db, "asset_manager", "landlord", cash_naira=50_000_000)
     hand_over(db, p["id"], owner_account)
     prop.set_upkeep(db, owner_account, p["id"], False)
     quarters.close_due_quarters(db, after_quarters(9))
@@ -319,7 +319,7 @@ def test_without_upkeep_a_building_wears_five_times_faster_and_renovation_restor
 
 def test_two_missed_mortgage_payments_and_the_bank_sells_the_property(db):
     p = a_unit(db, "Port Harcourt", standing=False)        # a plot: no rent comes in to meet the payments
-    owner, owner_account = pro(db, "accountant", "borrower", level=10, cash_naira=0)
+    owner, owner_account = pro(db, "asset_manager", "borrower", level=10, cash_naira=0)
     hand_over(db, p["id"], owner_account)
     bank = a_bank(db)
     with db.transaction():
@@ -344,7 +344,7 @@ def test_two_missed_mortgage_payments_and_the_bank_sells_the_property(db):
 
 def test_a_flawed_title_costs_the_buyer_part_of_the_property_and_a_title_search_shows_it(db):
     flawed = _one(db, "SELECT * FROM properties WHERE title_flaw_bps > 0 AND status = 'standing' ORDER BY size_m2 LIMIT 1")
-    buyer, buyer_account = pro(db, "lawyer", "careful", cash_naira=10_000_000)
+    buyer, buyer_account = pro(db, "investment_banker", "careful", cash_naira=10_000_000)
     found = prop.title_search(db, buyer_account, flawed["id"], NOW9)
     assert not found["clean"] and found["fee"] > 0
     hand_over(db, flawed["id"], buyer_account)
@@ -359,8 +359,8 @@ def test_a_flawed_title_costs_the_buyer_part_of_the_property_and_a_title_search_
 def test_buyers_who_overpay_inflate_a_bubble_that_then_fades(db):
     p = a_unit(db, "Abuja")
     a = lot(db, p["id"])
-    one, one_account = pro(db, "accountant", "keen", cash_naira=900_000_000)
-    two, two_account = pro(db, "lawyer", "keener", cash_naira=900_000_000)
+    one, one_account = pro(db, "asset_manager", "keen", cash_naira=900_000_000)
+    two, two_account = pro(db, "investment_banker", "keener", cash_naira=900_000_000)
     auctions.place_bid(db, one_account, a["id"], a["fair"] * 2, LATER, player_id=one)
     auctions.place_bid(db, two_account, a["id"], a["fair"] * 3, LATER, player_id=two)
     end(db, a)
@@ -376,7 +376,7 @@ def test_buyers_who_overpay_inflate_a_bubble_that_then_fades(db):
 
 def test_building_on_a_plot_makes_a_building_that_earns_rent(db):
     plot = a_unit(db, "Aba", standing=False)
-    owner, owner_account = pro(db, "accountant", "builder", cash_naira=0)
+    owner, owner_account = pro(db, "asset_manager", "builder", cash_naira=0)
     hand_over(db, plot["id"], owner_account)
     cost = prop.build_cost({**plot, "city": "Aba"})
     with pytest.raises(prop.PropertyError, match="costs"):
@@ -411,17 +411,17 @@ def test_an_empire_bids_only_after_every_desk_has_checked_the_lot_and_not_above_
     with pytest.raises(prop.PropertyError, match="Still to do"):
         auctions.empire_bid(db, team["head"], a["id"], a["start_price"], LATER)
     with pytest.raises(prop.PropertyError, match="desk"):
-        auctions.check(db, team["accountant"], a["id"], "title", {}, LATER)
+        auctions.check(db, team["asset_manager"], a["id"], "title", {}, LATER)
     before = ledger.balance(db, empire["account_id"])
-    title = auctions.check(db, team["lawyer"], a["id"], "title", {}, LATER)
+    title = auctions.check(db, team["investment_banker"], a["id"], "title", {}, LATER)
     assert title["clean"] and ledger.balance(db, empire["account_id"]) < before
-    auctions.check(db, team["accountant"], a["id"], "valuation", {"value": a["fair"]}, LATER)
+    auctions.check(db, team["asset_manager"], a["id"], "valuation", {"value": a["fair"]}, LATER)
     auctions.check(db, team["risk_manager"], a["id"], "limit", {"limit": a["fair"]}, LATER)
     auctions.check(db, team["investment_banker"], a["id"], "money", {"mortgage_bps": 0}, LATER)
     with pytest.raises(prop.PropertyError, match="top price"):
         auctions.empire_bid(db, team["head"], a["id"], a["fair"] + 1, LATER)
     with pytest.raises(prop.PropertyError, match="head"):
-        auctions.empire_bid(db, team["accountant"], a["id"], a["fair"], LATER)
+        auctions.empire_bid(db, team["asset_manager"], a["id"], a["fair"], LATER)
     auctions.empire_bid(db, team["head"], a["id"], a["fair"], LATER)
     end(db, a)
     assert prop.share_of(db, p["id"], empire["account_id"]) == BPS
@@ -451,7 +451,7 @@ def test_the_cost_of_a_level_grows_so_each_level_is_dearer_and_level_120_is_far_
 def test_a_headquarters_adds_seats_as_it_rises_and_teaches_more(db):
     empire, team, p = _hq_empire(db)
     with pytest.raises(prop.PropertyError, match="head"):
-        headquarters.establish(db, team["accountant"], p["id"], NOW9)
+        headquarters.establish(db, team["asset_manager"], p["id"], NOW9)
     headquarters.establish(db, team["head"], p["id"], NOW9)
     assert headquarters.bonus_bps(db, empire["id"]) == data.HQ_BONUS_PER_ROOT_BPS
     assert headquarters.recruit_points(db, empire["id"]) == data.LAGOS_RECRUIT_POINTS
@@ -472,10 +472,10 @@ def test_a_neglected_headquarters_is_warned_and_then_collapses_and_the_insurance
     headquarters.establish(db, team["head"], p["id"], NOW9)
     headquarters.raise_level(db, team["head"], 9, NOW9)
     with pytest.raises(prop.PropertyError, match="Risk Manager"):
-        headquarters.ask_upkeep(db, team["accountant"], NOW9)
+        headquarters.ask_upkeep(db, team["asset_manager"], NOW9)
     db.execute("UPDATE headquarters SET condition = 20 WHERE empire_id = %s", (empire["id"],))
     rep = {r["id"]: r["reputation"] for r in _dicts(db, "SELECT id, reputation FROM players WHERE id = ANY(%s)",
-                                                    ([team["head"], team["risk_manager"], team["accountant"]],))}
+                                                    ([team["head"], team["risk_manager"], team["asset_manager"]],))}
     monkeypatch.setattr(headquarters, "_uniform", lambda *args: 0.0)
     quarters.close_due_quarters(db, after_quarters(9))
     hq = headquarters.of(db, empire["id"])
@@ -483,10 +483,10 @@ def test_a_neglected_headquarters_is_warned_and_then_collapses_and_the_insurance
     assert not headquarters.standing(hq) and headquarters.bonus_bps(db, empire["id"]) == 0
     assert all(s["hq_frozen"] for s in _dicts(db, "SELECT * FROM empire_seats WHERE empire_id = %s AND slot >= 3", (empire["id"],)))
     after = {r["id"]: r["reputation"] for r in _dicts(db, "SELECT id, reputation FROM players WHERE id = ANY(%s)",
-                                                      ([team["head"], team["risk_manager"], team["accountant"]],))}
+                                                      ([team["head"], team["risk_manager"], team["asset_manager"]],))}
     # Nobody asked for the upkeep: the Risk Manager, whose desk it is, is blamed. Other members are unharmed.
     assert after[team["risk_manager"]] < rep[team["risk_manager"]] or rep[team["risk_manager"]] == 0
-    assert after[team["head"]] == rep[team["head"]] and after[team["accountant"]] == rep[team["accountant"]]
+    assert after[team["head"]] == rep[team["head"]] and after[team["asset_manager"]] == rep[team["asset_manager"]]
     # Rebuilding brings it back.
     headquarters.rebuild(db, team["head"], after_quarters(9) + timedelta(hours=2))
     assert headquarters.standing(headquarters.of(db, empire["id"]))
@@ -510,7 +510,7 @@ def test_a_headquarters_whose_building_is_sold_at_a_forced_sale_must_move(db):
     headquarters.raise_level(db, team["head"], 10, NOW9)
     with db.transaction():
         auction = auctions.force_sale(db, p["id"], "tax", 9, NOW9)
-    buyer, buyer_account = pro(db, "lawyer", "buyer", cash_naira=900_000_000)
+    buyer, buyer_account = pro(db, "investment_banker", "buyer", cash_naira=900_000_000)
     auctions.place_bid(db, buyer_account, auction, auctions._auction(db, auction)["fair"] * 2, LATER, player_id=buyer)
     end(db, auction)
     hq = headquarters.of(db, empire["id"])
@@ -532,7 +532,7 @@ def test_insurance_for_the_headquarters_is_one_of_the_empires_covers():
 def test_a_property_company_that_buys_at_auction_books_it_as_capital_spending_and_the_close_balances(db):
     """Found by the ten-year run: a company's purchase at the Auction House during the quarter must count in its accounts."""
     p = a_unit(db, "Lagos")
-    owner, owner_account = pro(db, "accountant", "seller", cash_naira=0)
+    owner, owner_account = pro(db, "asset_manager", "seller", cash_naira=0)
     hand_over(db, p["id"], owner_account)
     with db.transaction():
         auction = auctions.force_sale(db, p["id"], "tax", 9, NOW9)

@@ -42,7 +42,7 @@ def _piece(db, holder, *, truth="true", confidential=False, hours=4, company=Non
 def test_l1_no_page_sends_a_pieces_truth_basis_or_planter(db, client):
     me = reporter(client, db)
     client.post("/api/intel/tip/open")
-    seller = pro(db, "accountant", "secretseller", level=10, cash_naira=1_000_000)[0]
+    seller = pro(db, "asset_manager", "secretseller", level=10, cash_naira=1_000_000)[0]
     item = _piece(db, seller)
     intel.offer(db, seller, item["ref"], naira(50_000), NOW9)
     for path in ("/api/intel", "/api/rumours", "/api/investigations", "/api/charities", "/api/media"):
@@ -71,8 +71,8 @@ def test_l2_one_sealed_tip_a_day_and_none_for_sale(db):
 
 # 3. Can a player use a piece they do not hold, or one that has run out of time or been proved wrong?
 def test_l3_only_a_holder_uses_a_piece_and_only_while_it_is_useful(db):
-    owner = pro(db, "accountant", "holder", level=10, cash_naira=1_000_000)[0]
-    j = pro(db, "journalist", "taker", level=10, cash_naira=1_000_000)[0]
+    owner = pro(db, "asset_manager", "holder", level=10, cash_naira=1_000_000)[0]
+    j = pro(db, "investment_banker", "taker", level=10, cash_naira=1_000_000)[0]
     item = _piece(db, owner)
     for action in (lambda: intel.check(db, j, item["ref"], NOW9), lambda: intel.offer(db, j, item["ref"], naira(50_000), NOW9),
                    lambda: intel.give(db, j, item["ref"], "holder", NOW9)):
@@ -92,7 +92,7 @@ def test_l3_only_a_holder_uses_a_piece_and_only_while_it_is_useful(db):
 
 # 4. Can the market be gamed: buy twice, buy one's own, sell what has expired, or list without limit?
 def test_l4_the_market_sells_each_buyer_one_copy_never_to_the_seller_and_never_expired(db):
-    seller = pro(db, "accountant", "lister", level=10, cash_naira=1_000_000)[0]
+    seller = pro(db, "asset_manager", "lister", level=10, cash_naira=1_000_000)[0]
     buyer = pro(db, "asset_manager", "copier", level=10, cash_naira=5_000_000)[0]
     items = [_piece(db, seller) for _ in range(data.INTEL_LISTINGS_MOST + 1)]
     for item in items[:-1]:
@@ -115,7 +115,7 @@ def test_l4_the_market_sells_each_buyer_one_copy_never_to_the_seller_and_never_e
 # 5. Can an exposé be made up, run twice, or run after someone else got there first?
 def test_l5_an_expose_needs_documents_a_second_source_and_something_still_hidden(db):
     empire, team = firm_of(db)
-    j = pro(db, "journalist", "fabricator", level=40)[0]
+    j = pro(db, "investment_banker", "fabricator", level=40)[0]
     f = press.open_file(db, j, empire["name"], None, NOW9)
     db.execute("UPDATE investigations SET documents = 3, confirmed = true WHERE id = %s", (f["id"],))
     with pytest.raises(press.PressError, match="documents and a second source"):
@@ -123,24 +123,24 @@ def test_l5_an_expose_needs_documents_a_second_source_and_something_still_hidden
     w = careers.world_now(db, NOW9)
     book = _one(db, "INSERT INTO empire_books (empire_id, period, category, description, amount, genuine, entered_by, thief_level, at)"
                     " VALUES (%s, %s, 'supplies', 'Supplies', %s, false, %s, 4, %s) RETURNING id",
-                (empire["id"], w["period"], naira(1_000_000), team["accountant"], NOW9))
+                (empire["id"], w["period"], naira(1_000_000), team["asset_manager"], NOW9))
     db.execute("UPDATE investigations SET basis = %s WHERE id = %s", (f"book:{book['id']}", f["id"]))
     # An audit gets there first: the trail is cold.
     db.execute("UPDATE empire_books SET found = true WHERE id = %s", (book["id"],))
     with pytest.raises(press.PressError, match="got there first"):
         press.publish_expose(db, j, f["id"], NOW9)
     with pytest.raises(press.PressError, match="investigate the empire they sit in"):
-        press.open_file(db, team["journalist"], empire["name"], None, NOW9)
+        press.open_file(db, team["investment_banker"], empire["name"], None, NOW9)
 
 
 # 6. Can someone answer a crisis for an empire they do not speak for, late, or twice?
 def test_l6_only_the_empire_answers_its_crisis_once_and_in_time(db):
     empire, team = firm_of(db)
     c = press.open_crisis(db, empire["id"], "report", "story:424242", "A report about the empire.", "true", NOW9)
-    outsider = pro(db, "journalist", "meddler", level=10)[0]
+    outsider = pro(db, "investment_banker", "meddler", level=10)[0]
     with pytest.raises(press.PressError, match="do not speak"):
         press.answer_crisis(db, outsider, c["id"], "deny", "That is all nonsense from start to end.", NOW9)
-    press.answer_crisis(db, team["journalist"], c["id"], "admit", "We have found the problem and are fixing it.", NOW9)
+    press.answer_crisis(db, team["investment_banker"], c["id"], "admit", "We have found the problem and are fixing it.", NOW9)
     with pytest.raises(press.PressError, match="closed"):
         press.answer_crisis(db, team["head"], c["id"], "deny", "We did no such thing at all, ever.", NOW9)
     # A second crisis about the same thing is not opened twice.
@@ -150,15 +150,15 @@ def test_l6_only_the_empire_answers_its_crisis_once_and_in_time(db):
 # 7. Can anyone but the hunter learn who leaked; can a hunt run twice; can a member leak what is not so?
 def test_l7_leaks_are_true_and_the_leaker_is_known_only_to_a_successful_hunter(db, monkeypatch):
     empire, team = firm_of(db)
-    j = pro(db, "journalist", "leakdesk", level=10)[0]
+    j = pro(db, "investment_banker", "leakdesk", level=10)[0]
     with pytest.raises(press.PressError, match="no such hidden pact"):
-        press.leak(db, team["lawyer"], "pact", "leakdesk", NOW9, pact_id=999999)
+        press.leak(db, team["investment_banker"], "pact", "leakdesk", NOW9, pact_id=999999)
     with pytest.raises(press.PressError, match="no purchase in hand"):
-        press.leak(db, team["lawyer"], "plan", "leakdesk", NOW9)
+        press.leak(db, team["investment_banker"], "plan", "leakdesk", NOW9)
     from tests.test_objectives import give_shares
     company = _one(db, "SELECT ticker FROM companies WHERE listed ORDER BY ticker LIMIT 1")
     give_shares(db, empire["account_id"], company["ticker"], 1000)
-    press.leak(db, team["lawyer"], "holding", "leakdesk", NOW9, ticker=company["ticker"])
+    press.leak(db, team["investment_banker"], "holding", "leakdesk", NOW9, ticker=company["ticker"])
     piece = intel.mine(db, j, NOW9)[0]
     assert "counsel" not in repr(piece).lower()
     newsroom.start(db, j, NOW9)
@@ -167,7 +167,7 @@ def test_l7_leaks_are_true_and_the_leaker_is_known_only_to_a_successful_hunter(d
     leak = press.leaks_of(db, empire["id"])[0]
     assert "counsel" not in repr(press.desk(db, team["head"], NOW9)).lower()
     monkeypatch.setattr(data, "LEAK_HUNT_RANGE_BPS", (10_000, 10_000))
-    found = press.hunt(db, team["journalist"], leak["id"], NOW9)
+    found = press.hunt(db, team["investment_banker"], leak["id"], NOW9)
     assert found["found"] and "counsel" in found["words"]
     with pytest.raises(press.PressError, match="already"):
         press.hunt(db, team["head"], leak["id"], NOW9)
@@ -176,13 +176,13 @@ def test_l7_leaks_are_true_and_the_leaker_is_known_only_to_a_successful_hunter(d
 
 # 8. Can a charity pay its trustee, hide a grant to insiders from the Money Watch, or be founded twice by one person?
 def test_l8_a_charity_never_pays_its_trustee_and_insiders_are_on_the_record(db):
-    p = pro(db, "accountant", "trusty", level=10, cash_naira=30_000_000)[0]
+    p = pro(db, "asset_manager", "trusty", level=10, cash_naira=30_000_000)[0]
     c = charity.found(db, p, "Kind Hearts", "health", "Abuja", naira(10_000_000), NOW9)
     with pytest.raises(charity.CharityError, match="already run"):
         charity.found(db, p, "Kind Hearts Two", "health", "Abuja", naira(1_000_000), NOW9)
     with pytest.raises(charity.CharityError, match="themselves"):
         charity.grant(db, p, c["id"], naira(1_000_000), "A salary", NOW9, to_name="trusty")
-    donor = pro(db, "lawyer", "donor", level=10, cash_naira=5_000_000)[0]
+    donor = pro(db, "investment_banker", "donor", level=10, cash_naira=5_000_000)[0]
     charity.give(db, donor, c["id"], naira(2_000_000), NOW9)
     charity.grant(db, p, c["id"], naira(5_000_000), "An award for service", NOW9, to_name="donor")
     assert _one(db, "SELECT connected FROM charity_grants WHERE to_player = %s", (donor,))["connected"]
@@ -194,7 +194,7 @@ def test_l8_a_charity_never_pays_its_trustee_and_insiders_are_on_the_record(db):
 
 # 9. Can a title be bought on borrowed or shared money, by its own owner, or printed in by someone who does not own it?
 def test_l9_a_title_is_bought_outright_never_by_its_owner_and_printed_in_only_by_its_owners(db):
-    p, account = pro(db, "journalist", "mogul", level=20, cash_naira=200_000_000)
+    p, account = pro(db, "investment_banker", "mogul", level=20, cash_naira=200_000_000)
     government = ledger.account_id(db, ledger.TREASURY)
     t = _one(db, "SELECT * FROM media_titles WHERE owner_account = %s ORDER BY id LIMIT 1", (government,)) or \
         _one(db, "SELECT * FROM media_titles ORDER BY id LIMIT 1")
@@ -204,7 +204,7 @@ def test_l9_a_title_is_bought_outright_never_by_its_owner_and_printed_in_only_by
     row = _one(db, "SELECT * FROM auctions WHERE id = %s", (a,))
     when = max(row["opens_at"], NOW9) + timedelta(minutes=1)
     with pytest.raises(PropertyError, match="outright"):
-        auctions.ask_partner(db, account, a, ledger.player_account_id(db, pro(db, "lawyer", "partner", level=4)[0]), 5000, when)
+        auctions.ask_partner(db, account, a, ledger.player_account_id(db, pro(db, "investment_banker", "partner", level=4)[0]), 5000, when)
     with pytest.raises(PropertyError, match="your own"):
         auctions.place_bid(db, t["owner_account"], a, row["fair"] * 3, when)
     newsroom.start(db, p, NOW9)
@@ -221,7 +221,7 @@ def test_l9_a_title_is_bought_outright_never_by_its_owner_and_printed_in_only_by
 def test_l10_dealing_on_confidential_information_is_recorded_however_it_is_done(db):
     empire, team = firm_of(db)
     company = _one(db, "SELECT id, name, ticker FROM companies WHERE listed ORDER BY ticker LIMIT 1")
-    seller = pro(db, "accountant", "insiderseller", level=10, cash_naira=1_000_000)[0]
+    seller = pro(db, "asset_manager", "insiderseller", level=10, cash_naira=1_000_000)[0]
     item = _piece(db, seller, confidential=True, company=company)
     listing = intel.offer(db, seller, item["ref"], naira(20_000), NOW9)["listing_id"]
     from tests.test_objectives import give_cash
@@ -235,9 +235,9 @@ def test_l10_dealing_on_confidential_information_is_recorded_however_it_is_done(
     dealt = _one(db, "SELECT * FROM confidential_dealings WHERE player_id = %s", (team["head"],))
     assert dealt and dealt["account_id"] == empire["account_id"] and dealt["item_id"] == item["id"]
     # Laid only at the door of who placed the order: a member who holds the same piece but did not trade is not recorded.
-    intel.hold(db, item["id"], team["accountant"], "given", NOW9, from_player=team["head"])
+    intel.hold(db, item["id"], team["asset_manager"], "given", NOW9, from_player=team["head"])
     try:
         empires.trade_shares(db, team["head"], ticker=company["ticker"], side="buy", kind="market", quantity=5, limit_price=None, now=NOW9)
     except empires.EmpireError:
         pass
-    assert _one(db, "SELECT 1 AS x FROM confidential_dealings WHERE player_id = %s", (team["accountant"],)) is None
+    assert _one(db, "SELECT 1 AS x FROM confidential_dealings WHERE player_id = %s", (team["asset_manager"],)) is None

@@ -24,7 +24,7 @@ AFTER9 = after_quarters(9) + timedelta(hours=2)
 def second_empire(db, name="Second House", head_name="second", cash=30_000_000_000):
     head, _ = pro(db, "asset_manager", head_name, level=20, cash_naira=60_000_000)
     other = empires.found(db, head, name, million_naira(40), 0, NOW9)
-    for build, who in (("journalist", f"{head_name}_j"), ("accountant", f"{head_name}_a")):
+    for build, who in (("investment_banker", f"{head_name}_j"), ("asset_manager", f"{head_name}_a"), ("risk_manager", f"{head_name}_r")):
         member(db, other, head, build, who)
     other = empires.open_empire(db, head, NOW9)
     give_cash(db, other["account_id"], cash)
@@ -34,7 +34,7 @@ def second_empire(db, name="Second House", head_name="second", cash=30_000_000_0
 def filed(db, team, empire, ticker=None, mode="sealed", *, badly=()):
     sale = open_a_sale(db, ticker, mode=mode)
     file_id = firm_deals.open_file(db, team["investment_banker"], sale["id"], LATER)["file_id"]
-    firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
+    firm_deals.sign_nda(db, team["investment_banker"], file_id, LATER)
     do_checks(db, empire, team, file_id, badly=badly)
     return sale, file_id
 
@@ -94,7 +94,7 @@ def test_f03_what_a_check_showed_is_known_even_if_answered_wrongly(db):
     if deal is None:
         pytest.skip("Outbid.")
     with pytest.raises(empires.EmpireError, match="priced in"):
-        firm_deals.claim(db, team["lawyer"], deal["id"], "dressed_revenue", AFTER9)
+        firm_deals.claim(db, team["investment_banker"], deal["id"], "dressed_revenue", AFTER9)
 
 
 # f04: a worn-assets claim is measured at the sale, not after the buyer's own neglect.
@@ -126,7 +126,7 @@ def test_f05_no_second_payment_for_an_ownership_claim(db):
                      Jsonb({"title_warranty": True, "title_indemnity": True}), LATER))
         db.execute("INSERT INTO deal_finds (empire_id, company_id, code, how, at) VALUES (%s, %s, 'ownership_claim', 'Came to court', %s)",
                    (empire["id"], company["id"], LATER + timedelta(hours=1)))
-    out = firm_deals.claim(db, team["lawyer"], deal["id"], "ownership_claim", LATER + timedelta(hours=2))
+    out = firm_deals.claim(db, team["investment_banker"], deal["id"], "ownership_claim", LATER + timedelta(hours=2))
     assert out["paid"] == 0 and "already made good" in out["words"]
 
 
@@ -213,8 +213,8 @@ def test_f11_rescues_cannot_be_farmed(db):
     assert trouble is not None, "the world should have a private company in trouble"
     company = own(db, empire, trouble["ticker"])
     with pytest.raises(empires.EmpireError, match="from outside"):
-        firm_owned.propose_rescue(db, team["accountant"], company["id"], ["cut_costs"], 0, LATER)
-    doctor, _ = pro(db, "accountant", "outside_doctor")
+        firm_owned.propose_rescue(db, team["asset_manager"], company["id"], ["cut_costs"], 0, LATER)
+    doctor, _ = pro(db, "asset_manager", "outside_doctor")
     if not firm_owned._measure_applies(db, company["id"], "sell_grounded", 9):
         with pytest.raises(empires.EmpireError, match="change nothing"):
             firm_owned.propose_rescue(db, doctor, company["id"], ["sell_grounded"], 0, LATER)
@@ -246,8 +246,8 @@ def test_f13_a_computer_run_seller_answers_at_once(db):
         sale_id = private.start_sale(db, company["id"], computer["account_id"], computer["id"],
                                      ledger.balance(db, computer["account_id"], company["share_asset"]), 8, private._seed(db), NOW9)
     file_id = firm_deals.open_file(db, team["investment_banker"], sale_id, LATER)["file_id"]
-    firm_deals.sign_nda(db, team["lawyer"], file_id, LATER)
-    firm_deals.mark_terms(db, team["lawyer"], file_id, {"escrow": "ask"}, LATER)
+    firm_deals.sign_nda(db, team["investment_banker"], file_id, LATER)
+    firm_deals.mark_terms(db, team["investment_banker"], file_id, {"escrow": "ask"}, LATER)
     assert firm_deals.in_force(db, sale_id, empire["id"]).get("escrow")
 
 

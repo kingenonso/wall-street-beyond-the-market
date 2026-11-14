@@ -53,7 +53,7 @@ def test_r1_a_computer_empire_says_nothing_and_a_reports_answer_counts_only_once
     assert "when the report is borne out" in out["words"]
     assert next(x for x in press.desk(db, team["head"], NOW9)["crises"] if x["id"] == c["id"])["change"] is None
     intel._settle(db, item, "true", NOW9 + DAY)
-    lawyer = pro(db, "lawyer", "feedreader", level=10)[0]
+    lawyer = pro(db, "investment_banker", "feedreader", level=10)[0]
     assert "Denied" not in repr(intel.desk_feed(db, lawyer, NOW9 + DAY))
 
 
@@ -63,22 +63,22 @@ def test_r2_a_planted_rumour_reads_nothing_hidden_and_cannot_be_used_to_probe(db
     w = careers.world_now(db, NOW9)
     other = _one(db, "SELECT * FROM empires WHERE kind = 'computer' ORDER BY id LIMIT 1")
     db.execute("INSERT INTO empire_books (empire_id, period, category, description, amount, genuine, entered_by, thief_level, at)"
-               " VALUES (%s, %s, 'supplies', 'Supplies', %s, false, %s, 4, %s)", (other["id"], w["period"], naira(1_000_000), team["accountant"], NOW9))
-    planted = press.plant(db, team["journalist"], ticker=None, empire_name=other["name"], tone=-1, now=NOW9)
+               " VALUES (%s, %s, 'supplies', 'Supplies', %s, false, %s, 4, %s)", (other["id"], w["period"], naira(1_000_000), team["asset_manager"], NOW9))
+    planted = press.plant(db, team["investment_banker"], ticker=None, empire_name=other["name"], tone=-1, now=NOW9)
     row = _one(db, "SELECT truth, basis FROM intel_items WHERE ref = %s", (planted["ref"],))
     assert row == {"truth": "unknown", "basis": "planted"}
     with pytest.raises(intel.IntelError, match="started this rumour"):
-        intel.check(db, team["journalist"], planted["ref"], NOW9)
+        intel.check(db, team["investment_banker"], planted["ref"], NOW9)
     # Passed to the head and checked by the desk that started it: still refused.
     intel.hold(db, _one(db, "SELECT id FROM intel_items WHERE ref = %s", (planted["ref"],))["id"], team["head"], "given", NOW9)
     with pytest.raises(press.PressError, match="started this rumour"):
-        press.fact_check(db, team["journalist"], "chief", planted["ref"], NOW9)
+        press.fact_check(db, team["investment_banker"], "chief", planted["ref"], NOW9)
 
 
 # 3. Dropping and reopening a file gives no extra searches.
 def test_r3_one_search_a_day_on_a_target_whatever_the_file(db):
     empire, team = firm_of(db)
-    j = pro(db, "journalist", "redigger", level=40)[0]
+    j = pro(db, "investment_banker", "redigger", level=40)[0]
     f = press.open_file(db, j, empire["name"], None, NOW9)
     press.dig(db, j, f["id"], NOW9)
     press.drop_file(db, j, f["id"])
@@ -99,13 +99,13 @@ def test_r4_charity_gifts_and_title_bids_stay_within_the_heads_limit_and_the_tru
     with pytest.raises(charity.CharityError, match="sign for"):
         charity.give(db, team["head"], c["id"], room, NOW9, from_empire=True)
     # A new head takes over the charity's grants.
-    db.execute("UPDATE empires SET head_player_id = %s WHERE id = %s", (team["accountant"], empire["id"]))
+    db.execute("UPDATE empires SET head_player_id = %s WHERE id = %s", (team["asset_manager"], empire["id"]))
     with pytest.raises(charity.CharityError, match="trustee"):
         charity.grant(db, team["head"], c["id"], naira(100_000), "Books for a school", NOW9)
-    charity.grant(db, team["accountant"], c["id"], naira(100_000), "Books for a school", NOW9)
+    charity.grant(db, team["asset_manager"], c["id"], naira(100_000), "Books for a school", NOW9)
     db.execute("UPDATE empires SET head_player_id = %s WHERE id = %s", (team["head"], empire["id"]))
     # Titles: an owner's lowest price, and an empire's bid, are at most twice what a title is worth.
-    owner, account = pro(db, "accountant", "titleowner", level=10, cash_naira=10_000_000)
+    owner, account = pro(db, "asset_manager", "titleowner", level=10, cash_naira=10_000_000)
     t = _one(db, "SELECT * FROM media_titles ORDER BY id DESC LIMIT 1")
     if _one(db, "SELECT 1 AS x FROM auctions WHERE title_id = %s AND status = 'open'", (t["id"],)):
         db.execute("UPDATE auctions SET status = 'cancelled' WHERE title_id = %s AND status = 'open'", (t["id"],))
@@ -121,24 +121,24 @@ def test_r4_charity_gifts_and_title_bids_stay_within_the_heads_limit_and_the_tru
 # 5. The leaker cannot use up the hunt for their own leak.
 def test_r5_a_leakers_hunt_of_their_own_leak_leaves_the_hunt_for_the_head(db, monkeypatch):
     empire, team = firm_of(db)
-    j = pro(db, "journalist", "outsidedesk", level=10)[0]
+    j = pro(db, "investment_banker", "outsidedesk", level=10)[0]
     from tests.test_objectives import give_shares
     company = _company(db)
     give_shares(db, empire["account_id"], company["ticker"], 1000)
-    press.leak(db, team["journalist"], "holding", "outsidedesk", NOW9, ticker=company["ticker"])
+    press.leak(db, team["investment_banker"], "holding", "outsidedesk", NOW9, ticker=company["ticker"])
     piece = intel.mine(db, j, NOW9)[0]
     newsroom.start(db, j, NOW9)
     newsroom.add_lead(db, j, piece["ref"], NOW9)
     newsroom.publish(db, j, NOW9)
     leak = press.leaks_of(db, empire["id"])[0]
-    assert not press.hunt(db, team["journalist"], leak["id"], NOW9)["found"]
+    assert not press.hunt(db, team["investment_banker"], leak["id"], NOW9)["found"]
     monkeypatch.setattr(data, "LEAK_HUNT_RANGE_BPS", (10_000, 10_000))
     assert press.hunt(db, team["head"], leak["id"], NOW9)["found"]
 
 
 # 6 and 10. A piece the record has already borne out is old news: no push on the price, and marked borne out at once.
 def test_r6_r10_a_report_already_borne_out_is_old_news_and_settled_at_once(db):
-    j = pro(db, "journalist", "stale", level=30)[0]
+    j = pro(db, "investment_banker", "stale", level=30)[0]
     db.execute("INSERT INTO journalist_profiles (player_id, following) VALUES (%s, 500000) ON CONFLICT (player_id) DO UPDATE SET following = 500000", (j,))
     w = careers.world_now(db, NOW9)
     company = _company(db)
@@ -155,7 +155,7 @@ def test_r6_r10_a_report_already_borne_out_is_old_news_and_settled_at_once(db):
 
 # 7. A wrong report needs its own correction, even when the story was corrected before.
 def test_r7_a_wrong_report_needs_a_correction_even_after_an_earlier_one(db):
-    j = pro(db, "journalist", "twicewrong", level=30)[0]
+    j = pro(db, "investment_banker", "twicewrong", level=30)[0]
     w = careers.world_now(db, NOW9)
     company = _company(db)
     item = intel.make(db, kind="tip", topic="company", truth="false", basis="none", period=w["period"], day=w["day"], now=NOW9,
@@ -175,7 +175,7 @@ def test_r7_a_wrong_report_needs_a_correction_even_after_an_earlier_one(db):
 
 # 8. A forecast cannot be checked before it is settled: the check is a coin toss, and nobody's check changes what others see.
 def test_r8_a_forecast_is_unknown_until_settled(db):
-    j = pro(db, "journalist", "forecaster", level=30)[0]
+    j = pro(db, "investment_banker", "forecaster", level=30)[0]
     db.execute("INSERT INTO sources (journalist_id, kind, started_period, ready_period, reliability_bps, status, at)"
                " VALUES (%s, 'ministry', 1, 3, 8000, 'active', %s)", (j, NOW9))
     s = _one(db, "SELECT id FROM sources WHERE journalist_id = %s", (j,))
@@ -189,14 +189,14 @@ def test_r8_a_forecast_is_unknown_until_settled(db):
 
 # 11. A charity's name is in words.
 def test_r11_a_charitys_name_has_no_figures(db):
-    p = pro(db, "accountant", "namer", level=10, cash_naira=5_000_000)[0]
+    p = pro(db, "asset_manager", "namer", level=10, cash_naira=5_000_000)[0]
     with pytest.raises(charity.CharityError, match="no figures"):
         charity.found(db, p, "Give 100 Percent", "arts", "Aba", naira(1_000_000), NOW9)
 
 
 # Minor: before buying, a pact or theft piece shows only what it is about, not the names that are the claim.
 def test_minor_a_pact_or_theft_piece_shows_no_names_until_bought(db):
-    seller = pro(db, "lawyer", "pactseller", level=10, cash_naira=1_000_000)[0]
+    seller = pro(db, "investment_banker", "pactseller", level=10, cash_naira=1_000_000)[0]
     buyer = pro(db, "asset_manager", "pactbuyer", level=10, cash_naira=1_000_000)[0]
     w = careers.world_now(db, NOW9)
     a, b = db.execute("SELECT name, id FROM empires WHERE kind = 'computer' ORDER BY id LIMIT 2").fetchall()
@@ -223,7 +223,7 @@ def test_run_a_check_or_a_purchase_without_the_cash_is_refused(db):
     intel.hold(db, item["id"], poor, "found", NOW9)
     with pytest.raises(intel.IntelError, match="not the cash"):
         intel.check(db, poor, item["ref"], NOW9)
-    seller = pro(db, "accountant", "richseller", level=10, cash_naira=1_000_000)[0]
+    seller = pro(db, "asset_manager", "richseller", level=10, cash_naira=1_000_000)[0]
     other = intel.make(db, kind="tip", topic="company", truth="true", basis="none", period=w["period"], day=w["day"], now=NOW9,
                        company_id=company["id"], tone=1, useful_until=NOW9 + timedelta(hours=4), words=f"Word around {company['name']}: more.")
     intel.hold(db, other["id"], seller, "found", NOW9)

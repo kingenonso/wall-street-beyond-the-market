@@ -1,7 +1,8 @@
 // The build screens (design document, section 18). Every build's screen has the same four
-// zones; this file holds the work area and the context rail for the two builds open so far.
-//   Asset Manager   what you own and how it is divided, the trading console, research
-//   Accountant      a company's filed statements, ratios, tax, and the audit list
+// zones; this file holds the work area and the context rail for the two builds written here.
+//   Asset Manager       what you own and how it is divided, the trading console, research
+//   Accountant          a company's filed statements, ratios, tax, and the audit list
+// The Investment Banker, Risk Manager, Legal Counsel, Financial Journalist and head screens are in Desks2.tsx.
 
 import { useState } from "react";
 import {
@@ -109,7 +110,7 @@ export function BuildRail({ player, onLoggedOut }: { player: Player; onLoggedOut
 }
 
 // ---------------------------------------------------------------------------
-// Asset Manager
+// Asset Manager (revised for Equities focus)
 // ---------------------------------------------------------------------------
 
 export function AssetManagerWork({ player, onLoggedOut, onChanged }: Props) {
@@ -131,15 +132,15 @@ export function AssetManagerWork({ player, onLoggedOut, onChanged }: Props) {
   return (
     <>
       <PageHead title="Asset manager"
-                sub="What you are looking after, how it is divided, and the console to trade it"
+                sub="What you are looking after, how it is divided, and the trading console for equities"
                 aside={`${d.companies_held} companies · ${d.industries_held} industries`} />
 
-      <Band label="What you are looking after">
+      <Band label="Equity portfolio">
         <BandCell label="Total value" value={formatCompact(d.total_kobo)} note={<><Change bps={d.change_today_bps} /> against yesterday's close</>} />
         <BandCell label="Over the last game year" value={d.change_year_bps === null ? "n/a" : formatPercent(d.change_year_bps)}
                   note={d.index_change_year_bps === null ? "needs a few Closing Bells" : `BSX 50: ${formatPercent(d.index_change_year_bps)}`} />
         <BandCell label="Against the BSX 50" value={ahead === null ? "n/a" : <Change bps={ahead} />} note="includes money paid in" />
-        <BandCell label="Largest single share" value={formatPercent(d.largest_bps)} note="of everything you own" />
+        <BandCell label="Largest single holding" value={formatPercent(d.largest_bps)} note="of everything you own" />
       </Band>
 
       <NeedsYouNow cards={urgent(board.data, career.data, player)} />
@@ -151,7 +152,7 @@ export function AssetManagerWork({ player, onLoggedOut, onChanged }: Props) {
             <Wheel slices={d.allocation} total={d.total_kobo} />
           </div>
           <div>
-            <div className="why-title">Top industries in your shares</div>
+            <div className="why-title">Top sectors in your shares</div>
             {d.sectors.length === 0 && <p className="muted small">You hold no shares yet.</p>}
             {d.sectors.slice(0, 6).map((sector) => (
               <div key={sector.label} className="bar-row">
@@ -163,8 +164,8 @@ export function AssetManagerWork({ player, onLoggedOut, onChanged }: Props) {
         </div>
       </Panel>
 
-      <Panel title="Holdings" aside={<a href="#/portfolio">Full portfolio</a>}>
-        {holdings.length === 0 && held.length === 0 && <p className="muted small">Nothing held yet. Use the trading console below, or the <a href="#/market/bonds">Bonds and bills</a> page.</p>}
+      <Panel title="Equity holdings" aside={<a href="#/portfolio">Full portfolio</a>}>
+        {holdings.length === 0 && held.length === 0 && <p className="muted small">Nothing held yet. Use the trading console below, or the <a href="#/market/equities">Equities market</a> page.</p>}
         {holdings.length > 0 && (
           <div className="scroll" tabIndex={0}>
             <table>
@@ -172,12 +173,13 @@ export function AssetManagerWork({ player, onLoggedOut, onChanged }: Props) {
               <tbody>
                 {holdings.map((h) => (
                   <tr key={h.ticker}>
-                    <th scope="row"><a href={`#/companies/${h.ticker}`}>{h.name}</a> <span className="ticker">{h.ticker}</span></th>
+                    <th scope="row"><a href={`#/companies/${h.ticker}`}>{h.name} <span className="ticker">{h.ticker}</span></a></th>
                     <td className="num mono">{h.shares.toLocaleString("en-NG")}</td>
                     <td className="num mono">{formatNaira(h.price_kobo)}</td>
                     <td className="num"><Change bps={h.change_bps} /></td>
                     <td className="num mono">{formatCompact(h.value_kobo)}</td>
-                    <td className={h.gain_kobo.startsWith("-") ? "num mono change-down" : "num mono change-up"}>{h.gain_kobo.startsWith("-") ? "▼" : "▲"} {formatNaira(h.gain_kobo.replace("-", ""))}</td>
+                    <td className={h.gain_kobo.startsWith("-") ? "num mono change-down" : "num mono change-up"}>
+                      {h.gain_kobo.startsWith("-") ? "▼" : "▲"} {formatNaira(h.gain_kobo.replace("-", ""))}</td>
                     <td className="num"><button className="button-quiet" onClick={() => setTrading(h.ticker)}>Trade</button></td>
                   </tr>
                 ))}
@@ -205,7 +207,7 @@ export function AssetManagerWork({ player, onLoggedOut, onChanged }: Props) {
         )}
       </Panel>
 
-      <Panel title="Trading console" aside={<a href="#/market">The whole market</a>}>
+      <Panel title="Equities trading console" aside={<a href="#/market/equities">The equities market</a>}>
         <label className="answer">
           <span className="field-label">Share</span>
           <select value={chosen} onChange={(event) => setTrading(event.target.value)}>
@@ -213,30 +215,17 @@ export function AssetManagerWork({ player, onLoggedOut, onChanged }: Props) {
           </select>
         </label>
         {chosen && <TradePanel key={chosen} ticker={chosen} onLoggedOut={onLoggedOut} onTraded={() => { onChanged(); desk.reload(); portfolio.reload(); }} />}
-        <p className="muted small">Bonds and bills are bought and sold on the <a href="#/market/bonds">Bonds and bills</a> page. Derivatives and alternative investments arrive in a later stage.</p>
+        <p className="muted small">Bonds and alternative investments arrive in a later stage.</p>
       </Panel>
 
       <Panel title="Research" aside="From the game's own records">
         {(portfolio.data?.advice ?? []).length === 0 && <p className="muted small">Nothing to flag on what you hold.</p>}
         <ul className="reasons">{(portfolio.data?.advice ?? []).map((line) => <li key={line}>{line}</li>)}</ul>
-        <p className="small"><a href="#/market/industries">Industries: heat map, growth and rankings</a> · <a href="#/economy">The economy and the Central Bank's rule</a> · <a href="#/news">News</a></p>
+        <p className="small"><a href="#/market/sectors">Sectors: heat map, growth and rankings</a> · <a href="#/economy">The economy and the Central Bank's rule</a> · <a href="#/news">News</a></p>
       </Panel>
     </>
   );
 }
-
-export function AssetManagerRail({ player, onLoggedOut }: { player: Player; onLoggedOut: () => void }) {
-  return (
-    <>
-      <BuildRail player={player} onLoggedOut={onLoggedOut} />
-      <WatchlistPanel onLoggedOut={onLoggedOut} />
-    </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Accountant
-// ---------------------------------------------------------------------------
 
 const asReports = (desk: AccountantDesk): FiledReport[] =>
   [...desk.quarters].reverse().map((q) => ({
@@ -405,6 +394,18 @@ export function AccountantWork({ player, onLoggedOut }: Props) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Build rails
+// ---------------------------------------------------------------------------
+
+export function AssetManagerRail({ player, onLoggedOut }: { player: Player; onLoggedOut: () => void }) {
+  return (
+    <>
+      <BuildRail player={player} onLoggedOut={onLoggedOut} />
+      <WatchlistPanel onLoggedOut={onLoggedOut} />
+    </>
+  );
+}
 export function AccountantRail({ player, onLoggedOut }: { player: Player; onLoggedOut: () => void }) {
   return <BuildRail player={player} onLoggedOut={onLoggedOut} />;
 }

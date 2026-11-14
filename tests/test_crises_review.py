@@ -91,7 +91,7 @@ def test_r4_a_closed_banks_shares_cannot_be_shorted_pledged_or_traded(db):
 
 
 def test_r5_a_closure_set_off_by_a_withdrawal_stands(db):
-    p, account = pro(db, "accountant", "lastone", cash_naira=40_000_000)
+    p, account = pro(db, "asset_manager", "lastone", cash_naira=40_000_000)
     deposits.put_in(db, p, "HMB", naira(30_000_000), NOW9)
     b = weaken(db, "HMB", -100)                                      # no emergency lending for a bank with no owners' funds
     # Its cash is all gone (lent out), so it cannot pay.
@@ -164,13 +164,13 @@ def test_r10_a_bank_auction_that_cannot_settle_leaves_the_bank_in_public_hands_n
 
 
 def test_r11_no_savings_move_between_a_quarters_end_and_its_close(db):
-    p, _ = pro(db, "accountant", "latecomer", cash_naira=5_000_000)
+    p, _ = pro(db, "asset_manager", "latecomer", cash_naira=5_000_000)
     with pytest.raises(deposits.SavingsError, match="books"):
         deposits.put_in(db, p, "IKB", naira(1_000_000), after_quarters(9) + timedelta(minutes=1))
 
 
 def test_minor_everything_can_be_taken_out_to_the_last_kobo(db):
-    p, account = pro(db, "accountant", "tidy", cash_naira=5_000_000)
+    p, account = pro(db, "asset_manager", "tidy", cash_naira=5_000_000)
     deposits.put_in(db, p, "IKB", naira(1_000_000), NOW9)
     b = deposits.bank(db, "IKB")
     deposits.take_out(db, p, "IKB", naira(999_990), NOW9)

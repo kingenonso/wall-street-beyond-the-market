@@ -657,6 +657,12 @@ def renovate(conn: Connection, account, property_id: int, now: datetime) -> dict
         return {"cost": paid}
 
 
+def wear_without_upkeep(conn: Connection, property_id: int, periods: int = 1) -> None:
+    """Reduce a property's condition as if it went periods without upkeep."""
+    wear = 10 * periods
+    conn.execute("UPDATE properties SET condition = greatest(condition - %s, 0) WHERE id = %s", (wear, property_id))
+
+
 def build_cost(p: dict, kind: str | None = None) -> int:
     """What a building costs to put up: by its size and the city, and (the gap stage) more for a hotel or a mall."""
     return apply_bps(apply_bps(naira(data.BUILD_A_METRE_NAIRA) * p["size_m2"], data.CITY_COST_BPS[p["city"]]),

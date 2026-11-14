@@ -26,8 +26,8 @@ def _one(db, sql, params=()):
 def tight(db):
     """An empire whose Accountant's desk has almost no budget left."""
     empire, team = firm_of(db, n_cash=5_000_000_000)
-    db.execute("UPDATE careers SET rank = 4, experience = %s WHERE player_id = %s", (careers.experience_for(100), team["accountant"]))
-    firm_money.set_budgets(db, team["head"], {"accountant": naira(1)}, NOW9)
+    db.execute("UPDATE careers SET rank = 4, experience = %s WHERE player_id = %s", (careers.experience_for(100), team["asset_manager"]))
+    firm_money.set_budgets(db, team["head"], {"asset_manager": naira(1)}, NOW9)
     return empire, team
 
 
@@ -40,8 +40,8 @@ def high(db, build, name):
 # 1. Can a member approve their own request, or have another member of their desk do it?
 def test_l1_only_the_head_or_deputy_decides_a_request_over_budget(db):
     empire, team = tight(db)
-    asked = objectives.accept(db, team["accountant"], "ac_ratios_e", NOW9)
-    for who in (team["accountant"], team["lawyer"], team["risk_manager"]):
+    asked = objectives.accept(db, team["asset_manager"], "ac_ratios_e", NOW9)
+    for who in (team["asset_manager"], team["investment_banker"], team["risk_manager"]):
         with pytest.raises(Exception):
             firm.decide(db, who, asked["approval_id"], True, "Fine.", NOW9)
     assert _one(db, "SELECT status FROM empire_approvals WHERE id = %s", (asked["approval_id"],))["status"] == "waiting"
@@ -50,12 +50,12 @@ def test_l1_only_the_head_or_deputy_decides_a_request_over_budget(db):
 # 2. Can an approval granted after the quarter closes slip past the next quarter's budget?
 def test_l2_an_approval_from_a_closed_quarter_takes_nothing_on(db):
     empire, team = tight(db)
-    asked = objectives.accept(db, team["accountant"], "ac_ratios_e", NOW9)
+    asked = objectives.accept(db, team["asset_manager"], "ac_ratios_e", NOW9)
     quarters.close_due_quarters(db, after_quarters(9))
     later = after_quarters(9) + timedelta(hours=13)
     with pytest.raises(Exception, match="closed"):
         firm.decide(db, team["head"], asked["approval_id"], True, "Late.", later)
-    assert not _one(db, "SELECT 1 FROM objectives WHERE player_id = %s AND template = 'ac_ratios_e'", (team["accountant"],))
+    assert not _one(db, "SELECT 1 FROM objectives WHERE player_id = %s AND template = 'ac_ratios_e'", (team["asset_manager"],))
 
 
 # 3. Can a member pile up requests to get round the limit of empire work a quarter?
@@ -64,25 +64,25 @@ def test_l3_the_quarterly_limit_of_empire_work_still_holds(db, monkeypatch):
     empire, team = tight(db)
     db.execute("DELETE FROM empire_budgets WHERE empire_id = %s", (empire["id"],))
     monkeypatch.setattr(data, "EMPIRE_WORK_A_QUARTER", 1)
-    objectives.accept(db, team["accountant"], "ac_ratios_e", NOW9)
+    objectives.accept(db, team["asset_manager"], "ac_ratios_e", NOW9)
     with pytest.raises(objectives.ObjectiveError, match="for their empire in a quarter"):
-        objectives.accept(db, team["accountant"], "ac_income_e", NOW9)
+        objectives.accept(db, team["asset_manager"], "ac_income_e", NOW9)
 
 
 # 4. Can the same work be taken twice in a quarter by going through the head?
 def test_l4_approved_work_is_still_once_a_quarter(db):
     empire, team = tight(db)
-    asked = objectives.accept(db, team["accountant"], "ac_ratios_e", NOW9)
+    asked = objectives.accept(db, team["asset_manager"], "ac_ratios_e", NOW9)
     firm.decide(db, team["head"], asked["approval_id"], True, "Yes.", NOW9)
     with pytest.raises(objectives.ObjectiveError, match="already"):
-        objectives.accept(db, team["accountant"], "ac_ratios_e", NOW9)
+        objectives.accept(db, team["asset_manager"], "ac_ratios_e", NOW9)
 
 
 # 5. Does the website ever send the figures the answers are worked out from, or the answers?
 def test_l5_new_work_sends_no_answers(db, client):
     assert join(client, ADULT).status_code == 201
     player = _one(db, "SELECT id FROM players WHERE display_name = 'Ada'")["id"]
-    client.put("/api/career/build", json={"build": "accountant"})
+    client.put("/api/career/build", json={"build": "asset_manager"})
     client.put("/api/career/bank", json={"ticker": "IKB"})
     client.put("/api/career/job", json={"ticker": "IDC"})
     db.execute("UPDATE careers SET rank = 4, experience = %s WHERE player_id = %s", (careers.experience_for(60), player))
@@ -114,8 +114,8 @@ def test_l7_an_answer_in_the_wrong_unit_fails(db):
 
 # 8. Do two players, or two settings, get the same numbers to copy from?
 def test_l8_numbers_differ_between_players_and_settings(db):
-    a, _ = high(db, "accountant", "copierone")
-    b, _ = high(db, "accountant", "copiertwo")
+    a, _ = high(db, "asset_manager", "copierone")
+    b, _ = high(db, "asset_manager", "copiertwo")
     ta, tb = objectives.TEMPLATES["ac_lease"], objectives.TEMPLATES["ac_lease"]
     fa = ta.offer(objectives._context(db, a, NOW9))["figures"]
     fb = tb.offer(objectives._context(db, b, NOW9))["figures"]
@@ -128,7 +128,7 @@ def test_l8_numbers_differ_between_players_and_settings(db):
 # 9. Is a late weekend hand-in still marked?
 def test_l9_a_late_weekend_paper_does_not_pass(db):
     from tests.test_mastery import FRIDAY9
-    player, _ = high(db, "journalist", "latecomer")
+    player, _ = high(db, "investment_banker", "latecomer")
     t = objectives.TEMPLATES["jn_breadth_w"]
     ctx = objectives._context(db, player, FRIDAY9)
     terms = t.offer(ctx)
@@ -141,7 +141,7 @@ def test_l9_a_late_weekend_paper_does_not_pass(db):
 def test_l10_the_heads_own_work_never_waits_and_the_request_shows_the_budget(db):
     empire, team = tight(db)
     db.execute("UPDATE careers SET rank = 4, experience = %s WHERE player_id = %s", (careers.experience_for(100), team["head"]))
-    asked = objectives.accept(db, team["accountant"], "ac_ratios_e", NOW9)
+    asked = objectives.accept(db, team["asset_manager"], "ac_ratios_e", NOW9)
     approval = _one(db, "SELECT * FROM empire_approvals WHERE id = %s", (asked["approval_id"],))
     shown = firm.VIEWERS["empire_work"](db, approval, team["head"], NOW9)
     assert any("budget" in line for line in shown["why"])

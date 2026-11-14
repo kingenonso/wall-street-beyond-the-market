@@ -155,7 +155,7 @@ def _ac_valuation_net(f):
     return f["rent"] * f["occ"] / 100 * (1 - f["costs"] / 100)
 
 
-piece("ac_income_value", "accountant", "Valuing property by its income", "Value the building from its rent", 41,
+piece("ac_income_value", "asset_manager", "Valuing property by its income", "Value the building from its rent", 41,
       "A building is worth the income it earns, after empty space and costs, divided by the yield investors want.", _ac_valuation,
       [Q("net", "Income a year after costs (₦m)", "millions", _ac_valuation_net),
        Q("value", "Value (₦m)", "millions", lambda f: _ac_valuation_net(f) / (f["y"] / 100)),
@@ -185,7 +185,7 @@ def _annuity(payment: float, rate_pct: float, years: int) -> float:
     return payment * (1 - (1 + i) ** -years) / i
 
 
-piece("ac_lease", "accountant", "Leases on the balance sheet", "Put the leaseback on the balance sheet", 45,
+piece("ac_lease", "asset_manager", "Leases on the balance sheet", "Put the leaseback on the balance sheet", 45,
       "A lease is a debt: the rent still to pay, worth less than its face because it is paid later. The right to use the "
       "building is the matching asset.", _ac_lease,
       [Q("debt", "The lease debt today (₦m)", "millions", lambda f: _annuity(f["rent"], f["rate"], f["years"])),
@@ -223,7 +223,7 @@ def _diluted(f):
     return f["profit"] / (f["shares"] + extra)
 
 
-piece("ac_dilution", "accountant", "Profit per share and dilution", "Profit per share, with the warrants", 52,
+piece("ac_dilution", "asset_manager", "Profit per share and dilution", "Profit per share, with the warrants", 52,
       "Warrants worth using add shares, less the shares the company could buy back with the money they bring in.", _ac_dilution,
       [Q("basic", "Basic profit per share (₦)", "naira", lambda f: f["profit"] / f["shares"], 0.01),
        choice("used", "Are the warrants worth using?", lambda f: yn(f["price"] > f["strike"]), *YES_NO),
@@ -250,7 +250,7 @@ def _ac_hedge(ctx, r):
             "f": {"barrels": barrels * 1000, "locked": locked, "spot": spot, "fx": fx}}
 
 
-piece("ac_hedge", "accountant", "Hedge accounting", "Book the oil hedge", 58,
+piece("ac_hedge", "asset_manager", "Hedge accounting", "Book the oil hedge", 58,
       "A sold future gains when the price falls and loses when it rises: together with the oil sold, the producer gets the "
       "locked price.", _ac_hedge,
       [Q("hedge", "Hedge gain or loss (₦m)", "millions", lambda f: (f["locked"] - f["spot"]) * f["barrels"] * f["fx"] / 1e6),
@@ -278,7 +278,7 @@ def _ac_deferred(ctx, r):
             "f": {"profit": profit, "extra": extra, "rate": rate}}
 
 
-piece("ac_deferred", "accountant", "Deferred tax", "Show the tax put off", 63,
+piece("ac_deferred", "asset_manager", "Deferred tax", "Show the tax put off", 63,
       "Tax put off is still owed: the accounts show it as a debt so that the tax charge matches the profit reported.", _ac_deferred,
       [Q("paid", "Tax paid this year (₦m)", "millions", lambda f: (f["profit"] - f["extra"]) * f["rate"] / 100),
        Q("deferred", "Deferred tax added (₦m)", "millions", lambda f: f["extra"] * f["rate"] / 100),
@@ -301,7 +301,7 @@ def _ac_consolidate(ctx, r):
             "f": {"own": own, "sub": sub_profit, "parent": parent_profit}}
 
 
-piece("ac_consolidate", "accountant", "Group accounts", "Consolidate the subsidiary", 70,
+piece("ac_consolidate", "asset_manager", "Group accounts", "Consolidate the subsidiary", 70,
       "A group shows all of a subsidiary it controls, then sets aside the share that belongs to the other shareholders.", _ac_consolidate,
       [Q("group", "Group profit (₦m)", "millions", lambda f: f["parent"] + f["sub"]),
        Q("nci", "Non-controlling interest (₦m)", "millions", lambda f: f["sub"] * (100 - f["own"]) / 100),
@@ -331,7 +331,7 @@ def _recoverable(f):
     return max(_annuity(f["cash"], f["rate"], f["years"]), f["sale"])
 
 
-piece("ac_impair", "accountant", "Impairment", "Test the factory for impairment", 78,
+piece("ac_impair", "asset_manager", "Impairment", "Test the factory for impairment", 78,
       "An asset is never carried above what it can bring in: by selling it or by using it.", _ac_impair,
       [Q("use", "Value in use (₦m)", "millions", lambda f: _annuity(f["cash"], f["rate"], f["years"])),
        Q("recoverable", "Recoverable amount (₦m)", "millions", _recoverable),
@@ -356,7 +356,7 @@ def _ac_fx(ctx, r):
             "f": {"net": assets - debts, "opening": opening, "closing": closing}}
 
 
-piece("ac_fx", "accountant", "Foreign currency", "Translate the company abroad", 86,
+piece("ac_fx", "asset_manager", "Foreign currency", "Translate the company abroad", 86,
       "A company abroad is worth more naira when the naira weakens: the change sits in a reserve until the company is sold.", _ac_fx,
       [Q("open", "Net assets at the opening rate (₦m)", "millions", lambda f: f["net"] * f["opening"]),
        Q("close", "Net assets at the closing rate (₦m)", "millions", lambda f: f["net"] * f["closing"]),
@@ -386,7 +386,7 @@ def _cycle(f):
     return f["stock"] / f["cost"] * 360 + f["debtors"] / f["sales"] * 360 - f["creditors"] / f["cost"] * 360
 
 
-piece("ac_cycle", "accountant", "Working capital", "How long is the cash tied up?", 94,
+piece("ac_cycle", "asset_manager", "Working capital", "How long is the cash tied up?", 94,
       "Cash is tied up from the day suppliers are paid to the day customers pay: the shorter, the less borrowing the business needs.",
       _ac_cycle,
       [Q("stock_days", "Days of stock", "number", lambda f: f["stock"] / f["cost"] * 360, 0.5),
@@ -1116,7 +1116,7 @@ def _lw_zoning(ctx, r):
             "f": {"zone": zone, "want": want}}
 
 
-piece("lw_zoning", "lawyer", "Zoning", "May the client build it here?", 41,
+piece("lw_zoning", "investment_banker", "Zoning", "May the client build it here?", 41,
       "A building must fit its plot's zone; if it does not, the zone must be changed first.", _lw_zoning,
       [choice("fits", "Does the plan fit the zone?", lambda f: yn(f["want"] in data.ZONE_ALLOWS[f["zone"]]), *YES_NO),
        choice("rezone", "Must the client ask to rezone first?", lambda f: yn(f["want"] not in data.ZONE_ALLOWS[f["zone"]]), *YES_NO)],
@@ -1140,7 +1140,7 @@ def _lw_claims(ctx, r):
             "f": {"p": price, "loan": loan, "way": way, "dispute": dispute}}
 
 
-piece("lw_claims_advice", "lawyer", "Claims on land", "Advise on the claims search", 45,
+piece("lw_claims_advice", "investment_banker", "Claims on land", "Advise on the claims search", 45,
       "An old loan must be paid off, a right of way lowers the value, and a dispute freezes the property until settled.", _lw_claims,
       [Q("loan", "To pay off (₦m)", "millions", lambda f: f["loan"]), Q("cut", "Taken off by a right of way (₦m)", "millions",
                                                                          lambda f: f["p"] * data.CLAIM_RIGHT_OF_WAY_CUT_BPS / 10_000 if f["way"] else 0),
@@ -1161,7 +1161,7 @@ def _lw_fees(ctx, r):
             "f": {"p": price}}
 
 
-piece("lw_consent", "lawyer", "Consent and registration", "What will the purchase cost in all?", 50,
+piece("lw_consent", "investment_banker", "Consent and registration", "What will the purchase cost in all?", 50,
       "A land purchase is not complete without the Governor's consent and registration, and both cost money.", _lw_fees,
       [Q("consent", "Consent fee (₦m)", "millions", lambda f: f["p"] * data.CONSENT_FEE_BPS / 10_000),
        Q("registration", "Registration fee (₦m)", "millions", lambda f: f["p"] * data.REGISTRATION_FEE_BPS / 10_000),
@@ -1181,7 +1181,7 @@ def _lw_closeout(ctx, r):
             "f": {"s": swaps}}
 
 
-piece("lw_closeout", "lawyer", "Netting on default", "Close out the swaps", 56,
+piece("lw_closeout", "investment_banker", "Netting on default", "Close out the swaps", 56,
       "Netting turns many contracts with a failed side into one sum, so a liquidator cannot pick the ones it likes.", _lw_closeout,
       [Q("net", "Net amount (₦m)", "millions", lambda f: sum(f["s"])),
        choice("owed", "Is your client owed money?", lambda f: yn(sum(f["s"]) > 0), *YES_NO)],
@@ -1202,7 +1202,7 @@ def _lw_waterfall(ctx, r):
             "f": {"s": sale, "b": bank, "z": mezz}}
 
 
-piece("lw_waterfall", "lawyer", "Ranking of debts", "Who is paid from the sale?", 62,
+piece("lw_waterfall", "investment_banker", "Ranking of debts", "Who is paid from the sale?", 62,
       "Debts are paid in order of rank: each class is paid in full before the next gets anything.", _lw_waterfall,
       [Q("bank", "The bank gets (₦m)", "millions", lambda f: min(f["s"], f["b"])),
        Q("mezz", "The mezzanine lender gets (₦m)", "millions", lambda f: min(max(f["s"] - f["b"], 0), f["z"])),
@@ -1223,7 +1223,7 @@ def _lw_lease(ctx, r):
             "f": {"r": rent, "m": missed}}
 
 
-piece("lw_lease_break", "lawyer", "Leases", "Is the lease broken?", 68,
+piece("lw_lease_break", "investment_banker", "Leases", "Is the lease broken?", 68,
       "A lease set a number of missed rents that ends it; the rent owed stays owed.", _lw_lease,
       [Q("owed", "Owed for missed rent (₦m)", "millions", lambda f: f["r"] * f["m"]),
        choice("broken", "Is the lease broken?", lambda f: yn(f["m"] >= data.LEASEBACK_MISSES_TO_BREAK), *YES_NO)],
@@ -1249,7 +1249,7 @@ def _left(f):
     return max(f["a"] - f["s"] - f["w"], 0)
 
 
-piece("lw_insolvency", "lawyer", "Winding-up and creditors", "What will the creditors recover?", 75,
+piece("lw_insolvency", "investment_banker", "Winding-up and creditors", "What will the creditors recover?", 75,
       "In a winding-up, secured lenders and staff come first; unsecured creditors share what is left.", _lw_insolvency,
       [Q("left", "Left for unsecured creditors (₦m)", "millions", _left),
        Q("recovery", "Share recovered (%)", "percent", lambda f: min(_left(f) / f["u"] * 100, 100), 0.1)],
@@ -1270,7 +1270,7 @@ def _lw_preferred(ctx, r):
             "f": {"p": par, "r": rate, "m": missed}}
 
 
-piece("lw_preferred", "lawyer", "Preferred shares", "What must be paid before the ordinary dividend?", 84,
+piece("lw_preferred", "investment_banker", "Preferred shares", "What must be paid before the ordinary dividend?", 84,
       "Cumulative preferred dividends pile up when missed, and come before any ordinary dividend.", _lw_preferred,
       [Q("quarter", "A quarter's preferred dividend (₦m)", "millions", lambda f: f["p"] * f["r"] / 100 / 4),
        Q("arrears", "Arrears (₦m)", "millions", lambda f: f["p"] * f["r"] / 100 / 4 * f["m"]),
@@ -1292,7 +1292,7 @@ def _lw_earnout(ctx, r):
             "f": {"e": earn, "t": target, "s": sales}}
 
 
-piece("lw_earnout", "lawyer", "Earn-out disputes", "What is the seller owed?", 94,
+piece("lw_earnout", "investment_banker", "Earn-out disputes", "What is the seller owed?", 94,
       "An earn-out pays what the agreement's formula says on the figures reported; manipulating them is a claim of its own.", _lw_earnout,
       [Q("due", "Earn-out due (₦m)", "millions", lambda f: f["e"] if f["s"] >= f["t"] else f["e"] * f["s"] / f["t"]),
        choice("full", "In full?", lambda f: yn(f["s"] >= f["t"]), *YES_NO)],
@@ -1314,7 +1314,7 @@ def _jn_index(ctx, r):
             "f": {"b": before, "a": after}}
 
 
-piece("jn_property_index", "journalist", "Reporting property prices", "Write up the district's prices", 41,
+piece("jn_property_index", "investment_banker", "Reporting property prices", "Write up the district's prices", 41,
       "A change is reported against the earlier figure, and the headline must match its size.", _jn_index,
       [Q("change", "Change (%)", "percent", lambda f: (f["a"] - f["b"]) / f["b"] * 100, 0.05),
        choice("headline", "Headline", lambda f: "boom" if (f["a"] - f["b"]) / f["b"] >= 0.1 else ("slump" if (f["a"] - f["b"]) / f["b"] <= -0.1 else "steady"),
@@ -1340,7 +1340,7 @@ def _so_far(f):
     return f["u"] if f["d"] >= f["l"] else f["u"] / 4 + f["u"] * 3 / 4 * f["d"] / f["l"]
 
 
-piece("jn_infrastructure", "journalist", "Reporting public works", "How much has the project lifted prices?", 46,
+piece("jn_infrastructure", "investment_banker", "Reporting public works", "How much has the project lifted prices?", 46,
       "Markets price a project in as it becomes certain, not on opening day.", _jn_infra,
       [Q("so_far", "Gain priced in so far (%)", "percent", _so_far, 0.02),
        Q("to_come", "Gain still to come (%)", "percent", lambda f: f["u"] - _so_far(f), 0.02)],
@@ -1358,7 +1358,7 @@ def _jn_repo(ctx, r):
             "f": {"b": before, "n": now}}
 
 
-piece("jn_repossessions", "journalist", "Reporting the housing market", "Report the repossessions", 52,
+piece("jn_repossessions", "investment_banker", "Reporting the housing market", "Report the repossessions", 52,
       "Numbers of people hurt are reported plainly: the count, the change, and the cause.", _jn_repo,
       [Q("change", "Change (%)", "percent", lambda f: (f["n"] - f["b"]) / f["b"] * 100, 0.1),
        choice("surge", "Is it a surge?", lambda f: yn(f["n"] >= f["b"] * 1.5), *YES_NO)],
@@ -1378,7 +1378,7 @@ def _jn_bank_loss(ctx, r):
             "f": {"p": profit, "l": loss}}
 
 
-piece("jn_bank_losses", "journalist", "Reporting banks", "Report the bank's losses", 58,
+piece("jn_bank_losses", "investment_banker", "Reporting banks", "Report the bank's losses", 58,
       "A bank's profit is what is left after the loans that will not be repaid.", _jn_bank_loss,
       [Q("after", "Profit after loan losses (₦m)", "millions", lambda f: f["p"] - f["l"]),
        Q("share", "Losses against profit (%)", "percent", lambda f: f["l"] / f["p"] * 100, 0.1),
@@ -1399,7 +1399,7 @@ def _jn_open_interest(ctx, r):
             "f": {"o": longs, "t": traded}}
 
 
-piece("jn_open_interest", "journalist", "Reporting derivatives", "Report the day in futures", 64,
+piece("jn_open_interest", "investment_banker", "Reporting derivatives", "Report the day in futures", 64,
       "Open interest counts contracts still open; trading counts those that changed hands today.", _jn_open_interest,
       [Q("turnover", "Turnover (%)", "percent", lambda f: f["t"] / f["o"] * 100, 0.1),
        choice("headline", "Headline", lambda f: "heavy" if f["t"] >= f["o"] / 2 else "quiet", ("heavy", "Heavy trading in futures"), ("quiet", "A quiet day in futures"))],
@@ -1419,7 +1419,7 @@ def _jn_hedge(ctx, r):
             "f": {"p": profit, "h": hedge}}
 
 
-piece("jn_hedging", "journalist", "Reporting hedges", "How much came from the hedges?", 70,
+piece("jn_hedging", "investment_banker", "Reporting hedges", "How much came from the hedges?", 70,
       "A hedge gain is not the business doing better: report the profit from the business alone beside it.", _jn_hedge,
       [Q("before", "Profit before the hedges (₦m)", "millions", lambda f: f["p"] - f["h"]),
        Q("share", "Hedges as a share of profit (%)", "percent", lambda f: f["h"] / f["p"] * 100, 0.1)],
@@ -1441,7 +1441,7 @@ def _jn_pref(ctx, r):
             "f": {"d": rate, "p": price, "g": gov, "par": par}}
 
 
-piece("jn_preferred", "journalist", "Reporting fixed income", "Report the preferred shares' yield", 77,
+piece("jn_preferred", "investment_banker", "Reporting fixed income", "Report the preferred shares' yield", 77,
       "A fixed dividend's yield moves opposite to the price: cheaper shares yield more.", _jn_pref,
       [Q("yield", "Yield (%)", "percent", lambda f: f["d"] / f["p"] * 100, 0.05),
        Q("extra", "Extra over government (points)", "number", lambda f: f["d"] / f["p"] * 100 - f["g"], 0.05)],
@@ -1461,7 +1461,7 @@ def _jn_breadth(ctx, r):
             "f": {"u": up, "d": down, "i": index}}
 
 
-piece("jn_breadth", "journalist", "Reporting the market", "Was the move broad?", 85,
+piece("jn_breadth", "investment_banker", "Reporting the market", "Was the move broad?", 85,
       "An index can rise on a few big shares while most fall: breadth shows which.", _jn_breadth,
       [Q("up", "Members that rose (%)", "percent", lambda f: f["u"] / 50 * 100, 0.05),
        choice("broad", "Was the move broad?", lambda f: yn((f["i"] >= 0 and f["u"] > 25) or (f["i"] < 0 and f["d"] > 25)), *YES_NO)],
@@ -1480,7 +1480,7 @@ def _jn_real(ctx, r):
             "f": {"w": wage, "i": inflation}}
 
 
-piece("jn_real_wages", "journalist", "Reporting the economy", "Are workers better off?", 96,
+piece("jn_real_wages", "investment_banker", "Reporting the economy", "Are workers better off?", 96,
       "A pay rise below inflation is a cut in what the pay buys.", _jn_real,
       [Q("real", "Real change in wages (%)", "percent", lambda f: ((1 + f["w"] / 100) / (1 + f["i"] / 100) - 1) * 100, 0.05),
        choice("headline", "Headline", lambda f: "better" if f["w"] > f["i"] else "worse", ("better", "Pay outpaces prices"), ("worse", "Prices outrun pay"))],
@@ -1702,7 +1702,7 @@ def _ac_going(ctx, r):
             "f": {"c": cash, "b": burn, "l": loan_due}}
 
 
-piece("ac_going_concern", "accountant", "Going concern", "Can the company keep going?", 100,
+piece("ac_going_concern", "asset_manager", "Going concern", "Can the company keep going?", 100,
       "Accounts assume the business carries on; if it may not last the year, the readers must be told.", _ac_going,
       [Q("quarters", "Quarters the cash lasts", "number", lambda f: f["c"] / f["b"], 0.05),
        Q("short", "Cash short over the year (₦m)", "millions", lambda f: max(f["b"] * 4 + f["l"] - f["c"], 0)),

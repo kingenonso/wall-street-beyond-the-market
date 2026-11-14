@@ -227,7 +227,7 @@ def design_raising(conn: Connection, player_id, kind: str, amount: int, quarters
                  "rate_bps": policy + (LOAN_SPREAD_BPS if kind == "loan" else BOND_SPREAD_BPS) if kind != "stake" else 0}
         what = {"loan": "a bank loan", "bond": "a bond sold to the pension funds", "stake": "a stake in the empire"}[kind]
         title = f"Raise {_money(amount)} by {what}" + (f" over {quarters} quarters at {terms['rate_bps'] / 100:.2f}%" if kind != "stake" else "")
-        approval = firm.ask(conn, empire, kind="raise_check", desk="accountant", asked_by=player_id, title=title, amount=amount, payload=terms,
+        approval = firm.ask(conn, empire, kind="raise_check", desk="asset_manager", asked_by=player_id, title=title, amount=amount, payload=terms,
                             period=state["period"], now=now)
         _log(conn, empire["id"], f"{firm._name(conn, player_id)} designed a way to raise money: {title}. It goes to the Accountant's desk.", now)
         for hook in firm.RAISE_DESIGNED:
@@ -732,7 +732,7 @@ def sign_cost(conn: Connection, player_id, purpose: str, amount: int, member_id,
         if used + amount > limit:
             raise EmpireError(f"Your signing limit for the quarter is {_money(limit)}, of which {_money(used)} is used.")
         if firm.player_run(empire) and needs_countersign(conn, empire["id"], player_id, amount, state["period"]):
-            approval = firm.ask(conn, empire, kind="expense", desk="accountant", asked_by=player_id, title=f"{category}: {_money(amount)}",
+            approval = firm.ask(conn, empire, kind="expense", desk="asset_manager", asked_by=player_id, title=f"{category}: {_money(amount)}",
                                 amount=amount, payload=payload, period=state["period"], now=now)
             return {"waiting": True, "approval_id": approval["id"]}
         _pay_cost(conn, empire, player_id, amount, payload, state["period"], now)
@@ -816,7 +816,7 @@ def divert_needs_approval(conn: Connection, seat: dict, amount: int, now: dateti
         return None
     category, description = empires.data.DISGUISES["head" if seat["head_player_id"] == seat["player_id"] else seat["build"]]
     desk = "head" if seat["head_player_id"] == seat["player_id"] else seat["build"]
-    return firm.ask(conn, empire, kind="expense", desk="accountant", asked_by=seat["player_id"], title=f"{category}: {_money(amount)}",
+    return firm.ask(conn, empire, kind="expense", desk="asset_manager", asked_by=seat["player_id"], title=f"{category}: {_money(amount)}",
                     amount=amount, payload={"category": category, "description": description, "desk": desk, "diverted": True},
                     period=state["period"], now=now)
 
@@ -887,7 +887,7 @@ def propose_bonuses(conn: Connection, player_id, shares: dict, now: datetime) ->
     with conn.transaction():
         state = _open(conn, now)
         seat, empire = firm._active(conn, player_id)
-        if seat["build"] != "accountant":
+        if seat["build"] != "asset_manager":
             raise EmpireError("The bonus pool is proposed by the empire's Accountant.")
         if not firm.player_run(empire):
             raise EmpireError("An empire run by the computer pays no bonuses.")
@@ -904,17 +904,27 @@ def propose_bonuses(conn: Connection, player_id, shares: dict, now: datetime) ->
         if total > most:
             raise EmpireError(f"The pool may not pass the head's bonus limit of {_money(most)}.")
         approval = firm.ask(conn, empire, kind="bonus_pool", desk="head", asked_by=player_id, title=f"The quarter's bonus pool: {_money(total)}",
-                            amount=total, payload={"shares": clean}, period=state["period"], now=now)
+                            amount=total, payload={"bonuses": clean}, period=state["period"], now=now)
         return {"approval_id": approval["id"]}
 
 
+def _bonus_pool(approval: dict) -> dict:
+    """Who gets what from the pool: {member: amount}. The pool is filed under "bonuses"; the first pools were
+    filed under "shares", the same word most requests use for a plain count of shares, which is why it was renamed."""
+    p = approval["payload"]
+    for key in ("bonuses", "shares"):
+        if isinstance(p.get(key), dict):
+            return p[key]
+    return {}
+
+
 def _bonus_pool_view(conn: Connection, approval: dict, viewer_id, now: datetime) -> dict:
-    return {"lines": [{"name": firm._name(conn, member), "amount": amount} for member, amount in approval["payload"]["shares"].items()]}
+    return {"lines": [{"name": firm._name(conn, member), "amount": amount} for member, amount in _bonus_pool(approval).items()]}
 
 
 def _bonus_pool_execute(conn: Connection, approval: dict, now: datetime) -> None:
     empire = empires._empire(conn, approval["empire_id"])
-    for member, amount in approval["payload"]["shares"].items():
+    for member, amount in _bonus_pool(approval).items():
         seat = empires.seat_of(conn, member)
         if seat is None or seat["empire_id"] != empire["id"]:
             continue
@@ -999,7 +1009,7 @@ def view(conn: Connection, seat: dict, empire: dict, state: dict, now: datetime)
                    "bond_spread_bps": BOND_SPREAD_BPS, "terms": list(TERMS), "policy_rate_bps": state["policy_rate_bps"],
                    "loan_least": naira(LOAN_LEAST_NAIRA), "bond_least": naira(BOND_LEAST_NAIRA)},
         "can_design": seat["build"] == "investment_banker" or is_head,
-        "can_propose_bonuses": seat["build"] == "accountant",
+        "can_propose_bonuses": seat["build"] == "asset_manager",
     }
 
 
@@ -1041,7 +1051,7 @@ firm.BELL.append(_bell)
 firm.VIEW["money"] = view
 firm.REASON_KINDS = (*firm.REASON_KINDS, "raise_risk")
 firm.RESOLUTIONS.update({
-    "dividend": firm.Resolution("dividend", "Pay a dividend to the partners", lambda seat, head: head or seat["build"] == "accountant",
+    "dividend": firm.Resolution("dividend", "Pay a dividend to the partners", lambda seat, head: head or seat["build"] == "asset_manager",
                                 _dividend_check, _dividend_carry, lambda p: f"Pay {_money(p['amount'])} to the partners as a dividend", big=True),
     "treasury": firm.Resolution("treasury", "Set the treasury policy", lambda seat, head: head or seat["build"] in ("asset_manager", "risk_manager"),
                                 _treasury_check, _treasury_carry,

@@ -250,6 +250,14 @@ export function WorkWork({ player, onLoggedOut, onChanged }: { player: Player; o
         </span>
       </div>
       {rules && <Rules data={data} />}
+      <div className="command-line">
+        <span className="player-name">{player.display_name}</span>
+        <span className="verb-btn-green">Trade &#9660;</span>
+        <span className="verb-btn-blue">Corporate &#9660;</span>
+        <span className="verb-btn-orange">Finance &#9660;</span>
+        <span className="command-enter">Enter command&#8230;</span>
+        <button className="command-help">?</button>
+      </div>
       {!player.build && (
         <Panel title="Choose a build first">
           <p>Work is given to a professional. <a href="#/career">Choose your build, your bank and your employer</a> and the work on offer appears here.</p>

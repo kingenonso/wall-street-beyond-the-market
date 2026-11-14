@@ -21,7 +21,9 @@ import {
 } from "./api";
 import { formatCompact, formatNaira } from "./format";
 import { useLoad } from "./hooks";
-import { Failed, Loading, PageHead, Panel } from "./Shell";
+import {
+  Band, BandCell, Failed, Loading, PageHead, Panel,
+} from "./Shell";
 
 function TabButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
   return (
@@ -62,28 +64,12 @@ export function CommoditiesWork({ onLoggedOut, onChanged }: Props) {
   return (
     <>
       <PageHead title="Commodities" sub="Goods, the space they are kept in, and the market that deals in them" />
-      <section className="band band-4" aria-label="The commodities desk">
-        <div className="band-cell">
-          <div className="band-label">Goods on the market</div>
-          <div className="band-value">{goods.length}</div>
-          <div className="band-note">{goods.length === 0 ? "none quoted yet" : goods.map((g) => g.name).join(", ")}</div>
-        </div>
-        <div className="band-cell">
-          <div className="band-label">Space leased</div>
-          <div className="band-value">{open.length}</div>
-          <div className="band-note">{open.length === 0 ? "no open lease" : `${open.length} open`}</div>
-        </div>
-        <div className="band-cell">
-          <div className="band-label">What you hold</div>
-          <div className="band-value">{holdings.length}</div>
-          <div className="band-note">{holdings.length === 0 ? "nothing yet" : `${holdings.reduce((t, h) => t + h.units, 0).toLocaleString("en-NG")} units`}</div>
-        </div>
-        <div className="band-cell">
-          <div className="band-label">The desk</div>
-          <div className="band-value">{desk ? desk.status : "—"}</div>
-          <div className="band-note">{desk ? `limit ${formatCompact(String(desk.limit_kobo))}` : "no desk"}</div>
-        </div>
-      </section>
+      <Band label="The commodities desk" columns={4}>
+        <BandCell label="Goods on the market" value={goods.length} note={goods.length === 0 ? "none quoted yet" : goods.map((g) => g.name).join(", ")} />
+        <BandCell label="Space leased" value={open.length} note={open.length === 0 ? "no open lease" : `${open.length} open`} />
+        <BandCell label="What you hold" value={holdings.length} note={holdings.length === 0 ? "nothing yet" : `${holdings.reduce((t, h) => t + h.units, 0).toLocaleString("en-NG")} units`} />
+        <BandCell label="The desk" value={desk ? desk.status : "—"} note={desk ? `limit ${formatCompact(String(desk.limit_kobo))}` : "no desk"} />
+      </Band>
 
       <div className="tabs">
         {TABS.map((t) => (

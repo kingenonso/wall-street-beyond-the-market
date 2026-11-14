@@ -70,7 +70,7 @@ class AccountRequest(Request):
 
 @app.get("/api/newsroom")
 def newsroom_desk(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    if player.get("build") != "journalist":
+    if player.get("build") != "investment_banker":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "The newsroom is for Financial Journalists.")
     now = _exchange_time(conn)
     return {"desk": wire(newsroom.view(conn, player["id"], now))}

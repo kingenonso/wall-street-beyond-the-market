@@ -203,12 +203,52 @@ def _rate_abroad(conn: Connection) -> int:
     return world.rate_abroad(conn)
 
 
+def _anchor(conn: Connection, underlying: str) -> int | None:
+    """Where the price of a good is expected to drift back to: its own average over the last year.
+
+    The economy already pulls every commodity index towards the general price level (a 15% return a quarter).
+    Rather than model that twice, the market makers take the good's own recent average as the place the price is
+    heading and let the distance between today and that average tell them how fast."""
+    if underlying == "OIL":
+        row = _one(conn, "SELECT avg(v)::bigint AS v FROM (SELECT oil_cents AS v FROM abroad_results ORDER BY period DESC LIMIT 4) x")
+    else:
+        column = COMMODITY_COLUMN.get(underlying)
+        if column is None:
+            return None
+        row = _one(conn, f"SELECT avg(v)::bigint AS v FROM (SELECT {column} AS v FROM economy_results ORDER BY period DESC LIMIT 4) x")
+    return row["v"] if row and row["v"] else None
+
+
+def _commodity_fair(conn: Connection, series: dict, level: int, t: float) -> int | None:
+    """A commodity future's fair value: the price the goods are expected to fetch, plus what it costs to keep them
+    safe until then.
+
+    Storage is the whole point. Keeping a barrel or a gram costs money every quarter, so the far month stands above
+    the near one — contango — and holding the goods is never free. A price far above its own year's average, though,
+    is expected to come back down, and when it falls faster than storage lifts it the near month stands above the far
+    one instead: backwardation, the market saying the goods are scarce now and easier later."""
+    from simulation import commodities
+    g = _one(conn, "SELECT * FROM commodity_goods WHERE underlying = %s", (series["underlying"],))
+    anchor = _anchor(conn, series["underlying"])
+    if g is None or not anchor:
+        return None
+    quarters = t * 4
+    keep = (1 - data.COMMODITY_RETURN_BPS / BPS) ** quarters
+    expected = anchor + (level - anchor) * keep
+    rate = policy_rate(conn) / BPS + (g["rent_bps"] / BPS) * 4          # interest, and the rent on the space
+    return round(value_of(conn, series, max(int(round(expected)), 1)) * (1 + rate * t))
+
+
 def fair(conn: Connection, series: dict, now: datetime, level: int | None = None) -> int:
     """The market makers' own price for one contract, in kobo."""
     level = spot(conn, series, now) if level is None else level
     t = years_left(conn, series, now)
     r = policy_rate(conn) / BPS
     if series["kind"] == "future":
+        if series["underlying"] in COMMODITY_COLUMN or series["underlying"] == "OIL":
+            price = _commodity_fair(conn, series, level, t)
+            if price is not None:
+                return price
         carry = r - _rate_abroad(conn) / BPS if series["underlying"] == "NAIRA" else r
         return round(value_of(conn, series, level) * (1 + carry * t))
     per_unit = black_scholes(series["kind"], level, series["strike"], t, volatility(conn, series), r)

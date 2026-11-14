@@ -29,7 +29,7 @@ def _one(db, sql, params=()):
 
 def test_l1_savings_put_in_for_a_moment_before_the_close_earn_nothing(db):
     """'I'll move my cash into savings just before the quarter closes, and take it out after.'"""
-    p, account = pro(db, "accountant", "kiter", cash_naira=50_000_000)
+    p, account = pro(db, "asset_manager", "kiter", cash_naira=50_000_000)
     deposits.put_in(db, p, "IKB", naira(40_000_000), after_quarters(9) - timedelta(minutes=90))
     quarters.close_due_quarters(db, after_quarters(9))
     paid = _one(db, "SELECT amount FROM savings_interest WHERE account_id = %s AND period = %s", (account, P))
@@ -44,7 +44,7 @@ def test_l1_savings_put_in_for_a_moment_before_the_close_earn_nothing(db):
 def test_l2_savings_cannot_be_written_into_the_ledger_a_second_time(db):
     """'Can a bank's savers be written in again, to make savings out of nothing?'"""
     b = deposits.bank(db, "IKB")
-    p, account = pro(db, "accountant", "minter")
+    p, account = pro(db, "asset_manager", "minter")
     with pytest.raises(errors.RestrictViolation):
         ledger.post(db, kind="deposit_record", memo="again", period=P,
                     legs=[ledger.Leg(b["account_id"], -naira(1_000_000), b["asset"]), ledger.Leg(account, naira(1_000_000), b["asset"])])
@@ -56,7 +56,7 @@ def test_l3_only_the_head_moves_the_empires_money_into_savings_and_only_within_w
     """'I'm a member: I'll park the empire's cash at a shaky bank.' / 'I'm the head: I'll move it all.'"""
     empire, team = firm_of(db, n_cash=2_000_000_000)
     with pytest.raises(deposits.SavingsError, match="head"):
-        deposits.put_in(db, team["accountant"], "IKB", naira(1_000_000), NOW9, for_empire=True)
+        deposits.put_in(db, team["asset_manager"], "IKB", naira(1_000_000), NOW9, for_empire=True)
     with pytest.raises(deposits.SavingsError, match="sign"):
         deposits.put_in(db, team["head"], "IKB", naira(1_900_000_000), NOW9, for_empire=True)
     deposits.put_in(db, team["head"], "IKB", naira(1_000_000), NOW9, for_empire=True)
@@ -67,14 +67,14 @@ def test_l3_only_the_head_moves_the_empires_money_into_savings_and_only_within_w
         deposits.put_in(db, team["head"], "IKB", room + naira(1), NOW9, for_empire=True)
     assert deposits.saved(db, empire["account_id"], deposits.bank(db, "IKB")["asset"]) == naira(1_000_000)
     # A member never sees another saver's money; the view shows the empire's only to its own people.
-    view = deposits.view(db, team["accountant"], NOW9)
+    view = deposits.view(db, team["asset_manager"], NOW9)
     assert next(b for b in view["banks"] if b["ticker"] == "IKB")["empire"] == naira(1_000_000)
-    outsider, _ = pro(db, "lawyer", "outsider")
+    outsider, _ = pro(db, "investment_banker", "outsider")
     assert all(b["empire"] is None for b in deposits.view(db, outsider, NOW9)["banks"])
 
 
 def test_l4_a_closed_bank_takes_and_pays_nothing_trades_nothing_and_cannot_be_bought_cheaply_or_by_itself(db):
-    p, account = pro(db, "accountant", "frozen", cash_naira=20_000_000)
+    p, account = pro(db, "asset_manager", "frozen", cash_naira=20_000_000)
     deposits.put_in(db, p, "OTB", naira(10_000_000), NOW9)
     b = weaken(db, "OTB", -100)
     crisis.cannot_pay(db, b, P, 10, NOW9)
@@ -112,7 +112,7 @@ def test_l6_no_new_short_sales_in_a_bank_while_its_savers_run(db):
 
 
 def test_l7_a_planted_rumour_that_comes_before_a_run_is_kept_for_the_courts_but_pulling_money_out_is_lawful(db):
-    j, _ = pro(db, "journalist", "whisperer", level=20)
+    j, _ = pro(db, "investment_banker", "whisperer", level=20)
     b = deposits.bank(db, "KCB")
     item = intel.make(db, kind="rumour", topic="company", company_id=b["id"], tone=-1, words="Kainji Commercial Bank is in trouble.",
                       truth="unknown", basis="planted", planted_by=j, period=P, day=1, now=NOW9)
@@ -127,20 +127,20 @@ def test_l7_a_planted_rumour_that_comes_before_a_run_is_kept_for_the_courts_but_
     # Never shown: nothing on the website names it.
     assert "run_stories" not in repr(crisis.bank_view(db, NOW9)) and "planted" not in repr(crisis.crises_view(db, NOW9))
     # Pulling one's own money out, even in a run, is allowed (and is not recorded as anything).
-    saver, _ = pro(db, "lawyer", "careful", cash_naira=8_000_000)
+    saver, _ = pro(db, "investment_banker", "careful", cash_naira=8_000_000)
     deposits.put_in(db, saver, "IKB", naira(6_000_000), NOW9)
     deposits.take_out(db, saver, "IKB", naira(6_000_000), NOW9)
 
 
 def test_l8_the_guarantee_protects_the_first_5_million_and_a_full_guarantee_protects_all(db):
-    small, small_account = pro(db, "lawyer", "small", cash_naira=5_000_000)
+    small, small_account = pro(db, "investment_banker", "small", cash_naira=5_000_000)
     deposits.put_in(db, small, "ZCB", naira(5_000_000), NOW9)
     b = weaken(db, "ZCB", -500)
     crisis.cannot_pay(db, b, P, 15, NOW9)
     assert deposits.saved(db, small_account, b["asset"]) == naira(5_000_000)
     # Under the Government's full guarantee, nobody's savings are written down at all.
     db.execute("INSERT INTO blanket_guarantees (from_period, from_day, reason, at) VALUES (%s, 1, 'test', %s)", (P, NOW9))
-    big, big_account = pro(db, "accountant", "big", cash_naira=80_000_000)
+    big, big_account = pro(db, "asset_manager", "big", cash_naira=80_000_000)
     deposits.put_in(db, big, "HMB", naira(70_000_000), NOW9)
     h = weaken(db, "HMB", -300)
     r = crisis.cannot_pay(db, h, P, 16, NOW9)
@@ -163,7 +163,7 @@ def test_l10_nothing_private_reaches_the_website(db, client):
     """Never sent: anybody else's savings, an open crisis's hidden weakness, a bank auction's lowest price or anyone else's limit,
     the stories kept for the courts."""
     assert join(client, ADULT).status_code == 201
-    rich, _ = pro(db, "accountant", "rich", cash_naira=50_000_000)
+    rich, _ = pro(db, "asset_manager", "rich", cash_naira=50_000_000)
     deposits.put_in(db, rich, "IKB", naira(45_000_000), NOW9)
     weaken(db, "KCB", 300)
     days(db, 20)

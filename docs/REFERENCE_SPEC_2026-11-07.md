@@ -261,10 +261,10 @@ This is the register that matters most to you. Every control in your three scree
 | Control | What it must do | Today |
 | --- | --- | --- |
 | About | Explains the game | No game-level About page |
-| Change Law Firm | Chooses the firm that defends the company | No law firm in the game at all |
-| Toggle Global Autopilot | Lets every company you control run itself | No autopilot anywhere |
-| Cheats | Alters the world by hand | Only a test-world fast-forward, shown as a pill on the top bar |
-| INSURANCE | Unknown — see the question above | No insurance as a player action |
+| Change Law Firm | Chooses the firm that defends the company | No law firm in the game at all. **Taken out of the strip on 9 November 2026 by the owner's instruction** — a switch that can never be pressed is furniture. It comes back to the strip when a law firm exists to choose. |
+| Toggle Global Autopilot | Lets every company you control run itself | No autopilot anywhere. Taken out of the strip on 9 November 2026, on the same reasoning. |
+| Cheats | Alters the world by hand | Only a test-world fast-forward, shown as a pill on the top bar. Taken out of the strip on 9 November 2026. |
+| INSURANCE | Unknown — see the question above | **Reconsidered by the owner on 9 November 2026: it is not a switch, it is a thing you buy.** It comes back as a page under **Money**, selling the four policies set out below. |
 | Player | Profile, look, sound, sign out | Built: the menu behind your picture |
 | Viewing: AZA GROUP | A trail back through what is open | No breadcrumb anywhere |
 | Candlestick price history | Open, high, low, close per period | Line chart only |
@@ -334,7 +334,7 @@ Those last eight are not menus to style. Each is a set of rules about money and 
 
 - **The game counts in naira, at naira scale.** Your screenshots' half-billion figures are the reference's, not the target. The look carries over; the magnitudes do not. The game's existing habit of compacting large sums with a suffix stays, because a naira balance with eleven digits on it is unreadable at 13 pixels.
 - **My Corps is dropped.** Nothing in the strip on that account.
-- **INSURANCE becomes a menu of its own**, in the middle group with the law firm and the two autopilots. What it sells is worked out below.
+- **INSURANCE becomes a menu of its own**, in the middle group with the law firm and the two autopilots. What it sells is worked out below. *(Corrected 9 November 2026: the middle group is gone at the owner's instruction, so INSURANCE is a page under **Money**, beside Portfolio and Borrow. What it sells is unchanged.)*
 
 **Two judgement calls you left to me:**
 
@@ -348,7 +348,7 @@ Those last eight are not menus to style. Each is a set of rules about money and 
 
 You asked me to suggest, so here is the proposal. It follows the same logic as prepaying tax — insurance is not a purchase, it is the price of certainty — and it is built so it cannot be used to cheat.
 
-**Where it lives.** A menu in the middle group of the strip, beside Change Law Firm and the two Autopilot switches, because it is a setting about your whole position rather than a page about one company. Its items wear the grammar: **Buy a policy** green, **Cancel a policy** red, **Review your cover** and **Claim** cyan.
+**Where it lives.** *(Moved 9 November 2026: a page under **Money**, beside Portfolio and Borrow, because the middle group of the strip is gone. The owner's standing rule is that a new feature never gets a new sidebar entry, and a page tab is not a sidebar entry.)* Its items wear the grammar: **Buy a policy** green, **Cancel a policy** red, **Review your cover** and **Claim** cyan.
 
 **What it sells.** Four policies, each aimed at a loss the game can already inflict:
 

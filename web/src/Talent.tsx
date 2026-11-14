@@ -586,8 +586,8 @@ function FirmAuth({ onIn }: { onIn: (f: Firm) => void }) {
   );
 }
 
-const BUILD_CHOICES: [string, string][] = [["", "Any career"], ["asset_manager", "Asset Manager"], ["accountant", "Accountant"], ["investment_banker", "Investment Banker"],
-  ["risk_manager", "Risk Manager"], ["lawyer", "Legal Counsel"], ["journalist", "Financial Journalist"]];
+const BUILD_CHOICES: [string, string][] = [["", "Any career"], ["asset_manager", "Asset Manager"], ["investment_banker", "Investment Banker"],
+  ["risk_manager", "Risk Manager"]];
 
 function FirmDesk({ firm, route, onLoggedOut }: { firm: Firm; route: string[]; onLoggedOut: () => void }) {
   const [tab, setTab] = useState<"board" | "challenges" | "invitations">("board");

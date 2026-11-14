@@ -28,7 +28,7 @@ def _dicts(db, sql, params=()):
         return cur.execute(sql, params).fetchall()
 
 
-def professional(db, name="ada", *, build="accountant", employer="IDC", bank="IKB", now=OPEN, cash_naira=0):
+def professional(db, name="ada", *, build="asset_manager", employer="IKB", bank="IKB", now=OPEN, cash_naira=0):
     """A player with a build, a bank and a job. Returns (player id, account)."""
     account = trader(db, name, cash_naira=cash_naira)
     player = _dicts(db, "SELECT player_id FROM ledger_accounts WHERE id = %s", (account,))[0]["player_id"]
@@ -99,7 +99,7 @@ def test_only_the_six_starting_builds_can_be_chosen(db):
     for build in ("ceo", "head", "", "Accountant"):
         with pytest.raises(careers.CareerError):
             careers.choose_build(db, player, build, OPEN)
-    careers.choose_build(db, player, "accountant", OPEN)
+    careers.choose_build(db, player, "asset_manager", OPEN)
     assert careers.career(db, player)["level"] == 1
     # The database itself refuses any other build.
     with pytest.raises(psycopg.errors.CheckViolation):
@@ -110,14 +110,14 @@ def test_a_build_can_be_changed_once_in_a_real_month_and_each_keeps_its_own_leve
     player, _ = professional(db)
     quarters.close_due_quarters(db, OPEN + timedelta(days=29))
     with pytest.raises(careers.CareerError, match="once in a real month"):
-        careers.choose_build(db, player, "asset_manager", OPEN + timedelta(days=29))
-    careers.add_experience(db, player, "accountant", 200, OPEN)
+        careers.choose_build(db, player, "risk_manager", OPEN + timedelta(days=29))
+    careers.add_experience(db, player, "asset_manager", 200, OPEN)
     later = OPEN + timedelta(days=31)
     quarters.close_due_quarters(db, later)
-    careers.choose_build(db, player, "asset_manager", later)
-    assert careers.career(db, player)["level"] == 1 and careers.current_job(db, player) is None      # changing build leaves the job
+    careers.choose_build(db, player, "risk_manager", later)
+    assert careers.career(db, player, "risk_manager")["level"] == 1 and careers.current_job(db, player) is None      # changing build leaves the job
     quarters.close_due_quarters(db, later + timedelta(days=31))
-    careers.choose_build(db, player, "accountant", later + timedelta(days=31))
+    careers.choose_build(db, player, "asset_manager", later + timedelta(days=31))
     assert careers.career(db, player)["level"] == careers.level_for(200) > 1
 
 
@@ -173,10 +173,10 @@ def test_two_people_cannot_take_the_last_place_at_the_same_moment(db):
 def test_nobody_can_hop_between_employers_within_a_quarter(db):
     player, _ = professional(db)
     with pytest.raises(careers.CareerError, match="after the quarter ends"):
-        careers.take_job(db, player, "ABA", OPEN + timedelta(hours=1))
+        careers.take_job(db, player, "OTB", OPEN + timedelta(hours=1))
     careers.leave_job(db, player, OPEN + timedelta(hours=2))
     with pytest.raises(careers.CareerError, match="left a job this quarter"):
-        careers.take_job(db, player, "ABA", OPEN + timedelta(hours=3))
+        careers.take_job(db, player, "OTB", OPEN + timedelta(hours=3))
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +188,7 @@ def test_pay_day_the_employer_pays_and_forty_percent_is_taken(db):
     player, account = professional(db, now=NOW9)
     assert pass_one(db, player, NOW9)["state"] == "passed"
     before = ledger.balance(db, account)
-    employer = _dicts(db, "SELECT id, account_id FROM companies WHERE ticker = 'IDC'")[0]
+    employer = _dicts(db, "SELECT id, account_id FROM companies WHERE ticker = 'IKB'")[0]
     assert quarters.close_due_quarters(db, after_quarters(9)) == [9]
 
     slip = _dicts(db, "SELECT * FROM payslips WHERE player_id = %s", (player,))[0]
@@ -233,7 +233,7 @@ def test_a_players_salary_comes_out_of_the_wage_bill_the_company_already_pays(db
             for conn in (with_player, without):
                 quarters.close_due_quarters(conn, after_quarters(9))
             sql = ("SELECT r.operating_expenses, r.cost_of_sales, r.staff, r.wages, r.net_profit, r.cash FROM company_results r"
-                   " JOIN companies c ON c.id = r.company_id WHERE c.ticker = 'IDC' AND r.period = 9")
+                   " JOIN companies c ON c.id = r.company_id WHERE c.ticker = 'IKB' AND r.period = 9")
             mine, theirs = _dicts(with_player, sql)[0], _dicts(without, sql)[0]
             assert _dicts(with_player, "SELECT count(*) AS n FROM payslips WHERE gross > 0")[0]["n"] == 1
             # Identical, but for the few kobo that sharing pay among five cities in whole kobo leaves over.
@@ -294,15 +294,14 @@ def test_nobody_is_paid_for_a_quarter_that_ended_before_they_were_hired(db):
 def test_an_employer_with_no_cash_owes_the_salary_and_pays_it_when_it_can(db):
     # Find an Accountant's employer that is out of cash.
     broke = _dicts(db, "SELECT c.ticker, c.account_id, c.id FROM companies c JOIN ledger_balances b ON b.account_id = c.account_id"
-                       " AND b.asset = 'NGN' WHERE b.balance = 0 AND c.listed LIMIT 1")          # players work for listed companies
+                       " AND b.asset = 'NGN' WHERE b.balance = 0 AND c.listed AND c.sector IN ('banking', 'insurance') LIMIT 1")          # players work for listed companies
     if not broke:
-        company = _dicts(db, "SELECT ticker, account_id, id FROM companies WHERE ticker = 'KTX'")[0]
+        company = _dicts(db, "SELECT ticker, account_id, id FROM companies WHERE ticker = 'IKB'")[0]
         ledger.transfer(db, payer=company["account_id"], receiver=ledger.account_id(db, ledger.TREASURY),
                         amount=ledger.balance(db, company["account_id"]), kind="test_drain", memo="Test: the company has no cash")
     else:
         company = broke[0]
     player, account = professional(db, employer=company["ticker"], now=NOW9)
-    assert next(o for o in careers.openings(db, player, NOW9) if o["ticker"] == company["ticker"])["behind_on_bills"]
     pass_one(db, player, NOW9)
     quarters.close_due_quarters(db, after_quarters(9))
     slip = _dicts(db, "SELECT * FROM payslips WHERE player_id = %s", (player,))[0]

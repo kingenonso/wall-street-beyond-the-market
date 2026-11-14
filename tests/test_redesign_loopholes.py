@@ -25,7 +25,7 @@ def test_q1_settings_reach_only_the_players_own_four_columns(db, client):
     other, _ = professional(db, "other", now=NOW9)
     assert join(client, ADULT).status_code == 201
     for sneaky in ({"theme": "light", "cash": 1}, {"theme": "light", "reputation": 100}, {"theme": "light", "id": str(other)},
-                   {"theme": "light", "build": "lawyer"}, {"theme": "light", "news_alerts": False}):
+                   {"theme": "light", "build": "investment_banker"}, {"theme": "light", "news_alerts": False}):
         assert client.patch("/api/me/settings", json=sneaky).status_code == 422
     before = ledger.amount_in_existence(db)
     assert client.patch("/api/me/settings", json={"theme": "light"}).status_code == 200
@@ -36,7 +36,7 @@ def test_q1_settings_reach_only_the_players_own_four_columns(db, client):
 # 2. Can "How to do this" give away an answer before the work is done?
 def test_q2_the_method_is_the_same_for_everybody_and_holds_no_figures_of_the_work(db):
     a, _ = professional(db, "alpha", now=NOW9)
-    b, _ = professional(db, "bravo", employer="ADF", now=NOW9)
+    b, _ = professional(db, "bravo", employer="OTB", now=NOW9)
     for code in ("ac_ratios", "ac_cash_flow"):
         one = objectives.accept(db, a, code, NOW9)
         two = objectives.accept(db, b, code, NOW9)
@@ -96,7 +96,7 @@ def test_q4_the_ticker_shows_only_listed_companies_and_public_facts(db, client):
 # 5. Can the faster early levels carry a player past the Level 20 gate, or to more pay sooner than before above Level 10?
 def test_q5_the_gate_holds_and_nothing_above_level_ten_comes_cheaper_than_before_at_level_twenty(db):
     player, _ = professional(db, now=NOW9)
-    careers.add_experience(db, player, "accountant", 10**8, NOW9)
+    careers.add_experience(db, player, "asset_manager", 10**8, NOW9)
     assert careers.career(db, player)["level"] == 20                                   # the rank case is still needed
     for level in range(20, 101):
         assert careers.experience_for(level) == data.LEVEL_EXPERIENCE * level * (level - 1)

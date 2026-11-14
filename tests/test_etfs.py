@@ -48,7 +48,7 @@ def started(db):
     ring(db, DAY - timedelta(days=1))
 
 
-def person(db, name, *, cash_naira=50_000_000, level=1, build="accountant"):
+def person(db, name, *, cash_naira=50_000_000, level=1, build="asset_manager"):
     player, account = professional(db, name, build=build, employer=None, now=OPEN, cash_naira=cash_naira)
     if level > 1:
         careers.add_experience(db, player, build, careers.experience_for(level), OPEN)

@@ -137,11 +137,11 @@ def test_each_share_carries_its_last_five_closes(db, client):
 def test_work_in_hand_is_counted_for_the_dot_on_work(db, client):
     assert join(client, ADULT).status_code == 201
     assert client.get("/api/me").json()["work_in_hand"] == 0
-    assert client.put("/api/career/build", json={"build": "accountant"}).status_code == 200
+    assert client.put("/api/career/build", json={"build": "asset_manager"}).status_code == 200
     me = client.get("/api/me").json()
-    db.execute("UPDATE players SET build = 'accountant' WHERE id = %s", (me["id"],))
+    db.execute("UPDATE players SET build = 'asset_manager' WHERE id = %s", (me["id"],))
     careers.choose_bank(db, me["id"], "IKB", NOW9)
-    careers.take_job(db, me["id"], "IDC", NOW9)
+    careers.take_job(db, me["id"], "IKB", NOW9)
     objectives.accept(db, me["id"], "ac_ratios", NOW9)
     assert client.get("/api/me").json()["work_in_hand"] == 1
 

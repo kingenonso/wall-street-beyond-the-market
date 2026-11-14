@@ -182,7 +182,7 @@ def a_fund(db, fee_bps=25):
 
 def test_only_a_level_twenty_asset_manager_may_open_a_pension_fund_once_for_a_fee(db):
     junior, _ = pro(db, "asset_manager", "junior", level=19, cash_naira=8_000_000)
-    counsel, _ = pro(db, "lawyer", "counsel", level=20, cash_naira=8_000_000)
+    counsel, _ = pro(db, "investment_banker", "counsel", level=20, cash_naira=8_000_000)
     for who in (junior, counsel):
         with pytest.raises(pensionfunds.FundError, match="Level 20"):
             pensionfunds.open_fund(db, who, "Too Soon Pensions", 10, NOW9)

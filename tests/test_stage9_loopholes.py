@@ -168,7 +168,7 @@ def test_9_only_the_asset_manager_the_risk_manager_or_the_head_acts_for_the_empi
     for who in ("head", "risk_manager"):
         ready(db, team[who])
     x = series(db, "call", "BSX50")
-    for who in ("accountant", "journalist", "lawyer"):
+    for who in ("asset_manager", "investment_banker", "risk_manager"):
         with pytest.raises(Exception):
             lending_empire.trade(db, team[who], x["id"], "long", 1, NOW9)
         with pytest.raises(Exception):

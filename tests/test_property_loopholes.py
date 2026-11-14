@@ -35,7 +35,7 @@ pytestmark = pytest.mark.world("eight")
 
 def test_1_an_owner_cannot_bid_for_their_own_property_even_at_a_forced_sale(db):
     p = a_unit(db, "Lagos")
-    owner, owner_account = pro(db, "accountant", "owner", cash_naira=900_000_000)
+    owner, owner_account = pro(db, "asset_manager", "owner", cash_naira=900_000_000)
     hand_over(db, p["id"], owner_account)
     auction = auctions.owner_list(db, owner_account, p["id"], 0, NOW9)
     with pytest.raises(prop.PropertyError, match="your own"):
@@ -51,7 +51,7 @@ def test_1_an_owner_cannot_bid_for_their_own_property_even_at_a_forced_sale(db):
 def test_2_no_secret_ever_leaves_the_server(client, db):
     assert join(client, {"email": "peek@example.com", "display_name": "Peek", "password": "correct horse battery",
                          "date_of_birth": "1990-01-01", "profile_icon": "male"}).status_code == 201
-    rival, rival_account = pro(db, "lawyer", "rival", cash_naira=900_000_000)
+    rival, rival_account = pro(db, "investment_banker", "rival", cash_naira=900_000_000)
     a = _one(db, "SELECT * FROM auctions WHERE status = 'open' AND property_id IS NOT NULL AND opens_at <= now() ORDER BY id LIMIT 1") or \
         _one(db, "SELECT * FROM auctions WHERE status = 'open' AND property_id IS NOT NULL ORDER BY opens_at LIMIT 1")
     db.execute("UPDATE auctions SET opens_at = now() - interval '1 hour', ends_at = now() + interval '20 hours' WHERE id = %s", (a["id"],))
@@ -68,8 +68,8 @@ def test_2_no_secret_ever_leaves_the_server(client, db):
 def test_3_bidding_walking_away_and_being_outbid_neither_make_nor_lose_a_kobo(db):
     p = a_unit(db, "Abuja")
     a = lot(db, p["id"])
-    one, one_account = pro(db, "accountant", "one", cash_naira=900_000_000)
-    two, two_account = pro(db, "lawyer", "two", cash_naira=900_000_000)
+    one, one_account = pro(db, "asset_manager", "one", cash_naira=900_000_000)
+    two, two_account = pro(db, "investment_banker", "two", cash_naira=900_000_000)
     start = {one_account: ledger.balance(db, one_account), two_account: ledger.balance(db, two_account)}
     first = auctions.place_bid(db, one_account, a["id"], a["start_price"] * 2, LATER, player_id=one)
     auctions.place_bid(db, one_account, a["id"], a["start_price"] * 3, LATER, player_id=one)       # raises its own bid
@@ -86,7 +86,7 @@ def test_3_bidding_walking_away_and_being_outbid_neither_make_nor_lose_a_kobo(db
 
 
 def test_4_one_salary_cannot_back_mortgages_on_many_bids_at_once(db):
-    player, account = pro(db, "accountant", "stretch", level=10, cash_naira=900_000_000)
+    player, account = pro(db, "asset_manager", "stretch", level=10, cash_naira=900_000_000)
     bank = a_bank(db)
     cap = prop.mortgage_limit(db, account, naira(10**12), NOW9)
     lots = [lot(db, a_unit(db, city)["id"]) for city in ("Lagos", "Abuja", "Port Harcourt")]
@@ -110,20 +110,20 @@ def test_4_one_salary_cannot_back_mortgages_on_many_bids_at_once(db):
 def test_5_an_empire_bids_only_through_its_head_after_every_check_and_within_the_risk_managers_price(db):
     empire, team = firm_of(db)
     a = lot(db, a_unit(db, "Lagos")["id"])
-    for player in (team["accountant"], team["risk_manager"], team["lawyer"]):
+    for player in (team["asset_manager"], team["risk_manager"], team["investment_banker"]):
         with pytest.raises(prop.PropertyError):
             auctions.empire_bid(db, player, a["id"], a["start_price"], LATER)
     with pytest.raises(prop.PropertyError, match="Still to do"):
         auctions.empire_bid(db, team["head"], a["id"], a["start_price"], LATER)
-    auctions.check(db, team["lawyer"], a["id"], "title", {}, LATER)
-    auctions.check(db, team["accountant"], a["id"], "valuation", {"value": a["fair"]}, LATER)
+    auctions.check(db, team["investment_banker"], a["id"], "title", {}, LATER)
+    auctions.check(db, team["asset_manager"], a["id"], "valuation", {"value": a["fair"]}, LATER)
     auctions.check(db, team["risk_manager"], a["id"], "limit", {"limit": a["start_price"] * 2}, LATER)
     auctions.check(db, team["investment_banker"], a["id"], "money", {"mortgage_bps": 0}, LATER)
     with pytest.raises(prop.PropertyError, match="top price"):
         auctions.empire_bid(db, team["head"], a["id"], a["start_price"] * 2 + 1, LATER)
     # A desk cannot do another desk's check.
     with pytest.raises(prop.PropertyError):
-        auctions.check(db, team["lawyer"], a["id"], "limit", {"limit": a["fair"] * 10}, LATER)
+        auctions.check(db, team["investment_banker"], a["id"], "limit", {"limit": a["fair"] * 10}, LATER)
     # The empire's own account is never used through a player's own bidding door.
     with pytest.raises(prop.PropertyError):
         auctions.check(db, team["investment_banker"], a["id"], "money", {"mortgage_bps": data.EMPIRE_MORTGAGE_MOST_BPS + 100, "bank": a_bank(db)["id"]}, LATER)
@@ -133,12 +133,12 @@ def test_5_an_empire_bids_only_through_its_head_after_every_check_and_within_the
 def test_6_an_empire_does_not_buy_from_one_of_its_own_members(db):
     empire, team = firm_of(db)
     p = a_unit(db, "Lagos")
-    seller_account = ledger.player_account_id(db, team["accountant"])
+    seller_account = ledger.player_account_id(db, team["asset_manager"])
     hand_over(db, p["id"], seller_account)
     auction = auctions.owner_list(db, seller_account, p["id"], 0, NOW9)
     a = auctions._auction(db, auction)
-    auctions.check(db, team["lawyer"], auction, "title", {}, LATER)
-    auctions.check(db, team["accountant"], auction, "valuation", {"value": a["fair"] * 5}, LATER)
+    auctions.check(db, team["investment_banker"], auction, "title", {}, LATER)
+    auctions.check(db, team["asset_manager"], auction, "valuation", {"value": a["fair"] * 5}, LATER)
     auctions.check(db, team["risk_manager"], auction, "limit", {"limit": a["fair"] * 5}, LATER)
     auctions.check(db, team["investment_banker"], auction, "money", {"mortgage_bps": 0}, LATER)
     with pytest.raises(prop.PropertyError, match="own members"):
@@ -186,11 +186,11 @@ def test_8_a_seat_the_headquarters_added_cannot_be_taken_while_it_is_down(db):
 
 def test_9_a_leading_bid_cannot_be_withdrawn_and_nobody_bids_after_the_end(db):
     a = lot(db, a_unit(db, "Kano")["id"])
-    one, one_account = pro(db, "accountant", "one", cash_naira=900_000_000)
+    one, one_account = pro(db, "asset_manager", "one", cash_naira=900_000_000)
     bid = auctions.place_bid(db, one_account, a["id"], a["start_price"] * 2, LATER, player_id=one)
     with pytest.raises(prop.PropertyError, match="cannot be withdrawn"):
         auctions.withdraw(db, one_account, bid["bid_id"], LATER)
-    two, two_account = pro(db, "lawyer", "two", cash_naira=900_000_000)
+    two, two_account = pro(db, "investment_banker", "two", cash_naira=900_000_000)
     with pytest.raises(prop.PropertyError, match="not taking bids"):
         auctions.place_bid(db, two_account, a["id"], a["start_price"] * 5, a["ends_at"] + timedelta(seconds=1), player_id=two)
     with pytest.raises(prop.PropertyError, match="not taking bids"):
@@ -199,8 +199,8 @@ def test_9_a_leading_bid_cannot_be_withdrawn_and_nobody_bids_after_the_end(db):
 
 def test_10_a_partners_cash_comes_back_when_the_auction_ends_whether_or_not_the_bid_won(db):
     a = lot(db, a_unit(db, "Aba")["id"])
-    lead, lead_account = pro(db, "accountant", "lead", cash_naira=900_000_000)
-    friend, friend_account = pro(db, "lawyer", "friend", cash_naira=900_000_000)
+    lead, lead_account = pro(db, "asset_manager", "lead", cash_naira=900_000_000)
+    friend, friend_account = pro(db, "investment_banker", "friend", cash_naira=900_000_000)
     rich, rich_account = pro(db, "risk_manager", "rich", cash_naira=900_000_000)
     before = ledger.balance(db, friend_account)
     ask = auctions.ask_partner(db, lead_account, a["id"], friend_account, 3000, LATER)

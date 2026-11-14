@@ -77,7 +77,7 @@ def test_nothing_can_be_changed_between_the_end_of_a_quarter_and_its_close(db):
             objectives.accept(db, player, code, GAP9)
     for change in (lambda: careers.take_job(db, player, "ZCB", GAP9), lambda: careers.leave_job(db, player, GAP9),
                    lambda: careers.choose_bank(db, player, "ZCB", GAP9), lambda: careers.choose_fund(db, player, "growth", GAP9),
-                   lambda: careers.choose_bank(db, newcomer, "IKB", GAP9), lambda: careers.choose_build(db, newcomer, "accountant", GAP9)):
+                   lambda: careers.choose_bank(db, newcomer, "IKB", GAP9), lambda: careers.choose_build(db, newcomer, "asset_manager", GAP9)):
         with pytest.raises(careers.CareerError, match="books are being closed"):
             change()
     # A minute after the close, all of it works again.
@@ -178,7 +178,7 @@ def test_more_of_the_record_is_guarded_in_the_database(db):
 @pytest.mark.world("eight")
 def test_the_saving_is_credited_even_when_the_employer_pays_late(db):
     company = _dicts(db, "SELECT ticker, account_id, id FROM companies WHERE ticker = 'KTX'")[0]
-    player, _ = professional(db, employer="KTX", now=NOW9)
+    player, _ = professional(db, employer="IKB", now=NOW9)
     pass_one(db, player, NOW9)                 # the work is done first: its client may be this very company
     cash = ledger.balance(db, company["account_id"])
     if cash:

@@ -329,7 +329,7 @@ def propose_rescue(conn: Connection, player_id, company_id, measures: list, fee:
     """An Accountant offers a failing private company a rescue plan, for a fee paid only if it works."""
     with conn.transaction():
         state = _open(conn, now)
-        if careers.career(conn, player_id, "accountant") is None:
+        if careers.career(conn, player_id, "asset_manager") is None:
             raise EmpireError("A rescue plan is drawn up by an Accountant.")
         company = _one(conn, "SELECT * FROM companies WHERE id = %s AND NOT listed AND status = 'trading' FOR UPDATE", (company_id,))
         if company is None or not failing(conn, company_id):
@@ -469,10 +469,10 @@ def _judge_plans(conn: Connection, period: int, seed: str, now: datetime) -> Non
             words = (f"The rescue of {company['name']} worked. The Accountant's fee of {_money(plan['fee'])} is paid with its next quarter's bills."
                      if saved else f"The rescue of {company['name']} did not work. No fee is paid.")
             conn.execute("UPDATE company_plans SET status = %s, outcome = %s WHERE id = %s", ("done" if saved else "failed", words, plan["id"]))
-            mine = careers.career(conn, plan["doctor_id"], "accountant")
-            careers._event(conn, plan["doctor_id"], "accountant", "rescue", words, now)
+            mine = careers.career(conn, plan["doctor_id"], "asset_manager")
+            careers._event(conn, plan["doctor_id"], "asset_manager", "rescue", words, now)
             if saved and mine:
-                careers.add_experience(conn, plan["doctor_id"], "accountant", firm.DUTY_EXPERIENCE * 2 * (1 + mine["rank"]), now)
+                careers.add_experience(conn, plan["doctor_id"], "asset_manager", firm.DUTY_EXPERIENCE * 2 * (1 + mine["rank"]), now)
             if plan["empire_id"]:
                 _log(conn, plan["empire_id"], words, now)
 
@@ -841,7 +841,7 @@ def view(conn: Connection, seat: dict, empire: dict, state: dict, now: datetime)
 
 def doctor_view(conn: Connection, player_id) -> list[dict]:
     """For an Accountant: private companies in trouble that could use a rescue, by name and the bare fact of trouble."""
-    if careers.career(conn, player_id, "accountant") is None:
+    if careers.career(conn, player_id, "asset_manager") is None:
         return []
     out = []
     for c in _rows(conn, "SELECT c.id, c.name, c.headquarters, s.name AS sector FROM companies c JOIN sectors s ON s.code = c.sector"

@@ -99,10 +99,14 @@ function FullscreenButton() {
 }
 
 /**
- * Zone 1 of the standard layout: the strip across the top, in three groups as the reference has it.
- * The left group is navigation and the game's own pages; the middle group is set apart because its
- * items are not pages at all but switches on the whole world; the right group says what you are
- * looking at and who you are.
+ * Zone 1 of the standard layout: the strip across the top, in two groups.
+ *
+ * It used to have a third, middle group: four switches on the whole world — Change Law Firm, Toggle
+ * Global Autopilot, Cheats and Insurance — each drawn dimmed because none had an engine behind it. The
+ * owner had them taken out on 9 November 2026: a row of dead switches is a row you learn to ignore, and
+ * insurance is a real thing to buy, not a switch. Insurance now lives under Money, where it can be
+ * bought, reviewed, cancelled and claimed against. The other three stay unbuilt and unshown; the
+ * reference spec's register still records them.
  */
 function Strip({ player, current, onLogout, onPlayer }: {
   player: Player; current: string;
@@ -132,14 +136,6 @@ function Strip({ player, current, onLogout, onPlayer }: {
         <a className="strip-item" href="#/about">About</a>
       </div>
 
-      {/* The world's switches, set away from the navigation on purpose: none of these is a page. */}
-      <nav className="strip-world" aria-label="Settings for the whole world">
-        <WorldSwitch label="Change Law Firm" />
-        <WorldSwitch label="Toggle Global Autopilot" />
-        <WorldSwitch label="Cheats" />
-        <WorldSwitch label="Insurance" />
-      </nav>
-
       <div className="strip-right">
         <StripMenu label={<><span className="muted">Viewing:</span> {viewing}</>} menuLabel="What you are looking at">
           <nav className="strip-links" aria-label="What you are looking at">
@@ -156,20 +152,6 @@ function Strip({ player, current, onLogout, onPlayer }: {
         <ProfileMenu player={player} onLogout={onLogout} onPlayer={onPlayer} />
       </div>
     </header>
-  );
-}
-
-/**
- * One of the world's switches. None of the four has an engine behind it yet, so each is shown dimmed —
- * the grammar the reference uses for a thing you cannot do — and says in its tooltip what it will do
- * once it exists. Nothing here pretends to work.
- */
-function WorldSwitch({ label }: { label: string }) {
-  return (
-    <button type="button" className="strip-item strip-world-item" disabled aria-disabled="true"
-            title={`${label}: not built yet`}>
-      {label}
-    </button>
   );
 }
 
@@ -345,11 +327,14 @@ export function sectionsFor(player: Player): Section[] {
     { path: "empire", label: player.empire ? "Empire" : "Empires", ...(player.empire && !player.empire.forming ? { count: player.empire.waiting, countWords: "waiting" } : {}) },
     { path: "market", label: "Markets", tabs: [{ path: "market", label: "Trade shares" }, { path: "companies", label: "Companies" }, { path: "property", label: "Property" }] },
     { path: "portfolio", label: "Money", ...((player.margin_calls ?? 0) > 0 ? { count: player.margin_calls, countWords: "margin calls" } : {}),
-      tabs: [{ path: "portfolio", label: "Portfolio and savings" }, { path: "borrow", label: "Borrow" }, { path: "currencies", label: "Currencies" }] },
+      tabs: [{ path: "portfolio", label: "Portfolio and savings" }, { path: "borrow", label: "Borrow" },
+             { path: "retirement", label: "Retirement" }, { path: "currencies", label: "Currencies" }] },
     { path: "news", label: "News", tabs: [{ path: "news", label: "News" }, { path: "intel", label: "Intelligence" }] },
     { path: "economy", label: "Economy", tabs: [{ path: "economy", label: "The economy" }, { path: "charities", label: "Charities" }] },
     // Stage 11: the courts, a page of their own (the owner's answer, 6 November 2026).
     { path: "court", label: "Court" },
+    // Stage 12: the commodities desk — buy goods, store them, sell them, and run a firm's desk.
+    { path: "commodities", label: "Commodities" },
   ];
 }
 

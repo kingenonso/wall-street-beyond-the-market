@@ -20,7 +20,7 @@ from tests.test_objectives import give_cash
 
 pytestmark = pytest.mark.world("eight")
 FRIDAY9 = after_quarters(8) + timedelta(days=4, hours=18)            # Friday 19:00 in the ninth quarter: the challenge is open
-TRACKS = ("accountant", "asset_manager", "investment_banker", "risk_manager", "lawyer", "journalist")
+TRACKS = ("asset_manager", "investment_banker", "risk_manager")
 
 
 def _dicts(db, sql, params=()):
@@ -114,7 +114,7 @@ def test_every_piece_of_work_in_every_setting_can_really_be_offered(db):
 
 
 def test_the_three_settings_draw_their_own_client_or_numbers(db):
-    player, _ = pro(db, "accountant", level=6)
+    player, _ = pro(db, "asset_manager", level=6)
     empires.apply(db, player, computer_empire(db)["id"], NOW9)
     ctx = objectives._context(db, player, FRIDAY9)
     seen = {}
@@ -132,7 +132,7 @@ def test_the_three_settings_draw_their_own_client_or_numbers(db):
 # ---------------------------------------------------------------------------
 
 def test_a_module_is_learned_alone_practised_with_the_empire_and_proven_in_a_weekend_challenge(db):
-    player, account = pro(db, "accountant", level=6)
+    player, account = pro(db, "asset_manager", level=6)
     empire = computer_empire(db)
 
     def stage(now):
@@ -179,7 +179,7 @@ def test_a_module_is_learned_alone_practised_with_the_empire_and_proven_in_a_wee
     assert won["state"] == "passed" and won["setting"] == "live"
     assert stage(friday11)["stage"] == "proven" and stage(friday11)["stage_number"] == 3
     tracker = objectives.board(db, player, friday11)["tracks"][0]
-    total = len(objectives.modules("accountant"))
+    total = len(objectives.modules("asset_manager"))
     assert (tracker["learned"], tracker["practised"], tracker["proven"], tracker["modules"]) == (1, 1, 1, total)
     assert tracker["learned_pct"] == round(100 / total) and tracker["name"] == "Accountant"
     # The empire gained league points for both.
@@ -190,7 +190,7 @@ def test_a_module_is_learned_alone_practised_with_the_empire_and_proven_in_a_wee
 
 
 def test_practised_before_learned_shows_as_not_yet_and_each_setting_is_once_a_quarter(db):
-    player, _ = pro(db, "accountant", level=6)
+    player, _ = pro(db, "asset_manager", level=6)
     empires.apply(db, player, computer_empire(db)["id"], NOW9)
     do(db, player, "ac_ratios_e", NOW9)
     skill = next(s for s in objectives.board(db, player, NOW9)["skills"] if s["module"] == "Reading financial statements")
@@ -200,7 +200,7 @@ def test_practised_before_learned_shows_as_not_yet_and_each_setting_is_once_a_qu
 
 
 def test_a_weekend_challenge_is_timed_and_a_late_paper_does_not_pass(db):
-    player, account = pro(db, "accountant", level=6)
+    player, account = pro(db, "asset_manager", level=6)
     taken = objectives.accept(db, player, "ac_ratios_w", FRIDAY9)
     assert taken["terms"]["hand_in_by"] and "3 hours" in taken["terms"]["deadline"]
     right = answers_for(db, taken["id"], FRIDAY9)
@@ -208,7 +208,7 @@ def test_a_weekend_challenge_is_timed_and_a_late_paper_does_not_pass(db):
     late = objectives.submit(db, player, taken["id"], right, FRIDAY9 + timedelta(hours=3, minutes=1))
     assert late["state"] == "not_done" and ledger.balance(db, account) == before
     # Taken near the end of the window, the time allowed stops when the window closes.
-    other, _ = pro(db, "accountant", "late", level=6)
+    other, _ = pro(db, "asset_manager", "late", level=6)
     sunday = FRIDAY9 + timedelta(days=2, hours=2, minutes=30)           # Sunday 21:30
     assert objectives.weekend(sunday)["open"] and not objectives.weekend(sunday + timedelta(minutes=31))["open"]
     last = objectives.accept(db, other, "ac_ratios_w", sunday)
@@ -216,7 +216,7 @@ def test_a_weekend_challenge_is_timed_and_a_late_paper_does_not_pass(db):
 
 
 def test_one_member_cannot_draw_pay_from_their_empire_without_end(db, monkeypatch):
-    player, _ = pro(db, "accountant", level=6)
+    player, _ = pro(db, "asset_manager", level=6)
     empires.apply(db, player, computer_empire(db)["id"], NOW9)
     assert data.EMPIRE_WORK_A_QUARTER == 8
     monkeypatch.setattr(data, "EMPIRE_WORK_A_QUARTER", 1)
@@ -240,38 +240,38 @@ def test_a_career_stops_at_each_gate_until_its_rank_case_is_passed():
 
 
 def test_a_rank_case_needs_the_level_and_the_mastery_and_its_fee_leaves_the_economy(db):
-    player, account = pro(db, "accountant", level=19, cash_naira=1_000_000)
+    player, account = pro(db, "asset_manager", level=19, cash_naira=1_000_000)
     where = ranks.standing(db, player, NOW9)["tracks"][0]
     assert where["gate"] == 20 and not where["can_begin"] and "Reach Level 20" in where["why_not"]
     with pytest.raises(ranks.RankError, match="Reach Level 20"):
-        ranks.begin(db, player, "accountant", NOW9)
-    careers.add_experience(db, player, "accountant", careers.experience_for(25), NOW9)
+        ranks.begin(db, player, "asset_manager", NOW9)
+    careers.add_experience(db, player, "asset_manager", careers.experience_for(25), NOW9)
     assert careers.career(db, player)["level"] == 20                       # held at the gate; the experience is kept
     with pytest.raises(ranks.RankError, match="must be learned"):
-        ranks.begin(db, player, "accountant", NOW9)
-    master(db, player, "accountant", stages=("solo",))
+        ranks.begin(db, player, "asset_manager", NOW9)
+    master(db, player, "asset_manager", stages=("solo",))
     with pytest.raises(ranks.RankError, match="3 modules must be practised"):
-        ranks.begin(db, player, "accountant", NOW9)
-    master(db, player, "accountant", stages=("empire",), modules=3)
-    master(db, player, "accountant", stages=("live",), modules=1)
+        ranks.begin(db, player, "asset_manager", NOW9)
+    master(db, player, "asset_manager", stages=("empire",), modules=3)
+    master(db, player, "asset_manager", stages=("live",), modules=1)
     where = ranks.standing(db, player, NOW9)["tracks"][0]
     assert where["can_begin"] and where["fee"] > 0 and [n["met"] for n in where["needs"]] == [True, True, True]
     # Somebody without the fee cannot begin, and nothing is taken.
-    poor, poor_account = pro(db, "accountant", "poor", level=20)
-    master(db, poor, "accountant")
+    poor, poor_account = pro(db, "asset_manager", "poor", level=20)
+    master(db, poor, "asset_manager")
     assert ledger.balance(db, poor_account) < naira(200_000)
     with pytest.raises(ranks.RankError, match="do not have that much cash"):
-        ranks.begin(db, poor, "accountant", NOW9)
+        ranks.begin(db, poor, "asset_manager", NOW9)
     assert _dicts(db, "SELECT count(*) AS n FROM rank_cases WHERE player_id = %s", (poor,))[0]["n"] == 0
     pool = ledger.account_id(db, ledger.PRIZE_POOL)
     before, pool_before = ledger.balance(db, account), ledger.balance(db, pool)
-    case = ranks.begin(db, player, "accountant", NOW9)
+    case = ranks.begin(db, player, "asset_manager", NOW9)
     assert before - ledger.balance(db, account) == case["fee"] == ledger.balance(db, pool) - pool_before
     assert len(case["parts"]) == 3 and case["company"]["ticker"] and case["state"] == "active" and case["result"] is None
     # Nothing a player is shown before judging gives an answer away.
     assert "answers" not in str(case) and "filed_period" not in str(case) and "salt" not in str(case)
     with pytest.raises(ranks.RankError, match="in hand"):
-        ranks.begin(db, player, "accountant", NOW9)
+        ranks.begin(db, player, "asset_manager", NOW9)
     # Another player's case is not theirs to hand in or see.
     with pytest.raises(ranks.RankError, match="no such"):
         ranks.hand_in(db, poor, case["id"], {}, NOW9)
@@ -279,27 +279,27 @@ def test_a_rank_case_needs_the_level_and_the_mastery_and_its_fee_leaves_the_econ
 
 
 def test_a_failed_case_can_be_sat_again_after_three_real_days_on_a_fresh_case(db):
-    player, account = pro(db, "accountant", level=20, cash_naira=2_000_000)
-    master(db, player, "accountant")
-    case = ranks.begin(db, player, "accountant", NOW9)
+    player, account = pro(db, "asset_manager", level=20, cash_naira=2_000_000)
+    master(db, player, "asset_manager")
+    case = ranks.begin(db, player, "asset_manager", NOW9)
     failed = ranks.hand_in(db, player, case["id"], {"ac_ratios": {"ebitda": 1}}, NOW9)
     assert failed["state"] == "failed" and failed["result"]["score"] < failed["pass_mark"] == 80
     assert careers.career(db, player)["rank"] == 0
     with pytest.raises(ranks.RankError, match="judged already"):
         ranks.hand_in(db, player, case["id"], right_case(db, player, case["id"], NOW9) if False else {}, NOW9)
     with pytest.raises(ranks.RankError, match="after 3 real days"):
-        ranks.begin(db, player, "accountant", NOW9 + timedelta(days=2, hours=23))
-    again = ranks.begin(db, player, "accountant", NOW9 + timedelta(days=3, minutes=1))
+        ranks.begin(db, player, "asset_manager", NOW9 + timedelta(days=2, hours=23))
+    again = ranks.begin(db, player, "asset_manager", NOW9 + timedelta(days=3, minutes=1))
     # The fee is paid again, and the case is a different one.
     assert again["company"]["ticker"] != case["company"]["ticker"]
     assert _dicts(db, "SELECT count(*) AS n FROM ledger_transactions WHERE kind = 'rank_case_fee'")[0]["n"] == 2
 
 
 def test_passing_the_case_opens_the_levels_above_and_work_then_teaches_more(db):
-    player, account = pro(db, "accountant", level=20, cash_naira=2_000_000)
-    careers.add_experience(db, player, "accountant", careers.experience_for(23), NOW9)
-    master(db, player, "accountant")
-    case = ranks.begin(db, player, "accountant", NOW9)
+    player, account = pro(db, "asset_manager", level=20, cash_naira=2_000_000)
+    careers.add_experience(db, player, "asset_manager", careers.experience_for(23), NOW9)
+    master(db, player, "asset_manager")
+    case = ranks.begin(db, player, "asset_manager", NOW9)
     done = ranks.hand_in(db, player, case["id"], right_case(db, player, case["id"], NOW9), NOW9)
     assert done["state"] == "passed" and done["result"]["score"] == 100
     # The debrief: every figure is marked and the method is given at once...
@@ -325,15 +325,15 @@ def test_passing_the_case_opens_the_levels_above_and_work_then_teaches_more(db):
 
 
 def test_a_case_not_handed_in_lapses_and_a_late_one_is_not_marked(db):
-    player, _ = pro(db, "accountant", level=20, cash_naira=2_000_000)
-    master(db, player, "accountant")
-    case = ranks.begin(db, player, "accountant", NOW9)
+    player, _ = pro(db, "asset_manager", level=20, cash_naira=2_000_000)
+    master(db, player, "asset_manager")
+    case = ranks.begin(db, player, "asset_manager", NOW9)
     right = right_case(db, player, case["id"], NOW9)
     late = ranks.hand_in(db, player, case["id"], right, NOW9 + timedelta(hours=data.RANK_CASE_HOURS, minutes=1))
     assert late["state"] == "not_done" and careers.career(db, player)["rank"] == 0
-    other, _ = pro(db, "accountant", "other", level=20, cash_naira=2_000_000)
-    master(db, other, "accountant")
-    waiting = ranks.begin(db, other, "accountant", after_quarters(8) + timedelta(days=6))
+    other, _ = pro(db, "asset_manager", "other", level=20, cash_naira=2_000_000)
+    master(db, other, "asset_manager")
+    waiting = ranks.begin(db, other, "asset_manager", after_quarters(8) + timedelta(days=6))
     assert waiting["due_at"] == after_quarters(9) - timedelta(hours=1)         # never past the end of the quarter
     quarters.close_due_quarters(db, after_quarters(9))
     assert _dicts(db, "SELECT state FROM rank_cases WHERE id = %s", (waiting["id"],))[0]["state"] == "not_done"
@@ -359,27 +359,27 @@ def test_every_build_has_a_rank_case_made_from_the_live_world_that_can_be_passed
 
 
 def test_the_later_gates_ask_for_every_module_proven(db):
-    player, _ = pro(db, "accountant", level=20, cash_naira=9_000_000)
+    player, _ = pro(db, "asset_manager", level=20, cash_naira=9_000_000)
     db.execute("UPDATE careers SET rank = 2, experience = %s WHERE player_id = %s", (careers.experience_for(60), player))
     assert careers.career(db, player)["level"] == 60
     # The gate at 60 asks for every module that opens at or below Level 60 (the gap stage's higher bands included).
-    required = [m for m in objectives.modules("accountant") if m["level"] <= 60]
+    required = [m for m in objectives.modules("asset_manager") if m["level"] <= 60]
     assert len(required) > 8
-    master(db, player, "accountant", stages=("solo", "empire"))
+    master(db, player, "asset_manager", stages=("solo", "empire"))
     for m in required[:-1]:
         db.execute("INSERT INTO objectives (player_id, build, template, module, period, payer_account_id, payer_name, title, terms, reward,"
-                   " experience, accepted_at, state, judged_at, judged_period, judged_seq, setting, track, root) VALUES (%s, 'accountant', %s,"
-                   " %s, 3, %s, 'Test', %s, '{}', 0, 0, %s, 'passed', %s, 3, nextval('objectives_judged_seq'), 'live', 'accountant', %s)",
+                   " experience, accepted_at, state, judged_at, judged_period, judged_seq, setting, track, root) VALUES (%s, 'asset_manager', %s,"
+                   " %s, 3, %s, 'Test', %s, '{}', 0, 0, %s, 'passed', %s, 3, nextval('objectives_judged_seq'), 'live', 'asset_manager', %s)",
                    (player, m["template"] + "_w", m["module"], ledger.player_account_id(db, player), m["title"], NOW9, NOW9, m["template"]))
     where = ranks.standing(db, player, NOW9)["tracks"][0]
     assert where["gate"] == 60 and not where["can_begin"] and f"{len(required)} modules must be proven" in where["why_not"]
     assert where["needs"][2]["missing"] == [required[-1]["module"]]
-    master(db, player, "accountant", stages=("live",))
+    master(db, player, "asset_manager", stages=("live",))
     assert ranks.standing(db, player, NOW9)["tracks"][0]["can_begin"]
 
 
 def test_retirement_at_level_fifty_can_now_be_reached(db):
-    player, _ = pro(db, "accountant", level=20)
+    player, _ = pro(db, "asset_manager", level=20)
     assert not careers.retirement_opens(db, player, 9)["eligible"]
     db.execute("UPDATE careers SET rank = 2, experience = %s WHERE player_id = %s", (careers.experience_for(50), player))
     assert careers.career(db, player)["level"] == 50 and careers.retirement_opens(db, player, 9)["eligible"]
@@ -389,14 +389,14 @@ def test_retirement_at_level_fifty_can_now_be_reached(db):
 
 
 def test_a_player_can_report_marking_they_believe_is_wrong_once(db):
-    player, _ = pro(db, "accountant", level=6)
+    player, _ = pro(db, "asset_manager", level=6)
     done = do(db, player, "ac_ratios", NOW9)
     with pytest.raises(ranks.RankError, match="ten to six hundred"):
         ranks.report(db, player, "wrong", NOW9, objective_id=done["id"])
     ranks.report(db, player, "The margin should be on operating profit.", NOW9, objective_id=done["id"])
     with pytest.raises(ranks.RankError, match="already reported"):
         ranks.report(db, player, "The margin should be on operating profit.", NOW9, objective_id=done["id"])
-    stranger, _ = pro(db, "accountant", "stranger")
+    stranger, _ = pro(db, "asset_manager", "stranger")
     with pytest.raises(ranks.RankError, match="judged"):
         ranks.report(db, stranger, "This is not my work at all.", NOW9, objective_id=done["id"])
 
@@ -406,13 +406,13 @@ def test_a_player_can_report_marking_they_believe_is_wrong_once(db):
 # ---------------------------------------------------------------------------
 
 def test_the_leadership_track_opens_to_a_head_or_at_level_forty_and_its_experience_goes_to_the_players_build(db):
-    junior, _ = pro(db, "accountant", level=20)
-    assert [t["track"] for t in objectives.board(db, junior, NOW9)["tracks"]] == ["accountant"]
+    junior, _ = pro(db, "asset_manager", level=20)
+    assert [t["track"] for t in objectives.board(db, junior, NOW9)["tracks"]] == ["asset_manager"]
     with pytest.raises(objectives.ObjectiveError, match="not open"):
         objectives.accept(db, junior, "ce_return", NOW9)
     db.execute("UPDATE careers SET rank = 1, experience = %s WHERE player_id = %s", (careers.experience_for(40), junior))
     board = objectives.board(db, junior, NOW9)
-    assert [t["track"] for t in board["tracks"]] == ["accountant", "ceo"] and board["tracks"][1]["name"] == "Leadership"
+    assert [t["track"] for t in board["tracks"]] == ["asset_manager", "ceo"] and board["tracks"][1]["name"] == "Leadership"
     before = careers.career(db, junior)["experience"]
     done = do(db, junior, "ce_return", NOW9)
     assert done["state"] == "passed" and done["track"] == "ceo"
@@ -426,7 +426,7 @@ def test_the_leadership_track_opens_to_a_head_or_at_level_forty_and_its_experien
 
 @pytest.mark.parametrize("code", ["ce_return", "ce_payout", "ce_breakeven", "ce_allocate", "ce_buy", "ce_people", "lw_contract"])
 def test_the_new_work_is_marked_against_the_record(db, code):
-    build = "lawyer" if code == "lw_contract" else "accountant"
+    build = "investment_banker" if code == "lw_contract" else "asset_manager"
     player, account = pro(db, build, level=20)
     db.execute("UPDATE careers SET rank = 1, experience = %s WHERE player_id = %s", (careers.experience_for(40), player))
     taken = objectives.accept(db, player, code, NOW9)
@@ -478,7 +478,7 @@ def test_the_ceo_rank_needs_level_sixty_the_case_and_a_reputation_of_seventy_fiv
 
 def test_a_member_who_holds_the_ceo_rank_can_be_voted_in_by_the_empire(db):
     empire, (head, _), partners = founded(db)
-    scribe, ledgerman = partners["journalist"][0], partners["accountant"][0]
+    scribe, ledgerman = partners["investment_banker"][0], partners["asset_manager"][0]
     with pytest.raises(empires.EmpireError, match="earned the CEO rank"):
         empires.vote_head(db, head, scribe, NOW9)
     db.execute("UPDATE players SET ceo_since = %s WHERE id = %s", (NOW9, scribe))
@@ -491,7 +491,7 @@ def test_a_member_who_holds_the_ceo_rank_can_be_voted_in_by_the_empire(db):
     assert won["elected"] and empires.war_room(db, scribe, NOW9)["is_head"] and empires.war_room(db, scribe, NOW9)["head_is_ceo"]
     assert not empires.war_room(db, head, NOW9)["is_head"]
     # An outsider has no vote, and an empire the computer runs does not elect.
-    outsider, _ = pro(db, "lawyer", "outsider")
+    outsider, _ = pro(db, "investment_banker", "outsider")
     with pytest.raises(empires.EmpireError):
         empires.vote_head(db, outsider, scribe, NOW9)
     empires.apply(db, outsider, computer_empire(db)["id"], NOW9)
@@ -508,13 +508,13 @@ def test_stage_seven_every_module_has_three_kinds_of_work_and_level_twenty_is_a_
         for m in objectives.modules(track):
             assert {t.setting for t in objectives.TEMPLATES.values() if t.build == track and t.module == m["module"] and t.listed} \
                 == {"solo", "empire", "live"}
-    player, _ = pro(db, "lawyer", level=20, cash_naira=2_000_000)
-    careers.add_experience(db, player, "lawyer", careers.experience_for(30), NOW9)
+    player, _ = pro(db, "investment_banker", level=20, cash_naira=2_000_000)
+    careers.add_experience(db, player, "investment_banker", careers.experience_for(30), NOW9)
     assert careers.career(db, player)["level"] == 20                           # any amount of experience: still Level 20
     with pytest.raises(ranks.RankError, match="must be learned"):              # not mastered: the case cannot even be sat
-        ranks.begin(db, player, "lawyer", NOW9)
-    master(db, player, "lawyer")
+        ranks.begin(db, player, "investment_banker", NOW9)
+    master(db, player, "investment_banker")
     assert careers.career(db, player)["level"] == 20                           # mastered, but the case not passed: still Level 20
-    case = ranks.begin(db, player, "lawyer", NOW9)
+    case = ranks.begin(db, player, "investment_banker", NOW9)
     assert ranks.hand_in(db, player, case["id"], right_case(db, player, case["id"], NOW9), NOW9)["state"] == "passed"
     assert careers.career(db, player)["level"] == 35                           # the experience held at the gate now counts

@@ -650,7 +650,7 @@ def _filings_close(conn: Connection, empire: dict, period: int, now: datetime) -
     rows = _holdings_pct({"conn": conn, "empire": empire, "now": now})
     needed = {r["ticker"] for r in rows if r["bps"] >= FILING_BPS}
     filed = set()
-    if (duty is None or duty["status"] == "due") and firm.desk_staffed(conn, empire["id"], "lawyer"):
+    if (duty is None or duty["status"] == "due") and firm.desk_staffed(conn, empire["id"], "investment_banker"):
         filed = needed                                      # the staff will file them as the quarter closes
     elif duty is not None and duty["status"] == "done":
         filed = needed if duty["by_staff"] else set((duty["answers"] or {}).get("file") or [])
@@ -816,14 +816,14 @@ duty("am_vote", "asset_manager", "Vote the empire's shares", "A shareholder that
 duty("am_idea", "asset_manager", "Bring an idea to the investment committee", "Good ideas, judged afterwards, build a record.", _am_idea,
      mark=_am_idea_mark)
 duty("am_plan", "asset_manager", "Report on the members' pension plan", "The members' retirement depends on it.", _am_plan, mark=_mark_with_text)
-duty("ac_close", "accountant", "Close the books", "Late or wrong books cost the empire its league points and its partners' trust.", _ac_close)
-duty("ac_budget", "accountant", "Run the budget war room", "Overspending shows first in the budgets: sometimes it is more than overspending.", _ac_budget)
-duty("ac_covenants", "accountant", "Watch the promises in the empire's debts", "A broken promise lets a lender call in its money.", _ac_covenants)
-duty("ac_partners", "accountant", "Report to the partners", "Everybody who put money in is owed a plain statement of what it is worth.", _ac_partners,
+duty("ac_close", "asset_manager", "Close the books", "Late or wrong books cost the empire its league points and its partners' trust.", _ac_close)
+duty("ac_budget", "asset_manager", "Run the budget war room", "Overspending shows first in the budgets: sometimes it is more than overspending.", _ac_budget)
+duty("ac_covenants", "asset_manager", "Watch the promises in the empire's debts", "A broken promise lets a lender call in its money.", _ac_covenants)
+duty("ac_partners", "asset_manager", "Report to the partners", "Everybody who put money in is owed a plain statement of what it is worth.", _ac_partners,
      player_run_only=True)
-duty("ac_positions", "accountant", "Value the empire's options, futures and swaps", "The partners' figures must include what the "
+duty("ac_positions", "asset_manager", "Value the empire's options, futures and swaps", "The partners' figures must include what the "
      "empire's contracts are worth today, not what they cost.", _ac_positions)
-duty("ac_bonus", "accountant", "Work out the bonus pool", "Bonuses must stay inside what the rules allow.", _ac_bonus, player_run_only=True)
+duty("ac_bonus", "asset_manager", "Work out the bonus pool", "Bonuses must stay inside what the rules allow.", _ac_bonus, player_run_only=True)
 duty("ib_capital", "investment_banker", "Advise on how much to borrow", "Borrowing well makes the empire bigger; too much can break it.", _ib_capital,
      player_run_only=True)
 duty("ib_shortlist", "investment_banker", "Bring the board a shortlist", "The board picks the next investment from the banker's list.", _ib_shortlist,
@@ -834,11 +834,11 @@ duty("rm_liquidity", "risk_manager", "Test the liquidity plan", "An empire that 
 duty("rm_appetite", "risk_manager", "Measure against the risk appetite", "The members voted how much they would accept losing.", _rm_appetite)
 duty("rm_postmortem", "risk_manager", "Write the post-mortem", "A loss nobody explains is a loss that comes again.", _rm_postmortem, mark=_mark_with_text)
 duty("rm_dangers", "risk_manager", "Name the three biggest dangers", "Foresight is kept on the record.", _rm_dangers, mark=_rm_dangers_mark)
-duty("lw_filings", "lawyer", "File the notices the rules require", "A notice missed is a fine.", _lw_filings, staff=_lw_filings_staff)
-duty("lw_register", "lawyer", "Keep the legal risk register", "Every open dispute, and what it could cost.", _lw_register)
-duty("jr_intel", "journalist", "Brief the head on the rival", "Know what the rival is doing, from public facts.", _jr_intel, mark=_mark_with_text)
-duty("jr_scout", "journalist", "Scout for talent", "The head's hiring and poaching list.", _jr_scout)
-duty("jr_letter", "journalist", "Write the letter to the partners", "Plain, correct words keep the partners' trust.", _jr_letter, mark=_mark_with_text)
+duty("lw_filings", "investment_banker", "File the notices the rules require", "A notice missed is a fine.", _lw_filings, staff=_lw_filings_staff)
+duty("lw_register", "investment_banker", "Keep the legal risk register", "Every open dispute, and what it could cost.", _lw_register)
+duty("jr_intel", "investment_banker", "Brief the head on the rival", "Know what the rival is doing, from public facts.", _jr_intel, mark=_mark_with_text)
+duty("jr_scout", "investment_banker", "Scout for talent", "The head's hiring and poaching list.", _jr_scout)
+duty("jr_letter", "investment_banker", "Write the letter to the partners", "Plain, correct words keep the partners' trust.", _jr_letter, mark=_mark_with_text)
 duty("hd_board", "head", "Chair the board meeting", "The plan the whole empire works to.", _hd_board, mark=_hd_board_mark, player_run_only=True)
 duty("hd_letter", "head", "Write the year's letter", "The head's public account of the year.", _hd_letter, mark=_mark_with_text, after=_hd_letter_after,
      player_run_only=True)

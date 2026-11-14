@@ -49,13 +49,14 @@ STAFF_DUTY_SCORE = 70               # computer-run staff do a duty reliably, and
 STAFF_CATCHES_BPS = 7000            # the staff's chance of catching each trap in a paper
 DUTY_PASS = 60                      # a duty done at this score or better was done well
 DUTY_EXPERIENCE = 50                # what a duty done perfectly teaches, before rank
-OVERRULE_DESKS = ("risk_manager", "lawyer")
+OVERRULE_DESKS = ("risk_manager", "investment_banker")     # the Legal Counsel's overrule is the Investment Banker's
 REASON_KINDS = ("trade", "bond_trade", "deal", "legal", "venture")       # a yes to these needs a written reason, as a no always does
 LEAGUE = {"duty_missed": -1, "well_run": 3}
 DESKS = (*data.EMPIRE_BUILDS, "head")
 DESK_NAMES = {**BUILD_NAMES, "head": "Head of the empire"}
-# How each desk is headed on the screen. The Financial Journalist's place in an empire is its Intelligence desk.
-DESK_LABELS = {**DESK_NAMES, "journalist": "Intelligence desk (Financial Journalist)"}
+# How each desk is headed on the screen. It was an override for the Financial Journalist's Intelligence desk; that
+# build is gone, and every desk now carries its own build's name, so there is nothing left to override.
+DESK_LABELS = {**DESK_NAMES}
 
 
 def _json(value):
@@ -222,11 +223,21 @@ def concerned(approval: dict) -> set:
     """Everybody a request is about: whoever asked, and whoever it would pay or name. None of them decides it."""
     p = approval.get("payload") or {}
     out = {str(approval["asked_by"])} if approval.get("asked_by") else set()
-    out |= {str(k) for k in (p.get("shares") or {})}
+    out |= {str(k) for k in _paid(p)}
     for key in ("member_id", "subject_id"):
         if p.get(key):
             out.add(str(p[key]))
     return out
+
+
+def _paid(p: dict) -> dict:
+    """Who a request pays out of a pool, and how much: {member: amount}. Only a map is read. Most requests carry a
+    plain count under "shares" — an empire's short sale names the shares, not the people — and a count names
+    nobody, so it is passed over rather than walked. "shares" was the bonus pool's first name for its map."""
+    for key in ("bonuses", "shares"):
+        if isinstance(p.get(key), dict):
+            return p[key]
+    return {}
 
 
 def deciders(conn: Connection, approval: dict, now: datetime) -> dict:
@@ -833,17 +844,17 @@ def review_document(conn: Connection, player_id, document_id: int, struck: list[
         if doc is None or doc["status"] != "draft":
             raise EmpireError("There is no such paper waiting to be read.")
         waited = _hours(doc["at"], now)
-        lawyers = desk_members(conn, empire["id"], "lawyer")
+        bankers = desk_members(conn, empire["id"], "investment_banker")
         is_head, is_deputy = empire["head_player_id"] == player_id, deputy_of(conn, empire["id"]) == player_id
-        late_head = is_head and (waited >= APPROVAL_HOURS or (not lawyers and not desk_staffed(conn, empire["id"], "lawyer")))
-        if seat["build"] != "lawyer" and not late_head and not (is_deputy and waited >= DEPUTY_HOURS):
-            raise EmpireError("A paper is read by the empire's Legal Counsel. If they have not read it in a day, the head may.")
+        late_head = is_head and (waited >= APPROVAL_HOURS or (not bankers and not desk_staffed(conn, empire["id"], "investment_banker")))
+        if seat["build"] != "investment_banker" and not late_head and not (is_deputy and waited >= DEPUTY_HOURS):
+            raise EmpireError("A paper is read by the empire's Investment Banker. If they have not read it in a day, the head may.")
         if not isinstance(struck, list) or any(not isinstance(code, str) for code in struck) or len(struck) > 40:
             raise EmpireError("Mark the clauses to strike out.")
         done = _finish_review(conn, doc, struck, player_id, False, now)
-        if seat["build"] == "lawyer":
+        if seat["build"] == "investment_banker":
             clean = not done["kept_traps"] and not done["wrongly_struck"]
-            opinion = sign_opinion(conn, player_id, "lawyer", empire["id"], "paper_read", doc["title"], {"struck": done["struck"]},
+            opinion = sign_opinion(conn, player_id, "investment_banker", empire["id"], "paper_read", doc["title"], {"struck": done["struck"]},
                                    state["period"], None, now)
             settle_opinion(conn, opinion, "right" if clean else "wrong",
                            "Every trap was struck out and nothing fair was." if clean else
@@ -863,8 +874,8 @@ def _staff_reviews(conn: Connection, now: datetime) -> None:
             if doc is None:
                 continue
             empire = empires._empire(conn, doc["empire_id"])
-            lawyers, waited = desk_members(conn, empire["id"], "lawyer"), _hours(doc["at"], now)
-            if desk_staffed(conn, empire["id"], "lawyer") and (not lawyers or waited >= APPROVAL_HOURS):
+            bankers, waited = desk_members(conn, empire["id"], "investment_banker"), _hours(doc["at"], now)
+            if desk_staffed(conn, empire["id"], "investment_banker") and (not bankers or waited >= APPROVAL_HOURS):
                 struck = [c["code"] for c in doc["clauses"] if c["trap"] and _roll(conn, "staff_reads", doc["id"], c["code"]) < STAFF_CATCHES_BPS]
             elif not player_run(empire) and waited >= APPROVAL_HOURS:
                 struck = []                                 # nobody to read it: the computer-run head signs it as it stands
@@ -884,7 +895,7 @@ def read_document(conn: Connection, document_id) -> dict:
     """A paper that has been read, for the code that acts on it. Raises if nobody has read it yet."""
     doc = _one(conn, "SELECT * FROM empire_documents WHERE id = %s FOR UPDATE", (document_id,))
     if doc is None or doc["status"] not in ("reviewed", "signed"):
-        raise EmpireError("The paper has not been read yet. It is with the Legal Counsel's desk.")
+        raise EmpireError("The paper has not been read yet. It is with the Investment Banker's desk.")
     return doc
 
 
@@ -895,8 +906,8 @@ def documents_view(conn: Connection, seat: dict, empire: dict, now: datetime) ->
     out = []
     for doc in docs:
         waited = _hours(doc["at"], now)
-        may = doc["status"] == "draft" and (seat["build"] == "lawyer" or (is_head and (
-            waited >= APPROVAL_HOURS or (not desk_members(conn, empire["id"], "lawyer") and not desk_staffed(conn, empire["id"], "lawyer"))))
+        may = doc["status"] == "draft" and (seat["build"] == "investment_banker" or (is_head and (
+            waited >= APPROVAL_HOURS or (not desk_members(conn, empire["id"], "investment_banker") and not desk_staffed(conn, empire["id"], "investment_banker"))))
             or (deputy_of(conn, empire["id"]) == seat["player_id"] and waited >= DEPUTY_HOURS))
         out.append({**document_public(doc), "yours_to_read": bool(may)})
     return {"papers": out, "strike_cost": STRIKE_COST_WORDS}
@@ -1043,7 +1054,7 @@ def waiting(conn: Connection, seat: dict, now: datetime) -> int:
                 if me in deciders(conn, a, now))
     count += _one(conn, "SELECT count(*) AS n FROM empire_resolutions r WHERE r.empire_id = %s AND r.status = 'open' AND NOT EXISTS"
                         " (SELECT 1 FROM empire_resolution_votes v WHERE v.resolution_id = r.id AND v.player_id = %s)", (empire["id"], me))["n"]
-    if seat["build"] == "lawyer":
+    if seat["build"] == "investment_banker":
         count += _one(conn, "SELECT count(*) AS n FROM empire_documents WHERE empire_id = %s AND status = 'draft'", (empire["id"],))["n"]
     for hook in WAITING:
         count += hook(conn, seat, empire, now)

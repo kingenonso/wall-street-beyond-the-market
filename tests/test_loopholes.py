@@ -989,7 +989,7 @@ def test_the_database_itself_allows_one_player_per_mailbox(client, player, db):
             "INSERT INTO players (email, email_key, display_name, display_name_key, password_hash, adult_confirmed_at)"
             " VALUES ('Ada+2@example.com', 'ada@example.com', 'Copy', 'copy', 'x', now())"
         )
-    assert refused.value.diag.constraint_name == "players_email_key_unique"
+    assert refused.value.diag.constraint_name == "players_email_unique"
 
 
 # ---------------------------------------------------------------------------

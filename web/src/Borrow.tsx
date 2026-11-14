@@ -4,6 +4,7 @@
 
 import { useState } from "react";
 import { api, ApiError, type BorrowingDesk as Borrowing, type LendingBook, type Player } from "./api";
+import { DebtsPanel } from "./Debts";
 import { asKobo } from "./Empire";
 import { formatCompact, formatNaira, formatPercent } from "./format";
 import { useLoad } from "./hooks";
@@ -60,7 +61,6 @@ function LoansTab({ b, act, forEmpire = false, book }: { b: Borrowing; act: Act;
   const [personal, setPersonal] = useState("");
   const [margin, setMargin] = useState("");
   const [bank, setBank] = useState("");
-  const [repay, setRepay] = useState<Record<number, string>>({});
   return (
     <>
       <section className="band band-4" aria-label={forEmpire ? "What the empire owes" : "What you owe"}>
@@ -105,21 +105,6 @@ function LoansTab({ b, act, forEmpire = false, book }: { b: Borrowing; act: Act;
           <button className="button-primary" disabled={act.busy || !asKobo(margin) || !bank}>Borrow</button>
         </form>
       </Panel>
-      {book.loans.length > 0 && (
-        <Panel title="Loans">
-          {book.loans.map((l) => (
-            <div key={l.id} className="report">
-              <div className="row small"><span>{l.kind === "personal" ? "Personal loan" : l.kind === "shortfall" ? "Owed for a loss beyond the cash held for it" : "Against shares and bonds"} · {l.bank} · {formatPercent(l.rate_bps)} a year</span>
-                <span className={`tag tag-${l.status === "default" || l.margin_call ? "missed" : "open"}`}>{l.status === "default" ? "■ default" : l.margin_call ? "▲ margin call" : l.missed ? `${l.missed} missed` : "open"}</span></div>
-              <div className="row small"><span>Still owed</span><span className="mono">{formatNaira(l.outstanding)}</span></div>
-              <form className="inline-form" onSubmit={(e) => { e.preventDefault(); const k = asKobo(repay[l.id] ?? ""); if (k) act.run(`/borrowing/loans/${l.id}/repay`, { amount_kobo: k, for_empire: forEmpire }, "Repaid."); }}>
-                <label className="answer">Repay (₦)<input type="text" inputMode="decimal" value={repay[l.id] ?? ""} onChange={(e) => setRepay({ ...repay, [l.id]: e.target.value })} /></label>
-                <button className="button-outline" disabled={act.busy || !asKobo(repay[l.id] ?? "")}>Repay</button>
-              </form>
-            </div>
-          ))}
-        </Panel>
-      )}
     </>
   );
 }
@@ -237,7 +222,7 @@ function EmpireTab({ b, act }: { b: Borrowing; act: Act }) {
   );
 }
 
-export function BorrowWork({ onLoggedOut, onChanged }: Props) {
+export function BorrowWork({ player, onLoggedOut, onChanged }: Props) {
   const { data: b, error, loading, reload } = useLoad(api.borrowing, "borrowing", onLoggedOut);
   const act = useAct(reload, onLoggedOut, onChanged);
   const route = window.location.hash.split("/");
@@ -270,6 +255,9 @@ export function BorrowWork({ onLoggedOut, onChanged }: Props) {
       <div className="underline-tabs" role="tablist" aria-label="Borrowing">
         {tabs.map(([key, label]) => <button key={key} role="tab" aria-selected={tab === key} className={tab === key ? "active" : undefined} onClick={() => choose(key)}>{label}</button>)}
       </div>
+      {/* What is already owed comes first, above any offer to lend more. It was at the foot of this
+          page until 9 November 2026, which is how the owner came to ask where a loan is repaid. */}
+      <DebtsPanel player={player} onLoggedOut={onLoggedOut} onChanged={onChanged} book={b} where="borrow" />
       {tab === "loans" && <LoansTab b={b} act={act} book={b} />}
       {tab === "shorts" && <ShortsTab b={b} act={act} book={b} initialTicker={initialTicker} />}
       {tab === "empire" && b.empire && <EmpireTab b={b} act={act} />}

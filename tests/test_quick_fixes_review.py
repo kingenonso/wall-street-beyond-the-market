@@ -55,7 +55,7 @@ def test_r06_the_list_and_the_dot_agree_after_a_block(db):
 def test_r10_the_dot_shows_when_the_ceo_case_can_be_begun(db):
     player, _ = professional(db, now=NOW9)
     db.execute("UPDATE careers SET rank = 2 WHERE player_id = %s", (player,))
-    careers.add_experience(db, player, "accountant", careers.experience_for(45), NOW9)
+    careers.add_experience(db, player, "asset_manager", careers.experience_for(45), NOW9)
     mine = careers.career(db, player)
     assert mine["level"] == 45 and mine["level"] < careers.level_cap(mine["rank"])      # short of the build's next gate
     assert ranks.waiting(db, player, mine, NOW9) is False

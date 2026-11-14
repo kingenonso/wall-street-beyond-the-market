@@ -27,7 +27,7 @@ def _one(db, sql, params=()):
 def reporter(client, db):
     assert join(client, ADULT).status_code == 201
     player = _one(db, "SELECT id FROM players WHERE display_name = 'Ada'")["id"]
-    client.put("/api/career/build", json={"build": "journalist"})
+    client.put("/api/career/build", json={"build": "investment_banker"})
     client.put("/api/career/bank", json={"ticker": "IKB"})
     client.put("/api/career/job", json={"ticker": "ONN"})
     return player
@@ -54,7 +54,7 @@ def test_l1_no_figure_reaches_print_except_from_the_record(db, client):
 
 # 2. Can a journalist report something still to come?
 def test_l2_no_fact_from_the_future(db):
-    j, _ = pro(db, "journalist", "seer", level=10)
+    j, _ = pro(db, "investment_banker", "seer", level=10)
     w = careers.world_now(db, NOW9)
     future = [e for e in events.load(db, w["period"]) if e["day"] > w["day"]]
     ids = {c["id"] for c in newsroom_facts.facts(db, NOW9)}
@@ -70,7 +70,7 @@ def test_l2_no_fact_from_the_future(db):
 # 3. Can the author trade around the story another way: options, a short, preferred shares, or through the empire?
 def test_l3_no_trading_around_ones_own_story_by_any_route(db):
     empire, team = firm_of(db)
-    j = team["journalist"]
+    j = team["investment_banker"]
     account = ledger.player_account_id(db, j)
     ledger.transfer(db, payer=ledger.account_id(db, ledger.TREASURY), receiver=account, amount=10**10, kind="test_cash", memo="Test cash")
     db.execute("UPDATE careers SET experience = %s WHERE player_id = %s", (careers.experience_for(30), j))
@@ -85,14 +85,14 @@ def test_l3_no_trading_around_ones_own_story_by_any_route(db):
         derivatives.trade(db, account, series, "buy", 1, LATER, player_id=j)
     with pytest.raises(lending.LendingError, match="No trading in this company"):
         lending.open_short(db, account, ticker, 10, LATER, player_id=j)
-    newsroom.check_trade(db, ledger.player_account_id(db, team["accountant"]), company, LATER)    # a colleague's own account is free
+    newsroom.check_trade(db, ledger.player_account_id(db, team["asset_manager"]), company, LATER)    # a colleague's own account is free
     with pytest.raises(exchange.ExchangeError):
         newsroom.check_trade(db, empire["account_id"], company, LATER)                               # the empire's is not
 
 
 # 4. Can journalists flood a company with nudges?
 def test_l4_nudges_are_capped(db):
-    j, _ = pro(db, "journalist", "flooder", level=10)
+    j, _ = pro(db, "investment_banker", "flooder", level=10)
     cards = [c for c in newsroom_facts.facts(db, NOW9) if c["kind"] == "results" and c["tone"] != 0]
     for c in cards[:data.STORIES_A_DAY]:
         write(db, j, [c])
@@ -102,7 +102,7 @@ def test_l4_nudges_are_capped(db):
     with pytest.raises(newsroom.NewsroomError, match="At most"):
         newsroom.publish(db, j, NOW9)
     # A story about many companies moves none; and the push never passes the cap however many readers.
-    k, _ = pro(db, "journalist", "wide", level=10)
+    k, _ = pro(db, "investment_banker", "wide", level=10)
     many = write(db, k, cards[4:8])
     assert many["nudges"] == []
     assert all(abs(n) <= data.NUDGE_MOST_BPS for n in newsroom.nudges_today(db, exchange.session_of(NOW9)[0]).values())
@@ -110,7 +110,7 @@ def test_l4_nudges_are_capped(db):
 
 # 5. Can a scoop be claimed twice?
 def test_l5_one_scoop_per_fact(db):
-    j, _ = pro(db, "journalist", "twice", level=10)
+    j, _ = pro(db, "investment_banker", "twice", level=10)
     card = results_card(db)
     first = write(db, j, [card])
     assert first["scoop"]
@@ -128,8 +128,8 @@ def test_l5_one_scoop_per_fact(db):
 # 6. Can anyone see another journalist's draft, or what an empire held?
 def test_l6_drafts_and_holdings_stay_private(db, client):
     empire, team = firm_of(db)
-    newsroom.start(db, team["journalist"], NOW9)
-    newsroom.add_fact(db, team["journalist"], results_card(db)["id"], NOW9)
+    newsroom.start(db, team["investment_banker"], NOW9)
+    newsroom.add_fact(db, team["investment_banker"], results_card(db)["id"], NOW9)
     reporter(client, db)
     desk = client.get("/api/newsroom").json()["desk"]
     assert desk["draft"] is None
@@ -141,7 +141,7 @@ def test_l6_drafts_and_holdings_stay_private(db, client):
 # 7. Can a question be answered by someone else, or after the deadline?
 def test_l7_only_the_head_or_the_press_office_answers_in_time(db):
     empire, team = firm_of(db)
-    j, _ = pro(db, "journalist", "asker", level=10)
+    j, _ = pro(db, "investment_banker", "asker", level=10)
     card = results_card(db)
     company = _one(db, "SELECT id FROM companies WHERE ticker = %s", (card["tickers"][0],))["id"]
     db.execute("INSERT INTO stake_disclosures (empire_id, company_id, bps, at) VALUES (%s, %s, 500, %s)", (empire["id"], company, NOW9))
@@ -150,19 +150,19 @@ def test_l7_only_the_head_or_the_press_office_answers_in_time(db):
     newsroom.ask(db, j, ticker=None, empire_name=empire["name"], question="Is the empire buying more?", now=NOW9)
     q = newsroom.to_answer(db, team["head"], NOW9)[0]
     with pytest.raises(newsroom.NewsroomError, match="not yours"):
-        newsroom.answer(db, team["accountant"], q["id"], "Yes.", NOW9)        # (Part 2: the empire's journalist is its press office)
+        newsroom.answer(db, team["asset_manager"], q["id"], "Yes.", NOW9)        # (Part 2: the empire's journalist is its press office)
     with pytest.raises(newsroom.NewsroomError, match="closed"):
         newsroom.answer(db, team["head"], q["id"], "Yes.", NOW9 + timedelta(hours=data.INTERVIEW_HOURS + 1))
     with pytest.raises(newsroom.NewsroomError, match="own empire"):
         newsroom.drop(db, j, NOW9)
-        newsroom.start(db, team["journalist"], NOW9)
-        newsroom.ask(db, team["journalist"], ticker=None, empire_name=empire["name"], question="Our own plans, please?", now=NOW9)
+        newsroom.start(db, team["investment_banker"], NOW9)
+        newsroom.ask(db, team["investment_banker"], ticker=None, empire_name=empire["name"], question="Our own plans, please?", now=NOW9)
 
 
 # 8. Can a correction be dodged?
 def test_l8_a_published_story_cannot_be_withdrawn_and_a_late_correction_costs_more(db):
     from psycopg.types.json import Jsonb
-    j, _ = pro(db, "journalist", "dodger", level=10)
+    j, _ = pro(db, "investment_banker", "dodger", level=10)
     card = results_card(db)
     out = write(db, j, [card])
     with pytest.raises(newsroom.NewsroomError, match="no story in hand"):
@@ -202,9 +202,9 @@ def test_l9_nothing_from_later_in_the_quarter_is_shown(db, client):
 
 # 10. Can exposing be used to farm reputation or to harm an honest journalist?
 def test_l10_exposing_is_once_per_story_and_a_false_alarm_costs_the_accuser(db):
-    j, _ = pro(db, "journalist", "honest", level=10)
+    j, _ = pro(db, "investment_banker", "honest", level=10)
     out = write(db, j, [results_card(db)])
-    accuser, _ = pro(db, "accountant", "accuser", level=10)
+    accuser, _ = pro(db, "asset_manager", "accuser", level=10)
     rep = _one(db, "SELECT reputation FROM players WHERE id = %s", (accuser,))["reputation"]
     j_rep = _one(db, "SELECT reputation FROM players WHERE id = %s", (j,))["reputation"]
     assert not newsroom.expose(db, accuser, out["story_id"], LATER)["upheld"]
@@ -219,7 +219,7 @@ def test_l10_exposing_is_once_per_story_and_a_false_alarm_costs_the_accuser(db):
 # Review fix: a story that repeats what the wire already carries is old news, and moves no price.
 def test_review_a_story_repeating_the_wire_moves_no_price(db):
     w = careers.world_now(db, NOW9)
-    j, _ = pro(db, "journalist", "repeater", level=10)
+    j, _ = pro(db, "investment_banker", "repeater", level=10)
     on_wire = [c for c in newsroom_facts.facts(db, NOW9) if c["kind"] == "results" and c["tone"] != 0
                and newsroom._on_wire(db, c, w["period"], w["day"])]
     if not on_wire:
