@@ -105,7 +105,9 @@ def test_every_piece_of_new_work_can_be_taken_done_right_and_is_paid_by_its_name
             done = state_of(db, taken["id"])
         else:
             field = taken["terms"]["fields"][0]
-            answer = "IDC" if field["kind"] == "ticker" else (field["options"][0]["code"] if "options" in field else 0)
+            # (A forecast in millions must be above nought: since the three builds, the Asset Manager's list holds one.)
+            answer = "IDC" if field["kind"] == "ticker" else (field["options"][0]["code"] if "options" in field
+                                                               else 1 if field["kind"] == "millions" else 0)
             try:
                 objectives.submit(db, player, taken["id"], {field["key"]: answer}, NOW9)
             except objectives.ObjectiveError:
