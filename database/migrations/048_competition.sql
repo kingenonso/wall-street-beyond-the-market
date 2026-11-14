@@ -65,19 +65,25 @@ CREATE TABLE contest_entries (
 CREATE INDEX contest_entries_by_player ON contest_entries (player_id, id DESC);
 
 -- A sealed answer stays as it was handed in.
-CREATE FUNCTION competition_sealed() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE FUNCTION contest_entry_sealed() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF TG_OP = 'DELETE' THEN
         RAISE EXCEPTION 'An entry is a permanent record.' USING ERRCODE = 'restrict_violation';
     END IF;
-    IF TG_TABLE_NAME = 'contest_entries' AND (NEW.guess <> OLD.guess OR NEW.player_id <> OLD.player_id OR NEW.at <> OLD.at) THEN
+    IF NEW.guess <> OLD.guess OR NEW.player_id <> OLD.player_id OR NEW.at <> OLD.at THEN
         RAISE EXCEPTION 'A forecast is sealed when it is handed in.' USING ERRCODE = 'restrict_violation';
     END IF;
-    IF TG_TABLE_NAME = 'mandate_pitches' AND (NEW.fee_bps <> OLD.fee_bps OR NEW.take_up_bps <> OLD.take_up_bps
-                                              OR NEW.empire_id <> OLD.empire_id OR NEW.at <> OLD.at) THEN
+    RETURN NEW;
+END $$;
+CREATE FUNCTION mandate_pitch_sealed() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'A pitch is a permanent record.' USING ERRCODE = 'restrict_violation';
+    END IF;
+    IF NEW.fee_bps <> OLD.fee_bps OR NEW.take_up_bps <> OLD.take_up_bps OR NEW.empire_id <> OLD.empire_id OR NEW.at <> OLD.at THEN
         RAISE EXCEPTION 'A pitch is sealed when it is made.' USING ERRCODE = 'restrict_violation';
     END IF;
     RETURN NEW;
 END $$;
-CREATE TRIGGER contest_entries_sealed BEFORE UPDATE OR DELETE ON contest_entries FOR EACH ROW EXECUTE FUNCTION competition_sealed();
-CREATE TRIGGER mandate_pitches_sealed BEFORE UPDATE OR DELETE ON mandate_pitches FOR EACH ROW EXECUTE FUNCTION competition_sealed();
+CREATE TRIGGER contest_entries_sealed BEFORE UPDATE OR DELETE ON contest_entries FOR EACH ROW EXECUTE FUNCTION contest_entry_sealed();
+CREATE TRIGGER mandate_pitches_sealed BEFORE UPDATE OR DELETE ON mandate_pitches FOR EACH ROW EXECUTE FUNCTION mandate_pitch_sealed();
