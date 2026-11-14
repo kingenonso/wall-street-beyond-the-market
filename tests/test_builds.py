@@ -95,6 +95,8 @@ def test_every_piece_of_new_work_can_be_taken_done_right_and_is_paid_by_its_name
                         side="buy", units=100, now=NOW9)
             for n in range(1, 4):
                 bell(db, n)
+            if template.close is not None:
+                continue                                  # judged when the quarter closes (below): the bills are repaid then
             done = state_of(db, taken["id"])
             assert done["state"] == "passed", (code, done["result"])
         elif template.close is None:
