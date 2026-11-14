@@ -197,7 +197,12 @@ def test_pay_day_the_employer_pays_and_forty_percent_is_taken(db):
     full = careers.salary_per_quarter(level, wage_index)
     assert slip["worked"] and slip["company_id"] == employer["id"] and slip["level"] == level == 2
     assert slip["gross"] == full * slip["days_worked"] // 90 and 80 <= slip["days_worked"] <= 90
-    assert slip["take_home"] * BPS // slip["gross"] == 6000 and slip["paid"] == slip["take_home"] and slip["owed"] == 0
+    # Pension, income tax at the rate the Government's budget set (the stand-in may have moved it from the starting 12%),
+    # and living costs come off; what is left is paid in full.
+    rate = round(slip["tax"] * BPS / slip["gross"])
+    assert data.TAX_LIMITS_BPS["income"][0] <= rate <= data.TAX_LIMITS_BPS["income"][1]
+    assert slip["take_home"] == careers.split_salary(slip["gross"], 0, rate)["take_home"]
+    assert slip["paid"] == slip["take_home"] and slip["owed"] == 0
 
     # The employer paid it, in one recorded payment with three receivers: the player, the
     # Government (tax) and the households of the city the player works in (living costs).
