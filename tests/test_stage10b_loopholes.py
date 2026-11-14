@@ -150,28 +150,29 @@ def test_l6_only_the_empire_answers_its_crisis_once_and_in_time(db):
 # 7. Can anyone but the hunter learn who leaked; can a hunt run twice; can a member leak what is not so?
 def test_l7_leaks_are_true_and_the_leaker_is_known_only_to_a_successful_hunter(db, monkeypatch):
     empire, team = firm_of(db)
+    # (The Asset Manager leaks and the Investment Banker hunts: since the three builds, the banker is the press office.)
     j = pro(db, "investment_banker", "leakdesk", level=10)[0]
     with pytest.raises(press.PressError, match="no such hidden pact"):
-        press.leak(db, team["investment_banker"], "pact", "leakdesk", NOW9, pact_id=999999)
+        press.leak(db, team["asset_manager"], "pact", "leakdesk", NOW9, pact_id=999999)
     with pytest.raises(press.PressError, match="no purchase in hand"):
-        press.leak(db, team["investment_banker"], "plan", "leakdesk", NOW9)
+        press.leak(db, team["asset_manager"], "plan", "leakdesk", NOW9)
     from tests.test_objectives import give_shares
     company = _one(db, "SELECT ticker FROM companies WHERE listed ORDER BY ticker LIMIT 1")
     give_shares(db, empire["account_id"], company["ticker"], 1000)
-    press.leak(db, team["investment_banker"], "holding", "leakdesk", NOW9, ticker=company["ticker"])
+    press.leak(db, team["asset_manager"], "holding", "leakdesk", NOW9, ticker=company["ticker"])
     piece = intel.mine(db, j, NOW9)[0]
-    assert "counsel" not in repr(piece).lower()
+    assert "asset_manager" not in repr(piece).lower()
     newsroom.start(db, j, NOW9)
     newsroom.add_lead(db, j, piece["ref"], NOW9)
     newsroom.publish(db, j, NOW9)
     leak = press.leaks_of(db, empire["id"])[0]
-    assert "counsel" not in repr(press.desk(db, team["head"], NOW9)).lower()
+    assert "asset_manager" not in repr(press.desk(db, team["head"], NOW9)).lower()
     monkeypatch.setattr(data, "LEAK_HUNT_RANGE_BPS", (10_000, 10_000))
     found = press.hunt(db, team["investment_banker"], leak["id"], NOW9)
-    assert found["found"] and "counsel" in found["words"]
+    assert found["found"] and "asset_manager" in found["words"]
     with pytest.raises(press.PressError, match="already"):
         press.hunt(db, team["head"], leak["id"], NOW9)
-    assert "counsel" not in repr(press.desk(db, team["head"], NOW9)).lower()      # the name went to the hunter, not onto the desk
+    assert "asset_manager" not in repr(press.desk(db, team["head"], NOW9)).lower()      # the name went to the hunter, not onto the desk
 
 
 # 8. Can a charity pay its trustee, hide a grant to insiders from the Money Watch, or be founded twice by one person?
