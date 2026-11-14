@@ -361,7 +361,7 @@ function Combinations({ f, d, act }: { f: Any; d: Any; act: Act }) {
               <button className="button-outline" disabled={act.busy || !company || name.trim().length < 3 || !head}>Put the split to the vote</button>
             </form>
           )}
-          <p className="muted small">Truces are pacts drafted by Legal Counsel (War Room). {f.name}'s members keep their part: a merger gives the joining empire's owners units worth what theirs were.</p>
+          <p className="muted small">Truces are pacts drafted by an Investment Banker (War Room). {f.name}'s members keep their part: a merger gives the joining empire's owners units worth what theirs were.</p>
         </>
       )}
     </Panel>

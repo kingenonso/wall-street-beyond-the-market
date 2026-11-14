@@ -94,7 +94,7 @@ function Directory({ view, player, act }: { view: EmpireView; player: Player; ac
     <>
       <Panel title="The league of empires" aside={`Game year ${d.season} · divisions of ${d.division_size}`}>
         <p className="small">
-          An empire is a team of thirteen: a head, and two seats for each of the six builds. Five empires run by the computer
+          An empire is a team of seven: a head, and two seats for each of the three builds. Five empires run by the computer
           have existed since the first day, and take any player they have a seat for. A seat is in addition to your job: your
           employer still pays your salary, and the empire pays for the work you do for it.
         </p>
@@ -482,7 +482,7 @@ function Books({ room, act }: { room: EmpireRoom; act: Act }) {
 
 function Audits({ room, act }: { room: EmpireRoom; act: Act }) {
   const [chosen, setChosen] = useState<number[]>([]);
-  const KIND = { asset_manager: "The Asset Manager's audit", staff: "The staff Accountant's audit", ai: "The artificial-intelligence audit" } as const;
+  const KIND = { asset_manager: "The Asset Manager's audit", staff: "The staff Asset Manager's audit", ai: "The artificial-intelligence audit" } as const;
   return (
     <Panel title="Audits and what follows" aside={room.audit_season ? "● Audit season: the artificial-intelligence audit can be hired" : `Next audit season: ${room.next_audit_season}`}>
       {room.open_audit && (
@@ -508,7 +508,7 @@ function Audits({ room, act }: { room: EmpireRoom; act: Act }) {
       <p className="muted small">
         The AI audit checks every entry of the last four quarters against every member's own statement, and is right 95 times
         in 100. It can be hired only in an audit season (the last quarter of each game year), once, and its fee is large.
-        An Accountant's audit covers two quarters; how much it finds depends on the Accountant's level against the level of
+        An Asset Manager's audit covers two quarters; how much it finds depends on the Asset Manager's level against the level of
         whoever disguised the entry.
       </p>
       {room.audits.map((audit) => (
@@ -578,7 +578,7 @@ function Pacts({ room, act }: { room: EmpireRoom; act: Act }) {
           {chosen && !chosen.legal && <p className="small change-down">▼ This kind of agreement is an offence. If it is uncovered, both empires lose trust, and the law stage will add penalties.</p>}
           <label className="answer"><span className="field-label">The terms: what each side must do</span><textarea rows={3} maxLength={400} value={terms} onChange={(event) => setTerms(event.target.value)} /></label>
           <button className="button-outline" disabled={act.busy || !to || terms.trim().length < 10}>Save the draft</button>
-          <p className="muted small">A pact is drafted by a Legal Counsel, signed by both heads, and can be broken by either side at any moment. Financial Journalists can uncover it.</p>
+          <p className="muted small">A pact is drafted by an Investment Banker, signed by both heads, and can be broken by either side at any moment. Anyone working the newsroom can uncover it.</p>
         </form>
       )}
     </Panel>

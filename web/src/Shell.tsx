@@ -321,7 +321,13 @@ export function sectionsFor(player: Player): Section[] {
   return [
     { path: "", label: "My desk" },
     { path: "work", label: "Work", count: player.work_in_hand, countWords: "in hand",
-      tabs: [...(player.build_name ? [{ path: "build", label: `${player.build_name} desk` }] : []), { path: "work", label: "Work in hand" },
+      // Three builds (November 2026): the accounts desk belongs to the Asset Manager, the legal desk to the Investment
+      // Banker, and the newsroom to everybody with a build.
+      tabs: [...(player.build_name ? [{ path: "build", label: `${player.build_name} desk` }] : []),
+             ...(player.build === "asset_manager" ? [{ path: "accounts", label: "Accounts desk" }] : []),
+             ...(player.build === "investment_banker" ? [{ path: "legal", label: "Legal desk" }] : []),
+             ...(player.build_name ? [{ path: "newsroom", label: "Newsroom" }] : []),
+             { path: "work", label: "Work in hand" },
              { path: "career", label: "Career and levels" }] },
     // One section for the empire: its overview, desks, requests, deals, companies and War Room are tabs inside it.
     { path: "empire", label: player.empire ? "Empire" : "Empires", ...(player.empire && !player.empire.forming ? { count: player.empire.waiting, countWords: "waiting" } : {}) },

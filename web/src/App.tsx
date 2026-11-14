@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Player } from "./api";
 import { Auth } from "./Auth";
-import { AssetManagerRail, AssetManagerWork, BuildRail } from "./BuildDesk";
+import { AccountantRail, AccountantWork, AssetManagerRail, AssetManagerWork, BuildRail } from "./BuildDesk";
 import { CareerRail, CareerWork } from "./Career";
 import { CompaniesRail, CompaniesWork } from "./Companies";
 import { CompanyRail, CompanyWork } from "./Company";
@@ -154,12 +154,19 @@ export function App() {
     current = "build";
     work = <RiskManagerWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <BuildRail player={player} onLoggedOut={loggedOut} />;
-  } else if (section === "build" && player.build === "investment_banker") {
-    current = "build";
+  } else if (section === "accounts" && player.build === "asset_manager") {
+    // Three builds (November 2026): the accountant's desk is the Asset Manager's second desk.
+    current = "accounts";
+    work = <AccountantWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <AccountantRail player={player} onLoggedOut={loggedOut} />;
+  } else if (section === "legal" && player.build === "investment_banker") {
+    // ...the legal desk is the Investment Banker's...
+    current = "legal";
     work = <LawyerWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <BuildRail player={player} onLoggedOut={loggedOut} />;
-  } else if (section === "build" && player.build === "investment_banker") {
-    current = "build";
+  } else if (section === "newsroom" && player.build) {
+    // ...and the newsroom is open to every build.
+    current = "newsroom";
     work = <JournalistWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <BuildRail player={player} onLoggedOut={loggedOut} />;
   } else if ((section === "empire" || section === "head" || section === "firm") && player.empire && !player.empire.forming) {

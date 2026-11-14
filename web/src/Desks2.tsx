@@ -2,8 +2,8 @@
 // section 18). Each uses the same four zones as every other screen, in its own accent colour:
 //   Investment Banker (purple)   deals open in the market; one company against the companies like it
 //   Risk Manager (orange)        what could be lost, by kind, city and industry; stress tests
-//   Legal Counsel (silver)                matters in hand; who controls a company and who is paid first
-//   Financial Journalist (blue)            the newsroom, investigations, the indicators, the publishing pipeline
+//   Legal desk (the Investment Banker's)  matters in hand; who controls a company and who is paid first
+//   Newsroom (every build)                 the wire, investigations, the indicators, the publishing pipeline
 //   Head of an empire (gold)     what the empire is worth and holds; what waits for the head's decision
 
 import { useState } from "react";
@@ -305,7 +305,7 @@ export function RiskManagerWork({ player, onLoggedOut }: Props) {
 }
 
 // ---------------------------------------------------------------------------
-// Legal Counsel
+// The legal desk (the Investment Banker's)
 // ---------------------------------------------------------------------------
 
 export function LawyerWork({ player, onLoggedOut }: Props) {
@@ -321,7 +321,7 @@ export function LawyerWork({ player, onLoggedOut }: Props) {
   const room = empire.data?.room ?? null;
   return (
     <>
-      <PageHead title="Legal counsel"
+      <PageHead title="Legal desk"
                 sub="A company's parties and the order they are paid in, and the companies the rules are closing in on"
                 aside={d.headquarters} />
 
@@ -341,7 +341,7 @@ export function LawyerWork({ player, onLoggedOut }: Props) {
       </Panel>
 
       <Panel title="Contract management" aside={room ? room.name : "Needs a seat in an empire"}>
-        {!room && <p className="muted small">A Legal Counsel with a seat in an empire drafts its pacts with other empires. <a href="#/empire">See the empires</a>.</p>}
+        {!room && <p className="muted small">An Investment Banker with a seat in an empire drafts its pacts with other empires. <a href="#/empire">See the empires</a>.</p>}
         {room && room.pacts.length === 0 && <p className="muted small">{room.name} has no pacts. Draft one in the <a href="#/empire">War Room</a>.</p>}
         {room?.pacts.map((pact) => (
           <div key={pact.id} className="row">
@@ -406,7 +406,7 @@ export function LawyerWork({ player, onLoggedOut }: Props) {
 }
 
 // ---------------------------------------------------------------------------
-// Financial Journalist
+// The newsroom (every build)
 // ---------------------------------------------------------------------------
 
 export function JournalistWork({ player, onLoggedOut, onChanged }: Props) {
@@ -445,7 +445,7 @@ export function JournalistWork({ player, onLoggedOut, onChanged }: Props) {
   }
   return (
     <>
-      <PageHead title="Financial journalist"
+      <PageHead title="Newsroom"
                 sub={<>The wire, the investigations open to you, and the economy the stories are written against. <a href="#/economy">Macro research</a></>}
                 aside={economy.data?.period_label ?? undefined} />
 
@@ -469,7 +469,7 @@ export function JournalistWork({ player, onLoggedOut, onChanged }: Props) {
 
       <Panel title="Draft and publish pipeline" aside={<a href="#/work">All your work</a>}>
         <Matters objectives={mine} empty="Nothing drafted yet." />
-        <p className="muted small">A story is filed as a piece of work: the server checks every fact in it against the record before it counts as published. A Financial Journalist cannot declare anybody guilty, or change market data.</p>
+        <p className="muted small">A story is filed as a piece of work: the server checks every fact in it against the record before it counts as published. A reporter cannot declare anybody guilty, or change market data.</p>
       </Panel>
 
       <Panel title="Investigations" aside="One a quarter">

@@ -1,8 +1,8 @@
 // The empire as a working firm (private equity stage, part 1).
 // Every build has a desk: duties that come round every quarter, marked from the empire's own figures.
 // Requests go to the desk that must say yes, and never wait for ever. Members vote the big items and
-// the empire's own rules. The Legal Counsel reads every paper before the head signs. The banker raises money,
-// the Accountant closes the books, the Risk Manager sets limits, the Financial Journalist briefs the head.
+// the empire's own rules. The Investment Banker reads every paper before the head signs and raises money,
+// the Asset Manager closes the books, the Risk Manager sets limits, the newsroom briefs the head.
 // The website only asks: the server knows the player's seat, and marks everything.
 
 import { PressDeskView } from "./Intel";
@@ -471,11 +471,11 @@ function MoneyTab({ f, act }: { f: Any; act: Act }) {
             <label className="answer"><span className="field-label">How much (₦)</span><input type="text" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
             {kind !== "stake" && <label className="answer"><span className="field-label">Over</span><select value={quarters} onChange={(e) => setQuarters(e.target.value)}>{m.limits.terms.map((t: number) => <option key={t} value={t}>{t} quarters</option>)}</select></label>}
             <button className="button-primary" disabled={act.busy || !asKobo(amount)}>Design it</button>
-            <span className="muted small">It goes to the Accountant, then the Risk Manager; the Legal Counsel reads the paper; the head signs.</span>
+            <span className="muted small">It goes to the Asset Manager, then the Risk Manager; the Investment Banker reads the paper; the head signs.</span>
           </form>
         )}
       </Panel>
-      <Panel title="Budgets this quarter" aside={`Any cost above ${formatNaira(m.expense_threshold)} waits for the Accountant`}>
+      <Panel title="Budgets this quarter" aside={`Any cost above ${formatNaira(m.expense_threshold)} waits for the Asset Manager`}>
         {m.budgets.map((b: Any) => (
           <div key={b.desk} className="row">
             <span>{b.name}</span>
@@ -565,7 +565,7 @@ function People({ f, act }: { f: Any; act: Act }) {
           <MatchForm id={o.id} act={act} />
         </Panel>
       ))}
-      <Panel title="Contracts" aside="The Legal Counsel drafts; the head offers; the member signs. Enforced by the game">
+      <Panel title="Contracts" aside="The Investment Banker drafts; the head offers; the member signs. Enforced by the game">
         {p.contracts.length === 0 && <p className="muted">No contracts yet.</p>}
         {p.contracts.map((c: Any) => (
           <div key={c.id} className="row"><span>{c.name}</span>
@@ -1003,7 +1003,7 @@ function Bookkeeping({ b, act }: { b: Any; act: Act }) {
   if (!b) return null;
   const open = b.mine.find((m: Any) => m.status === "open");
   return (
-    <Panel title="Bookkeeping" aside={`An Accountant looks at your money for the quarter just closed. From a seat in an empire, ${pct(b.empire_share_bps)} of the fee is the firm's`}>
+    <Panel title="Bookkeeping" aside={`An Asset Manager looks at your money for the quarter just closed. From a seat in an empire, ${pct(b.empire_share_bps)} of the fee is the firm's`}>
       {b.mine.map((m: Any) => (
         <div key={m.id} className="report">
           <div className="row small"><span>{m.who} · quarter {m.period} · fee {formatNaira(m.fee)}</span><span className={`tag tag-${m.status}`}>{m.status}</span></div>
@@ -1022,7 +1022,7 @@ function Bookkeeping({ b, act }: { b: Any; act: Act }) {
       {!open && (
         <form className="inline-form" onSubmit={(e) => { e.preventDefault(); const k = asKobo(fee); if (k) act.run("POST", "/bookkeeping", { adviser_key: key, fee_kobo: k }); }}>
           <label className="answer"><span className="field-label">Hire</span><select value={key} onChange={(e) => setKey(e.target.value)}>
-            <option value="">Choose an Accountant…</option>
+            <option value="">Choose an Asset Manager…</option>
             {b.advisers.map((a: Any) => <option key={a.key} value={a.key}>{a.name} · reputation {a.reputation}{a.stars !== null ? ` · ${a.stars}★` : ""}</option>)}</select></label>
           <label className="answer"><span className="field-label">Fee (₦{formatNaira(b.fee_least).slice(1)} to {formatNaira(b.fee_most)})</span><input type="text" value={fee} onChange={(e) => setFee(e.target.value)} /></label>
           <button className="button-outline" disabled={act.busy || !key || !asKobo(fee)}>Hire them</button>

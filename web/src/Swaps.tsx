@@ -43,7 +43,7 @@ export function SwapsPanel({ onLoggedOut, onChanged }: { onLoggedOut: () => void
       <p className="small">
         A <Term word="Swap">swap</Term> swaps a fixed payment for one that floats, each quarter, for up to eight quarters. Only the difference is paid, at each quarter's close,
         from the quarter after it is signed. A bank takes a swap at once at its own price; a player or an empire is asked. A side that cannot pay owes the other.
-        {data.empire && <> For {data.empire}: the Investment Banker structures it, the Legal Counsel drafts it, the Risk Manager signs and the head signs.</>}
+        {data.empire && <> For {data.empire}: the Investment Banker structures and drafts it, the Risk Manager signs and the head signs.</>}
       </p>
       {data.swaps.length > 0 ? (
         <div className="scroll" tabIndex={0}>

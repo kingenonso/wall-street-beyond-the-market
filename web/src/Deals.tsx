@@ -47,7 +47,7 @@ export function DealsTab({ f, act }: { f: Any; act: Act }) {
           <p className="muted small">A pledge is held in escrow until the sale is decided: handed back if the bid loses, turned into shares if it wins.</p>
         </Panel>
       )}
-      <Panel title="Companies for sale" aside="Decided as the quarter closes. A deal needs all three: the Banker brings it, the Accountant checks it, the Risk Manager signs its risks">
+      <Panel title="Companies for sale" aside="Decided as the quarter closes. A deal needs all three: the Banker brings it, the Asset Manager checks its accounts, the Risk Manager signs its risks">
         {d.sales.length === 0 && <p className="muted">Nothing is on sale at the moment. The founders put companies up for sale as quarters close.</p>}
         {d.sales.map((s: Any) => <Sale key={s.id} s={s} d={d} act={act} />)}
       </Panel>
@@ -105,7 +105,7 @@ function File({ file, s, d, act }: { file: Any; s: Any; d: Any; act: Act }) {
     <div className="deal-file">
       {!file.nda && (
         <div className="callout">
-          <p>The data room opens once Legal Counsel signs a confidentiality agreement for the empire.</p>
+          <p>The data room opens once the Investment Banker signs a confidentiality agreement for the empire.</p>
           {file.can_sign_nda && <button className="button-primary" disabled={act.busy} onClick={() => act.run("POST", `/deals/files/${file.id}/nda`)}>Sign the confidentiality agreement</button>}
         </div>
       )}
@@ -283,7 +283,7 @@ export function CompaniesTab({ f, act }: { f: Any; act: Act }) {
   return (
     <>
       {o.rescues_waiting.length > 0 && (
-        <Panel title="Rescue plans offered" aside="An Accountant is paid only if the rescue works">
+        <Panel title="Rescue plans offered" aside="The Asset Manager who writes it is paid only if the rescue works">
           {o.rescues_waiting.map((r: Any) => (
             <div key={r.id} className="row">
               <span>{r.company}: {r.measures.map((m: string) => o.rescue_measures[m]?.title ?? m).join(", ")} · fee <Money kobo={r.fee} compact /></span>

@@ -1,8 +1,8 @@
 // The build screens (design document, section 18). Every build's screen has the same four
 // zones; this file holds the work area and the context rail for the two builds written here.
 //   Asset Manager       what you own and how it is divided, the trading console, research
-//   Accountant          a company's filed statements, ratios, tax, and the audit list
-// The Investment Banker, Risk Manager, Legal Counsel, Financial Journalist and head screens are in Desks2.tsx.
+//   Accounts desk       (the Asset Manager's second desk) a company's filed statements, ratios, tax, and the audit list
+// The Investment Banker, Risk Manager, legal desk, newsroom and head screens are in Desks2.tsx.
 
 import { useState } from "react";
 import {
@@ -269,7 +269,7 @@ export function AccountantWork({ player, onLoggedOut }: Props) {
 
   return (
     <>
-      <PageHead title="Accountant"
+      <PageHead title="Accounts desk"
                 sub="The statements a company files, what they say quarter by quarter, and what waits on an audit"
                 aside={d.is_employer ? "Your employer" : d.sector} />
 

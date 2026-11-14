@@ -63,7 +63,7 @@ export function IntelRail() {
       <ul className="reasons small">
         <li>Each real day you get one <strong>Sealed Tip</strong>, matched to your build. About a third are real and still to come, a third are false, a third are already public. Once opened, it is useful for four hours.</li>
         <li><strong>Check</strong> a piece before you act on it: it costs ₦50,000 and is right most of the time.</li>
-        <li>Sell copies on the market, or pass a piece to a Financial Journalist. Who held what, and since when, is kept.</li>
+        <li>Sell copies on the market, or pass a piece to a reporter. Who held what, and since when, is kept.</li>
         <li>Trading on a piece from someone inside a company, while it is useful, is <Term word="Confidential information">dealing on confidential information</Term>: it is kept for the courts.</li>
       </ul>
     </Panel>
