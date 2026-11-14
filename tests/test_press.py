@@ -211,7 +211,7 @@ def test_a_member_can_leak_only_what_is_so_the_empire_suffers_the_leak_and_may_h
     assert len(leaks) == 1 and "member" not in repr(leaks)
     # The hunt: once, by the head or the empire's journalist; the result goes to the hunter.
     with pytest.raises(press.PressError, match="speaks for it"):
-        press.hunt(db, team["investment_banker"], leaks[0]["id"], NOW9)
+        press.hunt(db, team["risk_manager"], leaks[0]["id"], NOW9)          # (the Risk Manager does not speak for the empire)
     got = press.hunt(db, team["head"], leaks[0]["id"], NOW9)
     assert got["found"] in (True, False)
     if got["found"]:

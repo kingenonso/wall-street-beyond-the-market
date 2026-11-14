@@ -97,16 +97,18 @@ def empire_of(conn: Connection, player_id) -> dict | None:
 
 
 def press_officer(conn: Connection, player_id) -> dict:
-    """The empire this player speaks for: its head, or any member with a seat in it. (The press office was the
-    Financial Journalist's; with the three builds it is open to every build, as the owner settled on 9 November 2026.)"""
+    """The empire this player speaks for: its head, or its Investment Banker. (The press office was the Financial
+    Journalist's seat; with the three builds the seat's duties for the empire are the Investment Banker's, as the newsroom's
+    questions to an empire already are. Writing, investigating and leaking are open to every build.)"""
     empire = empire_of(conn, player_id)
     if empire is None or empire["kind"] != "player":
         raise PressError("You do not speak for an empire.")
     if empire["head_player_id"] == player_id:
         return empire
-    if _one(conn, "SELECT 1 AS x FROM empire_seats WHERE empire_id = %s AND player_id = %s", (empire["id"], player_id)):
+    if _one(conn, "SELECT 1 AS x FROM empire_seats WHERE empire_id = %s AND player_id = %s AND build = 'investment_banker'",
+            (empire["id"], player_id)):
         return empire
-    raise PressError("The empire's head, or one of its members, speaks for it.")
+    raise PressError("The empire's head, or its Investment Banker, speaks for it.")
 
 
 def speaks_for(conn: Connection, player_id, empire_id) -> bool:
