@@ -816,7 +816,8 @@ COUNTER_OFFER_MOST_BPS = 500                       # a counter-offer's bonus may
 # Leagues: divisions of empires, with promotion and relegation as each game year ends.
 DIVISION_SIZE = 5
 DIVISION_MOVES = 1                                 # how many go up and down between two divisions each year
-LEAGUE_POINTS = {"task": 10, "work": 2, "challenge": 3, "theft": -5, "growth_most": 20, "mandate": 8}
+LEAGUE_POINTS = {"task": 10, "work": 2, "challenge": 3, "theft": -5, "growth_most": 20, "mandate": 8,
+                 "defence": 8, "call_right": 6, "call_exposed": 3, "call_wrong": 3}
 
 # Competition, part 1 (owner, 14 November 2026). Up to this level a player's work is marked alone, while they learn.
 COMPETITION_PROTECTED_LEVEL = 5
@@ -833,6 +834,11 @@ CONTEST_LAST_DAY = 30                  # forecasts close a third of the way into
 CONTEST_POINTS = {1: 6, 2: 4, 3: 2}    # league points for an empire's best entry, by its place
 CONTEST_MOST_ERROR_BPS = 2500          # no points for a forecast that missed by more than a quarter, whatever its place
 CONTEST_LEAST_EMPIRES = 2              # points only when at least two empires took part
+# Competition, part 2 (owner, 14 November 2026): calls on rivals.
+RIVAL_STAKE_BPS = 500                  # a rival's company or bank: another empire holds a twentieth of its shares or more
+CALL_QUARTERS = 2                      # a call is judged when the second quarter after it closes (counting its own)
+CALL_FALL_BPS = 1000                   # an overvalued call is right if the price falls by a tenth or more
+CALL_MOST_OPEN = 2                     # calls an empire may have open at once
 ANALYST_TABLE_LEAST = 2                # forecasts judged before a player is named on the table of analysts
 
 # Quick fixes: messages between players. Limits keep anyone from flooding others.

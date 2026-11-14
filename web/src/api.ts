@@ -1050,6 +1050,14 @@ export type CompetitionMandate = {
   winner: { empire: string; fee_bps: number; take_up_bps: number; error_bps: number | null } | null;
   taken_up_bps: number | null; fee_paid: Kobo; words: string | null;
 };
+export type CompetitionCall = {
+  id: number; kind: "overvalued" | "weak_bank"; name: string; words: string; empire: string; rival: string;
+  company: { ticker: string; name: string }; made: string; judged: string;
+  status: "open" | "right" | "wrong" | "void"; outcome: string | null; ours: boolean; against_us: boolean;
+};
+export type CompetitionTarget = { id: string; ticker: string; name: string; rival: string; rival_stake_bps: number };
+export type CompetitionScore = { empire: string; total: number; mandate: number; defence: number; contest: number;
+  call: number; call_exposed: number; other: number };
 export type CompetitionPage = {
   ready: boolean; quarter: string; day: number; level: number; protected: boolean; protected_level: number;
   contest_last_day: number; pitch_last_day: number; fee_least_bps: number; fee_most_bps: number;
@@ -1057,6 +1065,10 @@ export type CompetitionPage = {
   contests: CompetitionContest[]; mandates: CompetitionMandate[];
   analysts: { name: string; build_name: string; entries: number; average_error_bps: number; wins: number }[];
   points: { mandate: number; places: Record<number, number>; most_error_bps: number; least_empires: number };
+  calls: CompetitionCall[]; can_call: Partial<Record<"overvalued" | "weak_bank", boolean>>;
+  call_targets: Partial<Record<"overvalued" | "weak_bank", CompetitionTarget[]>>; scoreboard: CompetitionScore[];
+  call_rules: { fall_bps: number; quarters: number; most_open: number; stake_bps: number; right: number; exposed: number;
+                wrong: number; defence: number };
 };
 
 // Insurance (a page under Money): every amount is the server's, in kobo written as text.
@@ -1390,6 +1402,8 @@ export const api = {
   competition: () => request<CompetitionPage>("/competition"),
   competitionPitch: (body: { mandate_id: number; fee_bps: number; take_up_bps: number }) =>
     request<CompetitionPage>("/competition/pitch", { method: "POST", body: JSON.stringify(body) }),
+  competitionCall: (body: { kind: string; company_id: string }) =>
+    request<CompetitionPage>("/competition/call", { method: "POST", body: JSON.stringify(body) }),
   competitionForecast: (body: { contest_id: number; guess_kobo: number }) =>
     request<CompetitionPage>("/competition/forecast", { method: "POST", body: JSON.stringify(body) }),
   // Insurance, under Money.

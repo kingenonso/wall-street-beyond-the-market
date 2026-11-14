@@ -1,7 +1,9 @@
 """Competition on the website (part 1): Work → Competition.
 
-A player: this quarter's ranked forecast for their build and the last quarter's results, the mandates open to pitch and
-what companies decided, and the table of analysts. They may hand in a forecast, and an empire's Investment Banker or head
+A player: this quarter's ranked forecast for their build and the last quarter's results, the mandates open to pitch
+(sales of shares, and defences against hostile bids) and what companies decided, the calls empires have made on each
+other, the league by what earned each empire its points, and the table of analysts. An empire's Asset Manager or Risk
+Manager (or head) may make a call on a rival. They may hand in a forecast, and an empire's Investment Banker or head
 may pitch for a mandate. Other players' forecasts and pitches are never sent until they are judged.
 """
 
@@ -46,6 +48,11 @@ class PitchRequest(Request):
     take_up_bps: Bps
 
 
+class CallRequest(Request):
+    kind: str = Field(pattern="^(overvalued|weak_bank)$")
+    company_id: UUID
+
+
 class ForecastRequest(Request):
     contest_id: int = Field(ge=1, le=9_000_000_000_000_000_000, strict=True)
     guess_kobo: int = Field(ge=-100_000_000_000_000_000, le=100_000_000_000_000_000, strict=True)
@@ -79,3 +86,8 @@ def competition_pitch(body: PitchRequest, player: dict = Depends(current_player)
 def competition_forecast(body: ForecastRequest, player: dict = Depends(current_player),
                          conn: Connection = Depends(get_connection)):
     return _act(conn, player, lambda now: competition.enter(conn, player["id"], body.contest_id, body.guess_kobo, now))
+
+
+@app.post("/api/competition/call")
+def competition_call(body: CallRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: competition.make_call(conn, player["id"], body.kind, body.company_id, now))

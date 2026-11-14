@@ -88,8 +88,9 @@ def _past_protection(conn: Connection, player_id) -> None:
 # ---------------------------------------------------------------------------
 
 def open_mandates(conn: Connection, period: int, now: datetime) -> int:
-    """After a quarter's close: every new sale of shares to existing owners or the public is put out to pitch. (A first
-    listing has its own underwriters, the small banks.) Pitches are made in the quarter that follows."""
+    """After a quarter's close: every new sale of shares to existing owners or the public is put out to pitch (a first
+    listing has its own underwriters, the small banks), and so is the defence of every company facing a hostile bid.
+    Pitches are made in the quarter that follows."""
     made = 0
     for offer in _rows(conn, "SELECT o.* FROM share_offers o WHERE o.status = 'open' AND o.kind IN ('rights', 'public')"
                              " AND o.closes_period = %s AND NOT EXISTS (SELECT 1 FROM mandates m WHERE m.offer_id = o.id)",
@@ -97,7 +98,24 @@ def open_mandates(conn: Connection, period: int, now: datetime) -> int:
         conn.execute("INSERT INTO mandates (offer_id, company_id, period, at) VALUES (%s, %s, %s, %s)",
                      (offer["id"], offer["company_id"], period + 1, now))
         made += 1
+    if _one(conn, "SELECT 1 AS x FROM information_schema.columns WHERE table_name = 'mandates' AND column_name = 'kind'"):
+        for bid in _rows(conn, "SELECT t.* FROM takeovers t WHERE t.status = 'open' AND t.hostile AND t.closes_period = %s"
+                               " AND NOT EXISTS (SELECT 1 FROM mandates m WHERE m.takeover_id = t.id)", (period + 1,)):
+            conn.execute("INSERT INTO mandates (kind, takeover_id, company_id, period, at) VALUES ('defence', %s, %s, %s, %s)",
+                         (bid["id"], bid["target_company_id"], period + 1, now))
+            made += 1
     return made
+
+
+def largest_empire_holder(conn: Connection, company_id) -> dict | None:
+    """The empire holding most of a company's shares, and what share of them it holds."""
+    row = _one(conn, "SELECT e.id, e.name, b.balance AS held, (SELECT sum(balance) FROM ledger_balances WHERE asset = c.share_asset"
+                     " AND balance > 0) AS issued FROM companies c JOIN ledger_balances b ON b.asset = c.share_asset AND b.balance > 0"
+                     " JOIN empires e ON e.account_id = b.account_id AND e.status = 'active' WHERE c.id = %s"
+                     " ORDER BY b.balance DESC, e.id LIMIT 1", (company_id,))
+    if row is None or not row["issued"]:
+        return None
+    return {"empire_id": row["id"], "name": row["name"], "stake_bps": int(row["held"] * BPS // row["issued"])}
 
 
 def _track_record_bps(conn: Connection, empire_id) -> int | None:
@@ -141,6 +159,12 @@ def pitch(conn: Connection, player_id, mandate_id: int, fee_bps: int, take_up_bp
                                        (take_up_bps, 0, BPS, "The forecast of take-up")):
             if not isinstance(value, int) or isinstance(value, bool) or not low <= value <= high:
                 raise CompetitionError(f"{what} must be between {low / 100:.2f}% and {high / 100:.2f}%.")
+        # (For a defence the forecast is of the share of the shares sought that their owners will sell to the bidder.)
+        if m.get("kind") == "defence":
+            bid = _one(conn, "SELECT bidder_company_id FROM takeovers WHERE id = %s", (m["takeover_id"],))
+            behind = largest_empire_holder(conn, bid["bidder_company_id"])
+            if behind and behind["empire_id"] == seat["empire_id"] and behind["stake_bps"] >= data.RIVAL_STAKE_BPS:
+                raise CompetitionError("Your empire stands behind the bidder. Nobody defends a company against their own bid.")
         if _one(conn, "SELECT 1 AS x FROM mandate_pitches WHERE mandate_id = %s AND empire_id = %s", (mandate_id, seat["empire_id"])):
             raise CompetitionError("Your empire has already pitched for this mandate. A pitch is sealed when it is made.")
         row = _one(conn, "INSERT INTO mandate_pitches (mandate_id, empire_id, player_id, fee_bps, take_up_bps, at)"
@@ -157,8 +181,11 @@ def award(conn: Connection, period: int, now: datetime) -> int:
     chosen = 0
     for m in _rows(conn, "SELECT * FROM mandates WHERE status = 'open' AND period = %s ORDER BY id FOR UPDATE", (period,)):
         pitches = _rows(conn, "SELECT * FROM mandate_pitches WHERE mandate_id = %s", (m["id"],))
-        offer = _one(conn, "SELECT status FROM share_offers WHERE id = %s", (m["offer_id"],))
-        if not pitches or offer["status"] != "open":
+        if m.get("kind") == "defence":
+            going = _one(conn, "SELECT status FROM takeovers WHERE id = %s", (m["takeover_id"],))["status"] == "open"
+        else:
+            going = _one(conn, "SELECT status FROM share_offers WHERE id = %s", (m["offer_id"],))["status"] == "open"
+        if not pitches or not going:
             conn.execute("UPDATE mandates SET status = 'lapsed', words = %s WHERE id = %s",
                          ("No empire pitched for it." if not pitches else "The sale did not go ahead.", m["id"]))
             continue
@@ -181,7 +208,7 @@ def settle(conn: Connection, period: int, now: datetime) -> int:
     paid_total = 0
     for m in _rows(conn, "SELECT m.*, o.raised, o.shares, o.shares_sold, o.status AS offer_status, c.name, c.account_id"
                          " FROM mandates m JOIN share_offers o ON o.id = m.offer_id JOIN companies c ON c.id = m.company_id"
-                         " WHERE m.status = 'awarded' AND m.period = %s ORDER BY m.id", (period,)):
+                         " WHERE m.status = 'awarded' AND m.period = %s AND m.offer_id IS NOT NULL ORDER BY m.id", (period,)):
         if m["offer_status"] != "done":
             conn.execute("UPDATE mandates SET status = 'lapsed', words = 'The sale did not go ahead.' WHERE id = %s", (m["id"],))
             continue
@@ -199,7 +226,184 @@ def settle(conn: Connection, period: int, now: datetime) -> int:
         leagues.award(conn, win["empire_id"], data.LEAGUE_POINTS["mandate"], f"Won the mandate for {m['name']}'s sale of shares",
                       period, now, reference=f"mandate:{m['id']}")
         paid_total += got
+    if _one(conn, "SELECT 1 AS x FROM information_schema.columns WHERE table_name = 'mandates' AND column_name = 'kind'"):
+        paid_total += _settle_defences(conn, period, now)
     return paid_total
+
+
+def _settle_defences(conn: Connection, period: int, now: datetime) -> int:
+    """After the bid has closed: if it failed, the defender is paid its fee on what the bid was worth, and earns its
+    points; if it succeeded, the defender is paid nothing. Every forecast of how much was sold is scored either way."""
+    paid_total = 0
+    for m in _rows(conn, "SELECT m.*, t.status AS bid_status, t.accepted, t.shares_sought, t.price, c.name, c.account_id"
+                         " FROM mandates m JOIN takeovers t ON t.id = m.takeover_id JOIN companies c ON c.id = m.company_id"
+                         " WHERE m.status = 'awarded' AND m.period = %s AND m.kind = 'defence' ORDER BY m.id", (period,)):
+        if m["bid_status"] == "open":
+            continue                                   # (settled at a later close)
+        sold = min((m["accepted"] or 0) * BPS // max(m["shares_sought"], 1), BPS)
+        for p in _rows(conn, "SELECT * FROM mandate_pitches WHERE mandate_id = %s", (m["id"],)):
+            conn.execute("UPDATE mandate_pitches SET error_bps = %s WHERE id = %s", (abs(p["take_up_bps"] - sold), p["id"]))
+        win = _one(conn, "SELECT p.*, e.account_id, e.name AS empire FROM mandate_pitches p JOIN empires e ON e.id = p.empire_id"
+                         " WHERE p.id = %s", (m["winner_id"],))
+        got = 0
+        if m["bid_status"] == "failed":
+            fee = m["price"] * m["shares_sought"] * win["fee_bps"] // BPS
+            got = ledger.pay_up_to(conn, payer=m["account_id"], receiver=win["account_id"], wanted=fee, kind="mandate_fee",
+                                   memo=f"{win['empire']}'s fee for defending {m['name']} against a takeover", period=period)
+            words = f"{win['empire']} defended it, and the bid failed: paid {money(got)} at {win['fee_bps'] / 100:.2f}%."
+            leagues.award(conn, win["empire_id"], data.LEAGUE_POINTS["defence"], f"Defended {m['name']} against a takeover",
+                          period, now, reference=f"defence:{m['id']}")
+        else:
+            words = f"{win['empire']} defended it, but the bid succeeded: no fee."
+        conn.execute("UPDATE mandates SET status = 'settled', taken_up_bps = %s, fee_paid = %s, words = %s WHERE id = %s",
+                     (sold, got, words, m["id"]))
+        paid_total += got
+    return paid_total
+
+
+# ---------------------------------------------------------------------------
+# Calls on rivals (part 2)
+# ---------------------------------------------------------------------------
+
+CALLS = {
+    "overvalued": {"build": "asset_manager", "name": "Overvalued",
+                   "words": "its share price falls by a tenth or more within two quarters"},
+    "weak_bank": {"build": "risk_manager", "name": "A weak bank",
+                  "words": "its credit rating is cut within two quarters"},
+}
+RATINGS = ("AAA", "AA", "A", "BBB", "BB", "B", "CCC", "D")
+
+
+def _price(conn: Connection, company_id) -> int | None:
+    row = _one(conn, "SELECT coalesce(last_price, reference_price) AS p FROM market_instruments WHERE company_id = %s", (company_id,))
+    return row["p"] if row else None
+
+
+def _rating(conn: Connection, company_id) -> str | None:
+    row = _one(conn, "SELECT credit_rating FROM company_reports WHERE company_id = %s ORDER BY period DESC, version DESC LIMIT 1",
+               (company_id,))
+    return row["credit_rating"] if row else None
+
+
+def call_targets(conn: Connection, empire_id, kind: str) -> list[dict]:
+    """The companies an empire may make this kind of call on: listed, and held a twentieth or more by another empire."""
+    out = []
+    for c in _rows(conn, "SELECT c.id, c.ticker, c.name, c.sector FROM companies c JOIN market_instruments m ON m.company_id = c.id"
+                         " WHERE c.status = 'trading'" + (" AND c.sector = 'banking'" if kind == "weak_bank" else "")
+                         + " ORDER BY c.ticker"):
+        holder = largest_empire_holder(conn, c["id"])
+        rivals = _rows(conn, "SELECT e.id, e.name, b.balance FROM companies x JOIN ledger_balances b ON b.asset = x.share_asset"
+                             " AND b.balance > 0 JOIN empires e ON e.account_id = b.account_id AND e.status = 'active'"
+                             " WHERE x.id = %s AND e.id <> %s ORDER BY b.balance DESC, e.id LIMIT 1", (c["id"], empire_id))
+        if not rivals or holder is None:
+            continue
+        issued = holder["stake_bps"] and _one(conn, "SELECT sum(balance) AS s FROM ledger_balances b JOIN companies x"
+                                                    " ON x.share_asset = b.asset WHERE x.id = %s AND b.balance > 0", (c["id"],))["s"]
+        stake = int(rivals[0]["balance"] * BPS // issued) if issued else 0
+        if stake >= data.RIVAL_STAKE_BPS:
+            out.append({**c, "rival_id": rivals[0]["id"], "rival": rivals[0]["name"], "rival_stake_bps": stake})
+    return out
+
+
+def make_call(conn: Connection, player_id, kind: str, company_id, now: datetime) -> dict:
+    """Call a rival empire's company overvalued, or its bank weak. Public from the moment it is made; the record judges it."""
+    with conn.transaction():
+        careers.books_open(conn, now)
+        conn.execute("SELECT 1 FROM players WHERE id = %s FOR UPDATE", (player_id,))
+        _past_protection(conn, player_id)
+        if kind not in CALLS:
+            raise CompetitionError("A call is that a rival's company is overvalued, or that a rival's bank is weak.")
+        seat = _seat(conn, player_id)
+        if seat is None:
+            raise CompetitionError("Calls are made for an empire, against another. Take a seat in one first.")
+        if seat["build"] != CALLS[kind]["build"] and seat["head_player_id"] != player_id:
+            raise CompetitionError(f"This call is made by an empire's {careers.BUILDS[CALLS[kind]['build']]['name']}, or its head.")
+        conn.execute("SELECT 1 FROM empires WHERE id = %s FOR UPDATE", (seat["empire_id"],))
+        if _one(conn, "SELECT count(*) AS n FROM rival_calls WHERE empire_id = %s AND status = 'open'",
+                (seat["empire_id"],))["n"] >= data.CALL_MOST_OPEN:
+            raise CompetitionError(f"An empire may have {data.CALL_MOST_OPEN} calls open at once. Wait for one to be judged.")
+        target = next((t for t in call_targets(conn, seat["empire_id"], kind) if str(t["id"]) == str(company_id)), None)
+        if target is None:
+            raise CompetitionError("A call is made on a listed company in which a rival empire holds a twentieth or more"
+                                   + (", and this one must be a bank." if kind == "weak_bank" else "."))
+        if _one(conn, "SELECT 1 AS x FROM rival_calls WHERE empire_id = %s AND company_id = %s AND status = 'open'",
+                (seat["empire_id"], target["id"])):
+            raise CompetitionError("Your empire already has a call open on that company.")
+        period = careers.world_now(conn, now)["period"]
+        price = _price(conn, target["id"]) if kind == "overvalued" else None
+        rating = _rating(conn, target["id"]) if kind == "weak_bank" else None
+        if kind == "weak_bank" and rating in (None, "D"):
+            raise CompetitionError("That bank's rating cannot be cut any further.")
+        row = _one(conn, "INSERT INTO rival_calls (kind, empire_id, player_id, company_id, rival_id, rival_stake_bps, period,"
+                         " ends_period, from_price, from_rating, at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                   (kind, seat["empire_id"], player_id, target["id"], target["rival_id"], target["rival_stake_bps"], period,
+                    period + data.CALL_QUARTERS - 1, price, rating, now))
+        return {"call_id": row["id"], "kind": kind, "company": target["name"], "rival": target["rival"],
+                "judged": clock.period_label(period + data.CALL_QUARTERS - 1)}
+
+
+def judge_calls(conn: Connection, period: int, now: datetime) -> int:
+    """At the close of a call's last quarter: the record says whether it was right. A caller's empire that sold the shares
+    it called overvalued while the call was open has made its own fall, and the call is void."""
+    if _one(conn, "SELECT to_regclass('rival_calls') IS NOT NULL AS ok")["ok"] is not True:
+        return 0
+    judged = 0
+    for c in _rows(conn, "SELECT r.*, c.name, e.account_id FROM rival_calls r JOIN companies c ON c.id = r.company_id"
+                         " JOIN empires e ON e.id = r.empire_id WHERE r.status = 'open' AND r.ends_period <= %s ORDER BY r.id",
+                   (period,)):
+        if c["kind"] == "overvalued":
+            rival = _one(conn, "SELECT account_id FROM empires WHERE id = %s", (c["rival_id"],))["account_id"]
+            sold = _one(conn, "SELECT coalesce(sum(quantity) FILTER (WHERE seller_account_id = %s), 0) AS caller,"
+                              " coalesce(sum(quantity) FILTER (WHERE seller_account_id = %s), 0) AS rival FROM market_trades"
+                              " WHERE company_id = %s AND session_date >= %s",
+                        (c["account_id"], rival, c["company_id"], c["at"].date()))
+            if sold["caller"] or sold["rival"]:
+                # Either side selling while the call is open could make the fall itself: the caller to win, or a friendly
+                # "rival" to hand it the points. Neither earns anything.
+                who = "the caller's own empire" if sold["caller"] else "the rival empire itself"
+                conn.execute("UPDATE rival_calls SET status = 'void', outcome = %s WHERE id = %s",
+                             (f"Void: {who} sold the shares while the call was open.", c["id"]))
+                continue
+            now_price = _price(conn, c["company_id"]) or c["from_price"]
+            fall = (c["from_price"] - now_price) * BPS // max(c["from_price"], 1)
+            right = fall >= data.CALL_FALL_BPS
+            outcome = f"The price went from {money(c['from_price'])} to {money(now_price)} ({-fall / 100:+.1f}%)."
+        else:
+            now_rating = _rating(conn, c["company_id"]) or c["from_rating"]
+            right = RATINGS.index(now_rating) > RATINGS.index(c["from_rating"])
+            outcome = f"The rating went from {c['from_rating']} to {now_rating}."
+        conn.execute("UPDATE rival_calls SET status = %s, outcome = %s WHERE id = %s",
+                     ("right" if right else "wrong", outcome, c["id"]))
+        what = f"{CALLS[c['kind']]['name'].lower()} call on {c['name']}"
+        if right:
+            leagues.award(conn, c["empire_id"], data.LEAGUE_POINTS["call_right"], f"Right in its {what}", period, now,
+                          reference=f"call:{c['id']}")
+            leagues.award(conn, c["rival_id"], -data.LEAGUE_POINTS["call_exposed"], f"Exposed by a rival's {what}", period, now,
+                          reference=f"call_exposed:{c['id']}")
+        else:
+            leagues.award(conn, c["empire_id"], -data.LEAGUE_POINTS["call_wrong"], f"Wrong in its {what}", period, now,
+                          reference=f"call:{c['id']}")
+        judged += 1
+    return judged
+
+
+SOURCES = (("mandate", "Mandates"), ("defence", "Defences"), ("contest", "Ranked forecasts"), ("call", "Calls on rivals"),
+           ("call_exposed", "Exposed by rivals"))
+
+
+def scoreboard(conn: Connection, now: datetime) -> list[dict]:
+    """The league this game year, by what earned each empire its points."""
+    season = leagues.season_of(careers.world_now(conn, now)["period"])
+    rows = _rows(conn, "SELECT p.empire_id, e.name, split_part(coalesce(p.reference, ''), ':', 1) AS source, sum(p.points)::int AS pts"
+                       " FROM league_points p JOIN empires e ON e.id = p.empire_id WHERE p.season = %s"
+                       " GROUP BY p.empire_id, e.name, source", (season,))
+    known = {k for k, _ in SOURCES}
+    board: dict = {}
+    for r in rows:
+        b = board.setdefault(r["empire_id"], {"empire": r["name"], "total": 0, **{k: 0 for k in known}, "other": 0})
+        b[r["source"] if r["source"] in known else "other"] += r["pts"]
+        b["total"] += r["pts"]
+    return sorted(board.values(), key=lambda b: (-b["total"], b["empire"]))
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +514,8 @@ def at_close(conn: Connection, period: int, seed: str, now: datetime) -> dict:
     sales of shares just announced put out to pitch."""
     if not ready(conn):
         return {}
-    return {"judged": judge(conn, period, now), "contests": open_contests(conn, period, seed, now),
+    return {"judged": judge(conn, period, now), "calls": judge_calls(conn, period, now),
+            "contests": open_contests(conn, period, seed, now),
             "mandates": open_mandates(conn, period, now)}
 
 
@@ -354,7 +559,10 @@ def view(conn: Connection, player_id, now: datetime) -> dict:
             "entries": _one(conn, "SELECT count(*) AS n FROM contest_entries WHERE contest_id = %s", (c["id"],))["n"],
             "truth": c["truth"] if judged else None, "top": top})
     mandates = []
-    for m in _rows(conn, "SELECT m.*, o.kind, o.price, o.shares, o.reason FROM mandates m JOIN share_offers o ON o.id = m.offer_id"
+    for m in _rows(conn, "SELECT m.*, coalesce(o.kind, 'defence') AS kind, coalesce(o.price, t.price) AS price,"
+                         " coalesce(o.shares, t.shares_sought) AS shares, coalesce(o.reason, 'A hostile bid by ' || b.name ||"
+                         " ': the company wants it defeated.') AS reason FROM mandates m LEFT JOIN share_offers o ON o.id = m.offer_id"
+                         " LEFT JOIN takeovers t ON t.id = m.takeover_id LEFT JOIN companies b ON b.id = t.bidder_company_id"
                          " WHERE m.period IN (%s, %s) ORDER BY m.period DESC, m.id DESC LIMIT 20", (period, period - 1)):
         ours = _one(conn, "SELECT fee_bps, take_up_bps, error_bps FROM mandate_pitches WHERE mandate_id = %s AND empire_id = %s",
                     (m["id"], seat["empire_id"])) if seat else None
@@ -376,6 +584,22 @@ def view(conn: Connection, player_id, now: datetime) -> dict:
                                      " JOIN contests c ON c.id = e.contest_id JOIN players p ON p.id = e.player_id"
                                      " WHERE c.status = 'judged' GROUP BY p.display_name, c.build"
                                      " HAVING count(*) >= %s ORDER BY avg, n DESC LIMIT 15", (data.ANALYST_TABLE_LEAST,))]
+    calls = [{"id": r["id"], "kind": r["kind"], "name": CALLS[r["kind"]]["name"], "words": CALLS[r["kind"]]["words"],
+              "empire": r["caller"], "rival": r["rival"], "company": {"ticker": r["ticker"], "name": r["company"]},
+              "made": clock.period_label(r["period"]), "judged": clock.period_label(r["ends_period"]), "status": r["status"],
+              "outcome": r["outcome"], "ours": bool(seat and r["empire_id"] == seat["empire_id"]),
+              "against_us": bool(seat and r["rival_id"] == seat["empire_id"])}
+             for r in _rows(conn, "SELECT r.*, a.name AS caller, b.name AS rival, c.ticker, c.name AS company FROM rival_calls r"
+                                  " JOIN empires a ON a.id = r.empire_id JOIN empires b ON b.id = r.rival_id"
+                                  " JOIN companies c ON c.id = r.company_id ORDER BY (r.status = 'open') DESC, r.id DESC LIMIT 30")]
+    can_call = {}
+    targets = {}
+    if seat and level > data.COMPETITION_PROTECTED_LEVEL:
+        for kind, spec in CALLS.items():
+            if seat["build"] == spec["build"] or seat["head_player_id"] == player_id:
+                can_call[kind] = True
+                targets[kind] = [{"id": t["id"], "ticker": t["ticker"], "name": t["name"], "rival": t["rival"],
+                                  "rival_stake_bps": t["rival_stake_bps"]} for t in call_targets(conn, seat["empire_id"], kind)]
     can_pitch = bool(seat and level > data.COMPETITION_PROTECTED_LEVEL
                      and (seat["build"] == "investment_banker" or seat["head_player_id"] == player_id))
     return {
@@ -386,6 +610,11 @@ def view(conn: Connection, player_id, now: datetime) -> dict:
         "empire": seat["empire_name"] if seat else None, "can_pitch": can_pitch,
         "trust_bps": trust_bps(conn, player_id, seat["empire_id"]) if can_pitch else None,
         "contests": contests, "mandates": mandates, "analysts": analysts,
+        "calls": calls, "can_call": can_call, "call_targets": targets, "scoreboard": scoreboard(conn, now),
+        "call_rules": {"fall_bps": data.CALL_FALL_BPS, "quarters": data.CALL_QUARTERS, "most_open": data.CALL_MOST_OPEN,
+                       "stake_bps": data.RIVAL_STAKE_BPS, "right": data.LEAGUE_POINTS["call_right"],
+                       "exposed": data.LEAGUE_POINTS["call_exposed"], "wrong": data.LEAGUE_POINTS["call_wrong"],
+                       "defence": data.LEAGUE_POINTS["defence"]},
         "points": {"mandate": data.LEAGUE_POINTS["mandate"], "places": data.CONTEST_POINTS,
                    "most_error_bps": data.CONTEST_MOST_ERROR_BPS, "least_empires": data.CONTEST_LEAST_EMPIRES},
     }

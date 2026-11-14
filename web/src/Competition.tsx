@@ -6,7 +6,7 @@
 // does not send them.
 
 import { useState } from "react";
-import { api, ApiError, type CompetitionContest, type CompetitionMandate, type CompetitionPage, type Player } from "./api";
+import { api, ApiError, type CompetitionCall, type CompetitionContest, type CompetitionMandate, type CompetitionPage, type Player } from "./api";
 import { asKobo } from "./Empire";
 import { formatNaira, formatPercent } from "./format";
 import { useLoad } from "./hooks";
@@ -92,7 +92,7 @@ function MandateRow({ m, act, canPitch }: { m: CompetitionMandate; act: Act; can
   const valid = fee !== "" && takeUp !== "" && Number.isFinite(feeBps) && Number.isFinite(takeBps);
   return (
     <div className="report">
-      <div className="row small"><span><strong>{m.company.name}</strong> ({m.company.ticker}) · {m.kind === "rights" ? "a rights issue" : "a sale of new shares"} of {formatNaira(m.amount)}</span>
+      <div className="row small"><span><strong>{m.company.name}</strong> ({m.company.ticker}) · {m.kind === "defence" ? `defending it against a hostile bid worth ${formatNaira(m.amount)}` : `${m.kind === "rights" ? "a rights issue" : "a sale of new shares"} of ${formatNaira(m.amount)}`}</span>
         <span className="muted">{m.quarter} · {m.pitches} {m.pitches === 1 ? "pitch" : "pitches"}</span></div>
       <p className="muted small">{m.reason}</p>
       {m.winner ? (
@@ -109,11 +109,53 @@ function MandateRow({ m, act, canPitch }: { m: CompetitionMandate; act: Act; can
           if (valid) act.run(() => api.competitionPitch({ mandate_id: m.id, fee_bps: feeBps, take_up_bps: takeBps }), "Pitched. It is sealed until the company chooses at the close.");
         }}>
           <label className="answer">Fee (% of what is raised)<input type="text" inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} /></label>
-          <label className="answer">Forecast taken up (%)<input type="text" inputMode="decimal" value={takeUp} onChange={(e) => setTakeUp(e.target.value)} /></label>
+          <label className="answer">{m.kind === "defence" ? "Forecast sold to the bidder (%)" : "Forecast taken up (%)"}<input type="text" inputMode="decimal" value={takeUp} onChange={(e) => setTakeUp(e.target.value)} /></label>
           <button className="button-primary" disabled={act.busy || !valid}>Pitch</button>
         </form>
       ) : null}
     </div>
+  );
+}
+
+
+const CALL_MARK: Record<string, string> = { open: "○ Open", right: "● Right", wrong: "■ Wrong", void: "○ Void" };
+
+function CallRow({ c }: { c: CompetitionCall }) {
+  return (
+    <tr>
+      <th scope="row">{c.empire}{c.ours ? " (yours)" : ""}</th>
+      <td>{c.name}: {c.company.name} ({c.company.ticker})</td>
+      <td>{c.rival}{c.against_us ? " (yours)" : ""}</td>
+      <td>{c.made} → {c.judged}</td>
+      <td title={c.outcome ?? undefined}>{CALL_MARK[c.status] ?? c.status}{c.outcome ? ` · ${c.outcome}` : ""}</td>
+    </tr>
+  );
+}
+
+function MakeCall({ d, act }: { d: CompetitionPage; act: Act }) {
+  const kinds = (Object.keys(d.can_call) as ("overvalued" | "weak_bank")[]).filter((k) => d.can_call[k]);
+  const [kind, setKind] = useState<"overvalued" | "weak_bank">(kinds[0] ?? "overvalued");
+  const targets = d.call_targets[kind] ?? [];
+  const [company, setCompany] = useState("");
+  if (kinds.length === 0) return <p className="muted small">An empire's Asset Manager calls a rival's company overvalued; its Risk Manager calls a rival's bank weak; its head may make either.</p>;
+  return (
+    <form className="inline-form" onSubmit={(e) => {
+      e.preventDefault();
+      if (company) act.run(() => api.competitionCall({ kind, company_id: company }), "Called. It is public now, and the record will judge it.");
+    }}>
+      <label className="answer">The call
+        <select value={kind} onChange={(e) => { setKind(e.target.value as "overvalued" | "weak_bank"); setCompany(""); }}>
+          {kinds.map((k) => <option key={k} value={k}>{k === "overvalued" ? "A rival's company is overvalued" : "A rival's bank is weak"}</option>)}
+        </select>
+      </label>
+      <label className="answer">On
+        <select value={company} onChange={(e) => setCompany(e.target.value)}>
+          <option value="">{targets.length ? "choose a company" : "no rival holds enough of any"}</option>
+          {targets.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.ticker}): {t.rival} holds {pct(t.rival_stake_bps)}</option>)}
+        </select>
+      </label>
+      <button className="button-primary" disabled={act.busy || !company}>Make the call</button>
+    </form>
   );
 }
 
@@ -140,9 +182,29 @@ export function CompetitionWork({ onLoggedOut }: Props) {
       <p className="small"><strong>Ranked work.</strong> Each quarter each build forecasts one figure about one company. When the quarter closes everybody is ranked by how close they came. The best entry from each empire earns it {d.points.places[1]}, {d.points.places[2]} or {d.points.places[3]} points for first, second or third, if it missed by no more than {pct(d.points.most_error_bps)} and at least {d.points.least_empires} empires took part.</p>
       <div className="two-columns">{d.contests.map((c) => <ContestPanel key={c.id} c={c} act={act} />)}</div>
       <Panel title="Mandates" aside={`a win is worth ${d.points.mandate} points and the fee`}>
-        <p className="small">A company selling new shares invites every empire to pitch. Name a fee and forecast how much of the sale will be taken up. The company chooses the lowest fee once it allows for how far it trusts the banker: their level, and how close their empire's past forecasts came. It never chooses by who asked first.</p>
+        <p className="small">A company selling new shares, or facing a hostile takeover bid, invites every empire to pitch. Name a fee and forecast how much of the sale will be taken up (for a defence: how much will be sold to the bidder; the fee is paid only if the bid fails, and wins {d.call_rules.defence} points). The company chooses the lowest fee once it allows for how far it trusts the banker: their level, and how close their empire's past forecasts came. It never chooses by who asked first.</p>
         {d.mandates.length === 0 ? <p className="muted small">No sale of shares is being arranged this quarter.</p> :
           d.mandates.map((m) => <MandateRow key={m.id} m={m} act={act} canPitch={d.can_pitch} />)}
+      </Panel>
+      <Panel title="Calls on rivals" aside={`judged after ${d.call_rules.quarters} quarters`}>
+        <p className="small">Call a rival empire's company overvalued (its price falls by {pct(d.call_rules.fall_bps)} or more), or its bank weak (its credit rating is cut). A rival's company is one another empire holds {pct(d.call_rules.stake_bps)} or more of. A call is public at once, so the rival sees it coming. Right: your empire gains {d.call_rules.right} points and the rival loses {d.call_rules.exposed}. Wrong: your empire loses {d.call_rules.wrong}. If either empire sells the shares while the call is open, it is void. At most {d.call_rules.most_open} open at once.</p>
+        <MakeCall d={d} act={act} />
+        {d.calls.length > 0 && (
+          <table className="dense">
+            <thead><tr><th scope="col">Called by</th><th scope="col">The call</th><th scope="col">Against</th><th scope="col">Quarters</th><th scope="col">Result</th></tr></thead>
+            <tbody>{d.calls.map((c) => <CallRow key={c.id} c={c} />)}</tbody>
+          </table>
+        )}
+      </Panel>
+      <Panel title="The league, by what earned it" aside="this game year">
+        {d.scoreboard.length === 0 ? <p className="muted small">No empire has earned points this game year yet.</p> : (
+          <table className="dense">
+            <thead><tr><th scope="col">Empire</th><th scope="col" className="num">Total</th><th scope="col" className="num">Mandates</th><th scope="col" className="num">Defences</th><th scope="col" className="num">Forecasts</th><th scope="col" className="num">Calls</th><th scope="col" className="num">Exposed</th><th scope="col" className="num">Everything else</th></tr></thead>
+            <tbody>{d.scoreboard.map((b) => (
+              <tr key={b.empire}><th scope="row">{b.empire}</th><td className="num"><strong>{b.total}</strong></td><td className="num">{b.mandate}</td><td className="num">{b.defence}</td><td className="num">{b.contest}</td><td className="num">{b.call}</td><td className="num">{b.call_exposed}</td><td className="num">{b.other}</td></tr>
+            ))}</tbody>
+          </table>
+        )}
       </Panel>
       <Panel title="The sharpest analysts" aside="average miss, over every forecast judged">
         {d.analysts.length === 0 ? <p className="muted small">Nobody has enough forecasts judged yet.</p> : (
