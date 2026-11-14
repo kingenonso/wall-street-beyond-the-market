@@ -514,7 +514,7 @@ def test_an_order_cannot_be_altered_and_a_trade_cannot_be_rewritten(db):
         ("fees_paid = 0", "market_orders_forwards"), ("value_filled = 0", "market_orders_forwards"),
     ):
         with pytest.raises(errors.Error) as refused:
-            db.execute(f"UPDATE market_orders SET {change} WHERE side = 'sell'")         # noqa: S608 (fixed text)
+            db.execute(f"UPDATE market_orders SET {change} WHERE side = 'sell'")
         if rule:
             assert refused.value.diag.constraint_name == rule, change
     with pytest.raises(errors.Error):

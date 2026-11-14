@@ -259,6 +259,6 @@ firm.VIEW["risk"] = view
 
 
 from simulation import (
-    crashfund,  # noqa: E402,F401  (the crash fund's approvals, Stage 9)
-    lending_empire,  # noqa: E402,F401  (an empire's borrowing and short selling, Stage 9)
+    crashfund,  # noqa: F401  (the crash fund's approvals, Stage 9)
+    lending_empire,  # noqa: F401  (an empire's borrowing and short selling, Stage 9)
 )

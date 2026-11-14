@@ -14,7 +14,16 @@ import psycopg
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import bonds, careers, clock, exchange, ledger, marketview, objectives, quarters
+from simulation import (
+    bonds,
+    careers,
+    clock,
+    exchange,
+    ledger,
+    marketview,
+    objectives,
+    quarters,
+)
 from simulation import world_data as data
 from simulation.money import BPS, naira
 from tests.conftest import ADULT, WORLD_START, after_quarters, join, money_accounted_for
@@ -489,7 +498,7 @@ def test_a_long_bond_falls_further_than_a_bill_when_the_rate_rises(db):
     state = bonds.market(db, NOW9)
     bill, long = (bonds.find(db, government(db, kind, length)["code"]) for kind, length in (("bill", None), ("fixed", 40)))
     higher = {**state, "policy": state["policy"] + 100}
-    fall = lambda bond: (bonds.fair_value(bond, state) - bonds.fair_value(bond, higher)) * BPS // bonds.fair_value(bond, state)   # noqa: E731
+    fall = lambda bond: (bonds.fair_value(bond, state) - bonds.fair_value(bond, higher)) * BPS // bonds.fair_value(bond, state)
     assert fall(long) > 10 * max(fall(bill), 1) and fall(bill) < 30
 
 
@@ -698,7 +707,7 @@ def test_the_build_screens_have_their_figures(db, client):
     client.put("/api/career/bank", json={"ticker": "IKB"})
     client.put("/api/career/job", json={"ticker": "IDC"})
     desk = client.get("/api/desk/accountant").json()
-    assert desk["ticker"] == "IDC" and desk["is_employer"] and len(desk["quarters"]) == 8 and len(desk["companies"]) == 50
+    assert desk["ticker"] == "IDC" and desk["is_employer"] and len(desk["quarters"]) == 8 and len(desk["companies"]) == 70
     latest = desk["quarters"][0]
     income = {k: int(v) for k, v in latest["income_statement"].items()}
     assert latest["ratios"]["Profit after tax ÷ sales (%)"] == round(income["net_profit"] * 100 / income["revenue"], 2)

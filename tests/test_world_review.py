@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
-from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -93,7 +91,7 @@ def test_r3_a_buy_is_never_cheaper_than_the_price_plus_the_spread(db):
 def test_r3b_decimal_floor_division_truncates():
     x = Decimal("2.5") * BPS
     assert -(-x // BPS) == 2                       # what world.deal computes: the intended ceiling would be 3
-    assert -(-int(25) // 10) == 3                  # with ints the same idiom does round up
+    assert -(-25 // 10) == 3                  # with ints the same idiom does round up
 
 
 # ---------------------------------------------------------------------------

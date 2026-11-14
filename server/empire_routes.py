@@ -7,7 +7,7 @@ Amounts of money arrive as whole kobo and leave as text, like everywhere else.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Query, status
@@ -15,14 +15,12 @@ from fastapi import Path as FastPath
 from psycopg import Connection
 from psycopg.errors import DeadlockDetected
 from pydantic import AfterValidator, Field
-from typing import Annotated
 
 from server import limits
 from server.db import get_connection
 from server.main import _exchange_time, app, current_player
 from server.schemas import Request
 from simulation import careers, clock, desks_more, empires, exchange, pensionfunds
-
 
 
 def _plain(words: str) -> str:

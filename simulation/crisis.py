@@ -334,7 +334,7 @@ def _policy_rate(conn: Connection) -> int:
 
 def note_withdrawal(conn: Connection, company_id, amount: int, period: int, day: int) -> None:
     """A saver drew money out (already in deposit_flows, which is what the next day's trust reads). Kept for the callers."""
-    return None
+    return
 
 
 def short_ban_for(conn: Connection, b: dict, now: datetime, why: str) -> None:
@@ -573,7 +573,7 @@ def _price(conn: Connection, company_id) -> int | None:
 
 def _owners_changed(conn: Connection, company_id, account) -> None:
     """Who owns a company's shares is read from the ledger itself (a view), so it is always in step: nothing to do."""
-    return None
+    return
 
 
 # ---------------------------------------------------------------------------

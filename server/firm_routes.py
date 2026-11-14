@@ -22,8 +22,17 @@ from server.db import get_connection
 from server.empire_routes import Words
 from server.main import _exchange_time, app, current_player
 from server.schemas import Request
-from simulation import careers, empires, exchange, firm
-from simulation import firm_clients, firm_money, firm_people, firm_risk, firm_tasks
+from simulation import (
+    careers,
+    empires,
+    exchange,
+    firm,
+    firm_clients,
+    firm_money,
+    firm_people,
+    firm_risk,
+    firm_tasks,
+)
 
 MONEY = {"owned", "owed", "borrow_room", "principal", "outstanding", "interest_a_quarter", "value", "unit_price", "wanted", "raised", "opening",
          "closing", "cash", "shares", "bonds", "debt", "capital_in", "paid_out", "total_costs", "income_received", "profit", "dividend_room",

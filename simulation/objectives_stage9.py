@@ -190,7 +190,7 @@ def _parity_submit(ctx, objective, answers):
     put = t["call"] - t["spot"] + pv
     intrinsic = max(t["spot"] - t["strike"], 0)
     time_value = t["call"] - intrinsic
-    tol = lambda x: max(abs(x) / 100 * 0.005, 0.02)                       # noqa: E731
+    tol = lambda x: max(abs(x) / 100 * 0.005, 0.02)
     return _marked(objective, answers, [("pv", "Strike today", pv / 100, tol(pv)), ("put", "Put", put / 100, tol(put) + 0.02),
                                         ("intrinsic", "Intrinsic value", intrinsic / 100, tol(intrinsic)),
                                         ("time", "Time value", time_value / 100, tol(time_value) + 0.02)], 3,

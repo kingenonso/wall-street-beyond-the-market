@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import psycopg
 from psycopg import Connection
@@ -54,7 +54,7 @@ if __name__ == "__main__":
         raise SystemExit("Say how many quarters, for example:  python -m simulation.fast_forward 4") from None
     with psycopg.connect(url, autocommit=True) as connection:
         try:
-            closed = fast_forward(connection, count, datetime.now(timezone.utc))
+            closed = fast_forward(connection, count, datetime.now(UTC))
         except (NotATestWorld, ValueError) as problem:
             raise SystemExit(str(problem)) from None
     if closed:

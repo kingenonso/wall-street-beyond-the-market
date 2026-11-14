@@ -26,9 +26,9 @@ import hashlib
 import logging
 import math
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Callable
 
 from psycopg import Connection, errors
 from psycopg.rows import dict_row
@@ -66,7 +66,7 @@ def _money(kobo: int) -> str:
     return f"{'-' if kobo < 0 else ''}₦{abs(kobo) / 100:,.0f}"
 
 
-def _pct(bps: int | float) -> str:
+def _pct(bps: float) -> str:
     return f"{bps / 100:.2f}%"
 
 
@@ -571,7 +571,7 @@ def _forecast_submit(ctx, objective, answers):
     if not math.isfinite(value) or value <= 0 or value > 1e9:
         raise ObjectiveError("Give your forecast as a number above nought, in millions of naira.")
     answers["revenue"] = value            # kept as the number it is
-    return None                           # judged when the company files
+    # judged when the company files
 
 
 def _forecast_close(ctx, objective, period):
@@ -675,7 +675,6 @@ def _choice_submit(key: str, allowed: tuple):
     def submit(ctx, objective, answers):
         if answers.get(key) not in allowed:
             raise ObjectiveError("Choose one of the answers offered.")
-        return None
     return submit
 
 
@@ -777,7 +776,7 @@ def _rating_close(ctx, objective, period):
     said, was, now_rated = objective["submission"]["rating"], objective["terms"]["rating"], filed["credit_rating"]
     exact = said == now_rated
     near = abs(RATINGS.index(said) - RATINGS.index(now_rated)) <= 1
-    direction = lambda a, b: (RATINGS.index(b) > RATINGS.index(a)) - (RATINGS.index(b) < RATINGS.index(a))   # noqa: E731
+    direction = lambda a, b: (RATINGS.index(b) > RATINGS.index(a)) - (RATINGS.index(b) < RATINGS.index(a))
     reasons = filed["rating_reasons"] if isinstance(filed["rating_reasons"], list) else []
     return _verdict(
         "passed" if exact else "failed",
@@ -889,7 +888,6 @@ def _idle_offer(ctx):
 def _idle_bell(ctx, objective, day):
     if _bills_held(ctx["conn"], ctx["account"]) >= BILLS["units"]:
         objective["progress"]["bells"] = objective["progress"].get("bells", 0) + 1
-    return None
 
 
 def _idle_close(ctx, objective, period):
@@ -979,13 +977,13 @@ def _rates_bell(ctx, objective, day):
     bench = _benchmark(conn, now)
     if value < naira(RATES_MIN_NAIRA) or bench is None or objective["submission"] is None:
         objective["progress"].pop("book", None)      # only the last bell before the decision counts
-        return None
+        return
     keep = ("code", "kind", "coupon_bps", "face", "fair", "name", "quarters_left")
     objective["progress"]["book"] = {
         "day": str(day), "value": value, "lines": [{**{k: b[k] for k in keep}, "units": b["units"]} for b in held],
         "benchmark": {k: bench[k] for k in keep},
     }
-    return None
+    return
 
 
 def _value_after(conn, line: dict, state: dict, policy_before: int) -> int:
@@ -1050,7 +1048,7 @@ MANDATE = {"total": 150_000, "shares": (4000, 6000), "bonds": (3000, 5000), "cas
 
 
 def _mandate_offer(ctx):
-    band = lambda b: f"{b[0] // 100}% to {b[1] // 100}%"      # noqa: E731
+    band = lambda b: f"{b[0] // 100}% to {b[1] // 100}%"
     return {
         "situation": "A client has given the desk a balanced mandate: a fixed mix of shares, bonds and cash that the manager "
                      "must keep to whatever the market does. Run your own money to the same mandate.",
@@ -1144,7 +1142,6 @@ def _value_submit(ctx, objective, answers):
         "company_id": str(share["company_id"]), "ticker": ticker, "name": share["name"], "price": share["price"],
         "worth": share["worth"], "shares": held, "index": index_now(conn, now), "period": ctx["period"],
     }
-    return None
 
 
 def _split_since(conn, company_id, period: int) -> int:
@@ -1304,16 +1301,16 @@ TEMPLATES: dict[str, Template] = {t.code: t for t in (
 )}
 
 
-from simulation import (  # noqa: E402
-    empires,  # noqa: E402,F401          (adds the work that exists only inside an empire)
+from simulation import (
+    empires,
     leagues,
-    objectives_ceo,  # noqa: E402,F401   (adds the leadership work of the CEO track)
-    objectives_gap,  # noqa: E402,F401   (the gap stage: the library brought to 350, Levels 41 to 100)
-    objectives_intel,  # noqa: E402,F401 (Stage 10, Part 2: sources, investigations and economic intelligence)
-    objectives_more,  # noqa: E402,F401  (adds the work of the other four builds to the library)
-    objectives_news,  # noqa: E402,F401  (Stage 10: work about the news, and the editors who come back)
-    objectives_property,  # noqa: E402,F401  (adds the work about land and property, Stage 8)
-    objectives_stage9,  # noqa: E402,F401  (adds the work about borrowing, short selling and derivatives, Stage 9)
+    objectives_ceo,  # noqa: F401   (adds the leadership work of the CEO track)
+    objectives_gap,  # noqa: F401   (the gap stage: the library brought to 350, Levels 41 to 100)
+    objectives_intel,  # noqa: F401 (Stage 10, Part 2: sources, investigations and economic intelligence)
+    objectives_more,  # noqa: F401  (adds the work of the other four builds to the library)
+    objectives_news,  # noqa: F401  (Stage 10: work about the news, and the editors who come back)
+    objectives_property,  # noqa: F401  (adds the work about land and property, Stage 8)
+    objectives_stage9,  # noqa: F401  (adds the work about borrowing, short selling and derivatives, Stage 9)
     ranks,
 )
 
@@ -1909,7 +1906,7 @@ def _safely(conn: Connection, objective: dict, now: datetime, judged_period: int
     everybody else. It is left as it was, and the fault is written down for the operators."""
     try:
         return _judge(conn, objective, now, judged_period, step, arg)
-    except Exception:                                              # noqa: BLE001
+    except Exception:
         if STRICT:
             raise
         log.exception("Objective %s could not be judged at its %s step.", objective["id"], step)

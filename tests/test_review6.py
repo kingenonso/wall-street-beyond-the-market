@@ -11,14 +11,25 @@ import psycopg
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import bonds, careers, desks_more, empires, exchange, ledger, marketview, objectives, pensionfunds, quarters
+from simulation import (
+    bonds,
+    careers,
+    desks_more,
+    empires,
+    exchange,
+    ledger,
+    marketview,
+    objectives,
+    pensionfunds,
+    quarters,
+)
 from simulation import world_data as data
 from simulation.money import apply_bps, naira
 from tests.conftest import ADULT, WORLD_START, after_quarters, join
 from tests.test_builds import pro
 from tests.test_careers import NOW9, professional, sound
-from tests.test_empires import countersigned, always, computer_empire, founded, thief_in
-from tests.test_objectives import bell, give_cash, give_shares, state_of
+from tests.test_empires import always, computer_empire, countersigned, founded, thief_in
+from tests.test_objectives import give_shares, state_of
 from tests.test_savings import a_fund, joined, savings
 
 pytestmark = pytest.mark.world("eight")
@@ -338,6 +349,7 @@ def test_what_is_recovered_for_a_fund_nobody_is_left_in_goes_to_the_pension_fund
 # 17. A character that cannot be kept, in chat or a pact's terms, was a server fault.
 def test_text_that_cannot_be_kept_is_refused_not_a_fault(db):
     from fastapi.testclient import TestClient
+
     from server.main import app
     with TestClient(app, raise_server_exceptions=False) as api:
         join(api, ADULT)
@@ -375,7 +387,7 @@ def test_more_is_refused_between_a_quarters_end_and_its_close(db, monkeypatch):
 # 19. A look-alike of a computer-run empire's name was accepted.
 def test_an_empires_name_is_plain_letters_so_that_it_cannot_pass_for_another(db):
     head, _ = pro(db, "asset_manager", "chief", level=20, cash_naira=60_000_000)
-    for name in ("Savаnnah Crown Holdings", "Lagoon​House", "Lagöon House"):
+    for name in ("Savаnnah Crown Holdings", "Lagoon\u200bHouse", "Lagöon House"):
         with pytest.raises(empires.EmpireError):
             empires.found(db, head, name, naira(1_000), 0, NOW9)
     with pytest.raises(pensionfunds.FundError):

@@ -21,7 +21,8 @@ from server.db import get_connection
 from server.firm_routes import MONEY, wire
 from server.main import _exchange_time, app, current_player
 from server.schemas import Request
-from simulation import auctions, empires, firm, headquarters, ledger, property as prop
+from simulation import auctions, empires, firm, headquarters, ledger
+from simulation import property as prop
 
 MONEY.update({"rent_due", "build_cost", "tax_owed", "last_rent", "last_tax", "equity", "start_price", "minimum", "fair",
               "your_limit", "next_cost", "rebuild_cost", "upkeep", "held", "limit", "spent", "mortgage_most"})

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import argparse
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import psycopg
 from psycopg import Connection
@@ -35,7 +35,7 @@ class Rollback(Exception):
 
 def run(conn: Connection, ticker: str, *, loss_pct: float = 0, fear: int | None = None, days: int = 30, now: datetime | None = None) -> dict:
     """The test itself. Returns what happened; leaves nothing behind (the caller rolls back)."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     deposits.setup(conn, 0, now)
     b = deposits.bank(conn, ticker)
     if b is None:

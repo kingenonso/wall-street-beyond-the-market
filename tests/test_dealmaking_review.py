@@ -6,7 +6,18 @@ from datetime import timedelta
 
 import pytest
 
-from simulation import corporate, empires, firm, firm_dealmaking, firm_deals, firm_money, firm_owned, firm_practice, ledger, private
+from simulation import (
+    corporate,
+    empires,
+    firm,
+    firm_dealmaking,
+    firm_deals,
+    firm_money,
+    firm_owned,
+    firm_practice,
+    ledger,
+    private,
+)
 from simulation.money import BPS, million_naira
 from tests.test_dealmaking import LATE, house, target_of
 from tests.test_dealmaking_loopholes import hand

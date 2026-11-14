@@ -7,8 +7,8 @@ import pytest
 from simulation import careers, ledger, objectives
 from simulation.money import naira
 from tests.conftest import ADULT, join, money_accounted_for
-from tests.test_mastery import master
 from tests.test_careers import NOW9
+from tests.test_mastery import master
 from tests.test_objectives import give_cash
 
 pytestmark = pytest.mark.world("eight")

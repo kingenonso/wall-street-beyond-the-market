@@ -41,7 +41,6 @@ from simulation import (
     lending,
     macro,
     marketview,
-    mindsets,
     moneywatch,
     news,
     objectives,
@@ -53,7 +52,6 @@ from simulation import (
     valuation,
 )
 from simulation import property as property_market
-from simulation.ledger import NGN
 from simulation.money import BPS, apply_bps
 
 log = logging.getLogger("wsbm.quarters")

@@ -13,7 +13,17 @@ from simulation.money import naira
 from tests.conftest import ADULT, join
 from tests.test_crises import unlocked
 from tests.test_market import OPEN, place, reference, trader
-from tests.test_talent import T0, _approved_firm, _boarded, _paper, bell, bell_after, filed_later, history, player_of
+from tests.test_talent import (
+    T0,
+    _approved_firm,
+    _boarded,
+    _paper,
+    bell,
+    bell_after,
+    filed_later,
+    history,
+    player_of,
+)
 
 
 def _one(db, sql, params=()):

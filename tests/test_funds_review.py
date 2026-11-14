@@ -9,7 +9,18 @@ import pytest
 from simulation import empires, exchange, funds, ledger
 from simulation import world_data as data
 from simulation.money import naira
-from tests.test_funds import DAY, OPEN, _invested_in_shares, _one, dealers_have_cash, investor, launch, manager, ring, sound
+from tests.test_funds import (
+    DAY,
+    OPEN,
+    _invested_in_shares,
+    _one,
+    dealers_have_cash,
+    investor,
+    launch,
+    manager,
+    ring,
+    sound,
+)
 from tests.test_market import trader
 
 

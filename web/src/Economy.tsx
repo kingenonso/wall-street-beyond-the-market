@@ -414,7 +414,7 @@ function Body({ economy }: { economy: Economy }) {
             </tbody>
           </table>
         </div>
-        <p className="muted small">Jobs are the people employed by the 50 companies. Half of a company's staff work where its head office is.</p>
+        <p className="muted small">Jobs are the people employed by the 115 companies. Half of a company's staff work where its head office is.</p>
       </Panel>
 
       <Panel title="Where household income came from" aside={latest.period_label}>

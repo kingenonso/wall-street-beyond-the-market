@@ -10,7 +10,16 @@ import pytest
 from psycopg import errors
 from psycopg.rows import dict_row
 
-from simulation import banking, economy, events, ledger, macro, mindsets, moneywatch, quarters
+from simulation import (
+    banking,
+    economy,
+    events,
+    ledger,
+    macro,
+    mindsets,
+    moneywatch,
+    quarters,
+)
 from simulation import world_data as data
 from simulation.money import BPS, apply_bps, naira
 from tests.conftest import after_quarters, money_accounted_for
@@ -297,11 +306,11 @@ def test_the_economys_records_cannot_be_rewritten(db):
     for table in ("economy_results", "money_watch_results", "events", "news_items"):
         assert db.execute(f"SELECT count(*) FROM {table}").fetchone()[0] > 0
         with pytest.raises(errors.Error):
-            db.execute(f"UPDATE {table} SET period = period")              # noqa: S608 (fixed names)
+            db.execute(f"UPDATE {table} SET period = period")
         with pytest.raises(errors.Error):
-            db.execute(f"DELETE FROM {table}")                             # noqa: S608
+            db.execute(f"DELETE FROM {table}")
         with pytest.raises(errors.Error):
-            db.execute(f"TRUNCATE {table}")                                # noqa: S608
+            db.execute(f"TRUNCATE {table}")
 
 
 # ---------------------------------------------------------------------------
@@ -665,7 +674,7 @@ def test_twenty_game_years_run_and_inflation_stays_in_its_band_for_the_first_fiv
     jobs = [j for (j,) in db.execute("SELECT sum(jobs) FROM household_results WHERE period >= 1 GROUP BY period ORDER BY period").fetchall()]
     assert min(jobs) > jobs[0] * 80 // 100
     # Every balance sheet balances, in every quarter, for every company.
-    assert db.execute("SELECT count(*) FROM company_results r JOIN companies c ON c.id = r.company_id WHERE c.listed").fetchone()[0] == 50 * 81
+    assert db.execute("SELECT count(*) FROM company_results r JOIN companies c ON c.id = r.company_id WHERE c.listed").fetchone()[0] == 70 * 81
     assert db.execute("SELECT count(*) FROM company_results WHERE total_assets <> total_liabilities + total_equity").fetchone()[0] == 0
     assert db.execute("SELECT count(*) FROM company_results WHERE cash < 0 OR staff < 0 OR revenue < 0").fetchone()[0] == 0
     # No naira without a recorded payer: every transaction adds up to zero, nobody but the

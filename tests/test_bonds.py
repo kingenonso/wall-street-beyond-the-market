@@ -15,7 +15,7 @@ import pytest
 from psycopg import errors
 from psycopg.rows import dict_row
 
-from simulation import bonds, clock, exchange, ledger, quarters
+from simulation import bonds, exchange, ledger, quarters
 from simulation import world_data as data
 from simulation.ledger import Leg
 from simulation.money import BPS, naira
@@ -232,7 +232,7 @@ def test_two_accounts_working_together_cannot_milk_the_desk(db):
 def test_the_desk_refuses_what_cannot_be_done(db):
     player = trader(db, "ngozi", cash_naira=100_000)
     row = corp(db)
-    refuse = lambda **order: pytest.raises(bonds.BondError).__enter__() and None          # noqa: E731
+    refuse = lambda **order: pytest.raises(bonds.BondError).__enter__() and None
     for order in ({"side": "buy", "units": 0}, {"side": "buy", "units": -5}, {"side": "buy", "units": True},
                   {"side": "buy", "units": 1.5}, {"side": "lend", "units": 1}, {"side": "sell", "units": 1},
                   {"side": "buy", "units": ledger.balance(db, ledger.account_id(db, bonds.DEALER), f"BND-{row['code']}") + 1}):

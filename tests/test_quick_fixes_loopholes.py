@@ -164,7 +164,7 @@ def test_q9_only_an_asset_manager_or_the_head_trades_with_the_empires_money(db):
 #     hidden characters into a message?
 def test_q10_no_count_that_cannot_be_cleared_and_no_hidden_characters(db):
     ada, bola = person(db, "ada"), person(db, "bola")
-    sent = messages.send(db, ada, "bola", "‮evil​\x00 text\r\n line", NOW9)
+    sent = messages.send(db, ada, "bola", "‮evil\u200b\x00 text\r\n line", NOW9)
     assert sent["body"] == "evil text\n line"
     assert messages.unread_count(db, bola) == 1
     messages.block(db, bola, "ada", NOW9)

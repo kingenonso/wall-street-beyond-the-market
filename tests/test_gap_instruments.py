@@ -8,7 +8,15 @@ import psycopg
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import corporate, firm_deals, headquarters, instruments, leaseback, ledger, quarters
+from simulation import (
+    corporate,
+    firm_deals,
+    headquarters,
+    instruments,
+    leaseback,
+    ledger,
+    quarters,
+)
 from simulation import world_data as data
 from simulation.money import BPS, naira
 from tests.conftest import after_quarters

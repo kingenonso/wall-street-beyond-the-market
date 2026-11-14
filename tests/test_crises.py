@@ -9,7 +9,17 @@ from datetime import timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import auctions, clock, crisis, crisis_test, crisiswatch, deposits, exchange, ledger, quarters
+from simulation import (
+    auctions,
+    clock,
+    crisis,
+    crisis_test,
+    crisiswatch,
+    deposits,
+    exchange,
+    ledger,
+    quarters,
+)
 from simulation import world_data as data
 from simulation.money import BPS, naira
 from tests.conftest import ADULT, after_quarters, join

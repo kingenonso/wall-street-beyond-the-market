@@ -6,7 +6,6 @@ nowhere, no seeing what is hidden, no acting as somebody else, no beating the cl
 
 from __future__ import annotations
 
-import psycopg
 import pytest
 from psycopg.rows import dict_row
 

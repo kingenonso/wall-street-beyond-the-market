@@ -19,9 +19,9 @@ Nothing here makes money. Nothing here shows a member what only an audit should 
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Callable
 
 from psycopg import Connection, errors
 from psycopg.types.json import Jsonb
@@ -1079,7 +1079,7 @@ def view(conn: Connection, player_id, now: datetime) -> dict | None:
 
 
 # The parts of the firm, each adding itself to the lists above.
-from simulation import (  # noqa: E402,F401  # noqa: E402,F401  (registers their hooks)
+from simulation import (  # noqa: F401  # noqa: E402,F401  (registers their hooks)
     firm_clients,
     firm_dealmaking,
     firm_deals,

@@ -9,7 +9,19 @@ import pytest
 from simulation import clock, etfs, exchange, indexes, ledger
 from simulation import world_data as data
 from simulation.money import BPS, naira
-from tests.test_etfs import DAY, OPEN, TRADING, _one, _rows, as_dealer, move_shares, person, ring, sound, started
+from tests.test_etfs import (
+    DAY,
+    OPEN,
+    TRADING,
+    _one,
+    _rows,
+    as_dealer,
+    move_shares,
+    person,
+    ring,
+    sound,
+    started,
+)
 
 
 def test_r1_buying_from_the_makers_and_selling_straight_back_always_loses(db):
@@ -200,7 +212,9 @@ def test_r14_a_trade_worth_one_kobo_does_not_break_anything(db):
 @pytest.mark.world("eight")
 def test_r15_a_share_index_counts_dividends_as_if_put_back_so_funds_that_keep_them_follow_it(db):
     """Found in the ten-year run: ETFs keep their dividends, so against a price-only index they ran ahead every quarter."""
-    from datetime import datetime, time as dtime
+    from datetime import datetime
+    from datetime import time as dtime
+
     from simulation import clock
     from tests.conftest import after_quarters
     now = after_quarters(8) + timedelta(hours=14)

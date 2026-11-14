@@ -7,7 +7,7 @@ done, and never more than one part in twenty hours. No part can be paid twice.
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import psycopg
 import pytest
@@ -94,7 +94,7 @@ def test_holding_a_share_and_a_government_bill_through_a_close_each_earn_a_part_
     assert earned == {"held_through_results", "lent_to_government"}
 
     # (The joining grant is stamped by the database's real clock: judge from after both it and the close.)
-    now = max(after_quarters(1), datetime.now(timezone.utc)) + 2 * GAP
+    now = max(after_quarters(1), datetime.now(UTC)) + 2 * GAP
     before = ledger.balance(db, account)
     first = grants.review(db, player, now)
     assert sum(s["paid"] for s in first["steps"]) == 1 and ledger.balance(db, account) == before + naira(100_000)
@@ -126,7 +126,7 @@ def test_two_requests_at_the_same_moment_pay_a_part_once(db, client):
     place(db, account, "buy", 10, price)
     cash = ledger.balance(db, account)
     # The joining grant is stamped with the real time, so the next part is due a full gap after now, whatever day the test runs.
-    when = datetime.now(timezone.utc) + timedelta(hours=data.GRANT_STEP_GAP_HOURS + 1)
+    when = datetime.now(UTC) + timedelta(hours=data.GRANT_STEP_GAP_HOURS + 1)
     problems = []
 
     def ask():

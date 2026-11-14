@@ -10,11 +10,22 @@ from datetime import timedelta
 
 import pytest
 
-from simulation import corporate, empires, firm, firm_dealmaking, firm_deals, firm_owned, firm_practice, ledger, private, quarters
+from simulation import (
+    corporate,
+    empires,
+    firm,
+    firm_dealmaking,
+    firm_deals,
+    firm_owned,
+    firm_practice,
+    ledger,
+    private,
+    quarters,
+)
 from simulation.money import million_naira
 from tests.conftest import after_quarters
-from tests.test_deals import LATER, _one, open_a_sale
 from tests.test_dealmaking import LATE, house, target_of
+from tests.test_deals import LATER, _one, open_a_sale
 from tests.test_deals_more import own
 from tests.test_firm import firm_of
 from tests.test_objectives import give_cash

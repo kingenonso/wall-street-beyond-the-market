@@ -7,7 +7,18 @@ from datetime import timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import auctions, banking, crisis, deposits, economy, exchange, firm_money, ledger, lending, quarters
+from simulation import (
+    auctions,
+    banking,
+    crisis,
+    deposits,
+    economy,
+    exchange,
+    firm_money,
+    ledger,
+    lending,
+    quarters,
+)
 from simulation.money import naira
 from tests.conftest import after_quarters
 from tests.test_builds import pro

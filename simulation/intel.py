@@ -33,7 +33,7 @@ from psycopg.rows import dict_row
 
 from simulation import careers, clock, events, ledger
 from simulation import world_data as data
-from simulation.money import BPS, naira
+from simulation.money import naira
 
 
 class IntelError(Exception):

@@ -9,7 +9,18 @@ import pytest
 from simulation import etfs, funds, indexes, ledger
 from simulation import world_data as data
 from simulation.money import naira
-from tests.test_etfs import DAY, OPEN, TRADING, _one, as_dealer, move_shares, person, ring, sound, started
+from tests.test_etfs import (
+    DAY,
+    OPEN,
+    TRADING,
+    _one,
+    as_dealer,
+    move_shares,
+    person,
+    ring,
+    sound,
+    started,
+)
 
 
 def test_1_units_cannot_be_conjured_outside_a_dealer_s_making(db):

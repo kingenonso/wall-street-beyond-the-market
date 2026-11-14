@@ -8,10 +8,15 @@ from datetime import timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import careers, chronicle, empires, intel, ledger, newsroom, press, quarters, standing
+from simulation import (
+    careers,
+    intel,
+    ledger,
+    newsroom,
+    press,
+)
 from simulation import world_data as data
 from simulation.money import naira
-from tests.conftest import after_quarters
 from tests.test_builds import pro
 from tests.test_careers import NOW9
 from tests.test_firm import firm_of

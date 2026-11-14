@@ -15,7 +15,16 @@ import pytest
 from psycopg import errors
 from psycopg.rows import dict_row
 
-from simulation import bonds, corporate, exchange, grants, investors, ledger, quarters, valuation
+from simulation import (
+    bonds,
+    corporate,
+    exchange,
+    grants,
+    investors,
+    ledger,
+    quarters,
+    valuation,
+)
 from simulation import world_data as data
 from simulation.money import BPS, naira
 from tests.conftest import ADULT, TEST_DATABASE_URL, after_quarters, join
@@ -273,6 +282,7 @@ def test_a_sale_of_new_shares_to_the_public_is_at_the_market_price(db):
 def test_a_bond_of_a_company_rated_ccc_or_d_is_not_replaced_at_its_full_value(db):
     """It trades at 40% of its face value; replacing it at 100% would be a sure gain for whoever bought it cheap."""
     import inspect
+
     from simulation import companies
     source = inspect.getsource(companies.close_company_quarter)
     assert 'net_profit + earlier_profit > 0 and rating not in ("CCC", "D")' in source

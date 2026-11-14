@@ -268,7 +268,7 @@ def _company_bank(conn: Connection, company: dict) -> dict | None:
     lender = _one(conn, "SELECT c.id FROM company_debts d JOIN companies c ON c.account_id = d.lender_account_id"
                         " WHERE d.company_id = %s AND d.principal_outstanding > 0 ORDER BY d.principal_outstanding DESC LIMIT 1",
                   (company["id"],))
-    calm = lambda b: trust.get(b["id"], {}).get("state", "calm") == "calm"   # noqa: E731
+    calm = lambda b: trust.get(b["id"], {}).get("state", "calm") == "calm"
     if lender:
         mine = next((b for b in open_banks if b["id"] == lender["id"]), None)
         if mine and calm(mine):

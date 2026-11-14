@@ -10,13 +10,21 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager, suppress
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 import psycopg
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi import (
+    Cookie,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from fastapi import Path as FastPath
 from fastapi.exceptions import RequestValidationError
-from server.schemas import Request as BaseRequest
 from fastapi.responses import JSONResponse
 from psycopg import Connection
 from psycopg.errors import UniqueViolation
@@ -26,50 +34,150 @@ from server import emails, limits, security
 from server.config import get_settings
 from server.db import close_pool, connection, get_connection
 from server.schemas import (
+    AbroadSummary,
+    AcceptRequest,
+    AccountantDeskResponse,
+    AllocationSlice,
+    AnalysisResponse,
+    AssetDeskResponse,
+    BankInfo,
+    BellMover,
+    BondHolding,
+    BondRow,
+    BondsResponse,
+    BondTradeRequest,
+    BondTradeResponse,
+    BuildInfo,
+    BuildRequest,
+    CareerEvent,
+    CareerInfo,
+    CareerResponse,
     ClockResponse,
+    ClosingBell,
+    ClosingBellResponse,
+    CommodityPrice,
     CompaniesResponse,
+    CompanyFactsResponse,
     CompanyResponse,
     CompanySummary,
     ConfirmEmailRequest,
-    EconomyQuarter,
-    AbroadSummary,
-    PropertySummary,
     ConsumersSummary,
+    ConvertRequest,
+    CorporateResponse,
+    CreditSpread,
+    CurvePoint,
+    EconomyQuarter,
     EconomyResponse,
-    HouseholdGroup,
-    LocationEffect,
-    MoneyHolder,
-    SpendingShare,
-    Supplier,
+    ExtraSavingRequest,
     FiledReport,
+    FundRequest,
     GameDateResponse,
+    GrantResponse,
+    GrantStep,
+    HandInRequest,
+    Holding,
+    HouseholdGroup,
+    IndexPoint,
+    Industry,
+    IndustryCompany,
+    IndustryPlace,
+    IntegrationQuarter,
+    IntegrationRow,
+    InterestPaid,
+    JobInfo,
+    LargeOrder,
+    LocationEffect,
     LoginRequest,
+    MacroQuarter,
+    MarketResponse,
+    MarketShare,
     Money,
+    MoneyHolder,
+    MoneyWatch,
     MovementResponse,
+    NetWorthDay,
+    NewsItem,
+    NewsResponse,
+    NextResults,
+    Notice,
+    NpvYear,
+    ObjectiveOffer,
+    ObjectiveRow,
+    ObjectivesResponse,
+    OfferRow,
+    Opening,
+    OrderRequest,
+    OrderResponse,
+    OtherBuild,
     Owner,
+    OwnershipRow,
+    PayInfo,
+    Payslip,
+    PensionFund,
+    PlacedOrderResponse,
+    PlayerBank,
     PlayerResponse,
+    PortfolioHolding,
+    PortfolioResponse,
+    PriceLevel,
+    PricesAndRates,
     ProfileIconRequest,
+    ProfitPerShare,
+    PropertySummary,
+    PublicTrade,
+    QuoteResponse,
+    ReportQuarter,
+    ResultsReportResponse,
+    RetirementEntry,
+    RetirementInfo,
+    ReviewStanding,
     SectorCompanies,
+    Shareholder,
+    SharesRequest,
     SignUpPendingResponse,
     SignUpRequest,
-    display_name_key,
+    Skill,
+    SpendingShare,
+    StatementQuarter,
+    Supplier,
+    TakeoverRow,
+    TickerRequest,
+    TickerResponse,
+    TickerShare,
+    TradingDay,
+    VoteRequest,
+    VoteRow,
+    WaitingSwap,
+    WatchedShare,
+    WatchRequest,
+    WatchRow,
+    WhyResponse,
     WorldStatusResponse,
-    CommodityPrice, MacroQuarter, MoneyWatch, NewsItem, NewsResponse, PricesAndRates,
-    Holding, OrderRequest, OrderResponse, PlacedOrderResponse, PriceLevel, PublicTrade, QuoteResponse, WhyResponse,
-    AnalysisResponse, IndexPoint, MarketResponse, MarketShare, NpvYear, PortfolioHolding, PortfolioResponse,
-    Shareholder, TradingDay, WatchedShare, WatchRequest,
-    BellMover, ClosingBell, ClosingBellResponse, CompanyFactsResponse, Industry, IndustryCompany, IndustryPlace, LargeOrder,
-    NetWorthDay, NextResults, ProfitPerShare, ReportQuarter, ResultsReportResponse, TickerResponse, TickerShare,
-    BondHolding, BondRow, BondsResponse, BondTradeRequest, BondTradeResponse, ConvertRequest, CorporateResponse, CreditSpread,
-    AcceptRequest, AccountantDeskResponse, AllocationSlice, AssetDeskResponse, BankInfo, BuildInfo, BuildRequest, CareerEvent,
-    CareerInfo, CareerResponse, ExtraSavingRequest, FundRequest, HandInRequest, InterestPaid, JobInfo, ObjectiveOffer, ObjectiveRow, ObjectivesResponse,
-    Opening, OtherBuild, PayInfo, Payslip, PensionFund, PlayerBank, RetirementEntry, RetirementInfo, ReviewStanding, Skill,
-    StatementQuarter, TickerRequest, WatchRow,
-    CurvePoint, GrantResponse, GrantStep, IntegrationQuarter, IntegrationRow, Notice, OfferRow, OwnershipRow, SharesRequest,
-    TakeoverRow, VoteRequest, VoteRow, WaitingSwap,
+    display_name_key,
 )
-from simulation import clock, exchange, investors, ledger, moneywatch, news, news_kinds, players, quarters
-from simulation import auctions, bonds, careers, closingbell, corporate, desks, grants, insight, marketview, messages, objectives
+from server.schemas import Request as BaseRequest
+from simulation import (
+    auctions,
+    bonds,
+    careers,
+    clock,
+    closingbell,
+    corporate,
+    desks,
+    exchange,
+    grants,
+    insight,
+    investors,
+    ledger,
+    marketview,
+    messages,
+    moneywatch,
+    news,
+    news_kinds,
+    objectives,
+    players,
+    quarters,
+)
 from simulation import world_data as data
 from simulation.ledger import NGN
 
@@ -596,7 +704,7 @@ def world_clock(conn: Connection = Depends(get_connection)):
     # The world remembers its own start. Before it is created, the setting is used.
     world_start = world["world_start"] if world else get_settings().world_start
     ahead = world["weeks_ahead"] if world else 0
-    snap = clock.snapshot(datetime.now(timezone.utc), clock.effective_start(world_start, ahead))
+    snap = clock.snapshot(datetime.now(UTC), clock.effective_start(world_start, ahead))
     return ClockResponse(
         lagos_time=snap.lagos_time,
         market_state=snap.market_state.value,
@@ -757,7 +865,8 @@ def economy(_: dict = Depends(current_player), conn: Connection = Depends(get_co
                 money_growth_bps=reading["money_growth_bps"], output_growth_bps=reading["output_growth_bps"],
             )
 
-    from simulation import abroad as _abroad, consumers as _consumers
+    from simulation import abroad as _abroad
+    from simulation import consumers as _consumers
     has_groups = world is not None and conn.execute("SELECT 1 FROM consumer_groups LIMIT 1").fetchone() is not None
     consumers_now = None
     if has_groups:
@@ -844,12 +953,12 @@ def read_news(
         code = "press"
     if outlet and code is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no newspaper of that name.")
-    today = clock.game_date(datetime.now(timezone.utc), clock.effective_start(world["world_start"], world["weeks_ahead"]))
+    today = clock.game_date(datetime.now(UTC), clock.effective_start(world["world_start"], world["weeks_ahead"]))
     if today is None:
         return NewsResponse(outlets=papers, items=[])
     period_now = (today.year - 1) * clock.QUARTERS_PER_YEAR + today.quarter
     found = news.visible(conn, period_now, today.day_of_quarter, limit=limit, outlet=code, ticker=ticker)
-    moves = news.price_moves(conn, found, clock.effective_start(world["world_start"], world["weeks_ahead"]), datetime.now(timezone.utc))
+    moves = news.price_moves(conn, found, clock.effective_start(world["world_start"], world["weeks_ahead"]), datetime.now(UTC))
     return NewsResponse(outlets=papers, items=[
         NewsItem(
             period=r["period"], period_label=clock.period_label(r["period"]), day=r["day"],
@@ -918,8 +1027,8 @@ def my_portfolio(player: dict = Depends(current_player), conn: Connection = Depe
     property_parts = _property._players_property(conn).get(account, (0, 0))
     mine["total"] += property_parts[0] + property_parts[1]
     # Units in investment funds, and money waiting at the next bell to buy them (the talent and funds stage, Part 2).
-    from simulation import funds as _funds
     from simulation import etfs as _etfs
+    from simulation import funds as _funds
     in_funds = _funds.held_value(conn, account, now) + _etfs.held_value(conn, account)
     mine["total"] += in_funds
     bill = next((b for b in bonds.curve(conn)["points"] if b["quarters"] == 1), None)
@@ -1074,7 +1183,7 @@ def closing_bell(_: dict = Depends(current_player), conn: Connection = Depends(g
     bell = None
     if rung:
         c = rung["content"]
-        mover = lambda m: BellMover(ticker=m["ticker"], name=m["name"], close_kobo=m["close"], change_bps=m["change_bps"]) if m else None  # noqa: E731
+        mover = lambda m: BellMover(ticker=m["ticker"], name=m["name"], close_kobo=m["close"], change_bps=m["change_bps"]) if m else None
         bell = ClosingBell(
             session_date=rung["session_date"], rung_at=rung["rung_at"], index=c["index"] / 100,
             index_change_bps=c["index_change_bps"], lines=c["lines"], stories=c["stories"], advisory=c["advisory"],
@@ -1182,7 +1291,7 @@ def investor_analysis(
     found = marketview.analysis(conn, ticker, _exchange_time(conn))
     if found is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no share with that code on the exchange.")
-    ratio = lambda hundredths: None if hundredths is None else hundredths / 100          # noqa: E731
+    ratio = lambda hundredths: None if hundredths is None else hundredths / 100
     return AnalysisResponse(
         ticker=found["ticker"], name=found["name"], filing_label=clock.period_label(found["period"]) if found["period"] else "Opening balance sheet",
         price_kobo=found["price"], shares_in_issue=found["shares_in_issue"], market_value_kobo=found["market_value"],
@@ -1209,7 +1318,7 @@ def quote(
     found = exchange.quote(conn, ticker, _exchange_time(conn))
     if found is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no share with that code on the exchange.")
-    level = lambda row: PriceLevel(price_kobo=row["price"], quantity=row["quantity"], orders=row["orders"])  # noqa: E731
+    level = lambda row: PriceLevel(price_kobo=row["price"], quantity=row["quantity"], orders=row["orders"])
     return QuoteResponse(
         ticker=found["ticker"], name=found["name"], market_state=found["state"], last_price_kobo=found["last_price"],
         reference_price_kobo=found["reference_price"], lowest_today_kobo=found["lowest_today"],
@@ -1402,7 +1511,7 @@ def _corporate(conn: Connection, player: dict) -> CorporateResponse:
     world = _world(conn)
     period = world["last_closed_period"] if world else 0
     seen = corporate.board(conn, account, period)
-    closes = lambda row: f"when {clock.period_label(row['closes_period'])} closes"            # noqa: E731
+    closes = lambda row: f"when {clock.period_label(row['closes_period'])} closes"
     return CorporateResponse(
         offers=[OfferRow(
             id=o["id"], ticker=o["ticker"], name=o["name"], kind=o["kind"], price_kobo=o["price"], shares=o["shares"],
@@ -1497,7 +1606,7 @@ def my_grant(player: dict = Depends(current_player), conn: Connection = Depends(
 def _career(conn: Connection, player: dict) -> CareerResponse:
     seen = careers.profile(conn, player["id"], _exchange_time(conn))
     label = clock.period_label
-    money = lambda row, *keys: {f"{k}_kobo": row[k] for k in keys}                 # noqa: E731
+    money = lambda row, *keys: {f"{k}_kobo": row[k] for k in keys}
     pay = seen["pay"]
     savings = seen["retirement"]
     return CareerResponse(
@@ -1688,7 +1797,7 @@ def give_work_up(
 def asset_manager_desk(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     limits.allow("desk-read", str(player["id"]), attempts=90, per_seconds=60)
     seen = desks.asset_desk(conn, player["id"], _trading_account(conn, player), _exchange_time(conn))
-    piece = lambda a: AllocationSlice(label=a["label"], group=a["group"], value_kobo=a["value"], share_bps=a["share_bps"])   # noqa: E731
+    piece = lambda a: AllocationSlice(label=a["label"], group=a["group"], value_kobo=a["value"], share_bps=a["share_bps"])
     return AssetDeskResponse(
         total_kobo=seen["total"], cash_kobo=seen["cash"], shares_kobo=seen["shares"], bonds_kobo=seen["bonds"],
         change_today_bps=seen["change_today_bps"], change_year_bps=seen["change_year_bps"],
@@ -1720,22 +1829,25 @@ def accountant_desk(
 
 
 # Stage 6: empires, the War Room and pension funds run by players.
-from server import empire_routes  # noqa: E402,F401  (importing it adds its routes to the application)
-from server import rank_routes  # noqa: E402,F401
-from server import firm_routes  # noqa: E402,F401
-from server import deal_routes, dealmaking_routes  # noqa: E402,F401
-from server import message_routes  # noqa: E402,F401
-from server import settings_routes  # noqa: E402,F401
-from server import property_routes  # noqa: E402,F401
-from server import lending_routes  # noqa: E402,F401
-from server import property2_routes  # noqa: E402,F401
-from server import news_routes  # noqa: E402,F401
-from server import intel_routes  # noqa: E402,F401
-from server import press_routes  # noqa: E402,F401
-from server import society_routes  # noqa: E402,F401
-from server import crisis_routes  # noqa: E402,F401
-from server import talent_routes  # noqa: E402,F401
-from server import fund_routes  # noqa: E402,F401
-from server import etf_routes  # noqa: E402,F401
-from server import fx_routes  # noqa: E402,F401
-from server import world_routes  # noqa: E402,F401
+from server import (  # noqa: F401
+    crisis_routes,
+    deal_routes,
+    dealmaking_routes,
+    empire_routes,
+    etf_routes,
+    firm_routes,
+    fund_routes,
+    fx_routes,
+    intel_routes,
+    lending_routes,
+    message_routes,
+    news_routes,
+    press_routes,
+    property2_routes,
+    property_routes,
+    rank_routes,
+    settings_routes,
+    society_routes,
+    talent_routes,
+    world_routes,
+)

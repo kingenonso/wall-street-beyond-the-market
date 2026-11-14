@@ -8,13 +8,12 @@ arms of foreign companies, their parents' dividends waiting for dollars, a paren
 
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
-from psycopg.rows import dict_row
 
-from simulation import abroad, clock, fx, ledger, world
+from simulation import abroad, fx, ledger, world
 from simulation import world_data as data
 from simulation.money import BPS
 from tests.test_fx import DAY, TRADING, _one, _rows, empire_head, person, ring

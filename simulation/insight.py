@@ -267,7 +267,7 @@ def results_report(conn: Connection, ticker: str, period: int | None = None) -> 
             + f" in {with_what}"
     paragraphs.append(per_share + ".")
     if sales > 0:
-        of_100 = lambda amount: f"₦{amount * 100 / sales:.0f}"            # noqa: E731
+        of_100 = lambda amount: f"₦{amount * 100 / sales:.0f}"
         paragraphs.append(
             f"Of every ₦100 of sales, {of_100(income['cost_of_sales'])} went on making and delivering what it sells, "
             f"{of_100(income['operating_expenses'])} on running the business, {of_100(income['depreciation'])} on wear of "

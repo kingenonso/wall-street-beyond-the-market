@@ -7,7 +7,15 @@ from datetime import timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import auctions, conveyancing, development, ledger, propfunds, quarters, zoning
+from simulation import (
+    auctions,
+    conveyancing,
+    development,
+    ledger,
+    propfunds,
+    quarters,
+    zoning,
+)
 from simulation import property as prop
 from simulation import world_data as data
 from simulation.money import BPS, naira

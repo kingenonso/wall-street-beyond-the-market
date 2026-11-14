@@ -17,8 +17,7 @@ from uuid import UUID
 from psycopg import Connection
 from psycopg.rows import dict_row
 
-from simulation import clock, exchange, ledger, valuation
-from simulation import world_data as data
+from simulation import exchange, ledger, valuation
 from simulation.money import BPS
 
 INDEX_BASE = 1000                 # the BSX 50 stood at 1,000 when each share first traded
@@ -366,7 +365,7 @@ def analysis(conn: Connection, ticker: str, now: datetime) -> dict | None:
     latest = filed[-1]
     trading = [f for f in filed if f["period"] >= 1]
     year = trading[-4:]
-    scale = lambda total: total * 4 // len(year) if year else 0                # noqa: E731
+    scale = lambda total: total * 4 // len(year) if year else 0
     sales, dividends = scale(sum(f["revenue"] for f in year)), scale(sum(f["dividends"] for f in year))
     profit, count, price = worth["yearly_profit"], worth["shares_in_issue"], share["price"]
     value = price * count

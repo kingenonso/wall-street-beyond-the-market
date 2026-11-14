@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import hashlib
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from simulation import objectives as o
 from simulation import world_data as data

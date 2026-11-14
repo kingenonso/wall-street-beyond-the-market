@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import math
 import secrets
 from datetime import date, datetime, time, timedelta
@@ -42,8 +43,6 @@ from datetime import date, datetime, time, timedelta
 from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
-
-import logging
 
 from simulation import careers, clock, ledger
 from simulation.money import naira

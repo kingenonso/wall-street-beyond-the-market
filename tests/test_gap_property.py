@@ -8,8 +8,17 @@ from datetime import timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import (careers, conveyancing, development, homes, infrastructure, ledger, propfunds, propvalue, quarters,
-                        zoning)
+from simulation import (
+    careers,
+    conveyancing,
+    development,
+    homes,
+    ledger,
+    propfunds,
+    propvalue,
+    quarters,
+    zoning,
+)
 from simulation import property as prop
 from simulation import world_data as data
 from simulation.money import BPS, naira

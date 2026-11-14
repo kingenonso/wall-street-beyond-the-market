@@ -7,7 +7,7 @@ the command bar, how prices moved after a story, and the count of work in hand.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from psycopg.rows import dict_row
@@ -162,7 +162,7 @@ def test_a_storys_price_move_runs_from_the_last_close_before_it_to_the_price_now
     period = elapsed // quarter + 1
     day = int((elapsed - (period - 1) * quarter) / quarter * clock.GAME_DAYS_PER_QUARTER) + 1
     item = {"period": period, "day": day, "tickers": [traded]}
-    now = datetime.now(timezone.utc) + timedelta(days=3650)
+    now = datetime.now(UTC) + timedelta(days=3650)
     moves = news.price_moves(db, [item], start, now)
     current = _dicts(db, "SELECT coalesce(m.last_price, m.reference_price) AS p FROM market_instruments m JOIN companies c"
                          " ON c.id = m.company_id WHERE c.ticker = %s", (traded,))[0]["p"]

@@ -413,7 +413,7 @@ def counter_offer(conn: Connection, head_id, resignation_id: int, bonus: int, si
     with conn.transaction():
         _open(conn, now)
         empire, letter = _letter_for_head(conn, head_id, resignation_id)
-        whole = lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0          # noqa: E731
+        whole = lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0
         if not whole(bonus) or (signing_limit_kobo is not None and not whole(signing_limit_kobo)):
             raise EmpireError("An offer is a bonus, a signing limit, or both: amounts of nought or more.")
         if bonus == 0 and signing_limit_kobo is None:
@@ -590,7 +590,7 @@ def found(conn: Connection, player_id, name: str, amount: int, from_savings: int
 def _pledge(conn: Connection, empire: dict, player_id, amount: int, from_savings: int, now: datetime) -> None:
     """Put money into an empire: cash of the player's own, and (while it is being founded) the one
     early withdrawal from their retirement savings, which the pension funds pay straight to the empire."""
-    whole = lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0          # noqa: E731
+    whole = lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0
     if not whole(amount) or not whole(from_savings) or amount + from_savings <= 0:
         raise EmpireError("Put in an amount above nought.")
     drawn = 0

@@ -4,7 +4,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 
 export const GLOSSARY: Record<string, { means: string; example?: string }> = {
-  "BSX 50": { means: "The price of the 50 biggest companies on the exchange, taken together. It started at 1,000.", example: "1,042 means they are worth 4.2% more than when it started." },
+  "BSX 50": { means: "The price of the shares on the exchange, taken together. It started at 1,000.", example: "1,042 means they are worth 4.2% more than when it started." },
   "Market value": { means: "The share price times every share: what the whole company is worth on the exchange.", example: "₦38.50 × 5 billion shares = ₦192.5 billion." },
   "P/E": { means: "Price to earnings: how many years of today’s profit the price pays for. Lower can mean cheaper.", example: "A P/E of 8 means the price is 8 years of profit." },
   "Dividend": { means: "Cash a company pays its owners out of profit, so much for each share.", example: "5.2% a year: ₦5.20 for every ₦100 of shares." },

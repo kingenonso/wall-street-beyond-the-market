@@ -133,7 +133,7 @@ def _service_text(facts: dict) -> str | None:
     try:
         request = urllib.request.Request(url, data=json.dumps({"facts": facts}).encode(), method="POST",
                                          headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
-        with urllib.request.urlopen(request, timeout=20) as response:       # noqa: S310 (the owner's own service)
+        with urllib.request.urlopen(request, timeout=20) as response:
             return json.loads(response.read().decode()).get("article")
     except Exception:
         return None                         # the service is down: the game's own writer and the wire carry on

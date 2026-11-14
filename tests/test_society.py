@@ -7,7 +7,16 @@ from datetime import timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import auctions, careers, charity, ledger, media, newsroom, press, quarters
+from simulation import (
+    auctions,
+    careers,
+    charity,
+    ledger,
+    media,
+    newsroom,
+    press,
+    quarters,
+)
 from simulation import world_data as data
 from simulation.money import naira
 from simulation.property import PropertyError

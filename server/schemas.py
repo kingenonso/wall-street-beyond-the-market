@@ -7,7 +7,14 @@ import unicodedata
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, PlainSerializer, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    PlainSerializer,
+    field_validator,
+)
 
 # Money crosses between server and website as a whole number of kobo written as
 # text, e.g. "50000000". Text keeps very large amounts exact; a browser's ordinary
@@ -219,8 +226,8 @@ class CompanyResponse(BaseModel):
     shares_in_issue: Kobo
     owners: list[Owner]
     reports: list[FiledReport]         # oldest first
-    location: "LocationEffect | None" = None
-    buys_from: list["Supplier"] = []
+    location: LocationEffect | None = None
+    buys_from: list[Supplier] = []
 
 
 class LocationEffect(BaseModel):
@@ -599,7 +606,7 @@ class PortfolioResponse(BaseModel):
     held_for_bids_kobo: Kobo = 0       # cash held for bids at the Auction House (Stage 8)
     funds_kobo: Kobo = 0               # units in investment funds at their selling price, and money waiting to buy them
     advice: list[str] = []             # the personal advisory summary: observations, never tips
-    net_worth: list["NetWorthDay"] = []  # the end of each trading day, oldest first, then today so far
+    net_worth: list[NetWorthDay] = []  # the end of each trading day, oldest first, then today so far
 
 
 class NpvYear(BaseModel):
@@ -762,7 +769,7 @@ class CompanyFactsResponse(BaseModel):
     next_results: NextResults | None
     industry: IndustryPlace
     control: str = ""                  # who controls the company, in a sentence
-    notices: list["Notice"] = []       # the exchange's notices about it, newest first
+    notices: list[Notice] = []       # the exchange's notices about it, newest first
 
 
 class ReportQuarter(BaseModel):

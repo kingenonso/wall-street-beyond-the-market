@@ -8,7 +8,8 @@ public: it is the new money the bank needs.)
 
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, Path as FastPath, Query, status
+from fastapi import Depends, HTTPException, Query, status
+from fastapi import Path as FastPath
 from psycopg import Connection
 from psycopg.errors import DeadlockDetected
 from pydantic import Field

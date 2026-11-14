@@ -32,7 +32,6 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import defaultdict
-from uuid import UUID
 
 from psycopg import Connection
 from psycopg.rows import dict_row

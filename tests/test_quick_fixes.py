@@ -115,8 +115,8 @@ def test_the_dot_shows_when_a_rank_case_can_be_begun_or_is_in_hand(db, client):
     assert client.get("/api/me").json()["rank_waiting"] is False                 # at the gate, modules not yet mastered
     master(db, me["id"], "accountant")
     assert client.get("/api/me").json()["rank_waiting"] is True                  # the case can be begun
-    from tests.test_objectives import give_cash
     from simulation import ledger
+    from tests.test_objectives import give_cash
     give_cash(db, ledger.player_account_id(db, me["id"]), 1_000_000)
     assert client.post("/api/ranks/cases", json={"track": "accountant"}).status_code == 201
     assert client.get("/api/me").json()["rank_waiting"] is True                  # a case in hand

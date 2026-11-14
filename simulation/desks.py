@@ -27,7 +27,7 @@ def asset_desk(conn: Connection, player_id, account, now: datetime) -> dict:
     """The Asset Manager's figures: what the player owns, how it is divided, and how it has done."""
     have = objectives.wealth(conn, account, now)
     total = have["total"]
-    share = lambda value: value * BPS // total if total else 0            # noqa: E731
+    share = lambda value: value * BPS // total if total else 0
     bond_groups: dict[str, int] = {}
     for bond in have["bond_lines"]:
         label = ("Government bills" if bond["kind"] == "bill" else "Government bonds") if bond["issuer"] == "Federal Government" \
@@ -67,7 +67,7 @@ def asset_desk(conn: Connection, player_id, account, now: datetime) -> dict:
 def _ratios(figures: dict) -> dict:
     """The ratios an accountant reads first. None where a ratio has no meaning (nothing to divide by)."""
     income, sheet = figures["income_statement"], figures["balance_sheet"]
-    over = lambda a, b: round(a / b, 2) if b else None                    # noqa: E731
+    over = lambda a, b: round(a / b, 2) if b else None
     ebitda = income.get("ebitda", income["operating_profit"] + income["depreciation"])
     return {
         "Profit after tax ÷ sales (%)": over(income["net_profit"] * 100, income["revenue"]),

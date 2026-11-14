@@ -20,7 +20,6 @@ chose to spend with it this quarter (see simulation/economy.py).
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass, field
 from uuid import UUID
 

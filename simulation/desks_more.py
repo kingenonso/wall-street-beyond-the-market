@@ -54,7 +54,7 @@ def _multiples(share: dict, figures: dict) -> dict:
     income, sheet = figures["income_statement"], figures["balance_sheet"]
     value = share["market_value"]
     ebitda = income.get("ebitda", income["operating_profit"] + income["depreciation"])
-    over = lambda a, b: round(a / b, 2) if b > 0 else None                # noqa: E731
+    over = lambda a, b: round(a / b, 2) if b > 0 else None
     return {
         "earnings": over(value, 4 * income["net_profit"]),                               # price ÷ a year's profit
         "book": over(value, sheet["total_equity"]),                                      # price ÷ owners' money
@@ -166,7 +166,7 @@ def risk_desk(conn: Connection, player_id, account, book: str, now: datetime) ->
     use_empire = in_empire and book != "own"
     have = objectives.wealth(conn, seat["account_id"] if use_empire else account, now)
     total = have["total"]
-    part = lambda value: value * BPS // total if total else 0             # noqa: E731
+    part = lambda value: value * BPS // total if total else 0
     facts = {c["ticker"]: c for c in _rows(conn, "SELECT c.ticker, c.name, c.headquarters, s.name AS sector FROM companies c"
                                                  " JOIN sectors s ON s.code = c.sector")}
     ratings = {s["ticker"]: s["rating"] for s in marketview._shares(conn, have["day"])}
@@ -201,7 +201,7 @@ def risk_desk(conn: Connection, player_id, account, book: str, now: datetime) ->
         var_bps = max(-tail[-1], 0)
         shortfall_bps = max(-sum(tail) // len(tail), 0)
         worst_bps = max(-moves[0], 0)
-    at_risk = lambda bps: None if bps is None else have["shares"] * bps // BPS       # noqa: E731
+    at_risk = lambda bps: None if bps is None else have["shares"] * bps // BPS
     largest = max(have["lines"], key=lambda line: line["value"], default=None)
     scenarios = [
         {"name": "Shares fall by a fifth", "loss": have["shares"] * 20 // 100,
@@ -338,7 +338,7 @@ def head_desk(conn: Connection, player_id, now: datetime) -> dict | None:
         by_city[city] = by_city.get(city, 0) + line["value"]
     government = sum(b["value"] for b in have["bond_lines"] if b["issuer"] == "Federal Government")
     total = have["total"]
-    part = lambda value: value * BPS // total if total else 0             # noqa: E731
+    part = lambda value: value * BPS // total if total else 0
     history = _rows(conn, "SELECT period, worth FROM empire_worth WHERE empire_id = %s ORDER BY period DESC LIMIT 12", (empire["id"],))[::-1]
     seats = _rows(conn, "SELECT count(*) FILTER (WHERE player_id IS NOT NULL) AS players, count(*) FILTER (WHERE player_id IS NULL AND staffed) AS staff"
                         " FROM empire_seats WHERE empire_id = %s", (empire["id"],))[0]

@@ -10,8 +10,22 @@ import pytest
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from simulation import (articles, careers, chronicle, clients, exchange, investors, ledger, newsroom, newsroom_facts, objectives,
-                        objectives_news, quarters, ripple, standing)
+from simulation import (
+    articles,
+    careers,
+    chronicle,
+    clients,
+    exchange,
+    investors,
+    ledger,
+    newsroom,
+    newsroom_facts,
+    objectives,
+    objectives_news,
+    quarters,
+    ripple,
+    standing,
+)
 from simulation import world_data as data
 from tests.conftest import after_quarters
 from tests.test_builds import pro

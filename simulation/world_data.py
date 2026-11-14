@@ -1,6 +1,6 @@
 """The Nigeria trial world as it stands on day one.
 
-This file is a catalogue, not logic: the 12 sectors, the 50 companies, and the
+This file is a catalogue, not logic: the 25 sectors, the 115 companies, and the
 opening size of each. `simulation/genesis.py` reads it once to create the world.
 
 All companies are invented. Names follow the design document, section 4.
@@ -72,6 +72,27 @@ SECTORS: tuple[Sector, ...] = (
            fixed_assets_x=22000, cash_x=1000, debt_x=4500, loan_rate_bps=2200, payout_bps=3000),
     Sector("shipping", "Shipping and ports", 6000, 1600, 350, FLAT,
            fixed_assets_x=16000, cash_x=1200, debt_x=5000, loan_rate_bps=2000, payout_bps=3500),
+    # --- The talent and funds stage, Part 4c: ten new industries at home. ---
+    Sector("tech", "Technology and software", 3800, 4200, 600, FLAT,
+           fixed_assets_x=3000, cash_x=2500, debt_x=800, loan_rate_bps=2200, payout_bps=2000),
+    Sector("fintech", "Financial technology", 4200, 3800, 600, FLAT,
+           fixed_assets_x=2500, cash_x=3000, debt_x=600, loan_rate_bps=2000, payout_bps=2000),
+    Sector("healthcare", "Healthcare and hospitals", 5500, 3200, 400, FLAT,
+           fixed_assets_x=14000, cash_x=1500, debt_x=3500, loan_rate_bps=2100, payout_bps=3000),
+    Sector("mining", "Mining and solid minerals", 5200, 1800, 400, (9500, 9800, 10200, 10500),
+           fixed_assets_x=18000, cash_x=1000, debt_x=4000, loan_rate_bps=2100, payout_bps=4000),
+    Sector("retail", "Retail and supermarkets", 7000, 1600, 400, (9500, 9800, 10200, 10500),
+           fixed_assets_x=6000, cash_x=1200, debt_x=2500, loan_rate_bps=2100, payout_bps=4000),
+    Sector("entertainment", "Entertainment and leisure", 4800, 3800, 500, (9000, 9500, 10500, 11000),
+           fixed_assets_x=6000, cash_x=1500, debt_x=1500, loan_rate_bps=2200, payout_bps=3000),
+    Sector("education", "Education and schools", 5000, 3500, 400, (11000, 9000, 9500, 10500),
+           fixed_assets_x=16000, cash_x=1500, debt_x=2000, loan_rate_bps=2100, payout_bps=3500),
+    Sector("solar", "Solar energy", 5400, 2200, 550, FLAT,
+           fixed_assets_x=13000, cash_x=1200, debt_x=4500, loan_rate_bps=2000, payout_bps=3000),
+    Sector("pharma", "Pharmaceuticals", 5800, 2200, 400, FLAT,
+           fixed_assets_x=10000, cash_x=1500, debt_x=2500, loan_rate_bps=2000, payout_bps=3500),
+    Sector("ecommerce", "E-commerce and online retail", 6800, 2200, 600, (9500, 9800, 10200, 10500),
+           fixed_assets_x=5000, cash_x=1800, debt_x=2000, loan_rate_bps=2200, payout_bps=2500),
 )
 
 # The same for every company (stand-ins until Stage 3).
@@ -231,6 +252,54 @@ COMPANIES: tuple[Company, ...] = (
     Company("OPS", "Onne Port Services", "shipping", PORT_HARCOURT, 30_000, lender="OBB", listed=False, trend_bps=150),
     Company("CCS", "Calabar Coastal Shipping", "shipping", PORT_HARCOURT, 14_000, lender="KCB", listed=False,
             overdue_bps=2_000, debt_times_bps=15_000, cash_times_bps=3_000),
+
+    # --- The talent and funds stage, Part 4c: ten new industries at home, 35 new companies. ---
+    # Technology and software (4)
+    Company("ZMT", "Zamani Technologies", "tech", LAGOS, 95_000, lender="IKB", bond_share_bps=4000),
+    Company("FLS", "Folasoft Solutions", "tech", LAGOS, 48_000, lender="OTB"),
+    Company("NSC", "Northbridge Software", "tech", KANO, 12_000, lender="ZCB", listed=False),
+    Company("DTL", "Durbar Tech Labs", "tech", ABUJA, 18_000, lender="HMB", listed=False, trend_bps=300),
+    # Financial technology (4)
+    Company("CWP", "CowriePay", "fintech", LAGOS, 120_000, lender="IKB", bond_share_bps=4000),
+    Company("NDB", "Naija Digital Bank", "fintech", ABUJA, 64_000, lender="HMB"),
+    Company("SFC", "SafeCircle Payments", "fintech", LAGOS, 15_000, lender="OTB", listed=False),
+    Company("KBC", "KoboCash Savings", "fintech", KANO, 9_000, lender="SCM", listed=False),
+    # Healthcare and hospitals (4)
+    Company("LHA", "Lagoon Health Alliance", "healthcare", LAGOS, 88_000, lender="IKB", bond_share_bps=4000),
+    Company("ZCH", "ZenithCare Hospitals", "healthcare", ABUJA, 52_000, lender="HMB"),
+    Company("RVD", "Rivers Diagnostics", "healthcare", PORT_HARCOURT, 38_000, lender="OBB"),
+    Company("KHC", "Kano Family Clinics", "healthcare", KANO, 14_000, lender="ZCB", listed=False),
+    # Mining and solid minerals (3)
+    Company("JTM", "Jos Tin & Minerals", "mining", ABUJA, 150_000, lender="HMB", bond_share_bps=4000),
+    Company("GSM", "GoldSavanna Mining", "mining", KANO, 85_000, lender="ZCB"),
+    Company("ECL", "Enugu Coalfields", "mining", ABA, 40_000, lender="OTB", listed=False),
+    # Retail and supermarkets (4)
+    Company("SSS", "SuperSaver Stores", "retail", LAGOS, 180_000, lender="IKB", bond_share_bps=4000),
+    Company("FMM", "FamilyMarket Stores", "retail", PORT_HARCOURT, 70_000, lender="OBB"),
+    Company("ABM", "AbaMade Plaza", "retail", ABA, 55_000, lender="KCB"),
+    Company("KWM", "Kwari Supermarkets", "retail", KANO, 22_000, lender="ZCB", listed=False),
+    # Entertainment and leisure (3)
+    Company("NWD", "Nollywood Dreams Studios", "entertainment", PORT_HARCOURT, 45_000, lender="OBB"),
+    Company("AFB", "Afrobeats Records", "entertainment", LAGOS, 28_000, lender="OTB"),
+    Company("RFC", "Rivers Film Studios", "entertainment", PORT_HARCOURT, 10_000, lender="OBB", listed=False,
+            trend_bps=250),
+    # Education and schools (3)
+    Company("AES", "Apex Excel Schools", "education", LAGOS, 35_000, lender="IKB"),
+    Company("LHS", "Lighthouse Schools", "education", ABUJA, 20_000, lender="HMB", listed=False),
+    Company("GRD", "Gateway University", "education", KANO, 8_000, lender="ZCB", listed=False),
+    # Solar energy (3)
+    Company("SSR", "Sahara Solar", "solar", KANO, 60_000, lender="ZCB", trend_bps=300),
+    Company("SBS", "Sunbird Solar", "solar", PORT_HARCOURT, 25_000, lender="OBB", listed=False),
+    Company("SSH", "Sahel Sunfields", "solar", ABUJA, 12_000, lender="HMB", listed=False, trend_bps=250),
+    # Pharmaceuticals (3)
+    Company("DPH", "DanPharma Industries", "pharma", LAGOS, 80_000, lender="IKB", bond_share_bps=4000),
+    Company("FLD", "Flora Drugs", "pharma", ABA, 45_000, lender="KCB"),
+    Company("HLT", "Herbaline Labs", "pharma", KANO, 16_000, lender="ZCB", listed=False),
+    # E-commerce and online retail (4)
+    Company("BDC", "BuyDirect Online", "ecommerce", LAGOS, 110_000, lender="IKB", bond_share_bps=4000),
+    Company("MKT", "MarketKart Online", "ecommerce", ABUJA, 65_000, lender="HMB"),
+    Company("DLV", "DeliverNaija", "ecommerce", ABA, 19_000, lender="KCB", listed=False, trend_bps=300),
+    Company("TMD", "TradeMall Online", "ecommerce", KANO, 11_000, lender="ZCB", listed=False),
 )
 
 # Whole sectors have good and bad quarters too: up to this far above or below trend.
@@ -279,6 +348,19 @@ SECTOR_FIT: dict[tuple[str, str], int] = {
     ("oil_gas", KANO): 800,
     ("power", KANO): 400,
     ("power", ABA): 300,
+    # --- Part 4c: the new industries fit where their people and markets are. ---
+    ("tech", LAGOS): -400,                 # the financial centre's startups
+    ("fintech", LAGOS): -400,             # beside the banks
+    ("healthcare", ABUJA): -200,          # close to the teaching hospitals
+    ("healthcare", LAGOS): -200,
+    ("mining", ABUJA): -400,              # the middle belt's mines
+    ("mining", KANO): -200,
+    ("retail", LAGOS): -300,              # the biggest market
+    ("entertainment", LAGOS): -400,       # Nollywood's home
+    ("education", ABUJA): -200,           # the universities
+    ("solar", KANO): -600,                # the strongest sun
+    ("pharma", LAGOS): -200,              # the ports bring the raw materials
+    ("ecommerce", LAGOS): -300,
 }
 
 # What each kind of company buys from other kinds, as a share of its own sales
@@ -310,16 +392,38 @@ INPUTS: dict[str, dict[str, int]] = {
                       "insurance": 100, "banking": 100, "media": 150},
     "shipping":      {"oil_gas": 2000, "manufacturing": 700, "insurance": 300, "banking": 150, "power": 100,
                       "telecoms": 50},
+    # --- Part 4c: what the new industries buy from the old ones. ---
+    "tech":          {"telecoms": 800, "power": 400, "real_estate": 400, "education": 300, "banking": 100,
+                      "media": 100},
+    "fintech":       {"telecoms": 1200, "tech": 800, "banking": 400, "power": 200, "real_estate": 200, "media": 100},
+    "healthcare":    {"pharma": 1500, "manufacturing": 600, "power": 500, "real_estate": 400, "banking": 150,
+                      "insurance": 100, "telecoms": 100},
+    "mining":        {"manufacturing": 900, "power": 800, "transport": 700, "oil_gas": 400, "banking": 150,
+                      "insurance": 100},
+    "retail":        {"consumer": 2500, "real_estate": 500, "power": 400, "transport": 400, "banking": 150,
+                      "telecoms": 100, "insurance": 50},
+    "entertainment": {"telecoms": 600, "tech": 300, "media": 300, "real_estate": 300, "power": 200, "banking": 100},
+    "education":     {"real_estate": 600, "tech": 400, "telecoms": 300, "power": 300, "media": 200, "banking": 100},
+    "solar":         {"manufacturing": 1500, "tech": 400, "transport": 300, "banking": 150, "insurance": 100,
+                      "power": 100},
+    "pharma":        {"manufacturing": 800, "agriculture": 600, "power": 500, "transport": 300, "banking": 150,
+                      "insurance": 100, "healthcare": 100},
+    "ecommerce":     {"tech": 1000, "telecoms": 800, "transport": 800, "retail": 400, "power": 300, "banking": 200,
+                      "media": 200, "real_estate": 100},
 }
 
 # Where the Government's purchases go, and where companies' spending on buildings
 # and machines goes. Each adds up to 10000.
 GOVERNMENT_BUYS: dict[str, int] = {
-    "cement": 2500, "real_estate": 2500, "power": 1000, "manufacturing": 1000, "transport": 1000,
-    "telecoms": 500, "media": 500, "consumer": 500, "oil_gas": 500,
+    "cement": 2200, "real_estate": 2200, "power": 900, "manufacturing": 900, "transport": 900,
+    "telecoms": 400, "media": 400, "consumer": 400, "oil_gas": 400,
+    # --- Part 4c: the Government also buys care, schooling and software. ---
+    "healthcare": 700, "education": 400, "tech": 200,
 }
 INVESTMENT_BUYS: dict[str, int] = {
-    "manufacturing": 3500, "cement": 3000, "real_estate": 2500, "transport": 500, "telecoms": 500,
+    "manufacturing": 3000, "cement": 2600, "real_estate": 2200, "transport": 400, "telecoms": 400,
+    # --- Part 4c: building for the sun, the servers and the wards. ---
+    "solar": 600, "tech": 400, "healthcare": 200, "education": 200,
 }
 assert sum(GOVERNMENT_BUYS.values()) == 10_000 and sum(INVESTMENT_BUYS.values()) == 10_000
 
@@ -909,6 +1013,12 @@ SECTOR_FACTOR_LOADINGS = {
     "media": {"economy": 0.5}, "banking": {"economy": 0.4, "money": 0.4}, "insurance": {"economy": 0.3, "money": 0.3},
     "oil_gas": {"energy": 0.8}, "power": {"economy": 0.3, "energy": 0.3}, "cement": {"building": 0.6, "economy": 0.3},
     "real_estate": {"building": 0.6, "economy": 0.3}, "agriculture": {"farming": 0.8}, "shipping": {"economy": 0.4, "energy": 0.2},
+    # --- Part 4c: what moves the new industries. ---
+    "tech": {"economy": 0.4}, "fintech": {"economy": 0.4, "money": 0.3},
+    "healthcare": {"economy": 0.2}, "education": {"economy": 0.2},
+    "mining": {"building": 0.4, "economy": 0.3}, "solar": {"building": 0.3, "economy": 0.3, "energy": 0.2},
+    "retail": {"economy": 0.6}, "ecommerce": {"economy": 0.6},
+    "entertainment": {"economy": 0.6}, "pharma": {"economy": 0.2},
 }
 COMPANY_SHARES_OF_SECTOR = 0.5         # a company carries half of its industry's lean; the rest of its luck is its own
 OIL_LOADINGS = {"energy": 0.9}

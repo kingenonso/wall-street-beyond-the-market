@@ -6,7 +6,7 @@ or received, never who has blocked or reported them, and never a story dated lat
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import Depends, HTTPException, Query, status
 from psycopg import Connection
@@ -67,7 +67,7 @@ def news_alerts(
 ):
     """New stories since the mark the last look returned. Empty when the player has muted the pop-ups."""
     world = _world(conn)
-    today = world and clock.game_date(datetime.now(timezone.utc), clock.effective_start(world["world_start"], world["weeks_ahead"]))
+    today = world and clock.game_date(datetime.now(UTC), clock.effective_start(world["world_start"], world["weeks_ahead"]))
     if today is None:
         return {"items": [], "more": 0, "mark": None}
     period_now = (today.year - 1) * clock.QUARTERS_PER_YEAR + today.quarter

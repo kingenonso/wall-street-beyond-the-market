@@ -11,7 +11,7 @@ import hashlib
 from simulation import bonds, clock, exchange, insight, marketview
 from simulation import objectives as o
 from simulation import world_data as data
-from simulation.money import BPS, apply_bps, naira
+from simulation.money import BPS, naira
 
 M = o._millions
 BAND = (data.INFLATION_TARGET_BPS - data.INFLATION_BAND_BPS, data.INFLATION_TARGET_BPS + data.INFLATION_BAND_BPS)
@@ -335,7 +335,7 @@ def _bid_offer(ctx):
 def _bid_submit(ctx, objective, answers):
     t = objective["terms"]
     n = _bid_numbers(t)
-    yes = lambda flag: "yes" if flag else "no"          # noqa: E731
+    yes = lambda flag: "yes" if flag else "no"
     return _marked(objective, answers, [("offer", "Offer price", n["offer"] / 100, 0.02), ("cost", "Cost of the stake", M(n["cost"]), 1.0),
                                         ("board", "The board", yes(n["board"]), 0), ("funds", "The pension funds", yes(n["funds"]), 0)], 3,
                    plain=f"A bidder must pay more than the market price, or nobody would sell: that extra is the premium. At "
@@ -755,7 +755,7 @@ def _rules_offer(ctx):
 def _rules_submit(ctx, objective, answers):
     t = objective["terms"]
     n = _bid_numbers(t)
-    yes = lambda flag: "yes" if flag else "no"          # noqa: E731
+    yes = lambda flag: "yes" if flag else "no"
     return _marked(objective, answers, [("hostile", "Hostile or not", yes(not n["board"]), 0), ("vote", "The bidder's vote", yes(n["vote"]), 0),
                                         ("needed", "Shares needed", t["shares"] / 2 / 1e6, 0.02)], 2,
                    plain=f"Takeover rules exist so that every owner is treated alike and nobody gains control by stealth. This bid "
@@ -956,7 +956,7 @@ def _verify_offer(ctx):
     if company is None:
         return None
     claims = _claims_about(conn, company, ctx["period"] - 1, ctx["player_id"])
-    choice = lambda c: {"key": c["key"], "label": c["text"], "kind": "choice",                   # noqa: E731
+    choice = lambda c: {"key": c["key"], "label": c["text"], "kind": "choice",
                         "options": [{"code": "true", "label": "True"}, {"code": "false", "label": "False"}]}
     return {
         "client": o._client(company),
@@ -1078,7 +1078,6 @@ def _scoop_submit(ctx, objective, answers):
         raise o.ObjectiveError(f"{company['name']} was already behind at its last filing. That is not news.")
     answers["ticker"] = ticker
     objective["progress"]["named"] = {"company_id": str(company["company_id"]), "name": company["name"]}
-    return None
 
 
 def _scoop_close(ctx, objective, period):

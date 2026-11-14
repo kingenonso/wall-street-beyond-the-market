@@ -6,8 +6,20 @@ from datetime import timedelta
 
 import pytest
 
-from simulation import (corporate, empires, firm, firm_dealmaking, firm_deals, firm_money, firm_owned, firm_people, firm_practice, ledger, private,
-                        quarters)
+from simulation import (
+    corporate,
+    empires,
+    firm,
+    firm_dealmaking,
+    firm_deals,
+    firm_money,
+    firm_owned,
+    firm_people,
+    firm_practice,
+    ledger,
+    private,
+    quarters,
+)
 from simulation.money import BPS, million_naira, naira
 from tests.conftest import after_quarters
 from tests.test_builds import pro

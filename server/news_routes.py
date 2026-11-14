@@ -19,7 +19,15 @@ from server.db import get_connection
 from server.firm_routes import wire
 from server.main import _exchange_time, app, current_player
 from server.schemas import Request
-from simulation import articles, careers, chronicle, clock, newsroom, newsroom_facts, ripple
+from simulation import (
+    articles,
+    careers,
+    chronicle,
+    clock,
+    newsroom,
+    newsroom_facts,
+    ripple,
+)
 from simulation import news as wire_news
 
 
@@ -194,8 +202,8 @@ def news_archive(q: str | None = Query(default=None, min_length=2, max_length=60
         params.append(before_period)
     rows = conn.execute(f"SELECT id, period, day, outlet, kind, story, headline, body, tickers, follows, facts->>'author' AS author FROM news_items"
                         f" WHERE {' AND '.join(cond)} ORDER BY period DESC, day DESC, id DESC LIMIT 50", params).fetchall()
-    from simulation import news_kinds
     from server.main import news_ref
+    from simulation import news_kinds
     return {"items": [{"ref": news_ref(r), "period": r["period"], "day": r["day"], "outlet": news_kinds.outlet_name(r["outlet"]), "kind": r["kind"],
                        "headline": r["headline"], "body": r["body"], "tickers": r["tickers"], "follows_up": r["follows"] is not None,
                        "author": r["author"], "label": clock.period_label(r["period"])} for r in rows]}

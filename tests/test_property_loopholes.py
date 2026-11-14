@@ -28,7 +28,7 @@ from tests.conftest import join
 from tests.test_builds import pro
 from tests.test_careers import NOW9, sound
 from tests.test_firm import firm_of, member
-from tests.test_property import LATER, _dicts, _one, a_bank, a_unit, end, hand_over, lot
+from tests.test_property import LATER, _one, a_bank, a_unit, end, hand_over, lot
 
 pytestmark = pytest.mark.world("eight")
 

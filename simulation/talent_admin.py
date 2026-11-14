@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import argparse
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import psycopg
 from psycopg.rows import dict_row
@@ -28,7 +28,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("target", nargs="?")
     parser.add_argument("why", nargs="?", default="Looked at: nothing wrong.")
     args = parser.parse_args(argv)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     with psycopg.connect(os.environ["DATABASE_URL"], row_factory=dict_row) as conn:
         if args.command == "firms":
             for f in conn.execute("SELECT name, contact_name, email, website, status, created_at, email_confirmed_at FROM talent_firms"

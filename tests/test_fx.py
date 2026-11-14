@@ -13,9 +13,17 @@ from datetime import datetime, time, timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import abroad, careers, clock, empires, fx, ledger, objectives, quarters, swaps
+from simulation import (
+    abroad,
+    clock,
+    fx,
+    ledger,
+    objectives,
+    quarters,
+    swaps,
+)
 from simulation import world_data as data
-from simulation.money import BPS, naira
+from simulation.money import BPS
 from tests.conftest import after_quarters
 from tests.test_careers import professional
 from tests.test_market import OPEN

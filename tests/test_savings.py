@@ -14,8 +14,7 @@ from simulation.money import BPS, apply_bps, naira
 from tests.conftest import after_quarters
 from tests.test_builds import pro
 from tests.test_careers import NOW9, pass_one, professional, sound
-from tests.test_empires import always, founded
-from tests.test_objectives import give_cash
+from tests.test_empires import always
 
 pytestmark = pytest.mark.world("eight")
 

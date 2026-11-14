@@ -9,8 +9,8 @@ import pytest
 from simulation import empires, exchange, funds, ledger
 from simulation import world_data as data
 from simulation.money import naira
-from tests.test_market import trader
 from tests.test_funds import DAY, OPEN, _one, investor, launch, manager, ring, sound
+from tests.test_market import trader
 
 
 def test_1_money_put_in_after_the_bell_cannot_buy_at_that_bells_price(db):

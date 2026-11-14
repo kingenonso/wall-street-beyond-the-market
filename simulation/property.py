@@ -789,9 +789,7 @@ def public_property(conn: Connection, p: dict, d: dict, rate: int, *, viewer=Non
     owners = holdings(conn, p["id"])
     names = []
     for h in owners:
-        if h["account_kind"] == "company":
-            names.append(h["account_name"])
-        elif h["account_kind"] == "empire":
+        if h["account_kind"] == "company" or h["account_kind"] == "empire":
             names.append(h["account_name"])
         elif h["account_kind"] == "player":
             names.append("A player" if h["account_id"] != viewer else "You")

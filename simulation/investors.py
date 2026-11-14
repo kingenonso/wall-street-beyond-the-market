@@ -128,7 +128,7 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
 
     exchange.open_market(conn, now)                   # start the day, run the auction if it is due
     seed = world["fortune_seed"]
-    who = accounts(conn)  # noqa
+    who = accounts(conn)
     worth = valuation.latest(conn)
     shares = _rows(conn, "SELECT c.id, c.ticker, c.sector, c.headquarters FROM market_instruments m"
                          " JOIN companies c ON c.id = m.company_id WHERE m.halted_reason IS NULL ORDER BY c.ticker")

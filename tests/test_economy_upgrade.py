@@ -10,7 +10,7 @@ from collections import Counter
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import abroad, consumers, economy, exchange, investors, ledger, news
+from simulation import abroad, consumers, economy, investors, ledger, news
 from simulation import world_data as data
 from simulation.money import BPS
 from tests.conftest import ADULT, join, money_accounted_for
@@ -85,7 +85,7 @@ def test_the_groups_savings_and_debts_add_up_to_the_ledger_to_the_kobo_whenever_
 
 def test_each_quarter_the_groups_are_recorded_added_up_and_a_few_move_with_their_money_and_debts(db):
     closed = _closed(db)
-    for period in range(0, closed + 1):
+    for period in range(closed + 1):
         rows = _dicts(db, "SELECT sum(groups)::int AS n FROM consumer_results WHERE period = %s", (period,))
         assert rows[0]["n"] == 1000
     moved = _dicts(db, "SELECT period, sum(groups)::int AS n FROM consumer_moves GROUP BY period")
@@ -154,7 +154,7 @@ def test_the_economy_page_shows_the_groups_only_added_up(db, client):
 
 def test_every_quarter_has_an_oil_price_and_exchange_rate_set_at_the_close_before_it(db):
     rows = _dicts(db, "SELECT * FROM abroad_results ORDER BY period")
-    assert [r["period"] for r in rows] == list(range(0, _closed(db) + 1))
+    assert [r["period"] for r in rows] == list(range(_closed(db) + 1))
     assert rows[0]["oil_cents"] == data.OIL_START_CENTS and rows[0]["fx"] == data.FX_START
     low, high = data.OIL_LIMITS_CENTS
     for before, after in zip(rows, rows[1:]):
@@ -280,6 +280,7 @@ def test_keen_foreign_investors_buy_on_the_exchange_but_stay_a_small_part_of_the
     """When interest rates here pay well, they price shares a little above worth and buy, until they have traded
     about 5% of what everybody else trades on a day; after that their orders only wait."""
     from datetime import timedelta
+
     from tests.test_market import OPEN
     monkeypatch.setattr(abroad, "tilt_now", lambda conn: data.FOREIGN_MOST_TILT_BPS)
     foreign = ledger.account_id(db, abroad.FOREIGN)
@@ -333,8 +334,9 @@ def test_energy_at_home_is_the_oil_price_set_for_next_quarter_in_naira(db):
 
 def test_foreign_investors_day_budget_follows_what_everybody_else_traded(db):
     from datetime import timedelta
-    from tests.test_market import OPEN, place, reference, trader
+
     from simulation import exchange as ex
+    from tests.test_market import OPEN, place, reference, trader
     foreign = ledger.account_id(db, abroad.FOREIGN)
     seller = trader(db, "bigseller", shares=2_000_000, ticker="IKB")
     buyer = trader(db, "bigbuyer", cash_naira=1_000_000_000, ticker="IKB")

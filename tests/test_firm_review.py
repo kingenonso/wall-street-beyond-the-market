@@ -10,8 +10,18 @@ from datetime import timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import careers, empires, firm, firm_money, firm_people, firm_risk, firm_tasks, ledger, quarters
 from simulation import bonds as bond_desk
+from simulation import (
+    careers,
+    empires,
+    firm,
+    firm_money,
+    firm_people,
+    firm_risk,
+    firm_tasks,
+    ledger,
+    quarters,
+)
 from simulation.money import naira
 from tests.conftest import after_quarters
 from tests.test_builds import pro
@@ -465,7 +475,7 @@ def test_f21_holding_cover_pays_only_a_loss_that_is_still_there_when_the_claim_i
     db.execute("UPDATE market_instruments SET last_price = %s WHERE company_id = %s", (reference, ggm["company_id"]))
     firm_tasks._settle_happenings(db, DAY2 + timedelta(hours=49))
     settled = _one(db, "SELECT * FROM empire_happenings WHERE id = %s", (event["id"],))
-    assert ledger.balance(db, empire["account_id"], f"SHR-GGM") >= held
+    assert ledger.balance(db, empire["account_id"], "SHR-GGM") >= held
     assert settled["covered"] == 0, f"the insurer paid {settled['covered']} kobo for a fall that had fully reversed"
 
 

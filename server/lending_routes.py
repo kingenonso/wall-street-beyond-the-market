@@ -20,7 +20,19 @@ from server.db import get_connection
 from server.firm_routes import MONEY, wire
 from server.main import _exchange_time, app, current_player
 from server.schemas import Request
-from simulation import crashfund, derivatives, empires, firm, instruments, ledger, lending, lending_empire, montecarlo, risk, swaps
+from simulation import (
+    crashfund,
+    derivatives,
+    empires,
+    firm,
+    instruments,
+    ledger,
+    lending,
+    lending_empire,
+    montecarlo,
+    risk,
+    swaps,
+)
 from simulation import world_data as data
 
 MONEY.update({"principal", "outstanding", "collateral", "fees_paid", "gain", "limit", "owed", "personal_limit", "equity", "debts",

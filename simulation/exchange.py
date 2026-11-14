@@ -33,7 +33,7 @@ from psycopg.rows import dict_row
 
 from simulation import clock, ledger
 from simulation import world_data as data
-from simulation.ledger import NGN, Leg
+from simulation.ledger import Leg
 from simulation.money import BPS, MAX_AMOUNT
 
 ESCROW = "exchange:held"          # cash and shares held for open orders
@@ -628,7 +628,7 @@ def why(conn: Connection, ticker: str, now: datetime) -> dict | None:
     if not flow["trades"]:
         summary = "It has not traded today, so its price has not moved."
     else:
-        naira = lambda kobo: f"₦{kobo / 100:,.2f}"            # noqa: E731
+        naira = lambda kobo: f"₦{kobo / 100:,.2f}"
         if abs(move) < 10:
             direction = f"The price is where it finished the day before, at {naira(last)}."
         else:

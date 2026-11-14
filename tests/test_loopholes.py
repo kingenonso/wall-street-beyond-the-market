@@ -14,7 +14,7 @@ More loophole tests sit beside the features they attack:
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
@@ -50,7 +50,7 @@ def test_a_profile_change_cannot_carry_other_changes(client, player):
 
 
 def _token(player_id, *, key=SECRET, algorithm="HS256", expires_in=timedelta(days=1)):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return jwt.encode({"sub": player_id, "ver": 0, "iat": now, "exp": now + expires_in}, key, algorithm=algorithm)
 
 
@@ -594,7 +594,7 @@ def test_a_correctly_signed_pass_still_works_so_the_tests_above_mean_something(c
 
 
 def test_a_login_pass_with_no_expiry_date_is_refused(client, player):
-    forever = jwt.encode({"sub": player["id"], "ver": 0, "iat": datetime.now(timezone.utc)}, SECRET, algorithm="HS256")
+    forever = jwt.encode({"sub": player["id"], "ver": 0, "iat": datetime.now(UTC)}, SECRET, algorithm="HS256")
     client.cookies.set(security.SESSION_COOKIE, forever)
     assert client.get("/api/me").status_code == 401
 
@@ -1007,6 +1007,7 @@ def test_a_world_cannot_be_created_with_a_short_guessable_secret(db):
 def psycopg_connect_empty():
     """A connection to a database that has the tables but no world yet."""
     import psycopg
+
     from tests.conftest import _TEMPLATES, _admin, _recreate, _url
     name = "wsbm_test_no_world"
     with _admin() as admin:
@@ -1034,8 +1035,10 @@ def test_the_database_refuses_a_world_with_a_short_secret(db):
 
 def test_a_world_from_before_fortunes_existed_is_given_a_secret_when_it_is_upgraded():
     """Without this, an older world's fortunes could be worked out from the game's code alone."""
-    import psycopg
     from pathlib import Path
+
+    import psycopg
+
     from tests.conftest import _admin, _recreate, _url
     name = "wsbm_test_no_world"
     with _admin() as admin:
@@ -1056,8 +1059,7 @@ def test_quarters_cannot_be_closed_for_a_world_with_no_secret(db):
 
 
 def test_fortune_can_never_make_sales_negative(db, monkeypatch):
-    from simulation import quarters
-    from simulation import world_data
+    from simulation import quarters, world_data
     from tests.conftest import after_quarters
     monkeypatch.setattr(world_data, "SECTOR_VOLATILITY_BPS", 30_000)        # absurd on purpose
     assert quarters.close_due_quarters(db, after_quarters(6)) == [1, 2, 3, 4, 5, 6]
@@ -1075,7 +1077,7 @@ def test_a_test_world_can_be_moved_ahead_and_its_quarters_close_as_normal(db, cl
     now = WORLD_START + timedelta(hours=1)                       # the world has only just opened
     assert fast_forward.fast_forward(db, 3, now) == [1, 2, 3]
     assert db.execute("SELECT last_closed_period, weeks_ahead FROM world_state").fetchone() == (3, 3)
-    assert db.execute("SELECT count(*) FROM company_results r JOIN companies c ON c.id = r.company_id WHERE r.period = 3 AND c.listed").fetchone()[0] == 50
+    assert db.execute("SELECT count(*) FROM company_results r JOIN companies c ON c.id = r.company_id WHERE r.period = 3 AND c.listed").fetchone()[0] == 70
     assert ledger.audit(db) == []
     assert client.get("/api/world/clock").json()["test_weeks_ahead"] == 3
     # Moving ahead again carries on from there.

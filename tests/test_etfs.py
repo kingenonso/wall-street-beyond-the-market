@@ -12,11 +12,21 @@ from datetime import datetime, time, timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import careers, clock, derivatives, etfs, exchange, funds, indexes, ledger, objectives
+from simulation import (
+    careers,
+    clock,
+    derivatives,
+    etfs,
+    exchange,
+    funds,
+    indexes,
+    ledger,
+    objectives,
+)
 from simulation import world_data as data
 from simulation.money import BPS, naira
 from tests.test_careers import professional
-from tests.test_market import OPEN, trader
+from tests.test_market import OPEN
 
 DAY = OPEN.date()
 TRADING = OPEN.replace(hour=15)

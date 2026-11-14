@@ -10,14 +10,32 @@ from datetime import timedelta
 
 import pytest
 
-from simulation import empires, exchange, firm, firm_deals, firm_owned, ledger, objectives, private, quarters
+from simulation import (
+    empires,
+    exchange,
+    firm,
+    firm_deals,
+    firm_owned,
+    ledger,
+    objectives,
+    private,
+    quarters,
+)
+from simulation.money import million_naira
 from tests.conftest import ADULT, after_quarters, join
-from tests.test_deals import LATER, _dicts, _one, do_checks, fairness_if_needed, open_a_sale, truth
-from tests.test_deals_more import own
 from tests.test_builds import pro
 from tests.test_careers import NOW9
+from tests.test_deals import (
+    LATER,
+    _dicts,
+    _one,
+    do_checks,
+    fairness_if_needed,
+    open_a_sale,
+    truth,
+)
+from tests.test_deals_more import own
 from tests.test_firm import firm_of, member
-from simulation.money import million_naira
 
 pytestmark = pytest.mark.world("eight")
 

@@ -33,15 +33,15 @@ os.environ["OBJECTIVES_STRICT"] = "true"       # a fault while judging an object
 os.environ["RUN_QUARTER_CLOSER"] = "false"     # tests close quarters themselves, at chosen times
 
 # The order-matching engine is a separate small program (Rust). Build it once if it is not there.
-import subprocess  # noqa: E402
-from pathlib import Path  # noqa: E402
+import subprocess
+from pathlib import Path
 
 _ENGINE = Path(__file__).resolve().parent.parent / "engine"
 if not (_ENGINE / "target" / "release" / "bsx-engine").is_file() and not os.environ.get("BSX_ENGINE"):
     subprocess.run(["cargo", "build", "--release"], cwd=_ENGINE, check=True)
 
-from database.migrate import apply_migrations  # noqa: E402
-from simulation import genesis, quarters  # noqa: E402
+from database.migrate import apply_migrations
+from simulation import genesis, quarters
 
 _TEST_DB = psycopg.conninfo.conninfo_to_dict(TEST_DATABASE_URL)["dbname"]
 _TEMPLATES = {name: f"{_TEST_DB}_template_{name}" for name in ("empty", "fresh", "eight")}
@@ -178,7 +178,7 @@ def government_budget(db, period: int) -> int:
     from simulation import economy, ledger
     treasury = ledger.account_id(db, ledger.TREASURY)
     collected = ledger.received_in_period(db, treasury, period, kinds=economy.GOVERNMENT_INCOME)
-    one = lambda sql, params: int(db.execute(sql, params).fetchone()[0])          # noqa: E731
+    one = lambda sql, params: int(db.execute(sql, params).fetchone()[0])
     borrowed = one("SELECT coalesce(sum(e.amount), 0) FROM ledger_entries e JOIN ledger_transactions t ON t.id = e.transaction_id"
                    " WHERE e.account_id = %s AND e.asset = 'NGN' AND e.amount > 0 AND t.period = %s AND t.kind = 'bond_issue'"
                    " AND t.memo LIKE '%%new bonds sold'", (treasury, period))

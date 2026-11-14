@@ -37,13 +37,13 @@ from simulation.news_wordings import economy as _economy
 from simulation.news_wordings import etfs as _etfs
 from simulation.news_wordings import funds as _funds
 from simulation.news_wordings import fx as _fx
-from simulation.news_wordings import world as _world_news
 from simulation.news_wordings import happenings as _happenings
 from simulation.news_wordings import media as _media
 from simulation.news_wordings import places as _places
 from simulation.news_wordings import property as _property
 from simulation.news_wordings import property2 as _property2
 from simulation.news_wordings import results as _results
+from simulation.news_wordings import world as _world_news
 
 WORDINGS: dict[str, dict[str, list[tuple[str, str]]]] = {
     **_abroad.WORDINGS, **_property.WORDINGS, **_property2.WORDINGS, **_places.WORDINGS, **_happenings.WORDINGS, **_economy.WORDINGS, **_results.WORDINGS, **_capital.WORDINGS, **_deals.WORDINGS, **_dealmaking.WORDINGS,
@@ -57,6 +57,11 @@ SECTOR_WORDS = {
     "real_estate": "real estate and construction", "manufacturing": "manufacturing", "media": "media",
     "insurance": "insurance", "power": "power and utilities", "transport": "transport and logistics",
     "aviation": "airlines", "hospitality": "hotels and leisure", "shipping": "shipping and ports",
+    # Part 4c: the new industries at home.
+    "tech": "technology and software", "fintech": "financial technology", "healthcare": "healthcare and hospitals",
+    "mining": "mining and solid minerals", "retail": "retail and supermarkets",
+    "entertainment": "entertainment and leisure", "education": "education and schools",
+    "solar": "solar energy", "pharma": "pharmaceuticals", "ecommerce": "e-commerce and online retail",
 }
 COMMODITY_WORDS = {"energy": "energy", "metals": "metals", "agriculture": "farm produce", "materials": "building materials"}
 GOOD_NEWS = {"local_boom", "sector_demand_surge", "good_harvest", "contract_win", "new_product"}

@@ -34,6 +34,7 @@ def _one(db, sql, params=()):
 def learn(db, player, build):
     """Test set-up: the build's Stage 9 module passed on the player's own (as if they had done the work)."""
     from psycopg.types.json import Jsonb
+
     from simulation import objectives
     module = data.STAGE9_MODULE[build]
     code = next(t.code for t in objectives.TEMPLATES.values() if t.build == build and t.module == module and t.setting == "solo")

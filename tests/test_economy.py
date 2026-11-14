@@ -12,7 +12,7 @@ from psycopg.rows import dict_row
 from simulation import economy, genesis, ledger, quarters
 from simulation import world_data as data
 from simulation.money import BPS, apply_bps, million_naira, naira
-from tests.conftest import government_budget, after_quarters, money_accounted_for
+from tests.conftest import after_quarters, government_budget, money_accounted_for
 
 
 def _dicts(db, sql, params=()):

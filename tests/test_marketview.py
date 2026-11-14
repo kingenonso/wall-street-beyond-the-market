@@ -51,7 +51,7 @@ def trading_hours(monkeypatch):
 def test_the_market_page_lists_every_share_and_the_index_starts_at_one_thousand(db):
     investors.act(db, OPEN, force=True)
     seen = marketview.overview(db, OPEN)
-    assert len(seen["shares"]) == 50 and seen["state"] == "open"
+    assert len(seen["shares"]) == 70 and seen["state"] == "open"
     assert {"ticker", "name", "sector", "price", "change_bps", "volume", "market_value", "rating"} <= set(seen["shares"][0])
     for share in seen["shares"]:
         assert share["price"] > 0 and share["market_value"] == share["price"] * share["shares"]
@@ -307,7 +307,7 @@ def test_a_watchlist_has_its_limits(db):
 def test_the_market_screens_through_the_website(client, player, db, trading_hours):
     investors.act(db, OPEN, force=True)
     market = client.get("/api/market").json()
-    assert len(market["shares"]) == 50 and market["market_state"] == "open" and 900 <= market["index"] <= 1100
+    assert len(market["shares"]) == 70 and market["market_state"] == "open" and 900 <= market["index"] <= 1100
     assert {"ticker", "name", "sector", "price_kobo", "traded", "change_bps", "volume", "market_value_kobo", "credit_rating",
             "closes"} == set(market["shares"][0])          # the last five closes: the small trend lines (redesign)
 

@@ -13,7 +13,7 @@ from simulation import careers, empires, ledger, objectives, quarters, ranks
 from simulation import world_data as data
 from simulation.money import naira
 from tests.conftest import after_quarters
-from tests.test_builds import EMPLOYER, pro
+from tests.test_builds import pro
 from tests.test_careers import NOW9, sound
 from tests.test_empires import computer_empire, founded
 from tests.test_objectives import give_cash

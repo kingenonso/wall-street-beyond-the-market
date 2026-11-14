@@ -7,12 +7,28 @@ from datetime import timedelta
 import pytest
 from psycopg.types.json import Jsonb
 
-from simulation import empires, firm_deals, firm_money, firm_owned, ledger, objectives, private, quarters
+from simulation import (
+    empires,
+    firm_deals,
+    firm_money,
+    firm_owned,
+    ledger,
+    objectives,
+    private,
+    quarters,
+)
 from simulation.money import BPS, million_naira
 from tests.conftest import after_quarters
 from tests.test_builds import pro
 from tests.test_careers import NOW9
-from tests.test_deals import LATER, _dicts, _one, do_checks, fairness_if_needed, open_a_sale
+from tests.test_deals import (
+    LATER,
+    _dicts,
+    _one,
+    do_checks,
+    fairness_if_needed,
+    open_a_sale,
+)
 from tests.test_deals_more import own
 from tests.test_firm import firm_of, member
 from tests.test_objectives import give_cash

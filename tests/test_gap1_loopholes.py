@@ -7,7 +7,15 @@ from datetime import timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import derivatives, firm_deals, instruments, leaseback, ledger, lending, swaps
+from simulation import (
+    derivatives,
+    firm_deals,
+    instruments,
+    leaseback,
+    ledger,
+    lending,
+    swaps,
+)
 from simulation import property as prop
 from simulation.money import naira
 from tests.conftest import ADULT, join

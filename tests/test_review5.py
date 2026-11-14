@@ -169,9 +169,9 @@ def test_more_of_the_record_is_guarded_in_the_database(db):
     for table in ("employments", "bank_customers", "career_events", "payslips"):
         if table != "payslips":                                                                # there is no payslip yet to delete
             with pytest.raises(psycopg.errors.RestrictViolation):
-                db.execute(f"DELETE FROM {table}")                                             # noqa: S608
+                db.execute(f"DELETE FROM {table}")
         with pytest.raises(psycopg.errors.RestrictViolation):
-            db.execute(f"TRUNCATE {table} CASCADE")                                            # noqa: S608
+            db.execute(f"TRUNCATE {table} CASCADE")
 
 
 # 11. Retirement saving is credited in full for the quarter it was earned in, even when the employer paid late.

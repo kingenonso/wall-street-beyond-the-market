@@ -15,8 +15,8 @@ from simulation.money import naira
 from tests.conftest import ADULT, after_quarters, join
 from tests.test_builds import pro
 from tests.test_careers import NOW9, sound
-from tests.test_empires import countersigned, always, computer_empire, founded
-from tests.test_mastery import FRIDAY9, answers_for, do, master, right_case
+from tests.test_empires import always, computer_empire, countersigned, founded
+from tests.test_mastery import FRIDAY9, answers_for, master, right_case
 from tests.test_objectives import bell, give_cash, government
 
 pytestmark = pytest.mark.world("eight")
@@ -228,7 +228,7 @@ def test_both_sides_of_an_unlawful_pact_lose_league_points_whoever_reports_it(db
     pact = empires.draft_pact(db, lawyer, rival["id"], unlawful, "We agree to rig the price between us.", NOW9)
     empires.sign_pact(db, head, pact["id"], NOW9)
     empires.report_pact(db, head, pact["id"], NOW9)
-    points = lambda e: sum(p["points"] for p in _dicts(db, "SELECT points FROM league_points WHERE empire_id = %s AND period = 9", (e,)))  # noqa: E731
+    points = lambda e: sum(p["points"] for p in _dicts(db, "SELECT points FROM league_points WHERE empire_id = %s AND period = 9", (e,)))
     assert points(rival["id"]) == points(empire["id"]) == data.LEAGUE_POINTS["theft"] == -5
 
 

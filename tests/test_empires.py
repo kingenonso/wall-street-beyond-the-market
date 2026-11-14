@@ -8,7 +8,16 @@ from datetime import timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import bonds, careers, empires, exchange, ledger, marketview, objectives, quarters
+from simulation import (
+    bonds,
+    careers,
+    empires,
+    exchange,
+    ledger,
+    marketview,
+    objectives,
+    quarters,
+)
 from simulation import world_data as data
 from simulation.money import apply_bps, naira
 from tests.conftest import after_quarters

@@ -20,15 +20,22 @@ from datetime import timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import crashfund, derivatives, ledger, lending, lending_empire, montecarlo, quarters
+from simulation import (
+    crashfund,
+    derivatives,
+    ledger,
+    lending,
+    lending_empire,
+    montecarlo,
+    quarters,
+)
 from simulation import world_data as data
 from simulation.money import BPS, naira
 from tests.conftest import ADULT, after_quarters, join
 from tests.test_builds import pro  # noqa: F401
-from tests.test_derivatives import ready, trader
 from tests.test_careers import NOW9, sound
+from tests.test_derivatives import ready, seed_fund, trader
 from tests.test_firm import firm_of, member
-from tests.test_derivatives import seed_fund
 from tests.test_lending import bank_id, price_of, signed
 from tests.test_objectives import give_cash, give_shares
 

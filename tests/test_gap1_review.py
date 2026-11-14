@@ -7,7 +7,15 @@ from datetime import timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import derivatives, firm, firm_deals, instruments, ledger, quarters, swaps
+from simulation import (
+    derivatives,
+    firm,
+    firm_deals,
+    instruments,
+    ledger,
+    quarters,
+    swaps,
+)
 from simulation import world_data as data
 from simulation.money import naira
 from tests.conftest import after_quarters
@@ -139,9 +147,10 @@ def test_r9_two_warrant_issues_in_a_quarter_keep_their_own_strike(db):
 
 # 10. The Asset Manager buys warrants for the empire only inside the Risk Manager's limit.
 def test_r10_the_asset_manager_buys_for_the_empire_inside_the_limit(db):
+    from fastapi import HTTPException
+
     import server.main  # noqa: F401  (the routes load with the application)
     from server.lending_routes import InstrumentTradeRequest, instruments_trade
-    from fastapi import HTTPException
     from tests.test_firm import member
     empire, team = firm_of(db, n_cash=5_000_000_000)
     am = ready(db, member(db, empire, team["head"], "asset_manager", "dealerof"))

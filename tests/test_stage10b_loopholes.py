@@ -8,11 +8,19 @@ from datetime import timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import auctions, careers, charity, exchange, intel, ledger, media, newsroom, press
+from simulation import (
+    auctions,
+    careers,
+    charity,
+    intel,
+    ledger,
+    media,
+    newsroom,
+    press,
+)
 from simulation import world_data as data
 from simulation.money import naira
 from simulation.property import PropertyError
-from tests.conftest import ADULT, join
 from tests.test_builds import pro
 from tests.test_careers import NOW9
 from tests.test_firm import firm_of

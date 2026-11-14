@@ -8,7 +8,16 @@ from datetime import timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import investors, ledger, lending, lending_empire, montecarlo, quarters, risk, stochastic
+from simulation import (
+    investors,
+    ledger,
+    lending,
+    lending_empire,
+    montecarlo,
+    quarters,
+    risk,
+    stochastic,
+)
 from simulation import world_data as data
 from simulation.money import BPS, naira
 from tests.conftest import after_quarters

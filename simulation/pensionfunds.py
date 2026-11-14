@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from psycopg import Connection, errors
+from psycopg import Connection
 from psycopg.rows import dict_row
 
 from simulation import (

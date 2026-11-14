@@ -338,7 +338,7 @@ def earnings_yield_bps(sector: str, rate_bps: int) -> int:
 def _fair(co: dict, eps_ttm: Decimal, rate_bps: int) -> Decimal:
     """`rate_bps` is the long rate (see long_rate_bps)."""
     ey = earnings_yield_bps(co["sector"], rate_bps)
-    return max(eps_ttm * BPS / ey, Decimal("1"))
+    return max(eps_ttm * BPS / ey, Decimal(1))
 
 
 def setup(conn: Connection, now: datetime) -> bool:

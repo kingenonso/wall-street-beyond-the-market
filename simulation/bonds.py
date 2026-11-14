@@ -34,7 +34,7 @@ Every naira and every bond moves through the ledger.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from psycopg import Connection
@@ -564,10 +564,10 @@ def issue_for_company(conn: Connection, company: dict, *, period: int, amount: i
         from simulation import instruments
         price = _one(conn, "SELECT coalesce(last_price, reference_price) AS p FROM market_instruments WHERE company_id = %s", (company["id"],))
         if price and price["p"]:
-            from datetime import datetime, timezone
+            from datetime import datetime
             instruments.grant_warrants(conn, company, {dealer: units // data.WARRANT_PER_BONDS},
                                        strike=price["p"] * data.WARRANT_STRIKE_BPS // BPS, expiry_period=period + data.WARRANT_QUARTERS,
-                                       period=period, why="with a high-yield bond", now=datetime.now(timezone.utc))
+                                       period=period, why="with a high-yield bond", now=datetime.now(UTC))
     return {**bond, "units": units, "rate": rate, "words": words}
 
 

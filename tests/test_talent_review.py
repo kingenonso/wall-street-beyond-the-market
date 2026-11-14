@@ -9,10 +9,18 @@ from psycopg.rows import dict_row
 
 from simulation import challenges, clock, derivatives, firms, ledger, talent
 from simulation.money import naira
-from tests.conftest import ADULT, join
 from tests.test_crises import unlocked
 from tests.test_market import OPEN, place, reference, trader
-from tests.test_talent import T0, _approved_firm, _boarded, _paper, bell, bell_after, filed_later, history, player_of
+from tests.test_talent import (
+    T0,
+    _approved_firm,
+    _boarded,
+    _paper,
+    bell,
+    bell_after,
+    history,
+    player_of,
+)
 
 
 def _one(db, sql, params=()):
@@ -287,9 +295,10 @@ def test_r13_a_firm_proves_its_email_before_it_can_be_approved(db, client):
 
 @pytest.mark.world("eight")
 def test_extra_a_contract_whose_quarter_has_ended_is_settled_at_the_close_not_closed_by_force(db):
-    from tests.test_careers import NOW9
-    from tests.test_derivatives import series, trader as dtrader
     from tests.conftest import after_quarters
+    from tests.test_careers import NOW9
+    from tests.test_derivatives import series
+    from tests.test_derivatives import trader as dtrader
     player, account = dtrader(db, "asset_manager", "writer", cash_naira=50_000_000)
     s = series(db, "call", "IDC", nearest=derivatives.spot(db, series(db, "call", "IDC"), NOW9))
     done = derivatives.open_position(db, account, s["id"], "short", 10, NOW9, player_id=player)

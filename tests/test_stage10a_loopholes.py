@@ -7,7 +7,16 @@ from datetime import timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import careers, derivatives, events, exchange, ledger, lending, newsroom, newsroom_facts
+from simulation import (
+    careers,
+    derivatives,
+    events,
+    exchange,
+    ledger,
+    lending,
+    newsroom,
+    newsroom_facts,
+)
 from simulation import world_data as data
 from tests.conftest import ADULT, join
 from tests.test_builds import pro

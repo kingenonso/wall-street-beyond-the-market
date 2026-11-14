@@ -1,6 +1,6 @@
 """The world clock: market hours in Lagos time, and the game calendar."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
@@ -33,7 +33,7 @@ def test_market_state_at_each_boundary(moment, expected):
 
 def test_market_hours_follow_lagos_time_not_the_callers_time_zone():
     # 11:00 UTC is 12:00 in Lagos, so the market is open wherever the player is.
-    assert clock.market_state(datetime(2026, 10, 6, 11, 0, tzinfo=timezone.utc)) is MarketState.OPEN
+    assert clock.market_state(datetime(2026, 10, 6, 11, 0, tzinfo=UTC)) is MarketState.OPEN
     # 10:00 in Regina (UTC-6) is 17:00 in Lagos.
     regina = timezone(timedelta(hours=-6))
     assert clock.market_state(datetime(2026, 10, 6, 10, 0, tzinfo=regina)) is MarketState.OPEN

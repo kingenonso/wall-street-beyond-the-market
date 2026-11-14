@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import jwt
@@ -36,7 +36,7 @@ def create_session_token(player_id: str, version: int) -> str:
     """A signed pass proving who the player is. The server can check the
     signature, so the browser cannot forge or alter it."""
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {"sub": player_id, "ver": version, "iat": now, "exp": now + timedelta(days=settings.session_days)}
     return jwt.encode(payload, settings.secret_key, algorithm="HS256")
 
@@ -70,7 +70,7 @@ _FIRM_AUDIENCE = "wsbm-firm"
 
 def create_firm_token(firm_id: str, version: int) -> str:
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {"sub": firm_id, "ver": version, "aud": _FIRM_AUDIENCE, "iat": now, "exp": now + timedelta(days=settings.session_days)}
     return jwt.encode(payload, settings.secret_key, algorithm="HS256")
 

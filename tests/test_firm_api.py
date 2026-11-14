@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import empires, firm
+from simulation import empires
 from tests.conftest import ADULT, join
 from tests.test_builds import pro
 from tests.test_careers import NOW9

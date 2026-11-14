@@ -8,7 +8,7 @@ import pytest
 
 from simulation import ledger, players
 from simulation.money import naira
-from tests.conftest import join, ADULT, TEST_DATABASE_URL
+from tests.conftest import ADULT, TEST_DATABASE_URL, join
 
 
 def years_ago(years: int, extra_days: int = 0) -> str:

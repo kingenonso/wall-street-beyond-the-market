@@ -13,7 +13,17 @@ import pytest
 from psycopg import errors
 from psycopg.rows import dict_row
 
-from simulation import closingbell, clock, exchange, insight, investors, ledger, marketview, news, quarters
+from simulation import (
+    clock,
+    closingbell,
+    exchange,
+    insight,
+    investors,
+    ledger,
+    marketview,
+    news,
+    quarters,
+)
 from simulation import world_data as data
 from simulation.money import BPS, naira
 from tests.conftest import ADULT, after_quarters, join
@@ -236,7 +246,7 @@ def test_the_ticker_carries_every_share_and_the_index(db, client, player, at):
     at(OPEN)
     seen = client.get("/api/market/ticker").json()
     market = client.get("/api/market").json()
-    assert len(seen["shares"]) == 50 and seen["index"] == market["index"] and seen["closing_rush"] is False
+    assert len(seen["shares"]) == 70 and seen["index"] == market["index"] and seen["closing_rush"] is False
     assert {s["ticker"]: s["price_kobo"] for s in seen["shares"]} == {s["ticker"]: s["price_kobo"] for s in market["shares"]}
     at(RUSH)
     assert client.get("/api/market/ticker").json()["closing_rush"] is True
@@ -343,7 +353,7 @@ def test_results_news_compares_profit_with_the_same_quarter_a_year_ago(db):
 @pytest.mark.world("eight")
 def test_every_industry_shows_its_growth_and_its_companies_ranked_by_share_of_sales(db, client, player):
     seen = insight.industries(db, OPEN)
-    assert sum(len(s["companies"]) for s in seen) == 50
+    assert sum(len(s["companies"]) for s in seen) == 70
     for sector in seen:
         sales = [c["sales"] for c in sector["companies"]]
         assert sales == sorted(sales, reverse=True)

@@ -102,8 +102,8 @@ def test_6_a_dealer_cannot_make_foreign_etf_units_against_a_basket(db):
 
 @pytest.mark.world("eight")
 def test_7_only_the_head_banker_or_asset_manager_deals_for_an_empire(db):
-    from tests.test_builds import pro
     from simulation import empires
+    from tests.test_builds import pro
     t9 = opened8(db)
     head, _, empire = empire_head(db)
     emp = empires._empire(db, empire["id"] if isinstance(empire, dict) else empire)

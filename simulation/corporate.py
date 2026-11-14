@@ -326,7 +326,7 @@ def _complete_offers(conn: Connection, period: int, now: datetime) -> None:
         worth = valued["value_per_share"] if valued else price
         parent = _parent_account(conn, company["id"])
         cash = {account: max(ledger.balance(conn, account), 0) for account in (founders, funds, public) + ((parent,) if parent else ())}
-        afford = lambda account, share_of_cash: cash[account] * share_of_cash // BPS // price            # noqa: E731
+        afford = lambda account, share_of_cash: cash[account] * share_of_cash // BPS // price
         allot: dict = {}
         if offer["kind"] == "rights":
             owners = _owners(conn, company["id"])
@@ -800,7 +800,7 @@ def propose(conn: Connection, period: int, seed: str, now: datetime, results: li
     # New shares are priced from the lower of the market price and what the company is worth, so that a
     # price nobody will pay cannot make an offer that nobody will take up.
     basis = {c: min(p, worth[c]["value_per_share"]) if c in worth else p for c, p in prices.items()}
-    order = lambda company, what: events._unit(seed, company["ticker"], period, what)          # noqa: E731
+    order = lambda company, what: events._unit(seed, company["ticker"], period, what)
     listed = [(c, r) for c, r in results if c["id"] in prices and c["id"] not in busy]
 
     # 1. A share costing ₦100 or more is split.
