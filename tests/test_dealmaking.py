@@ -21,10 +21,11 @@ pytestmark = pytest.mark.world("eight")
 LATE = LATER + timedelta(hours=1)
 
 
-def house(db, name, builds=("asset_manager", "investment_banker", "risk_manager"), cash_naira=20_000_000_000, tag=None):
+def house(db, name, builds=("asset_manager", "investment_banker", "risk_manager"), cash_naira=20_000_000_000, tag=None,
+          head_build="asset_manager"):
     """A second empire run by players, with a member at each desk named."""
     tag = tag or name.split()[0].lower()
-    head, _ = pro(db, "asset_manager", f"{tag}_head", level=20, cash_naira=60_000_000)
+    head, _ = pro(db, head_build, f"{tag}_head", level=20, cash_naira=60_000_000)
     empire = empires.found(db, head, name, million_naira(40), 0, NOW9)
     team = {"head": head}
     for build in builds:
@@ -49,7 +50,7 @@ def cash(db, account):
 
 def test_a_firm_is_founded_from_a_seat_by_the_right_build_and_a_bank_needs_capital(db):
     other, team = house(db, "Delta Partners")
-    with pytest.raises(empires.EmpireError, match="founded by an Accountant"):
+    with pytest.raises(empires.EmpireError, match="An audit firm is founded by an Asset Manager"):
         firm_practice.found(db, team["investment_banker"], "audit", "Wrong Audit", 0, LATER)
     made = firm_practice.found(db, team["asset_manager"], "audit", "Creek Audit", 0, LATER)
     assert made["firm_id"]
@@ -343,7 +344,8 @@ def test_a_truce_stops_poaching_and_offers_for_each_others_companies(db):
 
 def test_two_empires_merge_by_their_members_votes_and_every_owner_keeps_what_their_share_was_worth(db):
     empire, team = firm_of(db, n_cash=2_000_000_000)
-    other, them = house(db, "Delta Partners", builds=("investment_banker", "risk_manager", "asset_manager"), cash_naira=1_000_000_000)
+    # Seven seats an empire (a head and two for each build): the smaller empire's head and banker fill the two seats left.
+    other, them = house(db, "Delta Partners", builds=("investment_banker",), cash_naira=1_000_000_000, head_build="risk_manager")
     company = own(db, other, "RWH")
     worth_a, worth_b = empires.worth(db, empire, LATER)["total"], empires.worth(db, other, LATER)["total"]
     value_b = {p["player_id"]: p["value"] for p in firm_money.partners(db, other, LATER)}

@@ -259,7 +259,7 @@ def add_experience(conn: Connection, player_id, build: str, amount: int, now: da
 
 
 def _a(name: str) -> str:
-    return ("an " if name[0] in "AEIOU" else "a ") + name
+    return ("an " if name[0] in "AEIOUaeiou" else "a ") + name
 
 
 # ---------------------------------------------------------------------------

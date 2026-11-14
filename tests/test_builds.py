@@ -76,7 +76,7 @@ def test_the_library_now_has_work_for_all_six_builds():
 def test_every_piece_of_new_work_can_be_taken_done_right_and_is_paid_by_its_named_payer(db, build):
     """Each hand-in piece: the right answers pass and are paid; a blank sheet does not. Each call
     is handed in and judged when the quarter closes. Nothing raises, and no money is made."""
-    codes = [t.code for t in objectives.TEMPLATES.values() if t.build == build and t.setting == "solo" and t.listed and t.level <= 4]
+    codes = [t.code for t in objectives.TEMPLATES.values() if t.build == build and t.setting == "solo" and t.listed and not t.retired and t.level <= 4]
     judged = 0
     for index, code in enumerate(codes):
         template = objectives.TEMPLATES[code]

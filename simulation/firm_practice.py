@@ -68,7 +68,8 @@ def found(conn: Connection, player_id, kind: str, name: str, capital: int, now: 
             raise EmpireError("A firm is run from a seat in an empire run by players. Take one first.")
         build = KINDS[kind][0]
         if seat["build"] != build:
-            raise EmpireError(f"A {KINDS[kind][1].lower()} is founded by {careers._a(empires.BUILD_NAMES[build])}.")
+            what = careers._a(KINDS[kind][1].lower())
+            raise EmpireError(f"{what[0].upper()}{what[1:]} is founded by {careers._a(empires.BUILD_NAMES[build])}.")
         name = _text(name or "")
         if not 3 <= len(name) <= 60:
             raise EmpireError("A firm's name is 3 to 60 characters.")
