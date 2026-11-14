@@ -98,6 +98,9 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
             # out to pitch.
             from simulation import competition
             competition.at_close(conn, period, world["fortune_seed"], now)
+            # Government: the budget and any motion counted; at a year's end, the election for the next.
+            from simulation import government
+            government.at_close(conn, period, now)
             ranks.at_close(conn, period, now)
             # Empires pay their staff, their books are audited, and their staff do their work.
             empires.after_close(conn, period, now)

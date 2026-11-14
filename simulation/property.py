@@ -386,6 +386,8 @@ def close(conn: Connection, world, period: int, now: datetime, seed: str, measur
     from simulation import auctions, headquarters
     # Auctions whose time ran out before the close are settled first, so the quarter's owners are the right ones.
     auctions.run(conn, now)
+    from simulation import government
+    taxes = government.rates(conn)                   # property and land tax, as the year's budget set them
     _update_districts(conn, period, measured["price_index_bps"], measured.get("agriculture_bps", BPS))
     _update_kinds(conn, period, measured["price_index_bps"])
     # The gap stage: infrastructure works and the districts' gains from them; households' home loans, defaults and
@@ -442,7 +444,7 @@ def close(conn: Connection, world, period: int, now: datetime, seed: str, measur
             if p["status"] == "standing" and p["condition"] > 60:
                 conn.execute("UPDATE properties SET condition = greatest(condition - %s, 60) WHERE id = %s", (data.WEAR_WITH_UPKEEP, pid))
             continue
-        tax = worth * (data.PROPERTY_TAX_BPS + data.LAND_TAX_BPS) // BPS // 4
+        tax = worth * (taxes["property"] + taxes["land"]) // BPS // 4          # (the rates the budget set)
         owed_before = p["tax_owed"] + p["tax_owed"] * data.TAX_ARREARS_PENALTY_BPS // BPS
         wanted = tax + owed_before
         got = 0

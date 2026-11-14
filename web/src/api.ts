@@ -1034,6 +1034,25 @@ export type DerivativesBoard = { series: Series[]; underlyings: string[]; open: 
   empire: null | { name: string; acts: boolean; head: boolean; build: string; limit_naira: number; committed: Kobo;
     positions: DerivativePosition[]; orders: DerivativeOrder[]; crash_fund: CrashFund } };
 
+// Government (part 1).
+export type GovernmentPage = {
+  ready: boolean; quarter: string; day: number; year: number;
+  leader: { player_id: string; name: string; votes: number; is_you: boolean } | null;
+  term_words: string | null; stand_in: { kind: string; words: string };
+  rates: { kind: string; name: string; bps: number; least_bps: number; most_bps: number }[];
+  budget: { id: number; rates: Record<string, number>; status: string; votes_for: number | null; votes_against: number | null;
+            words: string | null; by_stand_in: boolean; voted: boolean } | null;
+  can_propose: boolean; budget_last_day: number;
+  motion: { id: number; status: string; votes_for: number | null; votes_against: number | null; voted: boolean } | null;
+  assembly: { kind: "head" | "computer"; empire_id?: number; empire?: string; player_id?: string; name: string; seat?: number;
+              leaning?: string; words?: string }[];
+  your_seat: string | null;
+  election: { open: boolean; for_year: number; stand_last_day: number;
+              candidates: { player_id: string; name: string; pitch: string; reputation: number }[];
+              your_vote: string | null; can_stand: boolean; can_vote: boolean; least_reputation: number; least_level: number };
+  result?: Record<string, unknown>;
+};
+
 // Competition (part 1): money in kobo, written as text.
 export type CompetitionCompany = { id: string; ticker: string; name: string; sector: string };
 export type CompetitionContest = {
@@ -1398,6 +1417,15 @@ export const api = {
   }) => request<SignUpPending>("/auth/signup", { method: "POST", body: JSON.stringify(details) }),
   confirmEmail: (email: string, code: string) =>
     request<Player>("/auth/confirm-email", { method: "POST", body: JSON.stringify({ email, code }) }),
+  // Government, under Economy.
+  government: () => request<GovernmentPage>("/government"),
+  governmentStand: (body: { pitch: string }) => request<GovernmentPage>("/government/stand", { method: "POST", body: JSON.stringify(body) }),
+  governmentVote: (body: { candidate_id: string }) => request<GovernmentPage>("/government/vote", { method: "POST", body: JSON.stringify(body) }),
+  governmentBudget: (body: { income_bps: number; company_bps: number; property_bps: number; land_bps: number }) =>
+    request<GovernmentPage>("/government/budget", { method: "POST", body: JSON.stringify(body) }),
+  governmentAssemblyVote: (body: { subject: string; aye: boolean }) =>
+    request<GovernmentPage>("/government/assembly-vote", { method: "POST", body: JSON.stringify(body) }),
+  governmentNoConfidence: () => request<GovernmentPage>("/government/no-confidence", { method: "POST", body: "{}" }),
   // Competition, under Work.
   competition: () => request<CompetitionPage>("/competition"),
   competitionPitch: (body: { mandate_id: number; fee_bps: number; take_up_bps: number }) =>

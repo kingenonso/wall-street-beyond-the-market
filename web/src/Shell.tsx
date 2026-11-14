@@ -342,7 +342,8 @@ export function sectionsFor(player: Player): Section[] {
              { path: "currencies", label: "Currencies" }] },
     // The tribunal (Stage 11, renamed 14 November 2026) is a tab under News: its list of cases is public reading.
     { path: "news", label: "News", tabs: [{ path: "news", label: "News" }, { path: "intel", label: "Intelligence" }, { path: "court", label: "Tribunal" }] },
-    { path: "economy", label: "Economy", tabs: [{ path: "economy", label: "The economy" }, { path: "charities", label: "Charities" }] },
+    { path: "economy", label: "Economy", tabs: [{ path: "economy", label: "The economy" }, { path: "government", label: "Government" },
+                                                { path: "charities", label: "Charities" }] },
   ];
 }
 

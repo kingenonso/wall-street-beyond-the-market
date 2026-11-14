@@ -150,14 +150,20 @@ def salary_per_quarter(level: int, wage_index_bps: int = BPS) -> int:
     return apply_bps(naira(monthly * 3), wage_index_bps)
 
 
-def split_salary(gross: int, extra_bps: int = 0) -> dict:
+def _income_tax(conn: Connection) -> int:
+    """The income tax rate in force: the Government's budget sets it."""
+    from simulation import government
+    return government.tax_bps(conn, "income")
+
+
+def split_salary(gross: int, extra_bps: int = 0, tax_bps: int | None = None) -> dict:
     """What is taken from a salary, and what is left.
 
     A player may save extra for retirement. The extra is taken before income tax, so the tax is
     worked out on a smaller figure; and the employer matches it, naira for naira, up to a limit."""
     extra = apply_bps(gross, min(max(extra_bps, 0), data.EXTRA_SAVING_MOST_BPS))
     pension = apply_bps(gross, data.PENSION_EMPLOYEE_BPS) + extra
-    tax = apply_bps(gross - extra, data.SALARY_TAX_BPS)
+    tax = apply_bps(gross - extra, data.SALARY_TAX_BPS if tax_bps is None else tax_bps)    # (the rate the budget set)
     living = apply_bps(gross, data.SALARY_LIVING_BPS)
     match = min(extra, apply_bps(gross, data.EMPLOYER_MATCH_MOST_BPS))
     return {"gross": gross, "pension_yours": pension, "tax": tax, "living_costs": living,
@@ -296,7 +302,7 @@ def openings(conn: Connection, player_id, now: datetime) -> list[dict]:
     if mine is None:
         return []
     state = world_now(conn, now)
-    pay = split_salary(salary_per_quarter(mine["level"], state["wage_index_bps"]))
+    pay = split_salary(salary_per_quarter(mine["level"], state["wage_index_bps"]), tax_bps=_income_tax(conn))
     job = current_job(conn, player_id)
     out = []
     for employer in _employers(conn, mine["build"]):
@@ -421,8 +427,9 @@ def salaries_due(conn: Connection, company: dict, period: int, wage_index_bps: i
     elif total > budget:
         grosses = [0 for _ in grosses]
     out = []
+    income_tax = _income_tax(conn)
     for gross, packet in zip(grosses, packets):
-        pay = split_salary(gross, packet["extra_bps"])
+        pay = split_salary(gross, packet["extra_bps"], income_tax)
         # What the company pays out in cash for this player: everything but the usual 8% saving, which is
         # already inside the pension payment the company makes for all its staff.
         cash_due = pay["take_home"] + pay["tax"] + pay["living_costs"] + pay["extra_saving"] + pay["employer_match"]
@@ -801,7 +808,7 @@ def retirement_projection(conn: Connection, player_id, savings: dict, level: int
         return None                                   # already drawing: there is nothing left to project
     value = savings_value(conn, player_id)
     quarters = max(opens["quarters_to_go"], 0)
-    pay = split_salary(salary_per_quarter(level, wage_index_bps), savings["extra_bps"]) if level else None
+    pay = split_salary(salary_per_quarter(level, wage_index_bps), savings["extra_bps"], _income_tax(conn)) if level else None
     contribution = (pay["pension_yours"] + pay["pension_employer"]) if pay else 0
     earned = fund_average_return(conn)
     rate_bps = earned["rate_bps"] if earned else 0
@@ -914,8 +921,8 @@ def profile(conn: Connection, player_id, now: datetime) -> dict:
                                         (player_id, mine["build"]))],
     }
     extra = savings["extra_bps"] if savings else 0
-    pay = split_salary(salary_per_quarter(level, state["wage_index_bps"]), extra)
-    next_pay = split_salary(salary_per_quarter(min(level + 1, cap), state["wage_index_bps"]), extra)
+    pay = split_salary(salary_per_quarter(level, state["wage_index_bps"]), extra, _income_tax(conn))
+    next_pay = split_salary(salary_per_quarter(min(level + 1, cap), state["wage_index_bps"]), extra, _income_tax(conn))
     job = current_job(conn, player_id)
     worked = has_worked(conn, player_id, state["period"])
     out["pay"] = {**pay, "at_next_level": next_pay["gross"], "worked_this_quarter": worked}

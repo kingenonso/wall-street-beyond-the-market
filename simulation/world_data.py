@@ -839,6 +839,14 @@ RIVAL_STAKE_BPS = 500                  # a rival's company or bank: another empi
 CALL_QUARTERS = 2                      # a call is judged when the second quarter after it closes (counting its own)
 CALL_FALL_BPS = 1000                   # an overvalued call is right if the price falls by a tenth or more
 CALL_MOST_OPEN = 2                     # calls an empire may have open at once
+# Government, part 1 (14 November 2026): an elected leader sets the year's taxes within these limits.
+TAX_LIMITS_BPS = {"income": (500, 2500), "company": (1500, 4000), "property": (50, 300), "land": (25, 150)}
+TAX_STEP_BPS = 100                     # a step: one point (the stand-in's move, and the steady members' tolerance)
+LEADER_LEAST_REPUTATION = 80           # a candidate needs this reputation...
+LEADER_LEAST_LEVEL = 20                # ...and this level
+ELECTION_STAND_LAST_DAY = 30           # candidates stand in the first third of a year's last quarter; then the vote opens
+BUDGET_LAST_DAY = 30                   # the leader puts the budget in the first third of the year's first quarter
+ASSEMBLY_COMPUTER_SEATS = 15           # computer-run members of the Assembly, beside the heads of empires run by players
 ANALYST_TABLE_LEAST = 2                # forecasts judged before a player is named on the table of analysts
 
 # Quick fixes: messages between players. Limits keep anyone from flooding others.
