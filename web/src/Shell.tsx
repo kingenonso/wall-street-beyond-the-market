@@ -336,7 +336,8 @@ export function sectionsFor(player: Player): Section[] {
                                               { path: "commodities", label: "Commodities" }] },
     { path: "portfolio", label: "Money", ...((player.margin_calls ?? 0) > 0 ? { count: player.margin_calls, countWords: "margin calls" } : {}),
       tabs: [{ path: "portfolio", label: "Portfolio and savings" }, { path: "borrow", label: "Borrow" },
-             { path: "retirement", label: "Retirement" }, { path: "currencies", label: "Currencies" }] },
+             { path: "retirement", label: "Retirement" }, { path: "insurance", label: "Insurance" },
+             { path: "currencies", label: "Currencies" }] },
     // The tribunal (Stage 11, renamed 14 November 2026) is a tab under News: its list of cases is public reading.
     { path: "news", label: "News", tabs: [{ path: "news", label: "News" }, { path: "intel", label: "Intelligence" }, { path: "court", label: "Tribunal" }] },
     { path: "economy", label: "Economy", tabs: [{ path: "economy", label: "The economy" }, { path: "charities", label: "Charities" }] },

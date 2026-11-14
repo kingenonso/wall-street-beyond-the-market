@@ -159,18 +159,6 @@ def short_wrong(db):
             "opened": opened, "closed": closed, "shares": shares}
 
 
-def insurance_fraud_wrong(db):
-    """A player who has had a claim refused on a policy: the court records the
-    wrong, and a second attempt on that policy ends cover for good."""
-    defendant = trader(db, "fraudster", cash_naira=1_000_000)
-    pid = player_of(db, defendant)
-    db.execute("INSERT INTO insurance_refusals (player_id, kind, at) VALUES (%s, %s, %s)",
-               (pid, "property", NOW9))
-    wrong = next(w for w in courts._wrongs(db, P, NOW9)
-                 if w["kind"] == "insurance_fraud" and str(w["defendant_id"]) == str(pid))
-    return {"wrong": wrong, "pid": pid}
-
-
 def open_regulator_case(db, *, kind="insider", defendant_id, company_id, amount=None):
     amount = amount or naira(10_000_000)
     return courts.open_case(db, kind=kind, defendant_id=defendant_id, claimant_id=None, company_id=company_id,
@@ -266,16 +254,6 @@ def test_a_naked_short_is_proved_from_the_buy_in_and_the_profit_is_the_number(db
     wrong = found["wrong"]
     assert wrong["amount"] == (found["opened"] - found["closed"]) * found["shares"]
     assert "bought in" in wrong["words"]
-
-
-def test_a_refused_claim_records_an_insurance_fraud_wrong(db):
-    found = insurance_fraud_wrong(db)
-    wrong = found["wrong"]
-    assert wrong["kind"] == "insurance_fraud"
-    assert wrong["company_id"] is None
-    assert wrong["amount"] == naira(data.COURT_MIN_CLAIM_NAIRA)
-    assert "Prior refusal" in wrong["words"]
-    assert wrong["key"] == f"insurance_fraud_refusal:{found['pid']}:property"
 
 
 def test_a_claim_below_the_courts_minimum_is_not_brought(db):
@@ -424,24 +402,20 @@ def test_an_insider_judgment_disgorges_the_profit_and_fines_the_same_again(db):
 
 
 def test_an_insurance_fraud_judgment_fines_and_bans_the_defendant(db):
-    c = company(db)
+    """The insurer refers a claim on a loss of the claimant's own making (tests/test_insurance_loopholes.py opens one
+    from a real refusal); judged, it is fined, costed and banned like any other wrong."""
     defendant = trader(db, "defendant", cash_naira=100_000_000)
     pid = player_of(db, defendant)
-    db.execute("INSERT INTO insurance_refusals (player_id, kind, at) VALUES (%s, %s, %s)",
-               (pid, "property", NOW9))
-    wrong = next(w for w in courts._wrongs(db, P, NOW9)
-                 if w["kind"] == "insurance_fraud" and str(w["defendant_id"]) == str(pid))
-    evidence = courts._evidence_of(wrong)
-    case_id = courts.open_case(db, kind="insurance_fraud", defendant_id=pid, claimant_id=None,
-                               company_id=None, amount=wrong["amount"],
-                               evidence=evidence, words=wrong["words"],
-                               period=P, now=NOW9)
+    amount = naira(1_000_000)
     courts.ensure(db)
+    case_id = courts.open_case(db, kind="insurance_fraud", defendant_id=pid, claimant_id=None, company_id=None,
+                               amount=amount, evidence={"key": "insurance_fraud:test", "total": amount, "lines": []},
+                               words="Claimed on a loss of their own making.", period=P, now=NOW9)
     case = courts.judge(db, case_id, P, NOW9)
     assert case["status"] == "judged"
     assert case["disgorgement"] == 0
-    assert case["fine"] == apply_bps(wrong["amount"], data.COURT_FINE_BPS["insurance_fraud"])
-    assert case["costs"] == apply_bps(wrong["amount"], data.COURT_COSTS_BPS)
+    assert case["fine"] == apply_bps(amount, data.COURT_FINE_BPS["insurance_fraud"])
+    assert case["costs"] == apply_bps(amount, data.COURT_COSTS_BPS)
     assert case["ban_quarters"] == data.COURT_BAN_QUARTERS["insurance_fraud"]
     assert courts.banned_until(db, pid) == P + data.COURT_BAN_QUARTERS["insurance_fraud"]
     assert ledger.audit(db) == []

@@ -19,6 +19,7 @@ import { PortfolioRail, PortfolioWork } from "./Portfolio";
 import { PropertyRail, PropertyWork } from "./Property";
 import { BorrowRail, BorrowWork } from "./Borrow";
 import { CurrenciesWork } from "./Currencies";
+import { InsuranceWork } from "./Insurance";
 import { RetirementWork } from "./Retirement";
 import { useRoute } from "./hooks";
 import { ProfileRail, ProfileWork } from "./Profile";
@@ -134,6 +135,10 @@ export function App() {
     current = "retirement";
     work = <RetirementWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <CareerRail player={player} onLoggedOut={loggedOut} />;
+  } else if (section === "insurance") {
+    current = "insurance";
+    work = <InsuranceWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
+    rail = <BorrowRail onLoggedOut={loggedOut} />;
   } else if (section === "property") {
     current = "property";
     work = <PropertyWork key={item ?? ""} player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;

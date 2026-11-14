@@ -345,59 +345,6 @@ def _short_wrongs(conn: Connection, since: datetime) -> list[dict]:
     return wrongs
 
 
-def _insurance_fraud_wrongs(conn: Connection, period: int, now: datetime) -> list[dict]:
-    """Insurance fraud: a second attempt on a policy permanently ends cover for good.
-
-    Reads the insurance_claims and insurance_refusals tables to find cases where
-    a player has already had a claim refused (or a second open claim) on the same
-    policy kind. A second attempt ends the policy permanently.
-    """
-    wrongs: list[dict] = []
-    since = _quarter_start(conn, period - data.COURT_WINDOW_QUARTERS + 1)
-
-    # Check for second open claims on the same policy kind
-    second_claims = _rows(conn, """
-        SELECT policy_player_id, policy_kind, count(*) AS n
-        FROM insurance_claims
-        WHERE state = 'open'
-        AND at >= %s
-        GROUP BY policy_player_id, policy_kind
-        HAVING count(*) > 1
-    """, (since,))
-
-    for s in second_claims:
-        # A second open claim on the same policy kind means fraud / policy ends
-        wrongs.append({
-            "kind": "insurance_fraud",
-            "defendant_id": s["policy_player_id"],
-            "company_id": None,
-            "key": f"insurance_fraud:{s['policy_player_id']}:{s['policy_kind']}",
-            "amount": naira(data.COURT_MIN_CLAIM_NAIRA),
-            "lines": [],
-            "words": f"Second claim on {s['policy_kind']} policy for player {s['policy_player_id']}: a second attempt permanently ends cover for good.",
-        })
-
-    # Check for prior refusals: if a claim was refused, a second attempt also ends cover
-    prior_refusals = _rows(conn, """
-        SELECT player_id AS policy_player_id, kind AS policy_kind, count(*) AS n
-        FROM insurance_refusals
-        GROUP BY player_id, kind
-    """)
-
-    for r in prior_refusals:
-        wrongs.append({
-            "kind": "insurance_fraud",
-            "defendant_id": r["policy_player_id"],
-            "company_id": None,
-            "key": f"insurance_fraud_refusal:{r['policy_player_id']}:{r['policy_kind']}",
-            "amount": naira(data.COURT_MIN_CLAIM_NAIRA),
-            "lines": [],
-            "words": f"Prior refusal on {r['policy_kind']} policy for player {r['policy_player_id']}: a second attempt ends cover for good.",
-        })
-
-    return wrongs
-
-
 def _wrongs(conn: Connection, period: int, now: datetime) -> list[dict]:
     """Every recorded wrong the court has not yet tried, with the lines that prove its number.
 
@@ -452,7 +399,7 @@ def _wrongs(conn: Connection, period: int, now: datetime) -> list[dict]:
             add({"kind": "manipulation", "key": f"ramp:{row['account']}:{row['company_id']}:{period}",
                  "defendant_id": row["player_id"], **found})
 
-    for wrong in _stake_wrongs(conn, period, now) + _short_wrongs(conn, since) + _insurance_fraud_wrongs(conn, period, now):
+    for wrong in _stake_wrongs(conn, period, now) + _short_wrongs(conn, since):
         add(wrong)
     return [w for w in wrongs if w["amount"] >= naira(data.COURT_MIN_CLAIM_NAIRA)]
 

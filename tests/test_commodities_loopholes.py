@@ -1,267 +1,175 @@
-"""
-Stage 12 loophole check — one test per design question.
+"""Stage 12, the goods: the promises in docs/STAGE_12_COMMODITIES_PROPOSAL.md ("What will be tested"), one test each.
 
-Run: python -m pytest tests/test_commodities_loopholes.py -v
-
-Each test name begins with the design question number. A test that passes means the
-promise holds; if a test fails, the words printed tell you what to fix.
+Rewritten on 14 November 2026: the first version checked that functions existed rather than what they did, called a
+quarter close that does not exist, and bought goods with no space to put them in.
 """
+
+from __future__ import annotations
+
+from datetime import timedelta
 
 import pytest
+from psycopg.rows import dict_row
 
-from simulation import ledger
+from simulation import careers, commodities, derivatives, ledger, quarters
+from simulation.money import BPS
+from tests.conftest import after_quarters
+from tests.test_careers import NOW9, sound
+from tests.test_derivatives import series, trader
 
-from tests.conftest import fresh_world, logged_in_player  # noqa: conftest provides a DB + a player
+pytestmark = pytest.mark.world("eight")
 
-
-# ---------------------------------------------------------------------------
-# Q1 — Spot price fixed to the contract
-# The spot price of a good never drifts from the futures contract's mark; both are
-# derived from the same economy indices and abroad oil price, so they can never
-# diverge enough to let a player buy one and sell the other for nothing.
-# ---------------------------------------------------------------------------
-def test_q1_spot_fixed_to_contract(fresh_world, logged_in_player):
-    """If you buy the good and buy the future, the prices must be the same."""
-    client = logged_in_player
-    world = fresh_world
-    # Spot the good
-    commodities = world["commodities"]
-    # The futures market
-    from simulation import derivatives
-    # Pick one good and look at its spot vs the futures mark
-    for code in ("GOLD", "OIL", "FARM", "MATERIALS"):
-        g = commodities.good(world["conn"], code)
-        series = {"underlying": g["underlying"], "company_id": None, "kind": "future"}
-        spot_kobo = commodities.spot(world["conn"], code, world["now"])
-        # Get the futures mark
-        level = derivatives.spot(world["conn"], series, world["now"])
-        future_kobo = derivatives.value_of(world["conn"], series, level)
-        units_per_contract = int(g["units_per_contract"])
-        future_per_unit = future_kobo // units_per_contract
-        # The spot should be within 1 kobo of the futures per-unit price
-        # (both come from the same index / abroad price)
-        assert abs(spot_kobo - future_per_unit) <= 1, (
-            f"Q1 FAIL: {code} spot={spot_kobo} vs futures per unit={future_per_unit}"
-        )
+P = 9
+OPEN = NOW9
 
 
-# ---------------------------------------------------------------------------
-# Q2 — Gold as a naira hedge
-# Gold is priced in dollars and paid for in naira, so when the naira falls the gold in
-# the vault rises without the world's gold price moving. Buying gold should move more
-# naira than the player started with, and the direction should be opposite to the
-# naira's exchange-rate move.
-# ---------------------------------------------------------------------------
-def test_q2_gold_naira_hedge(fresh_world, logged_in_player):
-    client = logged_in_player
-    world = fresh_world
-    commodities = world["commodities"]
-    # Buy gold before any move
-    before = commodities.book_value(world["conn"], ledger.player_account_id(world["conn"], client["id"]), world["now"])
-    # Advance the clock so the naira moves (just wait a quarter; the world_data moves fx)
-    from datetime import datetime
-    world["now"] = datetime.now()
-    # Advance a quarter so FX moves
-    from simulation import clock, quarters
-    new_period = world["period"] + 1
-    quarters.close(world["conn"], new_period, world["now"])
-    # Now buy gold and check its value relative to what we started with
-    client_wealth_before = client["wealth"]
-    commodities.buy(world["conn"], ledger.player_account_id(world["conn"], client["id"]), "GOLD", 2, new_period, world["now"])
-    # Check that the wealth changed in the direction gold would move
-    after = commodities.book_value(world["conn"], ledger.player_account_id(world["conn"], client["id"]), world["now"])
-    # Gold should be worth something; we don't assert a specific direction because
-    # the naira move depends on the random seed, but the book value should have
-    # increased (gold is a hedge that goes up when naira goes down)
-    assert after >= before, f"Q2 FAIL: gold hedge did not increase wealth (before={before}, after={after})"
+def _one(db, sql, params=()):
+    with db.cursor(row_factory=dict_row) as cur:
+        rows = cur.execute(sql, params).fetchall()
+    return rows[0] if rows else None
 
 
-# ---------------------------------------------------------------------------
-# Q3 — Storage you must pay for: rent, insurance, loss
-# Space costs rent each quarter, insurance is optional but if you don't have it goods
-# can be lost to fire, leaks, rats or thieves. Insured goods are paid for out of the
-# insurance pool fed by premiums.
-# ---------------------------------------------------------------------------
-def test_q3_storage_costs_rent_insurance_loss(fresh_world, logged_in_player):
-    client = logged_in_player
-    world = fresh_world
-    commodities = world["commodities"]
-    now = world["now"]
-    # Buy a little gold
-    commodities.buy(world["conn"], ledger.player_account_id(world["conn"], client["id"]), "GOLD", 1, world["period"], now)
-    # Check that the player has a lease and goods in it
-    leases = commodities.leases(world["conn"], ledger.player_account_id(world["conn"], client["id"]), "GOLD", open_only=True)
-    assert len(leases) == 1, f"Q3 FAIL: no lease for gold"
-    lease = leases[0]
-    # A lease has a capacity and some goods in it
-    assert int(lease["capacity"]) >= 1, f"Q3 FAIL: capacity is 0"
-    # Rent is charged each quarter at close — just check the schema exists
-    # (we can't close a quarter from here without a full world, but the rent
-    # calculation is there in charge_space)
-    # Insurance flag can be set
-    commodities.set_insured(world["conn"], ledger.player_account_id(world["conn"], client["id"]), lease["id"], True)
-    # After setting insured, the lease should still be open
-    lease2 = commodities._one(world["conn"], "SELECT * FROM commodity_storage WHERE id = %s", (lease["id"],))
-    assert lease2["insured"] == True, f"Q3 FAIL: could not set insured"
-    # We cannot run damage in this test (it requires a full quarter close), but we
-    # have verified the schema and the flag path.
+def books(db):
+    assert commodities.check_books(db) == []
+    sound(db)
 
 
-# ---------------------------------------------------------------------------
-# Q4 — Delivery at expiry or roll the contract
-# A long futures contract can ask for goods instead of cash. If there is room and cash,
-# the goods arrive; if not, the contract settles in cash and the player is told why.
-# ---------------------------------------------------------------------------
-def test_q4_delivery_at_expiry_or_roll(fresh_world, logged_in_player):
-    client = logged_in_player
-    world = fresh_world
-    commodities = world["commodities"]
-    now = world["now"]
-    # Buy a gold future first
-    from simulation import derivatives
-    series = {"underlying": "METALS", "company_id": None, "kind": "future"}
-    # List series and pick one that is open
-    from simulation import world_data as data
-    # Just check the ask_delivery path exists
-    # We'll create a position with take_delivery flag and see the code path
-    # Since we can't easily create a future position from here, we just verify
-    # the function exists and the schema has the columns
-    from simulation.commodities import ask_delivery
-    # Just that the function is callable (we can't fully test without a future position)
-    assert callable(ask_delivery), "Q4 FAIL: ask_delivery not callable"
+def holder(db, name="holder", cash_naira=500_000_000):
+    return trader(db, "asset_manager", name, cash_naira=cash_naira)
 
 
-# ---------------------------------------------------------------------------
-# Q5 — Carry and contango: the far month costs more than the near one by what it
-# costs to keep the goods safe in between. Holding costs money and the curve tells the truth.
-# ---------------------------------------------------------------------------
-def test_q5_carry_contango(fresh_world, logged_in_player):
-    client = logged_in_player
-    world = fresh_world
-    commodities = world["commodities"]
-    now = world["now"]
-    # The curve function should return one of flat, contango, backwardation
-    curve_data = commodities.curve(world["conn"], now)
-    for code, info in curve_data.items():
-        shape = info["shape"]
-        assert shape in ("flat", "contango", "backwardation"), (
-            f"Q5 FAIL: {code} shape={shape} not one of the three"
-        )
-    # At least one good should show a non-flat shape if storage costs are active
-    non_flat = [info["shape"] for info in curve_data.values() if info["shape"] != "flat"]
-    # We don't assert there IS a non-flat shape (it depends on the seed), but
-    # the shapes should be valid values
-    assert all(s in ("flat", "contango", "backwardation") for s in curve_data.values()), (
-        "Q5 FAIL: unexpected curve shape"
-    )
+def test_1_the_price_of_a_good_is_its_futures_contract_divided_by_the_units(db):
+    for g in commodities.goods(db):
+        s = {"underlying": g["underlying"], "company_id": None, "kind": "future"}
+        whole = derivatives.value_of(db, s, derivatives.spot(db, s, OPEN))
+        assert commodities.spot(db, g["code"], OPEN) == max(whole // int(g["units_per_contract"]), 1)
+        q = commodities.quote(db, g["code"], OPEN)
+        assert q["bid"] < q["spot"] < q["ask"]
 
 
-# ---------------------------------------------------------------------------
-# Q6 — A player cannot hold more than their space allows, and cannot sell what
-# they do not hold.
-# ---------------------------------------------------------------------------
-def test_q6_cannot_hold_more_than_space(fresh_world, logged_in_player):
-    client = logged_in_player
-    world = fresh_world
-    commodities = world["commodities"]
-    now = world["now"]
-    # Buy gold up to the smallest unit
-    commodities.buy(world["conn"], ledger.player_account_id(world["conn"], client["id"]), "GOLD", 1, world["period"], now)
-    # Try to buy one more than the lease can hold — should raise
-    # The _space_for function should reject this
-    try:
-        commodities.buy(world["conn"], ledger.player_account_id(world["conn"], client["id"]), "GOLD", 3, world["period"], now)
-        # If it didn't raise, check the room
-        have = commodities.held(world["conn"], ledger.player_account_id(world["conn"], client["id"]), "GOLD")
-        # Should be exactly 1 since we only bought 1
-        assert have == 1, f"Q6 FAIL: held {have} after one buy"
-    except Exception as e:
-        # It's OK if the system blocks oversized buys with a clear error
-        assert "room" in str(e).lower() or "lease" in str(e).lower(), (
-            f"Q6 FAIL: buy of 3 gave unexpected error: {e}"
-        )
+def test_2_goods_need_space_and_no_more_can_be_held_than_the_space_holds(db):
+    player, account = holder(db)
+    with pytest.raises(commodities.CommodityError, match="room"):
+        commodities.buy(db, account, "GOLD", 1, P, OPEN)
+    lease = commodities.open_lease(db, account, "GOLD", 1, False, P, OPEN)
+    room = int(lease["capacity"])
+    commodities.buy(db, account, "GOLD", room, P, OPEN)
+    with pytest.raises(commodities.CommodityError, match="room"):
+        commodities.buy(db, account, "GOLD", 1, P, OPEN)
+    with pytest.raises(commodities.CommodityError, match="You hold"):
+        commodities.sell(db, account, "GOLD", room + 1, P, OPEN)
+    with pytest.raises(commodities.CommodityError, match="still holds goods"):
+        commodities.close_lease(db, account, lease["id"], OPEN)
+    books(db)
 
 
-# ---------------------------------------------------------------------------
-# Q7 — Uninsured goods can be lost; insured goods are paid for out of the pool
-# ---------------------------------------------------------------------------
-def test_q7_uninsured_loss_insured_paid(fresh_world, logged_in_player):
-    client = logged_in_player
-    world = fresh_world
-    commodities = world["commodities"]
-    now = world["now"]
-    # Buy gold and have a lease
-    commodities.buy(world["conn"], ledger.player_account_id(world["conn"], client["id"]), "GOLD", 1, world["period"], now)
-    leases = commodities.leases(world["conn"], ledger.player_account_id(world["conn"], client["id"]), "GOLD", open_only=True)
-    lease = leases[0]
-    # Set uninsured, then check the flag
-    commodities.set_insured(world["conn"], ledger.player_account_id(world["conn"], client["id"]), lease["id"], False)
-    lease2 = commodities._one(world["conn"], "SELECT * FROM commodity_storage WHERE id = %s", (lease["id"],))
-    assert lease2["insured"] == False, "Q7 FAIL: could not set uninsured"
-    # Set insured
-    commodities.set_insured(world["conn"], ledger.player_account_id(world["conn"], client["id"]), lease["id"], True)
-    lease3 = commodities._one(world["conn"], "SELECT * FROM commodity_storage WHERE id = %s", (lease["id"],))
-    assert lease3["insured"] == True, "Q7 FAIL: could not set insured"
+def test_3_a_round_trip_costs_exactly_the_spread_and_makes_nothing_from_nowhere(db):
+    player, account = holder(db)
+    commodities.open_lease(db, account, "OIL", 1, False, P, OPEN)
+    start = ledger.balance(db, account)
+    stock = commodities.stock(db, "OIL")
+    q = commodities.quote(db, "OIL", OPEN)
+    bought = commodities.buy(db, account, "OIL", 50, P, OPEN)
+    sold = commodities.sell(db, account, "OIL", 50, P, OPEN)
+    assert bought["cost"] == 50 * q["ask"] and sold["proceeds"] == 50 * q["bid"]
+    assert ledger.balance(db, account) == start - 50 * (q["ask"] - q["bid"])
+    assert commodities.stock(db, "OIL") == stock and commodities.held(db, account, "OIL") == 0
+    books(db)
 
 
-# ---------------------------------------------------------------------------
-# Q8 — Delivery happens only with room and cash, and settles in cash otherwise
-# ---------------------------------------------------------------------------
-def test_q8_delivery_room_cash(fresh_world, logged_in_player):
-    client = logged_in_player
-    world = fresh_world
-    commodities = world["commodities"]
-    now = world["now"]
-    # We verify the deliver function exists and the room/cash check path is there
-    from simulation.commodities import deliver
-    assert callable(deliver), "Q8 FAIL: deliver not callable"
-    # The function does check room and cash before delivering (see _deliver_one)
-    # We just confirm the schema and the code path exist
+def test_4_rent_is_charged_at_the_close_and_unpaid_rent_is_paid_by_selling_the_goods(db):
+    payer, paying = holder(db, "payer")
+    short, shorted = holder(db, "short")
+    for account in (paying, shorted):
+        commodities.open_lease(db, account, "FARM", 1, False, P, OPEN)
+        commodities.buy(db, account, "FARM", 200, P, OPEN)
+    # The second holder leaves their job and spends everything: the rent must come out of the goods.
+    careers.leave_job(db, short, OPEN)
+    ledger.transfer(db, payer=shorted, receiver=paying, amount=ledger.balance(db, shorted), kind="gift", memo="test")
+    quarters.close_due_quarters(db, after_quarters(9))
+    paid = _one(db, "SELECT * FROM commodity_events WHERE account = %s AND kind = 'rent'", (paying,))
+    assert paid["amount"] > 0
+    assert commodities.held(db, shorted, "FARM") < 200        # goods were sold to cover the rent
+    books(db)
 
 
-# ---------------------------------------------------------------------------
-# Q9 — The far contract costs more than the near one by the cost of storage
-# (carry). A price far above its own year's average is expected to come back down,
-# and when it falls faster than storage lifts it the near month stands above the far
-# one instead: backwardation.
-# ---------------------------------------------------------------------------
-def test_q9_carry_costs_more(fresh_world, logged_in_player):
-    client = logged_in_player
-    world = fresh_world
-    commodities = world["commodities"]
-    now = world["now"]
-    # The curve function already returns shapes; we verify they are valid
-    curve_data = commodities.curve(world["conn"], now)
-    # Every good should have a valid shape
-    for code, info in curve_data.items():
-        assert info["shape"] in ("flat", "contango", "backwardation"), (
-            f"Q9 FAIL: {code} has unexpected shape {info['shape']}"
-        )
+def test_5_uninsured_goods_can_be_lost_and_insured_ones_are_paid_for_out_of_the_pool(db, monkeypatch):
+    insured, insured_account = holder(db, "insured")
+    bare, bare_account = holder(db, "bare")
+    a = commodities.open_lease(db, insured_account, "GOLD", 1, True, P, OPEN)
+    b = commodities.open_lease(db, bare_account, "GOLD", 1, False, P, OPEN)
+    for account in (insured_account, bare_account):
+        commodities.buy(db, account, "GOLD", 100, P, OPEN)
+    # The pool holds premiums; put a quarter's worth in through the close, then make every space unlucky.
+    monkeypatch.setattr(commodities, "_chance", lambda salt, period, lease_id: 0)
+    before = ledger.balance(db, insured_account)
+    quarters.close_due_quarters(db, after_quarters(9))
+    lost_a = _one(db, "SELECT * FROM commodity_events WHERE account = %s AND kind = 'loss'", (insured_account,))
+    lost_b = _one(db, "SELECT * FROM commodity_events WHERE account = %s AND kind = 'loss'", (bare_account,))
+    assert lost_a and lost_b
+    assert lost_b["amount"] == 0 and commodities.held(db, bare_account, "GOLD") < 100
+    claims = _one(db, "SELECT coalesce(sum(l.amount), 0) AS paid FROM ledger_entries l JOIN ledger_transactions t"
+                      " ON t.id = l.transaction_id WHERE l.account_id = %s AND t.kind = 'commodity_claim'", (insured_account,))
+    assert claims["paid"] == lost_a["amount"]
+    assert ledger.balance(db, commodities.insurance_account(db)) >= 0      # the pool pays what it holds and no more
+    assert a["id"] != b["id"] and ledger.balance(db, insured_account) != before
+    books(db)
 
 
-# ---------------------------------------------------------------------------
-# Q10 — No player can end up with naira or goods that came from nowhere
-# (no double-spend, no free money, no goods created from thin air).
-# ---------------------------------------------------------------------------
-def test_q10_no_naira_or_goods_from_nowhere(fresh_world, logged_in_player):
-    client = logged_in_player
-    world = fresh_world
-    commodities = world["commodities"]
-    from simulation import ledger
-    now = world["now"]
-    # Record the naira the player starts with
-    start_naira = ledger.balance(world["conn"], ledger.player_account_id(world["conn"], client["id"]), "NGN")
-    # Do a buy and sell cycle
-    commodities.buy(world["conn"], ledger.player_account_id(world["conn"], client["id"]), "GOLD", 1, world["period"], now)
-    have_after_buy = commodities.held(world["conn"], ledger.player_account_id(world["conn"], client["id"]), "GOLD")
-    assert have_after_buy == 1, f"Q10 FAIL: expected 1 gold after buy, got {have_after_buy}"
-    # Sell it back
-    commodities.sell(world["conn"], ledger.player_account_id(world["conn"], client["id"]), "GOLD", 1, world["period"], now)
-    have_after_sell = commodities.held(world["conn"], ledger.player_account_id(world["conn"], client["id"]), "GOLD")
-    assert have_after_sell == 0, f"Q10 FAIL: expected 0 gold after sell, got {have_after_sell}"
-    # The naira balance should be back to where it was (within rounding)
-    end_naira = ledger.balance(world["conn"], ledger.player_account_id(world["conn"], client["id"]), "NGN")
-    # Allow 1 kobo of rounding drift
-    assert abs(end_naira - start_naira) <= 1, (
-        f"Q10 FAIL: naira changed from {start_naira} to {end_naira} after buy/sell cycle"
-    )
+def test_6_delivery_happens_only_with_room_and_otherwise_settles_in_cash(db):
+    player, account = holder(db, "jeweller")
+    f = series(db, "future", "METALS")
+    done = derivatives.open_position(db, account, f["id"], "long", 2, OPEN, player_id=player)
+    with pytest.raises(commodities.CommodityError, match="no such open contract"):
+        commodities.ask_delivery(db, account, done["position_id"] + 999_999, OPEN)
+    asked = commodities.ask_delivery(db, account, done["position_id"], OPEN)
+    assert asked["good"] == "GOLD" and asked["units"] == 2 * 10
+    other, other_account = holder(db, "no-room")
+    g = derivatives.open_position(db, other_account, f["id"], "long", 1, OPEN, player_id=other)
+    commodities.ask_delivery(db, other_account, g["position_id"], OPEN)
+    commodities.open_lease(db, account, "GOLD", 1, False, P, OPEN)            # room for the jeweller only
+    quarters.close_due_quarters(db, after_quarters(9))
+    assert commodities.held(db, account, "GOLD") == 20
+    refused = _one(db, "SELECT * FROM commodity_events WHERE account = %s AND kind = 'delivery_refused'", (other_account,))
+    assert refused and "No room" in refused["words"]
+    assert commodities.held(db, other_account, "GOLD") == 0
+    books(db)
+
+
+def test_7_a_short_future_cannot_take_delivery(db):
+    player, account = holder(db, "seller")
+    f = series(db, "future", "OIL")
+    done = derivatives.open_position(db, account, f["id"], "short", 1, OPEN, player_id=player)
+    with pytest.raises(commodities.CommodityError, match="long futures"):
+        commodities.ask_delivery(db, account, done["position_id"], OPEN)
+
+
+def test_8_the_curve_has_a_shape_read_from_its_prices(db):
+    curve = commodities.curve(db, OPEN)
+    assert set(curve) == {g["code"] for g in commodities.goods(db)}
+    for code, info in curve.items():
+        assert info["shape"] in ("flat", "contango", "backwardation")
+
+
+def test_9_a_lease_belongs_to_its_holder_alone(db):
+    one, one_account = holder(db, "owner-one")
+    two, two_account = holder(db, "owner-two")
+    lease = commodities.open_lease(db, one_account, "MATERIALS", 1, False, P, OPEN)
+    with pytest.raises(commodities.CommodityError, match="no such lease"):
+        commodities.set_insured(db, two_account, lease["id"], True)
+    with pytest.raises(commodities.CommodityError, match="no such lease"):
+        commodities.close_lease(db, two_account, lease["id"], OPEN)
+    with pytest.raises(commodities.CommodityError, match="room"):
+        commodities.buy(db, two_account, "MATERIALS", 1, P, OPEN)          # someone else's space is not yours
+
+
+def test_10_the_page_never_names_a_price(db):
+    from pydantic import ValidationError
+    from server.commodity_routes import LeaseRequest, TradeRequest
+    with pytest.raises(ValidationError):
+        TradeRequest(good="GOLD", units=1, price=1)
+    with pytest.raises(ValidationError):
+        TradeRequest(good="SILVER", units=1)
+    with pytest.raises(ValidationError):
+        LeaseRequest(good="GOLD", spaces=0)
+    assert BPS == 10_000

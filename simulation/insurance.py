@@ -1,72 +1,55 @@
-"""Insurance (Stage 12 design, sections 12).
+"""Insurance: four policies a player can buy, under Money (owner, 9 November 2026).
 
-Four policies answering losses the engine already inflicts:
-  1. Property and premises     — restores building condition after wear
-  2. Directors' and officers'  — pays damages, costs, fine share on a judgment
-  3. Income protection         — share of last salary after a dismissal
-  4. Personal umbrella         — top-up above the limits of the other policies
+Each policy answers a loss the game already inflicts, and every claim is made against a loss the game has recorded:
 
-Every figure is read from the game's own record; nothing is hard-coded.
-Premium = expected loss + loading. No-claims record lowers the premium;
-a claim resets it. The personal loan spread reads cover in force.
+  1. Property and premises    the wear on buildings you own, the repair less an excess. Wear on a building whose upkeep
+                              was not kept is the owner's own doing and is not covered.
+  2. Directors' and officers' the tribunal's costs and damages ordered against you. The disgorgement and the fine never:
+                              giving back a gain is not a loss, and a punishment that could be insured would not punish.
+                              It answers cases opened two years or more after the cover began, so no wrong done before
+                              it can be insured after.
+  3. Income protection        half your last salary, each quarter for up to a year, after a dismissal, while out of work.
+                              Resigning, changing build and moving employer are your own choice and are not covered.
+  4. Personal umbrella        a top-up: when a loss is larger than the cover of the policy that answers it, the umbrella
+                              pays the rest, up to its own cover.
 
-What is here:
-  quarterly close step  — charges premiums, ages no-claims, expires cover
-  claim intake          — engine or player opens a claim
-  claim investigation   — reads the same record the court reads
-  claim payout          — from the pool, or out of the pool if short
-  second claim          — permanently ends cover for that policy kind
-  personal loan spread  — reads cover in force and adjusts the rate
+The premium is the expected loss read from the last year of the game's own record, plus a loading, plus a small charge
+on the cover so no cover is free. It loses money on average, as insurance does; what it buys is certainty and a cheaper
+personal loan, because a lender charges less to a borrower whose assets and income are insured.
+
+Every naira moves through the ledger: premiums into the policy account at `insurance:pool`, claims out of it. The pool
+pays only what it holds: a claim larger than the pool is paid in part, and the shortfall is shown.
+
+A claim on a loss the claimant caused is refused, the premium is kept, and the insurer refers it to the tribunal as
+insurance fraud. The second such refusal ends all of the player's cover, and no insurer writes for them again.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from psycopg import Connection
 from psycopg.rows import dict_row
 
-from simulation import careers, courts, clock, ledger, world_data as data
-from simulation.clock import period_label
-from simulation.money import apply_bps, naira, zero_kobo
+from simulation import careers, clock, ledger
+from simulation import world_data as data
+from simulation.money import BPS, naira
 
-POLICY_PROPERTY = "property"
-POLICY_DIRECTORS = "directors"
-POLICY_INCOME = "income"
-POLICY_UMBRELLA = "umbrella"
-
-POLICY_NAMES = {
-    POLICY_PROPERTY: "Property and premises",
-    POLICY_DIRECTORS: "Directors' and officers'",
-    POLICY_INCOME: "Income protection",
-    POLICY_UMBRELLA: "Personal umbrella",
+POOL = "insurance:pool"
+KINDS = ("property", "directors", "income", "umbrella")
+NAMES = {
+    "property": "Property and premises",
+    "directors": "Directors' and officers'",
+    "income": "Income protection",
+    "umbrella": "Personal umbrella",
 }
-
-POOL_ACCOUNT = "insurance:pool"
-
-# ---------------------------------------------------------------------------
-# Loading: the loading on top of expected loss. Expressed in basis points
-# of the sum insured per quarter.
-# ---------------------------------------------------------------------------
-LOADING_BPS = 2000  # 20% loading: premium is expected loss + 20%
-
-# ---------------------------------------------------------------------------
-# No-claims discount: each full year without a claim takes this percent off
-# the premium. A claim resets the record to 0.
-# ---------------------------------------------------------------------------
-NO_CLAIMS_DISCOUNT_BPS = 500  # 5% per full year without a claim
-
-# ---------------------------------------------------------------------------
-# Personal loan spread: uninsured spread (bps) over the policy rate.
-# With insurance, the spread narrows in proportion to cover in force.
-# ---------------------------------------------------------------------------
-UNINSURED_PERSONAL_LOAN_SPREAD_BPS = data.PERSONAL_LOAN_SPREAD_BPS
-INSURED_PERSONAL_LOAN_SPREAD_BPS = 500  # one step for any cover in force
+# The policies a lender counts. The umbrella only tops the others up, so it does not count on its own.
+LENDER_COUNTS = ("property", "directors", "income")
 
 
-# ---------------------------------------------------------------------------
-# Small helpers, same pattern as courts.py and lending.py.
-# ---------------------------------------------------------------------------
+class InsuranceError(Exception):
+    """A request the insurer refuses, in words for the player."""
+
 
 def _rows(conn: Connection, sql: str, params=()) -> list[dict]:
     with conn.cursor(row_factory=dict_row) as cur:
@@ -78,610 +61,629 @@ def _one(conn: Connection, sql: str, params=()) -> dict | None:
     return rows[0] if rows else None
 
 
-def _naira(kobo: int) -> str:
+def money(kobo: int) -> str:
     return f"₦{kobo / 100:,.2f}"
 
 
-def _pool_account(conn: Connection):
-    return ledger.account_id(conn, POOL_ACCOUNT)
+def ready(conn: Connection) -> bool:
+    return _one(conn, "SELECT to_regclass('insurance_policies') IS NOT NULL AS ok")["ok"] is True
 
 
-# ---------------------------------------------------------------------------
-# Expected-loss figures (read from the game's own record at close).
-# These are NOT hard-coded prices; the close-step reads them from the record.
-# ---------------------------------------------------------------------------
-
-def expected_loss_property(conn: Connection, period: int) -> int:
-    """Expected loss for property insurance over the last 4 quarters.
-
-    Read from property_results: wear and lost occupancy in the building's
-    district. Returns amount in kobo.
-    """
-    results = _rows(conn, """
-        SELECT period, lost_rent_kobo
-        FROM property_results
-        WHERE period >= %s AND period <= %s
-        ORDER BY period DESC
-        LIMIT 4
-    """, (period - 3, period))
-    total = 0
-    for r in results:
-        total += r["lost_rent_kobo"]
-    return total
-
-
-def expected_loss_directors(conn: Connection, period: int) -> int:
-    """Expected loss for directors' and officers' insurance over the last 4 quarters.
-
-    Read from court_cases: damages, costs and fine share (never disgorgement),
-    by kind of case, over the last 4 quarters. Returns amount in kobo.
-    """
-    cases = _rows(conn, """
-        SELECT kind, damages, costs, fine
-        FROM court_cases
-        WHERE opened_period >= %s AND opened_period <= %s
-        ORDER BY opened_period DESC
-    """, (period - 3, period))
-    total = 0
-    for c in cases:
-        total += c["damages"] or 0
-        total += c["costs"] or 0
-        total += c["fine"] or 0
-    return total
-
-
-def expected_loss_income(conn: Connection, period: int) -> int:
-    """Expected loss for income protection over the last 4 quarters.
-
-    Read from career_events: dismissals recorded in careers, over the last
-    4 quarters. Returns amount in kobo.
-    """
-    events = _rows(conn, """
-        SELECT player_id, at
-        FROM career_events
-        WHERE kind = 'dismissed'
-        ORDER BY at DESC
-        LIMIT 4
-    """)
-    total = 0
-    for e in events:
-        salary = _one(conn, """
-            SELECT salary FROM payslips
-            WHERE player_id = %s
-            ORDER BY period DESC LIMIT 1
-        """, (e["player_id"],))
-        if salary and salary["salary"] > 0:
-            total += salary["salary"] * 50 // 100
-    return total
-
-
-def expected_loss_umbrella(conn: Connection, period: int) -> int:
-    """Expected loss for personal umbrella over the last 4 quarters.
-
-    Read from court_cases: the cost of cases the player lost that are not
-    already covered by directors' and officers' insurance. Returns kobo.
-    """
-    cases = _rows(conn, """
-        SELECT kind, amount, outcome
-        FROM court_cases
-        WHERE opened_period >= %s AND opened_period <= %s
-        AND outcome = 'lost'
-        ORDER BY opened_period DESC
-        LIMIT 4
-    """, (period - 3, period))
-    total = 0
-    for c in cases:
-        total += c["amount"]
-    return total
-
-
-# ---------------------------------------------------------------------------
-# Premiums.
-# ---------------------------------------------------------------------------
-
-def premium_property(conn: Connection, player_id, period: int, limit_kobo: int, excess_kobo: int) -> int:
-    """Quarterly premium for property insurance.
-
-    Premium = expected loss + loading (LOADING_BPS bps of the sum insured),
-    less the no-claims discount.
-    """
-    expected = expected_loss_property(conn, period)
-    loading = apply_bps(limit_kobo, LOADING_BPS)
-    premium = expected + loading
-    premium -= no_claims_discount(conn, player_id, POLICY_PROPERTY, period)
-    return max(premium, zero_kobo)
-
-
-def premium_directors(conn: Connection, player_id, period: int, limit_kobo: int, excess_kobo: int) -> int:
-    """Quarterly premium for directors' and officers' insurance."""
-    expected = expected_loss_directors(conn, period)
-    loading = apply_bps(limit_kobo, LOADING_BPS)
-    premium = expected + loading
-    premium -= no_claims_discount(conn, player_id, POLICY_DIRECTORS, period)
-    return max(premium, zero_kobo)
-
-
-def premium_income(conn: Connection, player_id, period: int, limit_kobo: int, excess_kobo: int) -> int:
-    """Quarterly premium for income protection."""
-    expected = expected_loss_income(conn, period)
-    loading = apply_bps(limit_kobo, LOADING_BPS)
-    premium = expected + loading
-    premium -= no_claims_discount(conn, player_id, POLICY_INCOME, period)
-    return max(premium, zero_kobo)
-
-
-def premium_umbrella(conn: Connection, player_id, period: int, limit_kobo: int, excess_kobo: int) -> int:
-    """Quarterly premium for personal umbrella."""
-    expected = expected_loss_umbrella(conn, period)
-    loading = apply_bps(limit_kobo, LOADING_BPS)
-    premium = expected + loading
-    premium -= no_claims_discount(conn, player_id, POLICY_UMBRELLA, period)
-    return max(premium, zero_kobo)
-
-
-def compute_premium(conn: Connection, player_id, kind: str, period: int, limit_kobo: int, excess_kobo: int) -> int:
-    """Dispatch to the right premium function for the policy kind."""
-    if kind == POLICY_PROPERTY:
-        return premium_property(conn, player_id, period, limit_kobo, excess_kobo)
-    if kind == POLICY_DIRECTORS:
-        return premium_directors(conn, player_id, period, limit_kobo, excess_kobo)
-    if kind == POLICY_INCOME:
-        return premium_income(conn, player_id, period, limit_kobo, excess_kobo)
-    if kind == POLICY_UMBRELLA:
-        return premium_umbrella(conn, player_id, period, limit_kobo, excess_kobo)
-    return 0
-
-
-def no_claims_discount(conn: Connection, player_id, kind: str, period: int) -> int:
-    """No-claims discount in kobo for the player's policy of this kind.
-
-    Each full year without a claim discounts NO_CLAIMS_DISCOUNT_BPS bps of
-    the premium. A claim resets the record to 0. Stored per player, not per
-    policy, so cancelling and re-buying does not reset it.
-    """
-    policy = _one(conn, """
-        SELECT no_claims_years FROM insurance_policies
-        WHERE player_id = %s AND kind = %s
-    """, (player_id, kind))
-    if policy is None:
-        return zero_kobo
-    years = policy["no_claims_years"]
-    return apply_bps(10_000_000, NO_CLAIMS_DISCOUNT_BPS * years) // 10_000_000 * 0  # placeholder, see below
-    # The discount is applied against the premium in the premium functions,
-    # expressed as bps of the loading+expected loss. Here we return the bps
-    # of discount as an integer (0-10000). The premium functions subtract
-    # this from the computed premium.
-
-
-def no_claims_bps(conn: Connection, player_id, kind: str) -> int:
-    """No-claims discount as basis points (0-10000) of the premium."""
-    policy = _one(conn, """
-        SELECT no_claims_years FROM insurance_policies
-        WHERE player_id = %s AND kind = %s
-    """, (player_id, kind))
-    if policy is None:
-        return 0
-    return min(policy["no_claims_years"] * NO_CLAIMS_DISCOUNT_BPS, 10_000)
-
-
-# ---------------------------------------------------------------------------
-# Close-step: charge premiums, age no-claims, expire cover.
-# Called at each quarter close, after all empire ticks.
-# ---------------------------------------------------------------------------
-
-def close_quarter_insurance(conn: Connection, now: datetime) -> None:
-    """The quarterly close step for insurance.
-
-    For every active insurance policy:
-      1. Charge the premium for this quarter, from the player's account to the pool.
-      2. Age the no-claims record: +1 year if no claim was made this quarter.
-      3. If a claim was made this quarter, reset no-claims to 0.
-      4. Expire policies active for more than 20 quarters without renewal.
-      5. Adjust the personal loan spread for insured players.
-    """
-    period = clock.world_now(conn, now)["period"]
-
-    policies = _rows(conn, """
-        SELECT player_id, kind, limit, excess, premium_bps, started, no_claims_years, state
-        FROM insurance_policies
-        WHERE state = 'active'
-    """)
-
-    for p in policies:
-        player_id = p["player_id"]
-        kind = p["kind"]
-        limit_kobo = p["limit"]
-        excess = p["excess"]
-        started = p["started"]
-        no_claims_years = p["no_claims_years"]
-
-        # 1. Compute and charge the premium.
-        premium = compute_premium(conn, player_id, kind, period, limit_kobo, excess)
-        if premium > 0:
-            player_account = ledger.player_account_id(conn, player_id)
-            if player_account and ledger.balance(conn, player_account) >= premium:
-                pool = _pool_account(conn)
-                ledger.transfer(
-                    conn, payer=player_account, receiver=pool,
-                    amount=premium, kind="insurance_premium",
-                    period=period, now=now,
-                )
-                # Record the premium charged against the policy.
-                conn.execute("""
-                    UPDATE insurance_policies
-                    SET premium_bps = %s
-                    WHERE player_id = %s AND kind = %s
-                """, (premium, player_id, kind))
-
-        # 2. Age or reset no-claims.
-        had_claim = _had_claim_this_quarter(conn, player_id, kind, period)
-        if had_claim:
-            conn.execute("""
-                UPDATE insurance_policies
-                SET no_claims_years = 0, state = 'claimed'
-                WHERE player_id = %s AND kind = %s AND state = 'active'
-            """, (player_id, kind))
-        else:
-            new_years = min(no_claims_years + 1, 10)
-            conn.execute("""
-                UPDATE insurance_policies
-                SET no_claims_years = %s
-                WHERE player_id = %s AND kind = %s AND state = 'active'
-            """, (new_years, player_id, kind))
-
-        # 3. Expire policies active for more than 20 quarters.
-        if period - started > 20:
-            conn.execute("""
-                UPDATE insurance_policies
-                SET state = 'expired', ends = %s
-                WHERE player_id = %s AND kind = %s AND state = 'active'
-            """, (period, player_id, kind))
-
-    # 4. Adjust personal loan spread for all players with cover in force.
-    _adjust_loan_spread(conn, now)
-
-
-def _had_claim_this_quarter(conn: Connection, player_id, kind: str, period: int) -> bool:
-    """Check if a claim was opened for this policy this quarter.
-
-    insurance_claims has no period column (only `at` timestamptz), so we
-    check the quarter window from the world clock.
-    """
-    start = _quarter_start(conn, period)
-    claim = _one(conn, """
-        SELECT id FROM insurance_claims
-        WHERE policy_player_id = %s AND policy_kind = %s
-        AND at >= %s
-    """, (player_id, kind, start))
-    return claim is not None
+def pool(conn: Connection):
+    """The policy account: premiums in, claims out, nothing else. Made the first time it is needed."""
+    row = _one(conn, "SELECT id FROM ledger_accounts WHERE code = %s", (POOL,))
+    if row:
+        return row["id"]
+    made = ledger.create_account(conn, kind="escrow", name="The insurers' policy account", code=POOL)
+    # The insurers start with capital of their own, put up by the pension funds, so the first claims are not paid out of
+    # a handful of premiums. It is theirs: what premiums earn beyond the claims stays in the account.
+    ledger.pay_up_to(conn, payer=ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS), receiver=made,
+                     wanted=naira(data.INSURANCE_POOL_CAPITAL_NAIRA), kind="insurance_capital",
+                     memo="The insurers' own capital, put up by the pension funds")
+    return made
 
 
 def _quarter_start(conn: Connection, period: int) -> datetime:
     world = _one(conn, "SELECT world_start, weeks_ahead FROM world_state")
     start = clock.effective_start(world["world_start"], world["weeks_ahead"])
-    from datetime import timedelta
     return start + timedelta(days=clock.REAL_DAYS_PER_QUARTER * (max(period, 1) - 1))
 
 
-def _adjust_loan_spread(conn: Connection, now: datetime) -> None:
-    """Record the narrowed personal loan spread for insured players.
-
-    Uninsured spread is PERSONAL_LOAN_SPREAD_BPS (from world_data).
-    Insured players get a narrowed spread:
-      - one step (500 bps) for any cover in force
-      - a second step (another 500 bps) if cover is worth more than half their liabilities
-
-    The narrowed spread is read at quote time in server/lending_routes.py
-    from the player's active insurance policies; this function persists a
-    snapshot for reporting.
-    """
-    players = _rows(conn, """
-        SELECT p.id FROM players p
-    """)
-
-    for player_data in players:
-        player_id = player_data["id"]
-
-        policies = _rows(conn, """
-            SELECT kind, limit FROM insurance_policies
-            WHERE player_id = %s AND state = 'active'
-        """, (player_id,))
-
-        total_cover_kobo = sum(p["limit"] for p in policies)
-
-        narrowing = 0
-        if total_cover_kobo > 0:
-            narrowing += INSURED_PERSONAL_LOAN_SPREAD_BPS
-            # Outstanding personal loans, as liabilities.
-            loan = _one(conn, """
-                SELECT coalesce(sum(outstanding), 0)::bigint AS total
-                FROM player_loans
-                WHERE borrower = %s AND kind = 'personal' AND status <> 'repaid'
-            """, (player_id,))
-            loan_amount = loan["total"] if loan else 0
-            if loan_amount > 0 and total_cover_kobo > loan_amount // 2:
-                narrowing += INSURED_PERSONAL_LOAN_SPREAD_BPS
-
-        # Store the narrowed spread for the server to read at quote time.
-        conn.execute("""
-            INSERT INTO insurance_loan_spread (player_id, narrowed_bps, at)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (player_id) DO UPDATE SET narrowed_bps = EXCLUDED.narrowed_bps, at = EXCLUDED.at
-        """, (player_id, narrowing, now))
+def _running_period(conn: Connection) -> int:
+    return _one(conn, "SELECT last_closed_period FROM world_state")["last_closed_period"] + 1
 
 
 # ---------------------------------------------------------------------------
-# Claim intake.
+# What a player has to insure
 # ---------------------------------------------------------------------------
 
-def open_claim(conn: Connection, player_id, kind: str, loss_kind: str, loss_amount: int,
-               evidence: str, excess_kobo: int, now: datetime) -> int:
-    """Open a new claim against a policy.
-
-    The engine or the player may open a claim. The claim is written to the
-    claims table. The excess is deducted from the loss amount to get the
-    payable figure. The pool can be short: if premiums taken in have not
-    covered what is claimed, the claim is paid out of what the pool holds
-    and the shortfall is recorded.
-
-    Returns the claim id.
-    """
-    policy = _one(conn, """
-        SELECT limit, excess, state FROM insurance_policies
-        WHERE player_id = %s AND kind = %s AND state = 'active'
-    """, (player_id, kind))
-    if policy is None:
-        raise ValueError(f"No active {kind} policy for player {player_id}")
-
-    # A loss may be claimed once against one policy.
-    existing = _one(conn, """
-        SELECT id FROM insurance_claims
-        WHERE policy_player_id = %s AND policy_kind = %s AND loss_kind = %s
-        AND state IN ('open', 'investigated', 'paid')
-    """, (player_id, kind, loss_kind))
-    if existing:
-        raise ValueError(f"A {kind} claim for {loss_kind} is already open or settled for this policy.")
-
-    payable = max(loss_amount - excess_kobo, 0)
-
-    claim_id = _one(conn, """
-        INSERT INTO insurance_claims (policy_player_id, policy_kind, loss_kind,
-            loss_amount, evidence, excess_applied, payable, state, at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, 'open', %s)
-        RETURNING id
-    """, (player_id, kind, loss_kind, loss_amount, evidence, excess_kobo, payable, now))
-
-    # Mark the policy as having had a claim this quarter (no-claims resets at close).
-    conn.execute("""
-        UPDATE insurance_policies
-        SET state = 'claimed'
-        WHERE player_id = %s AND kind = %s AND state = 'active'
-    """, (player_id, kind))
-
-    return claim_id
+def _buildings(conn: Connection, account) -> list[dict]:
+    """The standing buildings a player holds a share of, and what their share is worth today."""
+    from simulation import property as prop
+    rate = prop.policy_rate(conn)
+    ds = prop.districts(conn)
+    out = []
+    for p in _rows(conn, "SELECT p.*, h.share_bps, h.since_period FROM property_holdings h JOIN properties p ON p.id = h.property_id"
+                         " WHERE h.account_id = %s AND p.status = 'standing' AND p.kind <> 'land' ORDER BY p.id", (account,)):
+        worth = prop.value(p, ds[p["district_id"]], rate)
+        out.append({"id": p["id"], "name": p["name"], "condition": p["condition"], "share_bps": p["share_bps"],
+                    "since_period": p["since_period"], "value": worth * p["share_bps"] // BPS})
+    return out
 
 
-# ---------------------------------------------------------------------------
-# Claim investigation.
-# ---------------------------------------------------------------------------
-
-def investigate_claim(conn: Connection, claim_id: int, now: datetime) -> dict:
-    """Investigate a claim before payment.
-
-    The investigator reads the same record the court already reads: who caused
-    the loss, and whether it was the claimant. If the claimant caused the loss,
-    the claim is refused, the premium is kept, and the incident opens a court
-    case for attempting to claim on a loss you caused. Reputation takes the
-    damage.
-
-    Returns a dict with 'approved' and 'words' keys.
-    """
-    claim = _one(conn, "SELECT * FROM insurance_claims WHERE id = %s", (claim_id,))
-    if claim is None:
-        raise ValueError(f"No such claim {claim_id}")
-
-    caused_by_claimant = _caused_by_claimant(conn, claim)
-
-    if caused_by_claimant:
-        _refuse_claim(conn, claim_id, now)
-        return {"approved": False,
-                "words": "The claim was refused: the loss was caused by the claimant. "
-                         "A court case is opened for attempting to claim on a loss you caused."}
-
-    _approve_claim(conn, claim_id, now)
-    return {"approved": True, "words": "The claim was approved for payment from the pool."}
+def _salary(conn: Connection, player_id, now: datetime) -> int:
+    if careers.current_job(conn, player_id) is None:
+        return 0
+    mine = careers.career(conn, player_id)
+    if mine is None:
+        return 0
+    return careers.salary_per_quarter(mine["level"], careers.world_now(conn, now)["wage_index_bps"])
 
 
-def _caused_by_claimant(conn: Connection, claim: dict) -> bool:
-    """Determine if the loss was caused by the claimant.
-
-    Reads the same record the court reads, not just the player's words.
-    For property: the building was left without upkeep and then claimed for.
-    For directors': the wrong was committed after the policy was written.
-    For income: the dismissal was not the standard newsroom dismissal.
-    For umbrella: the claimant's own deliberate act.
-    """
-    loss_kind = claim["loss_kind"]
-    evidence = (claim["evidence"] or "").lower()
-
-    if loss_kind == POLICY_PROPERTY:
-        # A building left without upkeep and then claimed for: the player caused it.
-        return "without upkeep" in evidence
-    if loss_kind == POLICY_DIRECTORS:
-        # A wrong committed after the policy was written is not insurable.
-        return "after the policy was written" in evidence
-    if loss_kind == POLICY_INCOME:
-        # Only standard dismissals are covered; a dismissal the player caused is not.
-        return "dismissed: misconduct" in evidence or "resigned" in evidence
-    if loss_kind == POLICY_UMBRELLA:
-        return "personal fault" in evidence
-    return False
+def _in_force(conn: Connection, player_id, kind: str | None = None) -> list[dict]:
+    sql = "SELECT * FROM insurance_policies WHERE player_id = %s AND ended_at IS NULL"
+    params: tuple = (player_id,)
+    if kind:
+        sql += " AND kind = %s"
+        params += (kind,)
+    return _rows(conn, sql + " ORDER BY id", params)
 
 
-def _refuse_claim(conn: Connection, claim_id: int, now: datetime) -> None:
-    """Refuse a claim: keep the premium, open a court case for insurance fraud."""
-    claim = _one(conn, "SELECT * FROM insurance_claims WHERE id = %s", (claim_id,))
-    if claim is None:
-        return
-
-    conn.execute("""
-        UPDATE insurance_claims
-        SET state = 'refused', refused_reason = %s, refused_at = %s
-        WHERE id = %s
-    """, ("Claimant caused the loss", now, claim_id))
-
-    # Open a court case for attempting to claim on a loss you caused.
-    courts.open_case(
-        conn, kind="insurance_fraud", defendant_id=claim["policy_player_id"],
-        claimant_id=None, company_id=None,
-        amount=naira(claim["loss_amount"]), evidence={"words": claim["evidence"] or ""},
-        words=f"Attempted fraudulent claim on {claim['policy_kind']} insurance policy",
-        period=clock.world_now(conn, now)["period"], now=now,
-    )
-
-    # A second attempt ends the policy permanently.
-    conn.execute("""
-        UPDATE insurance_policies
-        SET state = 'refused', ends = %s
-        WHERE player_id = %s AND kind = %s
-    """, (now, claim["policy_player_id"], claim["policy_kind"]))
-
-    conn.execute("""
-        INSERT INTO insurance_refusals (player_id, kind, at)
-        VALUES (%s, %s, %s)
-        ON CONFLICT (player_id, kind) DO NOTHING
-    """, (claim["policy_player_id"], claim["policy_kind"], now))
-
-
-def _approve_claim(conn: Connection, claim_id: int, now: datetime) -> None:
-    """Approve a claim and pay it from the pool.
-
-    The pool transfers the payable amount. If the pool is short, the claim
-    is paid out of what the pool holds and the shortfall is recorded. The
-    policy does not promise money that does not exist.
-    """
-    claim = _one(conn, "SELECT * FROM insurance_claims WHERE id = %s", (claim_id,))
-    if claim is None:
-        return
-
-    payable = claim["payable"]
-    if payable <= 0:
-        conn.execute("""
-            UPDATE insurance_claims SET state = 'paid' WHERE id = %s
-        """, (claim_id,))
-        return
-
-    pool = _pool_account(conn)
-    pool_balance = ledger.balance(conn, pool)
-
-    to_pay = min(payable, pool_balance)
-    shortfall = payable - to_pay
-
-    player_account = ledger.player_account_id(conn, claim["policy_player_id"])
-    if player_account and to_pay > 0:
-        ledger.transfer(
-            conn, payer=pool, receiver=player_account,
-            amount=to_pay, kind="insurance_claim",
-            period=clock.world_now(conn, now)["period"], now=now,
-        )
-
-    conn.execute("""
-        UPDATE insurance_claims
-        SET state = 'paid', payable = %s
-        WHERE id = %s
-    """, (to_pay, claim_id))
-
-    if shortfall > 0:
-        conn.execute("""
-            INSERT INTO insurance_claims (policy_player_id, policy_kind, loss_kind,
-                loss_amount, evidence, excess_applied, payable, state, at)
-            VALUES (%s, %s, 'shortfall', %s, %s, 0, %s, 'open', %s)
-        """, (
-            claim["policy_player_id"], claim["policy_kind"], shortfall,
-            f"Shortfall on claim {claim_id}: pool could not cover the full payable.",
-            shortfall, now,
-        ))
+def most_cover(conn: Connection, player_id, kind: str, now: datetime) -> int:
+    """The most cover of a kind the insurer will write: never more than there is to lose."""
+    if kind == "property":
+        account = ledger.player_account_id(conn, player_id)
+        return sum(b["value"] for b in _buildings(conn, account)) if account else 0
+    if kind == "directors":
+        return naira(data.INSURANCE_DIRECTORS_MOST_NAIRA)
+    if kind == "income":
+        return _salary(conn, player_id, now) * data.INSURANCE_INCOME_SHARE_BPS // BPS * data.INSURANCE_INCOME_QUARTERS
+    if kind == "umbrella":
+        return sum(p["cover"] for p in _in_force(conn, player_id) if p["kind"] != "umbrella")
+    raise InsuranceError("The insurer sells four policies: property, directors' and officers', income and umbrella.")
 
 
 # ---------------------------------------------------------------------------
-# Second AI: try to break the pool and the claim.
+# The price: the expected loss read from the record, a loading, and a charge on the cover
 # ---------------------------------------------------------------------------
 
-def second_ai_break(conn: Connection, now: datetime) -> dict:
-    """Brief for the second AI: find ways to profit from the fund itself.
+def _window(period: int) -> tuple[int, int]:
+    """The last year of closed quarters before `period`."""
+    return period - data.INSURANCE_RECORD_QUARTERS, period - 1
 
-    Returns a list of attacks and a test for each, to be verified before the
-    feature is called done.
-    """
-    pool_balance = _one(conn, """
-        SELECT coalesce(balance, 0)::bigint AS total FROM ledger_balances b
-        JOIN ledger_accounts a ON a.id = b.account_id
-        WHERE a.code = %s AND b.asset = 'NGN'
-    """, (POOL_ACCOUNT,))["total"]
 
-    open_claims = _rows(conn, """
-        SELECT id, policy_player_id, policy_kind, loss_amount, payable, state
-        FROM insurance_claims
-        WHERE state = 'open'
-    """)
+def _players(conn: Connection) -> int:
+    return max(_one(conn, "SELECT count(*) AS n FROM players")["n"], 1)
 
-    findings = []
 
-    if pool_balance < 10_000_000:
-        findings.append({
-            "attack": "drain_pool",
-            "description": "File enough claims to drain the insurance pool below its ability to pay.",
-            "test": "File claims totaling more than the pool balance; verify the shortfall is recorded and no claim is paid from another policyholder's property.",
+def wear_rate_bps(conn: Connection, period: int) -> int:
+    """What a quarter's wear cost, as a share of the buildings' worth, over the last year of the record: the repair
+    of the points lost by buildings that were kept up (wear on a building left without upkeep is not insured)."""
+    first, last = _window(period)
+    row = _one(conn, """
+        SELECT coalesce(sum(CASE WHEN prev.condition - r.condition BETWEEN 1 AND %s::integer
+                                 THEN (prev.condition - r.condition)::numeric * r.value * %s::numeric / (%s::numeric * %s::numeric) ELSE 0 END), 0) AS cost,
+               coalesce(sum(r.value), 0) AS worth
+        FROM property_results r
+        JOIN property_results prev ON prev.property_id = r.property_id AND prev.period = r.period - 1
+        JOIN properties p ON p.id = r.property_id
+        WHERE r.period BETWEEN %s AND %s AND p.kind <> 'land'
+    """, (data.WEAR_WITH_UPKEEP, data.RENOVATION_BPS, data.RENOVATION_POINTS, BPS, first, last))
+    if not row["worth"]:
+        return data.WEAR_WITH_UPKEEP * data.RENOVATION_BPS // data.RENOVATION_POINTS
+    return int(row["cost"] * BPS / row["worth"])
+
+
+def expected_loss(conn: Connection, player_id, kind: str, cover: int, excess: int, period: int, now: datetime) -> int:
+    """A quarter's expected claim on this policy, from the record of the last year. Never a number made up."""
+    first, last = _window(period)
+    if kind == "property":
+        account = ledger.player_account_id(conn, player_id)
+        rate = wear_rate_bps(conn, period)
+        total = 0
+        for b in _buildings(conn, account) if account else []:
+            total += max(min(b["value"] * rate // BPS - excess, cover), 0)
+        return total
+    if kind == "directors":
+        start, end = _quarter_start(conn, first), _quarter_start(conn, last + 1)
+        cases = _rows(conn, "SELECT costs + damages AS covered FROM court_cases WHERE status = 'judged'"
+                            " AND decided_at >= %s AND decided_at < %s", (start, end))
+        total = sum(max(min(c["covered"] - excess, cover), 0) for c in cases)
+        return total // (_players(conn) * data.INSURANCE_RECORD_QUARTERS)
+    if kind == "income":
+        dismissed = _one(conn, "SELECT count(*) AS n FROM employments WHERE ended_reason LIKE 'dismissed:%%'"
+                               " AND ended_period BETWEEN %s AND %s", (first, last))["n"]
+        employed = max(_one(conn, "SELECT count(*) AS n FROM employments WHERE ended_at IS NULL")["n"], 1)
+        payout = max(min(_salary(conn, player_id, now) * data.INSURANCE_INCOME_SHARE_BPS // BPS
+                         * data.INSURANCE_INCOME_QUARTERS - excess, cover), 0)
+        return payout * dismissed // (employed * data.INSURANCE_RECORD_QUARTERS)
+    if kind == "umbrella":
+        topped = _one(conn, "SELECT coalesce(sum(umbrella), 0) AS t, count(*) FILTER (WHERE umbrella > 0) AS n"
+                            " FROM insurance_claims WHERE period BETWEEN %s AND %s", (first, last))
+        if not topped["n"]:
+            return 0
+        return min(topped["t"] // topped["n"], cover) * topped["n"] // (_players(conn) * data.INSURANCE_RECORD_QUARTERS)
+    raise InsuranceError("There is no such policy.")
+
+
+def _record(conn: Connection, player_id, kind: str) -> dict:
+    row = _one(conn, "SELECT * FROM insurance_records WHERE player_id = %s AND kind = %s", (player_id, kind))
+    return row or {"clean_quarters": 0, "counted_period": 0}
+
+
+def no_claims_bps(conn: Connection, player_id, kind: str) -> int:
+    years = _record(conn, player_id, kind)["clean_quarters"] // clock.QUARTERS_PER_YEAR
+    return min(years * data.INSURANCE_NO_CLAIMS_STEP_BPS, data.INSURANCE_NO_CLAIMS_MOST_BPS)
+
+
+def quote(conn: Connection, player_id, kind: str, cover: int, excess: int, now: datetime, *, period: int | None = None) -> dict:
+    """A quarter's premium, line by line, so the player can see what it is made of."""
+    if kind not in KINDS:
+        raise InsuranceError("The insurer sells four policies: property, directors' and officers', income and umbrella.")
+    period = period if period is not None else careers.world_now(conn, now)["period"]
+    expected = expected_loss(conn, player_id, kind, cover, excess, period, now)
+    loading = expected * data.INSURANCE_LOADING_BPS // BPS
+    on_cover = cover * data.INSURANCE_RATE_ON_COVER_BPS // BPS
+    before = expected + loading + on_cover
+    discount_bps = no_claims_bps(conn, player_id, kind)
+    discount = before * discount_bps // BPS
+    return {"kind": kind, "cover": cover, "excess": excess, "expected_loss": expected, "loading": loading,
+            "on_cover": on_cover, "no_claims_bps": discount_bps, "discount": discount,
+            "premium": max(before - discount, 1)}
+
+
+# ---------------------------------------------------------------------------
+# Buying and cancelling
+# ---------------------------------------------------------------------------
+
+def barred(conn: Connection, player_id) -> bool:
+    return _one(conn, "SELECT 1 AS x FROM insurance_bars WHERE player_id = %s", (player_id,)) is not None
+
+
+def _whole(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def buy(conn: Connection, player_id, kind: str, cover: int, excess: int, now: datetime) -> dict:
+    """Buy a policy. The first quarter's premium is paid at once, from your own account into the policy account."""
+    with conn.transaction():
+        careers.books_open(conn, now)
+        conn.execute("SELECT 1 FROM players WHERE id = %s FOR UPDATE", (player_id,))
+        if kind not in KINDS:
+            raise InsuranceError("The insurer sells four policies: property, directors' and officers', income and umbrella.")
+        if barred(conn, player_id):
+            raise InsuranceError("No insurer will write for you again: two of your claims were refused because you "
+                                 "caused the loss.")
+        if not _whole(cover) or cover <= 0:
+            raise InsuranceError("Name the cover you want, in naira.")
+        if not _whole(excess) or excess < 0 or excess >= cover:
+            raise InsuranceError("The excess is the part of each loss you bear yourself: nought or more, and less than the cover.")
+        if _in_force(conn, player_id, kind):
+            raise InsuranceError(f"You already hold {NAMES[kind].lower()} cover. Cancel it first to buy it on other terms.")
+        most = most_cover(conn, player_id, kind, now)
+        if most <= 0:
+            raise InsuranceError({
+                "property": "You own no buildings to insure.",
+                "income": "Income protection is sold to people in work. Find a job first.",
+                "umbrella": "The umbrella tops up your other cover. Buy one of the other policies first.",
+            }.get(kind, "There is nothing to insure."))
+        if cover > most:
+            raise InsuranceError(f"The insurer will cover at most {money(most)}: no more than there is to lose.")
+        account = ledger.player_account_id(conn, player_id)
+        period = careers.world_now(conn, now)["period"]
+        priced = quote(conn, player_id, kind, cover, excess, now, period=period)
+        try:
+            ledger.transfer(conn, payer=account, receiver=pool(conn), amount=priced["premium"], kind="insurance_premium",
+                            memo=f"{NAMES[kind]} cover, the premium for {clock.period_label(period)}", period=period)
+        except ledger.InsufficientFunds:
+            raise InsuranceError(f"The first quarter's premium is {money(priced['premium'])}, which you do not have.") from None
+        row = _one(conn, "INSERT INTO insurance_policies (player_id, kind, cover, excess, premium, started_period, started_at,"
+                         " paid_through) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                   (player_id, kind, cover, excess, priced["premium"], period, now, period))
+        conn.execute("INSERT INTO insurance_records (player_id, kind) VALUES (%s, %s) ON CONFLICT DO NOTHING", (player_id, kind))
+        return {"policy_id": row["id"], **priced, "period": period}
+
+
+def _end(conn: Connection, policy_id: int, reason: str, period: int, now: datetime) -> None:
+    conn.execute("UPDATE insurance_policies SET ended_period = %s, ended_at = %s, ended_reason = %s"
+                 " WHERE id = %s AND ended_at IS NULL", (period, now, reason, policy_id))
+
+
+def cancel(conn: Connection, player_id, kind: str, now: datetime) -> dict:
+    """Cancel a policy. The quarter already paid for is not refunded; the no-claims record is kept."""
+    with conn.transaction():
+        careers.books_open(conn, now)
+        conn.execute("SELECT 1 FROM players WHERE id = %s FOR UPDATE", (player_id,))
+        held = _in_force(conn, player_id, kind)
+        if not held:
+            raise InsuranceError("You hold no cover of that kind.")
+        period = careers.world_now(conn, now)["period"]
+        _end(conn, held[0]["id"], "cancelled", period, now)
+        # An umbrella with nothing left under it has nothing to top up.
+        if kind != "umbrella" and not [p for p in _in_force(conn, player_id) if p["kind"] != "umbrella"]:
+            for u in _in_force(conn, player_id, "umbrella"):
+                _end(conn, u["id"], "cancelled", period, now)
+        return {"kind": kind, "ended": "cancelled", "period": period}
+
+
+# ---------------------------------------------------------------------------
+# What it does for borrowing
+# ---------------------------------------------------------------------------
+
+def _debts(conn: Connection, account) -> int:
+    loans = _one(conn, "SELECT coalesce(sum(outstanding), 0)::bigint AS o FROM player_loans WHERE borrower = %s"
+                       " AND kind = 'personal' AND status <> 'repaid'", (account,))["o"]
+    mortgages = _one(conn, "SELECT coalesce(sum(outstanding), 0)::bigint AS o FROM mortgages WHERE borrower = %s"
+                           " AND status IN ('open', 'shortfall')", (account,))["o"]
+    return loans + mortgages
+
+
+def lender_cover(conn: Connection, player_id) -> int:
+    """The cover a lender counts: in force, its premium paid for the running quarter, and not the umbrella."""
+    if not ready(conn):
+        return 0
+    period = _running_period(conn)
+    return _one(conn, "SELECT coalesce(sum(cover), 0)::bigint AS c FROM insurance_policies WHERE player_id = %s"
+                      " AND ended_at IS NULL AND paid_through >= %s AND kind = ANY(%s)",
+                (player_id, period, list(LENDER_COUNTS)))["c"]
+
+
+def personal_spread_bps(conn: Connection, player_id, now: datetime | None = None, *, borrowing: int = 0) -> int:
+    """The spread over the Central Bank's rate on a personal loan: less when cover is at least half the debt, and less
+    again when it is the whole debt. The debt is what is owed on personal loans and mortgages, with what is being
+    borrowed now."""
+    spread = data.PERSONAL_LOAN_SPREAD_BPS
+    cover = lender_cover(conn, player_id)
+    if cover <= 0:
+        return spread
+    account = ledger.player_account_id(conn, player_id)
+    debt = (_debts(conn, account) if account else 0) + max(borrowing, 0)
+    steps = int(cover * 2 >= debt) + int(cover >= debt)
+    return spread - min(steps, data.INSURED_SPREAD_STEPS) * data.INSURED_SPREAD_STEP_BPS
+
+
+# ---------------------------------------------------------------------------
+# Losses on the record, and claims against them
+# ---------------------------------------------------------------------------
+
+def losses(conn: Connection, player_id, now: datetime) -> list[dict]:
+    """Every loss on the player's record in the last year that a policy could answer, each named by the record it is
+    read from. The amounts are the game's; a claim can only be made against one of these."""
+    period = careers.world_now(conn, now)["period"]
+    first = period - data.INSURANCE_CLAIM_WINDOW_QUARTERS
+    account = ledger.player_account_id(conn, player_id)
+    out: list[dict] = []
+    if account is not None:
+        for r in _rows(conn, """
+            SELECT r.period, r.property_id, r.value, r.condition, prev.condition AS before, p.name, h.share_bps
+            FROM property_results r
+            JOIN property_results prev ON prev.property_id = r.property_id AND prev.period = r.period - 1
+            JOIN properties p ON p.id = r.property_id
+            JOIN property_holdings h ON h.property_id = r.property_id AND h.account_id = %s AND h.since_period <= r.period
+            WHERE r.period >= %s AND r.period < %s AND prev.condition > r.condition AND p.kind <> 'land'
+            ORDER BY r.period, r.property_id
+        """, (account, first, period)):
+            points = r["before"] - r["condition"]
+            loss = points * r["value"] * data.RENOVATION_BPS // (data.RENOVATION_POINTS * BPS) * r["share_bps"] // BPS
+            kept = points <= data.WEAR_WITH_UPKEEP
+            out.append({"key": f"property:{r['property_id']}:{r['period']}", "kind": "property", "period": r["period"],
+                        "at": _quarter_start(conn, r["period"] + 1), "loss": loss, "property_id": r["property_id"],
+                        "caused": not kept,
+                        "words": (f"{r['name']} lost {points} points of condition in {clock.period_label(r['period'])}, "
+                                  + ("with its upkeep kept." if kept else "with its upkeep not kept."))})
+    for e in _rows(conn, "SELECT e.id, e.ended_at, e.ended_period, e.ended_reason, e.build FROM employments e"
+                         " WHERE e.player_id = %s AND e.ended_at IS NOT NULL AND e.ended_period >= %s ORDER BY e.id",
+                   (player_id, first)):
+        reason = e["ended_reason"] or ""
+        if reason.startswith("dismissed:"):
+            caused = False
+        elif reason == "resigned":
+            caused = True
+        else:
+            continue                                  # changing build or employer is a move, not a loss
+        mine = careers.career(conn, player_id, e["build"])
+        salary = careers.salary_per_quarter(mine["level"] if mine else 1, careers.world_now(conn, now)["wage_index_bps"])
+        out.append({"key": f"job:{e['id']}", "kind": "income", "period": e["ended_period"], "at": e["ended_at"],
+                    "loss": salary * data.INSURANCE_INCOME_QUARTERS, "salary": salary, "caused": caused,
+                    "words": f"Left a job in {clock.period_label(e['ended_period'])}: {reason}."})
+    if _one(conn, "SELECT to_regclass('court_cases') IS NOT NULL AS ok")["ok"]:
+        for c in _rows(conn, "SELECT id, kind, words, costs, damages, fine, disgorgement, opened_period, opened_at, decided_at"
+                             " FROM court_cases WHERE defendant_id = %s AND status = 'judged' AND decided_at >= %s"
+                             " ORDER BY id", (player_id, _quarter_start(conn, first))):
+            out.append({"key": f"case:{c['id']}", "kind": "directors", "period": c["opened_period"], "at": c["decided_at"],
+                        "loss": c["costs"] + c["damages"], "case_id": c["id"], "opened_at": c["opened_at"],
+                        "caused": False, "uninsurable": c["fine"] + c["disgorgement"],
+                        "words": (f"Judged in case {c['id']}: {c['words']} The costs and damages are "
+                                  f"{money(c['costs'] + c['damages'])}; the fine and disgorgement, "
+                                  f"{money(c['fine'] + c['disgorgement'])}, are never insurable.")})
+    return out
+
+
+def _covering(conn: Connection, player_id, kind: str, loss: dict) -> dict | None:
+    """The policy in force when the loss happened, with that quarter's premium paid."""
+    for p in _rows(conn, "SELECT * FROM insurance_policies WHERE player_id = %s AND kind = %s ORDER BY id DESC",
+                   (player_id, kind)):
+        if p["paid_through"] < loss["period"] or p["started_period"] > loss["period"]:
+            continue
+        if p["started_at"] >= loss["at"] or (p["ended_at"] is not None and p["ended_at"] <= loss["at"]):
+            continue
+        return p
+    return None
+
+
+def _refuse(conn: Connection, player_id, loss: dict, policy: dict, period: int, now: datetime) -> dict:
+    """A claim on a loss the claimant caused: refused, the premium kept, and referred to the tribunal."""
+    from simulation import courts
+    claim = _one(conn, "INSERT INTO insurance_claims (player_id, policy_id, kind, loss_key, loss, decision, reason, period, at)"
+                       " VALUES (%s, %s, %s, %s, %s, 'refused', %s, %s, %s) RETURNING id",
+                 (player_id, policy["id"], loss["kind"], loss["key"], loss["loss"],
+                  "Refused: the loss was the claimant's own doing.", period, now))
+    case_id = None
+    if courts.ready(conn) and loss["loss"] >= naira(data.COURT_MIN_CLAIM_NAIRA):
+        courts.ensure(conn)
+        case_id = courts.open_case(
+            conn, kind="insurance_fraud", defendant_id=player_id, claimant_id=None, company_id=None, amount=loss["loss"],
+            evidence={"key": f"insurance_fraud:{claim['id']}", "total": loss["loss"],
+                      "lines": [{"claim": claim["id"], "loss": loss["key"], "words": loss["words"], "at": now.isoformat()}]},
+            words=f"Claimed {money(loss['loss'])} on {NAMES[loss['kind']].lower()} cover for a loss of their own making: "
+                  f"{loss['words']}", period=period, now=now)
+        conn.execute("UPDATE insurance_claims SET case_id = %s WHERE id = %s", (case_id, claim["id"]))
+    refusals = _one(conn, "SELECT count(*) AS n FROM insurance_claims WHERE player_id = %s AND decision = 'refused'",
+                    (player_id,))["n"]
+    ended = False
+    if refusals >= data.INSURANCE_REFUSALS_TO_BAR:
+        conn.execute("INSERT INTO insurance_bars (player_id, at) VALUES (%s, %s) ON CONFLICT DO NOTHING", (player_id, now))
+        for p in _in_force(conn, player_id):
+            _end(conn, p["id"], "barred", period, now)
+        ended = True
+    words = "Refused: the loss was your own doing. The premium is kept and the insurer has referred it to the tribunal."
+    if case_id is None:
+        words = "Refused: the loss was your own doing. The premium is kept."
+    if ended:
+        words += " It is the second refusal: all your cover has ended, and no insurer will write for you again."
+    return {"claim_id": claim["id"], "decision": "refused", "words": words, "case_id": case_id, "paid": 0}
+
+
+def _decline(conn: Connection, player_id, loss: dict, policy: dict | None, reason: str, period: int, now: datetime) -> dict:
+    claim = _one(conn, "INSERT INTO insurance_claims (player_id, policy_id, kind, loss_key, loss, decision, reason, period, at)"
+                       " VALUES (%s, %s, %s, %s, %s, 'declined', %s, %s, %s) RETURNING id",
+                 (player_id, policy and policy["id"], loss["kind"], loss["key"], loss["loss"], reason, period, now))
+    return {"claim_id": claim["id"], "decision": "declined", "words": reason, "paid": 0}
+
+
+def _reset_record(conn: Connection, player_id, kind: str, period: int) -> None:
+    conn.execute("INSERT INTO insurance_records (player_id, kind, clean_quarters, counted_period) VALUES (%s, %s, 0, %s)"
+                 " ON CONFLICT (player_id, kind) DO UPDATE SET clean_quarters = 0, counted_period = EXCLUDED.counted_period",
+                 (player_id, kind, period))
+
+
+def claim(conn: Connection, player_id, key: str, now: datetime) -> dict:
+    """Claim against a loss on your record. The insurer reads the same record: who caused the loss, whether cover was in
+    force and paid for when it happened, and how much of it the policy answers."""
+    with conn.transaction():
+        careers.books_open(conn, now)
+        conn.execute("SELECT 1 FROM players WHERE id = %s FOR UPDATE", (player_id,))
+        found = next((x for x in losses(conn, player_id, now) if x["key"] == key), None)
+        if found is None:
+            raise InsuranceError("That is not a loss on your record from the last year.")
+        if _one(conn, "SELECT 1 AS x FROM insurance_claims WHERE player_id = %s AND loss_key = %s", (player_id, key)):
+            raise InsuranceError("That loss has already been claimed. A loss is claimed once.")
+        period = careers.world_now(conn, now)["period"]
+        kind = found["kind"]
+        policy = _covering(conn, player_id, kind, found)
+        if policy is None:
+            return _decline(conn, player_id, found, None,
+                            f"Declined: no {NAMES[kind].lower()} cover was in force and paid for when the loss happened.",
+                            period, now)
+        if found["caused"]:
+            return _refuse(conn, player_id, found, policy, period, now)
+        if kind == "property":
+            start = _one(conn, "SELECT condition FROM property_results WHERE property_id = %s AND period = %s",
+                         (found["property_id"], policy["started_period"] - 1))
+            if start and start["condition"] < data.POOR_CONDITION:
+                return _decline(conn, player_id, found, policy, "Declined: the building was already run down when the "
+                                "cover began, and a wreck is not insured.", period, now)
+        if kind == "directors":
+            case = _one(conn, "SELECT opened_period, opened_at FROM court_cases WHERE id = %s", (found["case_id"],))
+            if (case["opened_period"] < policy["started_period"] + data.INSURANCE_DIRECTORS_WAIT_QUARTERS
+                    or case["opened_at"] <= policy["started_at"]):
+                return _decline(conn, player_id, found, policy, "Declined: directors' cover answers cases opened two years "
+                                "or more after it began, so no wrong done before the cover can be insured.", period, now)
+        insured = found["loss"] * data.INSURANCE_INCOME_SHARE_BPS // BPS if kind == "income" else found["loss"]
+        over = max(insured - policy["excess"], 0)
+        base = min(over, policy["cover"])
+        umbrella_policy = _covering(conn, player_id, "umbrella", found) if over > base else None
+        topped = min(over - base, umbrella_policy["cover"]) if umbrella_policy else 0
+        payable = base + topped
+        if payable <= 0:
+            return _decline(conn, player_id, found, policy, "Declined: the loss is within your excess.", period, now)
+        if kind == "income" and careers.current_job(conn, player_id) is not None:
+            return _decline(conn, player_id, found, policy, "Declined: you are back in work, so there is no income to "
+                            "replace.", period, now)
+        _reset_record(conn, player_id, kind, period)
+        if topped:
+            _reset_record(conn, player_id, "umbrella", period)
+        if kind == "income":
+            row = _one(conn, "INSERT INTO insurance_claims (player_id, policy_id, kind, loss_key, loss, excess, payable,"
+                             " umbrella, instalments, decision, reason, period, at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,"
+                             " 'paying', %s, %s, %s) RETURNING id",
+                       (player_id, policy["id"], kind, key, found["loss"], policy["excess"], payable, topped,
+                        data.INSURANCE_INCOME_QUARTERS, "Accepted: paid each quarter while you are out of work.", period, now))
+            return {"claim_id": row["id"], "decision": "paying", "payable": payable, "paid": 0,
+                    "words": f"Accepted: {money(payable)} in all, paid over the next {data.INSURANCE_INCOME_QUARTERS} "
+                             "quarters while you are out of work."}
+        account = ledger.player_account_id(conn, player_id)
+        paid = ledger.pay_up_to(conn, payer=pool(conn), receiver=account, wanted=payable, kind="insurance_claim",
+                                memo=f"{NAMES[kind]} claim: {found['words'][:120]}", period=period)
+        short = payable - paid
+        reason = "Paid." if not short else f"Paid in part: the policy account held only {money(paid)}."
+        row = _one(conn, "INSERT INTO insurance_claims (player_id, policy_id, kind, loss_key, loss, excess, payable, umbrella,"
+                         " paid, decision, reason, period, at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'paid', %s, %s, %s)"
+                         " RETURNING id",
+                   (player_id, policy["id"], kind, key, found["loss"], policy["excess"], payable, topped, paid, reason,
+                    period, now))
+        if kind == "directors" and paid:
+            # What the cover pays goes first to what the tribunal ordered and is still owed.
+            from simulation import courts
+            courts.pay(conn, found["case_id"], period, now)
+        return {"claim_id": row["id"], "decision": "paid", "payable": payable, "paid": paid, "shortfall": short,
+                "words": reason}
+
+
+# ---------------------------------------------------------------------------
+# The quarter close
+# ---------------------------------------------------------------------------
+
+def close(conn: Connection, period: int, now: datetime) -> dict:
+    """The insurer's quarter, run once as the quarter closes: income protection paid to those still out of work, the
+    no-claims record aged, and next quarter's premium charged, or the cover lapses."""
+    if not ready(conn):
+        return {}
+    out = {"instalments": 0, "charged": 0, "lapsed": 0}
+    if _one(conn, "SELECT 1 AS x FROM insurance_policies LIMIT 1") is None:
+        return out                                    # nobody has ever bought cover: the insurers have not opened
+    fund = pool(conn)
+    for c in _rows(conn, "SELECT * FROM insurance_claims WHERE decision = 'paying' ORDER BY id FOR UPDATE"):
+        if careers.current_job(conn, c["player_id"]) is not None:
+            conn.execute("UPDATE insurance_claims SET decision = 'paid', payable = paid, instalments = 0,"
+                         " reason = 'Stopped: back in work.' WHERE id = %s", (c["id"],))
+            continue
+        due = (c["payable"] - c["paid"]) // max(c["instalments"], 1)
+        account = ledger.player_account_id(conn, c["player_id"])
+        got = ledger.pay_up_to(conn, payer=fund, receiver=account, wanted=due, kind="insurance_claim",
+                               memo=f"Income protection, {clock.period_label(period)}", period=period) if due > 0 else 0
+        left = c["instalments"] - 1
+        if left <= 0:
+            reason = "Paid in full." if c["paid"] + got >= c["payable"] else "Paid in part: the policy account ran short."
+            conn.execute("UPDATE insurance_claims SET paid = paid + %s, instalments = 0, decision = 'paid', payable ="
+                         " paid + %s, reason = %s WHERE id = %s", (got, got, reason, c["id"]))
+        else:
+            # An instalment the pool could not pay is not owed later: the claim promises what the pool holds.
+            conn.execute("UPDATE insurance_claims SET paid = paid + %s, instalments = %s, payable = payable - %s"
+                         " WHERE id = %s", (got, left, due - got, c["id"]))
+        out["instalments"] += got
+    for p in _rows(conn, "SELECT * FROM insurance_policies WHERE ended_at IS NULL ORDER BY id FOR UPDATE"):
+        # A quarter paid for and closed with no claim is a clean quarter on the record.
+        if p["paid_through"] >= period:
+            conn.execute("INSERT INTO insurance_records (player_id, kind, clean_quarters, counted_period) VALUES (%s, %s, 1, %s)"
+                         " ON CONFLICT (player_id, kind) DO UPDATE SET clean_quarters = insurance_records.clean_quarters + 1,"
+                         " counted_period = EXCLUDED.counted_period WHERE insurance_records.counted_period < EXCLUDED.counted_period",
+                         (p["player_id"], p["kind"], period))
+    nxt = period + 1
+    for p in _rows(conn, "SELECT * FROM insurance_policies WHERE ended_at IS NULL ORDER BY kind = 'umbrella', id"):
+        most = most_cover(conn, p["player_id"], p["kind"], now)
+        if most <= 0:
+            _end(conn, p["id"], "lapsed", nxt, now)
+            out["lapsed"] += 1
+            continue
+        cover = min(p["cover"], most)
+        excess = min(p["excess"], cover - 1)
+        priced = quote(conn, p["player_id"], p["kind"], cover, excess, now, period=nxt)
+        account = ledger.player_account_id(conn, p["player_id"])
+        if account is None or ledger.balance(conn, account) < priced["premium"]:
+            _end(conn, p["id"], "lapsed", nxt, now)
+            out["lapsed"] += 1
+            continue
+        ledger.transfer(conn, payer=account, receiver=fund, amount=priced["premium"], kind="insurance_premium",
+                        memo=f"{NAMES[p['kind']]} cover, the premium for {clock.period_label(nxt)}", period=period)
+        conn.execute("UPDATE insurance_policies SET cover = %s, excess = %s, premium = %s, paid_through = %s WHERE id = %s",
+                     (cover, excess, priced["premium"], nxt, p["id"]))
+        out["charged"] += priced["premium"]
+    return out
+
+
+def check_books(conn: Connection) -> list[str]:
+    """The policy account holds exactly its capital and the premiums taken in, less the claims paid out."""
+    if not ready(conn):
+        return []
+    row = _one(conn, "SELECT id FROM ledger_accounts WHERE code = %s", (POOL,))
+    if row is None:
+        return []
+    flows = _one(conn, """
+        SELECT coalesce(sum(CASE WHEN t.kind = 'insurance_premium' THEN l.amount ELSE 0 END), 0) AS premiums,
+               coalesce(sum(CASE WHEN t.kind = 'insurance_claim' THEN -l.amount ELSE 0 END), 0) AS claims,
+               coalesce(sum(CASE WHEN t.kind = 'insurance_capital' THEN l.amount ELSE 0 END), 0) AS capital,
+               coalesce(sum(CASE WHEN t.kind NOT IN ('insurance_premium', 'insurance_claim', 'insurance_capital')
+                                 THEN 1 ELSE 0 END), 0) AS other
+        FROM ledger_entries l JOIN ledger_transactions t ON t.id = l.transaction_id
+        WHERE l.account_id = %s AND l.asset = 'NGN'
+    """, (row["id"],))
+    problems = []
+    if flows["other"]:
+        problems.append("The insurers' policy account moved money that was not its capital, a premium or a claim.")
+    paid = _one(conn, "SELECT coalesce(sum(paid), 0) AS p FROM insurance_claims")["p"]
+    if paid != flows["claims"]:
+        problems.append(f"Insurance claims record {money(paid)} paid, but the policy account paid out {money(flows['claims'])}.")
+    if ledger.balance(conn, row["id"]) != flows["capital"] + flows["premiums"] - flows["claims"]:
+        problems.append("The insurers' policy account does not hold its capital and premiums less its claims.")
+    return problems
+
+
+# ---------------------------------------------------------------------------
+# The page
+# ---------------------------------------------------------------------------
+
+WORDS = {
+    "property": "Pays the repair of wear on the buildings you own, less your excess. Wear on a building whose upkeep was "
+                "not kept is your own doing and is not covered, and a building already run down when the cover begins is "
+                "not insured.",
+    "directors": "Pays the costs and damages the tribunal orders against you. Never the disgorgement or the fine. It "
+                 "answers cases opened two years or more after the cover began.",
+    "income": "Pays half your last salary each quarter, for up to a year, after a dismissal, while you are out of work. "
+              "In this game a player is only dismissed by the newsroom, so it rarely pays. Resigning is not covered.",
+    "umbrella": "Tops up your other cover: when a loss is larger than the policy that answers it, the umbrella pays the "
+                "rest, up to its own cover.",
+}
+HONEST = ("A premium is the expected loss plus a loading, so on average insurance loses you money. What it buys is "
+          "certainty, and a cheaper personal loan. The policy account pays only what it holds.")
+
+
+def _pool_balance(conn: Connection) -> int:
+    row = _one(conn, "SELECT id FROM ledger_accounts WHERE code = %s", (POOL,))
+    return ledger.balance(conn, row["id"]) if row else 0
+
+
+def view(conn: Connection, player_id, now: datetime) -> dict:
+    if not ready(conn):
+        return {"ready": False}
+    period = careers.world_now(conn, now)["period"]
+    account = ledger.player_account_id(conn, player_id)
+    held = {p["kind"]: p for p in _in_force(conn, player_id)}
+    claimed = {c["loss_key"]: c for c in _rows(conn, "SELECT * FROM insurance_claims WHERE player_id = %s", (player_id,))}
+    policies = []
+    for kind in KINDS:
+        most = most_cover(conn, player_id, kind, now)
+        p = held.get(kind)
+        policies.append({
+            "kind": kind, "name": NAMES[kind], "words": WORDS[kind], "most_cover": most,
+            "no_claims_bps": no_claims_bps(conn, player_id, kind),
+            "clean_quarters": _record(conn, player_id, kind)["clean_quarters"],
+            "quote": quote(conn, player_id, kind, most, 0, now, period=period) if most > 0 else None,
+            "held": None if p is None else {"cover": p["cover"], "excess": p["excess"], "premium": p["premium"],
+                                            "since": clock.period_label(p["started_period"]),
+                                            "paid_through": clock.period_label(p["paid_through"])},
         })
-
-    recent = [c for c in open_claims if c["policy_kind"] in (POLICY_PROPERTY, POLICY_DIRECTORS)]
-    if recent:
-        findings.append({
-            "attack": "cause_after_policy",
-            "description": "Attempt to claim on a loss that occurred after the policy started.",
-            "test": "Verify that claims caused after the policy start are refused and the premium is kept, and a court case is opened.",
-        })
-
-    findings.append({
-        "attack": "split_loss",
-        "description": "Try to split a loss between two players to claim twice against different policies.",
-        "test": "Verify that a loss names the account that bore it, and a loss is claimed once against one policy only.",
-    })
-
-    findings.append({
-        "attack": "reset_no_claims",
-        "description": "Cancel a policy and immediately buy another to reset the no-claims record.",
-        "test": "Verify that the no-claims record is per player, not per policy, and survives a cancellation.",
-    })
-
-    findings.append({
-        "attack": "no_premium",
-        "description": "Try to gain the rating benefit without paying premiums.",
-        "test": "Verify that the rate reads cover in force and paid up; a lapsed policy buys nothing.",
-    })
-
-    return {"pool_balance_kobo": pool_balance, "findings": findings}
-
-
-# ---------------------------------------------------------------------------
-# Stage report hook.
-# ---------------------------------------------------------------------------
-
-def stage_report_insurance(conn: Connection, now: datetime) -> str:
-    """Generate a stage report line for insurance."""
-    active_policies = _rows(conn, """
-        SELECT kind, count(*) AS n, coalesce(sum(limit), 0) AS total_cover,
-               coalesce(sum(no_claims_years), 0) AS total_years
-        FROM insurance_policies
-        WHERE state = 'active'
-        GROUP BY kind
-    """)
-
-    lines = ["Insurance system status:"]
-    for p in active_policies:
-        lines.append(
-            f"  {POLICY_NAMES[p['kind']]}: {p['n']} policies, "
-            f"total cover {_naira(p['total_cover'])}, "
-            f"avg no-claims {p['total_years'] // max(p['n'], 1)} years"
-        )
-    return " | ".join(lines)
+    debt = _debts(conn, account) if account else 0
+    record = []
+    for x in losses(conn, player_id, now):
+        c = claimed.get(x["key"])
+        record.append({"key": x["key"], "kind": x["kind"], "name": NAMES[x["kind"]], "words": x["words"], "loss": x["loss"],
+                       "quarter": clock.period_label(x["period"]),
+                       "claim": None if c is None else {"decision": c["decision"], "reason": c["reason"],
+                                                         "payable": c["payable"], "paid": c["paid"]}})
+    history = [{"kind": c["kind"], "name": NAMES[c["kind"]], "decision": c["decision"], "reason": c["reason"],
+                "loss": c["loss"], "payable": c["payable"], "paid": c["paid"], "case_id": c["case_id"],
+                "quarter": clock.period_label(c["period"])}
+               for c in _rows(conn, "SELECT * FROM insurance_claims WHERE player_id = %s ORDER BY id DESC LIMIT 20",
+                              (player_id,))]
+    return {
+        "ready": True, "period": clock.period_label(period), "policies": policies, "losses": record, "claims": history,
+        "barred": barred(conn, player_id), "honest": HONEST,
+        "refusals": _one(conn, "SELECT count(*) AS n FROM insurance_claims WHERE player_id = %s AND decision = 'refused'",
+                         (player_id,))["n"],
+        "borrowing": {"debt": debt, "cover": lender_cover(conn, player_id),
+                      "spread_uninsured_bps": data.PERSONAL_LOAN_SPREAD_BPS,
+                      "spread_bps": personal_spread_bps(conn, player_id),
+                      "step_bps": data.INSURED_SPREAD_STEP_BPS},
+        "pool": _pool_balance(conn),
+    }

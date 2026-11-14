@@ -38,13 +38,6 @@ from simulation import clock, ledger
 from simulation import world_data as data
 from simulation.money import BPS
 
-# Insurance integration: personal loan spread narrows when the borrower
-# has active insurance in force. Constants defined here to avoid circular
-# imports with the insurance module.
-UNINSURED_PERSONAL_LOAN_SPREAD_BPS = data.PERSONAL_LOAN_SPREAD_BPS
-INSURED_PERSONAL_LOAN_STEP1_BPS = 500   # one step for any cover in force
-INSURED_PERSONAL_LOAN_STEP2_BPS = 500   # second step if cover > 50% liabilities
-
 COLLATERAL = "short:collateral"          # cash held for short sellers
 LENDER = ledger.INVESTORS_INSTITUTIONS  # the pension funds lend shares
 BUYERS = (ledger.INVESTORS_PUBLIC, ledger.INVESTORS_FOUNDERS, "investors:foreign")   # who buy forced sales and sell buy-ins
@@ -352,6 +345,15 @@ def personal_limit(conn: Connection, player_id, now: datetime) -> int:
     return max(min(by_itself, with_mortgages), 0)
 
 
+def _personal_spread(conn: Connection, account) -> int:
+    """The spread on a personal loan for the player who owns this account: less when their cover is in force."""
+    from simulation import insurance
+    row = _one(conn, "SELECT player_id FROM ledger_accounts WHERE id = %s", (account,))
+    if row is None or row["player_id"] is None:
+        return data.PERSONAL_LOAN_SPREAD_BPS
+    return insurance.personal_spread_bps(conn, row["player_id"])
+
+
 def take_personal(conn: Connection, player_id, amount: int, now: datetime) -> dict:
     from simulation import careers
     with conn.transaction():
@@ -371,38 +373,18 @@ def take_personal(conn: Connection, player_id, amount: int, now: datetime) -> di
             raise LendingError(f"Your bank will lend you at most {money(most)} more against your salary.")
         if amount > _bank_room(conn, bank_row["company_id"], state["period"]):
             raise LendingError(f"{bank_row['name']} has no room to lend that much now.")
-        # Read the borrower's active insurance policies to narrow the loan spread
-    from simulation import insurance as sim_insurance
-    borrower_policies = sim_insurance._rows(conn, """
-        SELECT kind, limit FROM insurance_policies
-        WHERE player_id = %s AND state = 'active'
-    """, (account,))
-
-    total_cover_kobo = sum(p["limit"] for p in borrower_policies)
-
-    # Apply narrowing: one step for any cover in force, second step if cover > 50% liabilities
-    narrowing = UNINSURED_PERSONAL_LOAN_SPREAD_BPS  # start with uninsured
-    if total_cover_kobo > 0:
-        narrowing -= INSURED_PERSONAL_LOAN_STEP1_BPS  # one step down for any cover
-        borrower_loan = _one(conn, """
-            SELECT principal FROM player_loans
-            WHERE borrower = %s AND kind = 'personal' AND status = 'open'
-            ORDER BY taken_period DESC LIMIT 1
-        """, (account,))
-        if borrower_loan and borrower_loan["principal"] > 0:
-            if total_cover_kobo > borrower_loan["principal"] // 2:
-                narrowing -= INSURED_PERSONAL_LOAN_STEP2_BPS  # second step
-
-    rate = policy_rate(conn) + narrowing
-    try:
-        ledger.transfer(conn, payer=bank_row["account_id"], receiver=account, amount=amount, kind="personal_loan",
-                        memo=f"A personal loan from {bank_row['name']}", period=state["period"])
-    except ledger.InsufficientFunds:
-        raise LendingError(f"{bank_row['name']} has not the cash to lend that now.") from None
-    loan = _one(conn, "INSERT INTO player_loans (kind, borrower, bank_company_id, principal, outstanding, rate_bps, taken_period,"
-                      " term_quarters, interest_from, at) VALUES ('personal', %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                (account, bank_row["company_id"], amount, amount, rate, state["period"], data.PERSONAL_LOAN_TERM_QUARTERS, now, now))
-    return {"loan_id": loan["id"], "amount": amount, "rate_bps": rate}
+        # A borrower whose assets and income are insured pays less: the spread reads the cover in force and paid up.
+        from simulation import insurance
+        rate = policy_rate(conn) + insurance.personal_spread_bps(conn, player_id, now, borrowing=amount)
+        try:
+            ledger.transfer(conn, payer=bank_row["account_id"], receiver=account, amount=amount, kind="personal_loan",
+                            memo=f"A personal loan from {bank_row['name']}", period=state["period"])
+        except ledger.InsufficientFunds:
+            raise LendingError(f"{bank_row['name']} has not the cash to lend that now.") from None
+        loan = _one(conn, "INSERT INTO player_loans (kind, borrower, bank_company_id, principal, outstanding, rate_bps, taken_period,"
+                          " term_quarters, interest_from, at) VALUES ('personal', %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                    (account, bank_row["company_id"], amount, amount, rate, state["period"], data.PERSONAL_LOAN_TERM_QUARTERS, now, now))
+        return {"loan_id": loan["id"], "amount": amount, "rate_bps": rate}
 
 
 # ---------------------------------------------------------------------------
@@ -905,7 +887,7 @@ def close(conn: Connection, period: int, now: datetime, rate: int) -> dict:
                    now, loan_id=loan["id"])
             out["defaults"] += 1
         new_rate = (0 if loan["kind"] == "shortfall" else
-                    rate + (data.PERSONAL_LOAN_SPREAD_BPS if loan["kind"] == "personal" else data.MARGIN_LOAN_SPREAD_BPS))
+                    rate + (_personal_spread(conn, loan["borrower"]) if loan["kind"] == "personal" else data.MARGIN_LOAN_SPREAD_BPS))
         conn.execute("UPDATE player_loans SET outstanding = outstanding - %s, rate_bps = %s, missed = %s, status = %s WHERE id = %s",
                      (paid_principal, new_rate, missed, status, loan["id"]))
     # Short sellers pay the lender's fee; the pension funds recall shares when they have lent too many.
@@ -983,7 +965,8 @@ def view(conn: Connection, account, now: datetime, player_id=None) -> dict:
         "margin": {"owed": owed, "limit": margin_limit(conn, account, now), "ratio_bps": owed * BPS // max(held["total"], 1),
                    "call_bps": data.MARGIN_CALL_BPS, "sell_bps": data.MARGIN_SELL_BPS},
         "personal_limit": personal_limit(conn, player_id, now) if player_id else 0,
-        "rates": {"personal_bps": rate + data.PERSONAL_LOAN_SPREAD_BPS, "margin_bps": rate + data.MARGIN_LOAN_SPREAD_BPS,
+        "rates": {"personal_bps": rate + _personal_spread(conn, account),
+                  "personal_uninsured_bps": rate + data.PERSONAL_LOAN_SPREAD_BPS, "margin_bps": rate + data.MARGIN_LOAN_SPREAD_BPS,
                   "short_fee_bps": data.SHORT_FEE_BPS},
         "debts": debts(conn, account), "equity": _equity(conn, account, now),
         "most_debt_times": data.MOST_DEBT_TIMES_EQUITY,

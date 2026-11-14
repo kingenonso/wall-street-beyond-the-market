@@ -1034,6 +1034,31 @@ export type DerivativesBoard = { series: Series[]; underlyings: string[]; open: 
   empire: null | { name: string; acts: boolean; head: boolean; build: string; limit_naira: number; committed: Kobo;
     positions: DerivativePosition[]; orders: DerivativeOrder[]; crash_fund: CrashFund } };
 
+// Insurance (a page under Money): every amount is the server's, in kobo written as text.
+export type InsuranceQuote = {
+  kind: string; cover: Kobo; excess: Kobo; expected_loss: Kobo; loading: Kobo; on_cover: Kobo;
+  no_claims_bps: number; discount: Kobo; premium: Kobo;
+};
+export type InsurancePolicy = {
+  kind: "property" | "directors" | "income" | "umbrella"; name: string; words: string; most_cover: Kobo;
+  no_claims_bps: number; clean_quarters: number; quote: InsuranceQuote | null;
+  held: { cover: Kobo; excess: Kobo; premium: Kobo; since: string; paid_through: string } | null;
+};
+export type InsuranceLoss = {
+  key: string; kind: string; name: string; words: string; loss: Kobo; quarter: string;
+  claim: { decision: string; reason: string; payable: Kobo; paid: Kobo } | null;
+};
+export type InsuranceClaim = {
+  kind: string; name: string; decision: string; reason: string; loss: Kobo; payable: Kobo; paid: Kobo;
+  case_id: number | null; quarter: string;
+};
+export type InsurancePage = {
+  ready: boolean; period: string; policies: InsurancePolicy[]; losses: InsuranceLoss[]; claims: InsuranceClaim[];
+  barred: boolean; honest: string; refusals: number; pool: Kobo;
+  borrowing: { debt: Kobo; cover: Kobo; spread_uninsured_bps: number; spread_bps: number; step_bps: number };
+  result?: { premium?: Kobo; words?: string; decision?: string } & Record<string, unknown>;
+};
+
 // Stage 12: commodities
 export type CommodityGood = {
   code: string; name: string; unit: string; unit_plural: string; unit_word: string;
@@ -1336,6 +1361,14 @@ export const api = {
   }) => request<SignUpPending>("/auth/signup", { method: "POST", body: JSON.stringify(details) }),
   confirmEmail: (email: string, code: string) =>
     request<Player>("/auth/confirm-email", { method: "POST", body: JSON.stringify({ email, code }) }),
+  // Insurance, under Money.
+  insurance: () => request<InsurancePage>("/insurance"),
+  insuranceBuy: (body: { kind: string; cover_kobo: number; excess_kobo: number }) =>
+    request<InsurancePage>("/insurance/buy", { method: "POST", body: JSON.stringify(body) }),
+  insuranceCancel: (body: { kind: string }) =>
+    request<InsurancePage>("/insurance/cancel", { method: "POST", body: JSON.stringify(body) }),
+  insuranceClaim: (body: { loss: string }) =>
+    request<InsurancePage>("/insurance/claim", { method: "POST", body: JSON.stringify(body) }),
   // Stage 12: commodities — the goods, the space they are kept in, and the desk that deals in them.
   commodities: () => request<CommodityPage>("/commodities"),
   commodityBuy: (body: { good: string; units: number }) =>

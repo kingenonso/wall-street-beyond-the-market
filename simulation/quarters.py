@@ -86,7 +86,8 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
                         + conveyancing.check_books(conn) + development.check_books(conn) + propfunds.check_books(conn)
                         + _crisis().check_books(conn) + _funds().check_books(conn)
                         + _etfs().check_books(conn) + _fx().check_books(conn) + _world().check_books(conn)
-                        + commodities.check_books(conn) + commoditydesk.check_books(conn))
+                        + commodities.check_books(conn) + commoditydesk.check_books(conn)
+                        + _insurance().check_books(conn))
             if problems:
                 raise ledger.LedgerError("The ledger failed its end-of-quarter check: " + " ".join(problems))
             conn.execute("UPDATE world_state SET last_closed_period = %s", (period,))
@@ -241,6 +242,10 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     # Land and property: rent shared out, tax, upkeep, mortgages, the headquarters and the Auction House (Stage 8).
     property_market.close(conn, world, period, now, fortune_seed, measured)
     # Loans to players and empires, and short sales: interest, repayments, the lending fee, recalls (Stage 9).
+    # Insurance: income protection paid, the no-claims record aged, next quarter's premiums charged or the cover
+    # lapses. Before the loans are repriced, because a personal loan's rate reads the cover in force.
+    from simulation import insurance
+    insurance.close(conn, period, now)
     lending.close(conn, period, now, measured["next_policy_rate_bps"])
     # The quarter's common forces go on the record (never sent to players).
     stochastic.record(conn, period, fortune_seed)
@@ -316,6 +321,11 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     day, _ = exchange.session_of(now)
     careers.close_retirement(conn, period, marketview.index_level(marketview._shares(conn, day), marketview.index_base(conn)),
                              measured["next_policy_rate_bps"])
+
+
+def _insurance():
+    from simulation import insurance
+    return insurance
 
 
 def _fx():

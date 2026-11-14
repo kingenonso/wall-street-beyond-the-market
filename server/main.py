@@ -108,10 +108,6 @@ def _close_due_quarters_once() -> None:
         if conn.execute("SELECT to_regclass('bank_confidence') IS NOT NULL").fetchone()[0]:
             from simulation import crisis
             crisis.tick(conn, now)
-        # Stage 12: insurance — charge premiums, age no-claims, expire cover at the quarter close.
-        if conn.execute("SELECT to_regclass('insurance_policies') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
-            from simulation import insurance as sim_insurance
-            sim_insurance.close_quarter_insurance(conn, now)
 
         # Index funds and ETFs: after each closing bell, every index's level, every ETF's value, fee and daily reset, and index
         # changes coming due (before the funds deal, so an index fund's benchmark is there).
@@ -1865,3 +1861,4 @@ from server import fx_routes  # noqa: E402,F401
 from server import world_routes  # noqa: E402,F401
 from server import court_routes  # noqa: E402,F401
 from server import insurance_routes  # noqa: E402,F401  (importing it adds its routes to the application)
+from server import commodity_routes  # noqa: E402,F401

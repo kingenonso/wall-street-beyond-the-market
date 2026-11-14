@@ -56,7 +56,7 @@ About 100 checkers × 10 to 20 scenarios each = **1,000 to 2,000 kinds of task**
 
 ## What the owner provides
 
-- An AI service account for writing the batches (Anthropic's or another).
+- An AI service account for writing the batches, from any AI provider.
 - A budget. A batch of 1,500 costs a few dollars to a few tens of dollars, depending on the model.
 
 ## Where it sits in the build order

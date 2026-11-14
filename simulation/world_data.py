@@ -1038,11 +1038,25 @@ MONTE_CARLO_HORIZONS = {"quarter": 7, "year": 28}   # in trading days
 PERSONAL_LOAN_SALARY_QUARTERS = 4      # at most a year's salary...
 PERSONAL_LOAN_SPREAD_BPS = 800         # uninsured spread over the policy rate, for personal loans
 
-# Insurance: the spread narrows when the borrower has active cover in force.
-# INSURED_PERSONAL_LOAN_STEP1_BPS: one step (500 bps) reduction for any cover in force.
-# INSURED_PERSONAL_LOAN_STEP2_BPS: second step (500 bps reduction) if cover > 50% of liabilities.
-INSURED_PERSONAL_LOAN_STEP1_BPS = 500
-INSURED_PERSONAL_LOAN_STEP2_BPS = 500
+# Insurance (owner, 9 November 2026): four policies sold under Money. Every figure a premium is built from is read
+# from the game's own record of the last year; these are only the insurer's terms.
+INSURANCE_POOL_CAPITAL_NAIRA = 200_000_000   # the insurers' own capital, from the pension funds, when the first policy is sold
+INSURANCE_LOADING_BPS = 2000            # the premium is the expected loss plus a fifth...
+INSURANCE_RATE_ON_COVER_BPS = 10        # ...plus a tenth of one percent of the cover a quarter, so no cover is free
+INSURANCE_RECORD_QUARTERS = 4           # the expected loss is read from the last year
+INSURANCE_NO_CLAIMS_STEP_BPS = 500      # each full year with no claim takes 5% off the premium...
+INSURANCE_NO_CLAIMS_MOST_BPS = 2500     # ...up to a quarter off
+INSURANCE_CLAIM_WINDOW_QUARTERS = 4     # a loss must be claimed within a year of when it happened
+INSURANCE_REFUSALS_TO_BAR = 2           # the second claim refused because the claimant caused the loss ends all cover
+INSURANCE_DIRECTORS_WAIT_QUARTERS = 8   # directors' cover answers cases opened two years after it began: as long as
+                                        # the tribunal looks back, so no wrong done before the policy can be covered
+INSURANCE_DIRECTORS_MOST_NAIRA = 50_000_000   # the most directors' and officers' cover anyone may buy
+INSURANCE_INCOME_SHARE_BPS = 5000       # income protection pays half the last salary...
+INSURANCE_INCOME_QUARTERS = 4           # ...for up to a year after a dismissal, while out of work
+# What cover does for borrowing: a lender charges less to a borrower whose assets and income are insured. Cover counts
+# when it is in force and its premium is paid; the umbrella, a top-up, does not count on its own.
+INSURED_SPREAD_STEP_BPS = 200           # 2 points off the personal loan spread when cover is at least half the debt...
+INSURED_SPREAD_STEPS = 2                # ...and another 2 when it is at least the whole debt
 PERSONAL_LOAN_TERM_QUARTERS = 8        # ...repaid over two years
 LOAN_MISSES_TO_DEFAULT = 2             # two quarters missed and the loan is in default: no more borrowing until it is cleared
 LOAN_LATE_PENALTY_BPS = 500            # what is unpaid grows by 5% a quarter
