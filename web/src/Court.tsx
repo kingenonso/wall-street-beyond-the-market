@@ -118,8 +118,8 @@ function CourtHead({ aside }: { aside?: React.ReactNode }) {
   return (
     <div className="work-head">
       <div>
-        <h1>The court</h1>
-        <div className="work-sub">The regulator brings a case, the defendant settles or fights it, and the court finds the number from the record</div>
+        <h1>The tribunal</h1>
+        <div className="work-sub">The regulator or a player brings a case, the defendant settles or fights it, and the tribunal finds the number from the record. Modelled on Nigeria's Investments and Securities Tribunal</div>
       </div>
       {aside && <span className="muted small">{aside}</span>}
     </div>
@@ -132,8 +132,8 @@ function OpensLater() {
   return (
     <>
       <CourtHead />
-      <Panel title="The courts">
-        <p className="muted">The courts open with the next stage. Until then no case is brought, and nothing here is owed.</p>
+      <Panel title="The tribunal">
+        <p className="muted">The tribunal opens with the next stage. Until then no case is brought, and nothing here is owed.</p>
       </Panel>
     </>
   );
@@ -155,12 +155,12 @@ export function CourtWork({ onLoggedOut }: { onLoggedOut: () => void }) {
       <CourtHead aside={data.docket.length > 0 ? `${data.docket.length} open` : "nothing open"} />
       <Notices act={act} />
       {data.mine.banned_until !== null && (
-        <p className="error" role="alert">You are banned from trading until quarter {data.mine.banned_until}: the court's order.</p>
+        <p className="error" role="alert">You are banned from trading until quarter {data.mine.banned_until}: the tribunal's order.</p>
       )}
       <Panel title="The docket" aside={`${data.docket.length} open`}>
         {data.docket.length === 0 && <p className="muted">No case is open. The regulator reads the record each quarter.</p>}
         {data.docket.map((c) => <CaseCard key={c.id} c={c} mine={defending.some((d) => d.id === c.id)} act={act} />)}
-        <p className="muted small">A case is a claim with a number, and the lines of the record that prove it. The court does not decide guilt: it
+        <p className="muted small">A case is a claim with a number, and the lines of the record that prove it. The tribunal does not decide guilt: it
           proves the number and makes it be paid. A defendant who does not answer is judged at the next close.</p>
       </Panel>
       {data.claims.length > 0 && (
@@ -182,7 +182,7 @@ export function CourtWork({ onLoggedOut }: { onLoggedOut: () => void }) {
         </div>
         <div className="small muted">Proving one case costs it {formatNaira(data.regulator.cost)}, paid to the Treasury. Half of every fine it wins
           funds it, so it can only bring what it can afford to prove.</div>
-        <div className="small muted">The compensation fund holds {formatNaira(data.fund)}: what the court has ordered paid to the people a wrong
+        <div className="small muted">The compensation fund holds {formatNaira(data.fund)}: what the tribunal has ordered paid to the people a wrong
           was done to.</div>
       </Panel>
       <Panel title="Your legal record" aside="public">
@@ -200,13 +200,13 @@ export function CourtRail() {
   if (!data?.ready) return <></>;
   return (
     <>
-      <Panel title="The court" aside="a docket, not a courtroom">
+      <Panel title="The tribunal" aside="a list of cases, not a courtroom">
         <div className="small">The regulator's budget: <span className="strong">{formatNaira(data.regulator.budget)}</span></div>
         <div className="small">The compensation fund: <span className="strong">{formatNaira(data.fund)}</span></div>
         <div className="small muted">Open cases: {data.docket.length}</div>
         {data.mine.banned_until !== null && <div className="small error">Banned from trading until quarter {data.mine.banned_until}.</div>}
       </Panel>
-      <Panel title="What the court orders">
+      <Panel title="What the tribunal orders">
         <div className="small">Settling costs {pct(data.rules.settle_bps)} of the claim, paid at once.</div>
         <div className="small">A judgment adds a fine and the winner's costs, paid down over quarters.</div>
         <div className="small muted">A manipulation or a naked short also carries a trading ban. A judgment costs {data.rules.reputation} points of

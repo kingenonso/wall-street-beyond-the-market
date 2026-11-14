@@ -331,16 +331,15 @@ export function sectionsFor(player: Player): Section[] {
              { path: "career", label: "Career and levels" }] },
     // One section for the empire: its overview, desks, requests, deals, companies and War Room are tabs inside it.
     { path: "empire", label: player.empire ? "Empire" : "Empires", ...(player.empire && !player.empire.forming ? { count: player.empire.waiting, countWords: "waiting" } : {}) },
-    { path: "market", label: "Markets", tabs: [{ path: "market", label: "Trade shares" }, { path: "companies", label: "Companies" }, { path: "property", label: "Property" }] },
+    // Commodities (Stage 12) is a tab under Markets: buying, storing and selling goods is trading (owner, 14 November 2026).
+    { path: "market", label: "Markets", tabs: [{ path: "market", label: "Trade shares" }, { path: "companies", label: "Companies" }, { path: "property", label: "Property" },
+                                              { path: "commodities", label: "Commodities" }] },
     { path: "portfolio", label: "Money", ...((player.margin_calls ?? 0) > 0 ? { count: player.margin_calls, countWords: "margin calls" } : {}),
       tabs: [{ path: "portfolio", label: "Portfolio and savings" }, { path: "borrow", label: "Borrow" },
              { path: "retirement", label: "Retirement" }, { path: "currencies", label: "Currencies" }] },
-    { path: "news", label: "News", tabs: [{ path: "news", label: "News" }, { path: "intel", label: "Intelligence" }] },
+    // The tribunal (Stage 11, renamed 14 November 2026) is a tab under News: its list of cases is public reading.
+    { path: "news", label: "News", tabs: [{ path: "news", label: "News" }, { path: "intel", label: "Intelligence" }, { path: "court", label: "Tribunal" }] },
     { path: "economy", label: "Economy", tabs: [{ path: "economy", label: "The economy" }, { path: "charities", label: "Charities" }] },
-    // Stage 11: the courts, a page of their own (the owner's answer, 6 November 2026).
-    { path: "court", label: "Court" },
-    // Stage 12: the commodities desk — buy goods, store them, sell them, and run a firm's desk.
-    { path: "commodities", label: "Commodities" },
   ];
 }
 

@@ -99,7 +99,7 @@ def ensure(conn: Connection) -> None:
             wanted=naira(data.COURT_REGULATOR_START_NAIRA), kind="court_budget",
             memo="The Government's first budget for the market regulator")
     if _one(conn, "SELECT 1 AS x FROM ledger_accounts WHERE code = %s", (COMPENSATION_FUND,)) is None:
-        ledger.create_account(conn, kind="escrow", name="The court's compensation fund", code=COMPENSATION_FUND)
+        ledger.create_account(conn, kind="escrow", name="The tribunal's compensation fund", code=COMPENSATION_FUND)
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +185,7 @@ def check_trade(conn: Connection, account, now: datetime) -> None:
         if row["until"] > period:
             # The exchange's own error, so the order route refuses it the same way it refuses any other order.
             raise exchange.ExchangeError(
-                f"Trading is banned until {clock.period_label(row['until'])}: the court's order.")
+                f"Trading is banned until {clock.period_label(row['until'])}: the tribunal's order.")
 
 
 # ---------------------------------------------------------------------------
@@ -468,10 +468,10 @@ def _evidence_of(wrong: dict) -> dict:
 def open_case(conn: Connection, *, kind: str, defendant_id, claimant_id, company_id, amount: int, evidence: dict,
               words: str, period: int, now: datetime, bond: int = 0) -> int:
     if kind not in KINDS:
-        raise CourtError("The court hears five kinds of case against the market: dealing on confidential information, "
+        raise CourtError("The tribunal hears five kinds of case against the market: dealing on confidential information, "
                          "manipulation, an undisclosed stake, a naked short, and insurance fraud.")
     if amount < naira(data.COURT_MIN_CLAIM_NAIRA):
-        raise CourtError(f"A claim of {_naira(amount)} is not worth the court's time.")
+        raise CourtError(f"A claim of {_naira(amount)} is not worth the tribunal's time.")
     # The row is read by name: the website's connection hands back dictionaries, a test's hands back tuples, and the
     # court must work on both.
     row = _one(
@@ -542,7 +542,7 @@ def bring(conn: Connection, player_id, *, kind: str, defendant_id, company_id=No
     """A player brings a case. The court finds the evidence and the number itself: a player cannot name a number the
     record does not support. The bond is a tenth of the claim, and is lost if the claim fails."""
     if kind not in KINDS:
-        raise CourtError("The court hears five kinds of case against the market: dealing on confidential information, "
+        raise CourtError("The tribunal hears five kinds of case against the market: dealing on confidential information, "
                          "manipulation, an undisclosed stake, a naked short, and insurance fraud.")
     if str(player_id) == str(defendant_id):
         raise CourtError("You cannot bring a case against yourself.")

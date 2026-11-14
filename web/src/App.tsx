@@ -222,7 +222,7 @@ export function App() {
     const other = partnerFrom(item);
     work = <MessagesWork key={other ?? ""} with={other} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <MessagesRail />;
-  } else if (section === "court") {
+  } else if (section === "court" || section === "tribunal") {
     current = "court";
     work = <CourtWork onLoggedOut={loggedOut} />;
     rail = <CourtRail />;
