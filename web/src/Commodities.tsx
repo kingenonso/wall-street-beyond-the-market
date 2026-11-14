@@ -54,12 +54,12 @@ type Tab = (typeof TABS)[number]["path"];
 
 export function CommoditiesWork({ onLoggedOut, onChanged }: Props) {
   const page = useLoad(api.commodities, `commodities`, onLoggedOut);
+  const [tab, setTab] = useState<Tab>("market");      // (before any early return: React needs the same hooks on every render)
   if (page.loading && !page.data) return <Loading what="the commodities desk" />;
   if (page.error || !page.data) return <Failed message={page.error ?? "Could not load the commodities desk."} onRetry={page.reload} />;
 
   const { goods, prices, leases, holdings, trades, events, desk, quotes, hedges } = page.data;
   const open = leases.filter((l) => l.status === "open");
-  const [tab, setTab] = useState<Tab>("market");
 
   return (
     <>
