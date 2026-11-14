@@ -388,10 +388,10 @@ def test_up_to_three_tasks_of_different_kinds_and_the_head_gives_each_step_to_a_
     with pytest.raises(empires.EmpireError, match="One of each kind"):
         firm_tasks.start(db, team["head"], "investment", 3, LATER)
     step = _one(db, "SELECT id FROM empire_task_steps WHERE task_id = %s AND position = 1", (first["id"],))
-    other = member(db, empire, team["head"], "investment_banker", "second")
+    other = member(db, empire, team["head"], "asset_manager", "second")           # the first step falls to an Asset Manager
     firm_tasks.assign_step(db, team["head"], step["id"], other, LATER)
     with pytest.raises(empires.EmpireError, match="given that step"):
-        empires.take_step(db, team["investment_banker"], step["id"], LATER)
+        empires.take_step(db, team["asset_manager"], step["id"], LATER)
     # Raising money as a task: the desks' real decisions move it on.
     asked = firm_money.design_raising(db, team["investment_banker"], "bond", naira(60_000_000), 4, LATER)
     raising = _one(db, "SELECT * FROM empire_tasks WHERE empire_id = %s AND kind = 'raise_money'", (empire["id"],))
