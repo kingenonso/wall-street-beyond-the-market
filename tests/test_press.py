@@ -179,7 +179,7 @@ def test_the_press_office_answers_for_the_empire_and_sees_who_has_been_looking_f
     # A private investigation file leaves no trace the empire can see.
     press.open_file(db, _reporter(db, "quiet"), empire["name"], None, NOW9)
     looking = press.who_is_looking(db, empire["id"], NOW9 + timedelta(hours=1))
-    names = [r["investment_banker"] for r in looking]
+    names = [r["journalist"] for r in looking]
     assert names == ["outsider"]
     assert any(t.startswith("Asked:") for t in looking[0]["traces"]) and any(t.startswith("Wrote:") for t in looking[0]["traces"])
 
