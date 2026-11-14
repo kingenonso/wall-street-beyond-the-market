@@ -3,6 +3,7 @@ import { api, type Player } from "./api";
 import { Auth } from "./Auth";
 import { AccountantRail, AccountantWork, AssetManagerRail, AssetManagerWork, BuildRail } from "./BuildDesk";
 import { CareerRail, CareerWork } from "./Career";
+import { CompetitionWork } from "./Competition";
 import { CompaniesRail, CompaniesWork } from "./Companies";
 import { CompanyRail, CompanyWork } from "./Company";
 import { DeskRail, DeskWork } from "./Desk";
@@ -202,6 +203,10 @@ export function App() {
     current = "rank";
     work = <RankWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <RankRail player={player} onLoggedOut={loggedOut} />;
+  } else if (section === "competition") {
+    current = "competition";
+    work = <CompetitionWork player={player} onLoggedOut={loggedOut} />;
+    rail = <CareerRail player={player} onLoggedOut={loggedOut} />;
   } else if (section === "career" || (section === "build" && !player.build)) {
     current = "career";
     work = <CareerWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;

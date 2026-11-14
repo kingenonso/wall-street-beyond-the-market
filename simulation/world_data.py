@@ -816,7 +816,24 @@ COUNTER_OFFER_MOST_BPS = 500                       # a counter-offer's bonus may
 # Leagues: divisions of empires, with promotion and relegation as each game year ends.
 DIVISION_SIZE = 5
 DIVISION_MOVES = 1                                 # how many go up and down between two divisions each year
-LEAGUE_POINTS = {"task": 10, "work": 2, "challenge": 3, "theft": -5, "growth_most": 20}
+LEAGUE_POINTS = {"task": 10, "work": 2, "challenge": 3, "theft": -5, "growth_most": 20, "mandate": 8}
+
+# Competition, part 1 (owner, 14 November 2026). Up to this level a player's work is marked alone, while they learn.
+COMPETITION_PROTECTED_LEVEL = 5
+# Contested mandates: a company selling new shares invites every empire to pitch to arrange it.
+MANDATE_PITCH_LAST_DAY = 45            # pitches close half way through the quarter
+MANDATE_FEE_LEAST_BPS = 25             # a fee of 0.25% of what is raised...
+MANDATE_FEE_MOST_BPS = 500             # ...to 5%
+MANDATE_TRUST_PER_LEVEL_BPS = 50       # a company trusts a banker for half a point a level...
+MANDATE_TRUST_TOP_LEVEL = 60           # ...up to Level 60 (30%)...
+MANDATE_RECORD_MOST_BPS = 1000         # ...and up to 10% more for an empire whose forecasts of take-up came close
+MANDATE_RECORD_COUNT = 4               # the empire's last four mandates won make its record
+# Ranked work: each quarter, one company and one figure for each build.
+CONTEST_LAST_DAY = 30                  # forecasts close a third of the way into the quarter
+CONTEST_POINTS = {1: 6, 2: 4, 3: 2}    # league points for an empire's best entry, by its place
+CONTEST_MOST_ERROR_BPS = 2500          # no points for a forecast that missed by more than a quarter, whatever its place
+CONTEST_LEAST_EMPIRES = 2              # points only when at least two empires took part
+ANALYST_TABLE_LEAST = 2                # forecasts judged before a player is named on the table of analysts
 
 # Quick fixes: messages between players. Limits keep anyone from flooding others.
 MESSAGE_MAX_CHARS = 1000

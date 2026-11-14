@@ -1034,6 +1034,31 @@ export type DerivativesBoard = { series: Series[]; underlyings: string[]; open: 
   empire: null | { name: string; acts: boolean; head: boolean; build: string; limit_naira: number; committed: Kobo;
     positions: DerivativePosition[]; orders: DerivativeOrder[]; crash_fund: CrashFund } };
 
+// Competition (part 1): money in kobo, written as text.
+export type CompetitionCompany = { id: string; ticker: string; name: string; sector: string };
+export type CompetitionContest = {
+  id: number; quarter: string; build: string; build_name: string; company: CompetitionCompany; measure: string;
+  measure_words: string; status: "open" | "judged" | "void"; open: boolean; yours: boolean; entries: number;
+  entry: { guess: Kobo; error_bps: number | null; place: number | null; points: number } | null;
+  truth: Kobo | null;
+  top: { name: string; empire: string | null; guess: Kobo; error_bps: number; place: number; points: number }[];
+};
+export type CompetitionMandate = {
+  id: number; quarter: string; company: CompetitionCompany; kind: string; amount: Kobo; reason: string;
+  status: "open" | "awarded" | "lapsed" | "settled"; open: boolean; pitches: number;
+  ours: { fee_bps: number; take_up_bps: number; error_bps: number | null } | null;
+  winner: { empire: string; fee_bps: number; take_up_bps: number; error_bps: number | null } | null;
+  taken_up_bps: number | null; fee_paid: Kobo; words: string | null;
+};
+export type CompetitionPage = {
+  ready: boolean; quarter: string; day: number; level: number; protected: boolean; protected_level: number;
+  contest_last_day: number; pitch_last_day: number; fee_least_bps: number; fee_most_bps: number;
+  empire: string | null; can_pitch: boolean; trust_bps: number | null;
+  contests: CompetitionContest[]; mandates: CompetitionMandate[];
+  analysts: { name: string; build_name: string; entries: number; average_error_bps: number; wins: number }[];
+  points: { mandate: number; places: Record<number, number>; most_error_bps: number; least_empires: number };
+};
+
 // Insurance (a page under Money): every amount is the server's, in kobo written as text.
 export type InsuranceQuote = {
   kind: string; cover: Kobo; excess: Kobo; expected_loss: Kobo; loading: Kobo; on_cover: Kobo;
@@ -1361,6 +1386,12 @@ export const api = {
   }) => request<SignUpPending>("/auth/signup", { method: "POST", body: JSON.stringify(details) }),
   confirmEmail: (email: string, code: string) =>
     request<Player>("/auth/confirm-email", { method: "POST", body: JSON.stringify({ email, code }) }),
+  // Competition, under Work.
+  competition: () => request<CompetitionPage>("/competition"),
+  competitionPitch: (body: { mandate_id: number; fee_bps: number; take_up_bps: number }) =>
+    request<CompetitionPage>("/competition/pitch", { method: "POST", body: JSON.stringify(body) }),
+  competitionForecast: (body: { contest_id: number; guess_kobo: number }) =>
+    request<CompetitionPage>("/competition/forecast", { method: "POST", body: JSON.stringify(body) }),
   // Insurance, under Money.
   insurance: () => request<InsurancePage>("/insurance"),
   insuranceBuy: (body: { kind: string; cover_kobo: number; excess_kobo: number }) =>

@@ -1862,3 +1862,4 @@ from server import world_routes  # noqa: E402,F401
 from server import court_routes  # noqa: E402,F401
 from server import insurance_routes  # noqa: E402,F401  (importing it adds its routes to the application)
 from server import commodity_routes  # noqa: E402,F401
+from server import competition_routes  # noqa: E402,F401

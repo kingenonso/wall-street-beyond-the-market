@@ -94,6 +94,10 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
             # With every company's accounts filed and the new interest rate set, the professional
             # work that was waiting for them is judged, and the payers pay.
             objectives.at_close(conn, period, now)
+            # Competition (part 1): the quarter's ranked forecasts judged, next quarter's opened, new sales of shares put
+            # out to pitch.
+            from simulation import competition
+            competition.at_close(conn, period, world["fortune_seed"], now)
             ranks.at_close(conn, period, now)
             # Empires pay their staff, their books are audited, and their staff do their work.
             empires.after_close(conn, period, now)
@@ -133,7 +137,12 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     # first, so that nobody can trade against prices set before all this was known.
     bonds.setup(conn, period - 1)
     investors.withdraw_all(conn, now)
+    # Mandates: each company selling shares this quarter chooses the empire that arranges it before the sale is settled,
+    # and the winner is paid its fee on what was raised.
+    from simulation import competition
+    competition.award(conn, period, now)
     corporate.settle(conn, period, now)
+    competition.settle(conn, period, now)
     happening = events.load(conn, period)
     moods, severe = events.location_moods(happening)
     lending_factor = moneywatch.lending_factor_bps(conn, period)

@@ -328,6 +328,8 @@ export function sectionsFor(player: Player): Section[] {
              ...(player.build === "investment_banker" ? [{ path: "legal", label: "Legal desk" }] : []),
              ...(player.build_name ? [{ path: "newsroom", label: "Newsroom" }] : []),
              { path: "work", label: "Work in hand" },
+             // Competition (part 1, 14 November 2026): ranked forecasts and contested mandates.
+             { path: "competition", label: "Competition" },
              { path: "career", label: "Career and levels" }] },
     // One section for the empire: its overview, desks, requests, deals, companies and War Room are tabs inside it.
     { path: "empire", label: player.empire ? "Empire" : "Empires", ...(player.empire && !player.empire.forming ? { count: player.empire.waiting, countWords: "waiting" } : {}) },
