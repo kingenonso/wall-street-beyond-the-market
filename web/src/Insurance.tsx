@@ -62,11 +62,11 @@ function PolicyPanel({ p, act, barred }: { p: InsurancePolicy; act: Act; barred:
         <>
           <table className="dense">
             <tbody>
-              <tr><th scope="row">The expected loss, from the last year of the record</th><td className="num mono">{formatNaira(q.expected_loss)}</td></tr>
+              <tr><th scope="row" style={{ whiteSpace: "normal" }}>The expected loss, from the last year of the record</th><td className="num mono">{formatNaira(q.expected_loss)}</td></tr>
               <tr><th scope="row">The insurer's loading</th><td className="num mono">{formatNaira(q.loading)}</td></tr>
               <tr><th scope="row">A charge on the cover</th><td className="num mono">{formatNaira(q.on_cover)}</td></tr>
               {q.discount !== "0" && <tr><th scope="row">No-claims discount ({formatPercent(q.no_claims_bps, 0)})</th><td className="num mono">− {formatNaira(q.discount)}</td></tr>}
-              <tr><th scope="row"><strong>A quarter's premium, at the most cover</strong></th><td className="num mono"><strong>{formatNaira(q.premium)}</strong></td></tr>
+              <tr><th scope="row" style={{ whiteSpace: "normal" }}><strong>A quarter's premium, at the most cover</strong></th><td className="num mono"><strong>{formatNaira(q.premium)}</strong></td></tr>
             </tbody>
           </table>
           <form className="inline-form" onSubmit={(e) => {
