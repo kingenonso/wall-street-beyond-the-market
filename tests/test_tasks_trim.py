@@ -52,13 +52,13 @@ def test_retired_work_is_never_offered_and_cannot_be_taken(db):
 
 def test_work_taken_before_it_was_retired_still_finishes_and_pays(db, monkeypatch):
     player, _ = pro(db, "asset_manager", "inhand", level=10, cash_naira=1_000_000)
-    taken_before_retirement(monkeypatch, "ac_bills")
-    taken = objectives.accept(db, player, "ac_bills", NOW9)
+    taken_before_retirement(monkeypatch, "ac_retail_margin")
+    taken = objectives.accept(db, player, "ac_retail_margin", NOW9)
     monkeypatch.undo()                                   # retired again, with the work still in hand
-    assert objectives.TEMPLATES["ac_bills"].retired
+    assert objectives.TEMPLATES["ac_retail_margin"].retired
     answers = right_answers(db, taken["id"])
     done = objectives.submit(db, player, taken["id"], answers, NOW9)
-    assert done["state"] in ("passed", "submitted")      # marked now, or judged when the company files
+    assert done["state"] == "passed"
 
 
 @pytest.mark.parametrize("build", ["asset_manager", "investment_banker", "risk_manager"])
