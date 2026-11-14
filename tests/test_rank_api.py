@@ -80,8 +80,9 @@ def test_a_player_sees_the_gate_ahead_sits_a_case_and_reports_marking(db, client
     directory = client.get("/api/empires").json()["directory"]
     assert len(directory["divisions"]) == 1 and len(directory["divisions"][0]["empires"]) == 5
     assert directory["build_table"]["top"][0]["you"] and directory["build_table"]["your_place"] == 1
-    table = client.get("/api/league/builds/accountant").json()
+    table = client.get("/api/league/builds/asset_manager").json()
     assert table["top"][0]["level"] == 20 and "id" not in table["top"][0]
+    assert client.get("/api/league/builds/accountant").status_code == 422          # a retired build has no table
     assert client.get("/api/league/builds/ceo").status_code == 422
     assert ledger.audit(db) == [] and ledger.amount_in_existence(db) == money_accounted_for(db)
 
