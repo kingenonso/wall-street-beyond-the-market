@@ -598,7 +598,7 @@ def test_a_lawyer_drafts_a_pact_the_heads_sign_it_and_it_stays_hidden(db, monkey
     empire, (head, _), partners = founded(db)
     other = computer_empire(db)
     scribe = partners["asset_manager"][0]
-    with pytest.raises(empires.EmpireError, match="drafted by an Investment Banker"):
+    with pytest.raises(empires.EmpireError, match="drafted by the Investment Banker"):
         empires.draft_pact(db, scribe, other["id"], "alliance", "We stand together against all comers.", NOW9)
     counsel, _ = pro(db, "investment_banker", "counsel", level=4)
     empires.apply(db, counsel, empire["id"], NOW9)
