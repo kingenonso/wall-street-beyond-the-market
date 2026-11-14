@@ -87,10 +87,13 @@ def test_every_piece_of_new_work_can_be_taken_done_right_and_is_paid_by_its_name
             continue
         taken = objectives.accept(db, player, code, NOW9)
         assert "company_id" not in taken["terms"] and taken["result"] is None
+        if template.bell is not None and build == "asset_manager":
+            # The Asset Manager's own market work (a spread, idle cash, the rate decision, a mandate, a valuation, beating
+            # the index) each asks for its own holdings over many bells: test_objectives.py does each one right. (Before
+            # the three builds this test did not take in the Asset Manager.)
+            continue
         if template.bell is not None:
             give_shares(db, account, "IDC", 40_000), give_shares(db, account, "GGM", 40_000), give_shares(db, account, "EKC", 40_000)
-            if code == "am_spread":                       # five companies from three industries or more, none above 30%
-                give_shares(db, account, "IKB", 40_000), give_shares(db, account, "AGA", 40_000)
             bonds.trade(db, account=account, code=next(b for b in bonds.listing(db, NOW9) if b["kind"] == "bill")["code"],
                         side="buy", units=100, now=NOW9)
             for n in range(1, 4):
