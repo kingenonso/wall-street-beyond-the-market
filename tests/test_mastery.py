@@ -408,7 +408,7 @@ def test_a_player_can_report_marking_they_believe_is_wrong_once(db):
 # ---------------------------------------------------------------------------
 
 def test_the_leadership_track_opens_to_a_head_or_at_level_forty_and_its_experience_goes_to_the_players_build(db):
-    junior, _ = pro(db, "asset_manager", level=20)
+    junior, _ = pro(db, "asset_manager", "junior", level=20)          # (a founder's partner is named asset_manager)
     assert [t["track"] for t in objectives.board(db, junior, NOW9)["tracks"]] == ["asset_manager", "newsroom"]
     with pytest.raises(objectives.ObjectiveError, match="not open"):
         objectives.accept(db, junior, "ce_return", NOW9)
