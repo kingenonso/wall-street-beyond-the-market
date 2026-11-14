@@ -155,6 +155,12 @@ def close_quarter(conn: Connection, period: int, seed: str, *, company_sales: in
         commodities[name] = now
         push += (now - before) * BPS // before * weight // BPS       # its share of the general price level
 
+    # A decree by the Government Leader on the Central Bank's rate costs prices and trust (Government, part 2).
+    from simulation import government
+    decreed = government.decreed_rate(conn, period)
+    if decreed is not None:
+        push += data.DECREE_PRICE_PUSH_BPS
+        confidence_bps = max(confidence_bps - data.DECREE_CONFIDENCE_BPS, 0)
     # The general price level: what households spent, against what the economy can supply.
     justified = household_spending * BPS * BPS // (reference * capacity) if reference else BPS
     # Sellers expect prices to rise at the Central Bank's target and mark up accordingly;
@@ -174,6 +180,8 @@ def close_quarter(conn: Connection, period: int, seed: str, *, company_sales: in
     rate_now = prev["next_policy_rate_bps"]
     demand_gap = (justified - prev["price_index_bps"]) * BPS // prev["price_index_bps"]
     next_rate, reason = decide_rate(rate_now, inflation, rate_extra_bps, demand_gap)
+    if decreed is not None:
+        next_rate, reason = government.apply_decree(conn, period, next_rate, decreed, reason)
 
     row = {
         "period": period, "price_index_bps": prices, "inflation_bps": inflation, "wage_index_bps": wages,

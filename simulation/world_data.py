@@ -847,6 +847,14 @@ LEADER_LEAST_LEVEL = 20                # ...and this level
 ELECTION_STAND_LAST_DAY = 30           # candidates stand in the first third of a year's last quarter; then the vote opens
 BUDGET_LAST_DAY = 30                   # the leader puts the budget in the first third of the year's first quarter
 ASSEMBLY_COMPUTER_SEATS = 15           # computer-run members of the Assembly, beside the heads of empires run by players
+# Government, part 2 (14 November 2026): the leader's other powers, and lobbying.
+DECREE_MOST_BPS = 300                  # a decree may set the rate up to three points from the Central Bank's own
+DECREE_PRICE_PUSH_BPS = 50             # ...and costs half a point more on prices that quarter...
+DECREE_CONFIDENCE_BPS = 500            # ...and five points of confidence
+LEVY_MOST_BPS = 200                    # a levy takes at most 2% of one empire's cash
+LEADER_PAY_NAIRA = 3_000_000           # the leader's pay, from the Treasury, each quarter in office
+LOBBY_NAIRA = 5_000_000                # what winning over one computer-run member's vote costs, paid to the Treasury
+LOBBY_MOST = 3                         # members one empire may win over on one vote
 ANALYST_TABLE_LEAST = 2                # forecasts judged before a player is named on the table of analysts
 
 # Quick fixes: messages between players. Limits keep anyone from flooding others.

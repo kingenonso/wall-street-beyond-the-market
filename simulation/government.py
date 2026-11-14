@@ -29,6 +29,7 @@ from psycopg.rows import dict_row
 
 from simulation import careers, clock, ledger
 from simulation import world_data as data
+from simulation.money import BPS, naira
 
 KINDS = ("income", "company", "property", "land")
 NAMES = {"income": "Income tax", "company": "Company tax", "property": "Property tax", "land": "Land tax"}
@@ -38,9 +39,9 @@ STAND_INS = {
     "dove": "A dove: cuts every rate by a step when the Treasury has been filling up.",
 }
 LEANINGS = {
-    "low_tax": "votes against any budget that raises a rate",
-    "high_tax": "votes against any budget that cuts a rate",
-    "steady": "votes against any budget that moves a rate by more than a step",
+    "low_tax": "vote against any budget that raises a rate",
+    "high_tax": "vote against any budget that cuts a rate",
+    "steady": "vote against any budget that moves a rate by more than a step",
 }
 
 
@@ -316,8 +317,16 @@ def _tally(conn: Connection, subject: str, computer_aye) -> tuple[int, int]:
     cast = _rows(conn, "SELECT vote FROM assembly_votes WHERE subject = %s", (subject,))
     ayes = sum(1 for v in cast if v["vote"])
     noes = len(cast) - ayes
+    lobbied = {}
+    if _one(conn, "SELECT to_regclass('lobbying') IS NOT NULL AS ok")["ok"]:
+        lobbied = {r["seat"]: r["vote"] for r in _rows(conn, "SELECT seat, vote FROM lobbying WHERE subject = %s", (subject,))}
     for m in (m for m in assembly(conn, _subject_year(conn, subject)) if m["kind"] == "computer"):
-        if computer_aye(m):
+        if m["seat"] in lobbied:                     # won over, in the open, by an empire's lobbying
+            if lobbied[m["seat"]]:
+                ayes += 1
+            else:
+                noes += 1
+        elif computer_aye(m):
             ayes += 1
         else:
             noes += 1
@@ -381,7 +390,11 @@ def at_close(conn: Connection, period: int, now: datetime) -> dict:
         if passed:
             _set_rates(conn, {k: int(v) for k, v in b["rates"].items()}, period, "the Government Leader's budget")
         out["budget"] = "passed" if passed else "rejected"
-    for m in _rows(conn, "SELECT * FROM motions WHERE status = 'voting' AND period <= %s ORDER BY id", (period,)):
+    for m in _rows(conn, "SELECT * FROM motions WHERE status = 'voting' AND period <= %s AND kind = 'levy' ORDER BY id",
+                   (period,)) if _has_powers(conn) else []:
+        out["levy"] = _count_levy(conn, m, period, now)
+    for m in _rows(conn, "SELECT * FROM motions WHERE status = 'voting' AND period <= %s AND kind = 'no_confidence' ORDER BY id",
+                   (period,)):
         # Computer-run members back the leader unless the leader's budget went against their leaning.
         budget = _one(conn, "SELECT * FROM budgets WHERE year = %s AND proposed_by IS NOT NULL", (m["year"],))
         before = _one(conn, "SELECT rates FROM budgets WHERE year = %s", (m["year"] - 1,))
@@ -396,10 +409,138 @@ def at_close(conn: Connection, period: int, now: datetime) -> dict:
                          (period, f"Removed by the Assembly, {ayes} to {noes}: the stand-in governs for the rest of the year.",
                           m["year"]))
         out["motion"] = "passed" if passed else "failed"
+    if _has_powers(conn):
+        boss = leader(conn, year)
+        if boss is not None:
+            # The leader's pay for the quarter, from the Treasury.
+            ledger.pay_up_to(conn, payer=ledger.account_id(conn, ledger.TREASURY),
+                             receiver=ledger.player_account_id(conn, boss["leader_id"]), wanted=naira(data.LEADER_PAY_NAIRA),
+                             kind="leader_pay", memo=f"The Government Leader's pay, {clock.period_label(period)}", period=period)
     if quarter_of(period) == clock.QUARTERS_PER_YEAR:
         t = _count(conn, year + 1, now)
         out["elected"] = str(t["leader_id"]) if t["leader_id"] else None
     return out
+
+
+# ---------------------------------------------------------------------------
+# Part 2: the leader's other powers, and lobbying
+# ---------------------------------------------------------------------------
+
+def _has_powers(conn: Connection) -> bool:
+    return _one(conn, "SELECT to_regclass('decrees') IS NOT NULL AS ok")["ok"] is True
+
+
+def _the_leader(conn: Connection, player_id, now: datetime) -> tuple[dict, int]:
+    state = careers.world_now(conn, now)
+    boss = leader(conn, year_of(state["period"]))
+    if boss is None or boss["leader_id"] != player_id:
+        raise GovernmentError("Only the Government Leader may do that.")
+    return boss, state["period"]
+
+
+def decree(conn: Connection, player_id, rate_bps: int, now: datetime) -> dict:
+    """Set next quarter's Central Bank rate by decree. Once a quarter. The close holds it within three points of the
+    Central Bank's own rule, and it costs prices and confidence."""
+    with conn.transaction():
+        careers.books_open(conn, now)
+        _boss, period = _the_leader(conn, player_id, now)
+        if not isinstance(rate_bps, int) or isinstance(rate_bps, bool) or not 0 <= rate_bps <= 5000:
+            raise GovernmentError("Name a rate between 0% and 50%.")
+        done = conn.execute("INSERT INTO decrees (period, leader_id, rate_bps, at) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                            (period, player_id, rate_bps, now)).rowcount
+        if not done:
+            raise GovernmentError("There has been a decree this quarter. One a quarter.")
+        return {"period": period, "rate_bps": rate_bps}
+
+
+def decreed_rate(conn: Connection, period: int) -> int | None:
+    if not ready(conn) or not _has_powers(conn):
+        return None
+    row = _one(conn, "SELECT rate_bps FROM decrees WHERE period = %s", (period,))
+    return row["rate_bps"] if row else None
+
+
+def apply_decree(conn: Connection, period: int, rule_bps: int, decreed: int, reason: str) -> tuple[int, str]:
+    """At the close: the decree sets the rate, held within the limit of the Central Bank's own."""
+    final = min(max(decreed, rule_bps - data.DECREE_MOST_BPS, 0), rule_bps + data.DECREE_MOST_BPS)
+    conn.execute("UPDATE decrees SET applied_bps = %s, rule_bps = %s WHERE period = %s", (final, rule_bps, period))
+    return final, (f"By decree of the Government Leader: {final / 100:.2f}%. The Central Bank's own rule would have set "
+                   f"{rule_bps / 100:.2f}% ({reason}). A decree costs: prices rose faster and confidence fell.")
+
+
+def propose_levy(conn: Connection, player_id, empire_id: int, bps: int, reason: str, now: datetime) -> dict:
+    """Ask the Assembly to take up to two per cent of one empire's cash for the Treasury. Counted at the close."""
+    with conn.transaction():
+        careers.books_open(conn, now)
+        _boss, period = _the_leader(conn, player_id, now)
+        target = _one(conn, "SELECT id, name FROM empires WHERE id = %s AND status = 'active'", (empire_id,))
+        if target is None:
+            raise GovernmentError("There is no such empire.")
+        if not isinstance(bps, int) or isinstance(bps, bool) or not 1 <= bps <= data.LEVY_MOST_BPS:
+            raise GovernmentError(f"A levy takes between 0.01% and {data.LEVY_MOST_BPS / 100:.0f}% of an empire's cash.")
+        reason = (reason or "").strip()
+        if not 1 <= len(reason) <= 300:
+            raise GovernmentError("Give the Assembly a reason (up to 300 letters).")
+        done = conn.execute("INSERT INTO motions (year, period, kind, proposed_by, payload, at) VALUES (%s, %s, 'levy', %s, %s, %s)"
+                            " ON CONFLICT DO NOTHING",
+                            (year_of(period), period, player_id,
+                             __import__("json").dumps({"empire_id": target["id"], "empire": target["name"], "bps": bps,
+                                                       "reason": reason}), now)).rowcount
+        if not done:
+            raise GovernmentError("A levy is already before the Assembly.")
+        return {"empire": target["name"], "bps": bps}
+
+
+def _count_levy(conn: Connection, m: dict, period: int, now: datetime) -> str:
+    # Computer-run members who favour high taxes back a levy; the rest protect the empires.
+    ayes, noes = _tally(conn, f"motion:{m['id']}", lambda c: c["leaning"] == "high_tax")
+    passed = ayes > noes
+    collected = None
+    if passed:
+        target = _one(conn, "SELECT account_id, name FROM empires WHERE id = %s", (m["payload"]["empire_id"],))
+        wanted = ledger.balance(conn, target["account_id"]) * int(m["payload"]["bps"]) // BPS
+        collected = ledger.pay_up_to(conn, payer=target["account_id"], receiver=ledger.account_id(conn, ledger.TREASURY),
+                                     wanted=wanted, kind="levy", memo=f"A levy on {target['name']}, passed by the Assembly",
+                                     period=period) if wanted > 0 else 0
+    conn.execute("UPDATE motions SET status = %s, votes_for = %s, votes_against = %s, collected = %s WHERE id = %s",
+                 ("passed" if passed else "failed", ayes, noes, collected, m["id"]))
+    return "passed" if passed else "failed"
+
+
+def lobby(conn: Connection, player_id, subject: str, seat: int, now: datetime) -> dict:
+    """The head of an empire pays the Treasury, in the open, to win over one computer-run member's vote. The member then
+    votes as the head did, so the head must vote first."""
+    with conn.transaction():
+        careers.books_open(conn, now)
+        empire = _one(conn, "SELECT id, name, account_id FROM empires WHERE head_player_id = %s AND status = 'active'"
+                            " AND kind = 'player' FOR UPDATE", (player_id,))
+        if empire is None:
+            raise GovernmentError("Lobbying is done by the head of an empire run by players.")
+        kind, _, ident = subject.partition(":")
+        table = {"budget": "budgets", "motion": "motions"}.get(kind)
+        row = _one(conn, f"SELECT status, year FROM {table} WHERE id = %s", (int(ident),)) if table and ident.isdigit() else None
+        if row is None or row["status"] != "voting":
+            raise GovernmentError("That vote is closed.")
+        mine = _one(conn, "SELECT vote FROM assembly_votes WHERE subject = %s AND empire_id = %s", (subject, empire["id"]))
+        if mine is None:
+            raise GovernmentError("Vote first: a member you win over votes as your seat did.")
+        if not isinstance(seat, int) or not 1 <= seat <= data.ASSEMBLY_COMPUTER_SEATS:
+            raise GovernmentError("There is no such member.")
+        if _one(conn, "SELECT count(*) AS n FROM lobbying WHERE subject = %s AND empire_id = %s",
+                (subject, empire["id"]))["n"] >= data.LOBBY_MOST:
+            raise GovernmentError(f"An empire may win over {data.LOBBY_MOST} members on one vote.")
+        if _one(conn, "SELECT 1 AS x FROM lobbying WHERE subject = %s AND seat = %s", (subject, seat)):
+            raise GovernmentError("Somebody has already won that member over on this vote.")
+        cost = naira(data.LOBBY_NAIRA)
+        try:
+            ledger.transfer(conn, payer=empire["account_id"], receiver=ledger.account_id(conn, ledger.TREASURY), amount=cost,
+                            kind="lobbying", memo=f"{empire['name']} lobbied Member {seat} on {subject}",
+                            period=careers.world_now(conn, now)["period"])
+        except ledger.InsufficientFunds:
+            raise GovernmentError(f"Lobbying a member costs {cost / 100:,.0f} naira, which the empire does not have.") from None
+        conn.execute("INSERT INTO lobbying (subject, seat, empire_id, vote, paid, at) VALUES (%s, %s, %s, %s, %s, %s)",
+                     (subject, seat, empire["id"], mine["vote"], cost, now))
+        return {"subject": subject, "seat": seat, "vote": mine["vote"], "paid": cost}
 
 
 # ---------------------------------------------------------------------------
@@ -416,7 +557,7 @@ def view(conn: Connection, player_id, now: datetime) -> dict:
     stand_in = t["stand_in"] if t else tuple(STAND_INS)[_lot("stand-in", _seed(conn), year) % len(STAND_INS)]
     in_force = rates(conn)
     budget = _one(conn, "SELECT * FROM budgets WHERE year = %s", (year,))
-    motion = _one(conn, "SELECT * FROM motions WHERE year = %s ORDER BY id DESC LIMIT 1", (year,))
+    motion = _one(conn, "SELECT * FROM motions WHERE year = %s AND kind = 'no_confidence' ORDER BY id DESC LIMIT 1", (year,))
     seat = _seat_of_head(conn, player_id)
     voted = {r["subject"] for r in _rows(conn, "SELECT subject FROM assembly_votes WHERE empire_id = %s", (seat["id"],))} if seat else set()
     in_election = quarter_of(period) == clock.QUARTERS_PER_YEAR
@@ -445,6 +586,7 @@ def view(conn: Connection, player_id, now: datetime) -> dict:
                                                "votes_against": motion["votes_against"], "voted": f"motion:{motion['id']}" in voted},
         "assembly": [{k: (str(v) if k == "player_id" and v is not None else v) for k, v in m.items()} for m in assembly(conn, year)],
         "your_seat": seat["name"] if seat else None,
+        **(_powers_view(conn, player_id, period, year, seat, boss) if _has_powers(conn) else {}),
         "election": {
             "open": in_election, "for_year": year + 1, "stand_last_day": data.ELECTION_STAND_LAST_DAY,
             "candidates": candidates, "your_vote": str(my_vote["candidate_id"]) if my_vote else None,
@@ -453,5 +595,32 @@ def view(conn: Connection, player_id, now: datetime) -> dict:
             "can_vote": bool(in_election and state["day"] > data.ELECTION_STAND_LAST_DAY and not _protected(conn, player_id)
                              and my_vote is None),
             "least_reputation": data.LEADER_LEAST_REPUTATION, "least_level": data.LEADER_LEAST_LEVEL,
+        },
+    }
+
+
+def _powers_view(conn: Connection, player_id, period: int, year: int, seat: dict | None, boss: dict | None) -> dict:
+    decree_now = _one(conn, "SELECT rate_bps FROM decrees WHERE period = %s", (period,))
+    last = _one(conn, "SELECT * FROM decrees WHERE applied_bps IS NOT NULL ORDER BY period DESC LIMIT 1")
+    levies = [{"id": m["id"], "empire": m["payload"]["empire"], "bps": int(m["payload"]["bps"]), "reason": m["payload"]["reason"],
+               "status": m["status"], "votes_for": m["votes_for"], "votes_against": m["votes_against"],
+               "collected": m["collected"]}
+              for m in _rows(conn, "SELECT * FROM motions WHERE kind = 'levy' AND year = %s ORDER BY id DESC", (year,))]
+    lobbied = [{"subject": r["subject"], "seat": r["seat"], "empire": r["name"], "vote": r["vote"], "paid": r["paid"]}
+               for r in _rows(conn, "SELECT l.*, e.name FROM lobbying l JOIN empires e ON e.id = l.empire_id"
+                                    " ORDER BY l.at DESC LIMIT 30")]
+    is_leader = bool(boss and boss["leader_id"] == player_id)
+    return {
+        "powers": {
+            "is_leader": is_leader, "can_decree": is_leader and decree_now is None,
+            "decree_now_bps": decree_now["rate_bps"] if decree_now else None,
+            "last_decree": None if last is None else {"quarter": clock.period_label(last["period"]), "rate_bps": last["applied_bps"],
+                                                       "rule_bps": last["rule_bps"]},
+            "decree_most_bps": data.DECREE_MOST_BPS, "decree_price_bps": data.DECREE_PRICE_PUSH_BPS,
+            "decree_confidence_bps": data.DECREE_CONFIDENCE_BPS, "levy_most_bps": data.LEVY_MOST_BPS,
+            "leader_pay": naira(data.LEADER_PAY_NAIRA), "lobby_cost": naira(data.LOBBY_NAIRA), "lobby_most": data.LOBBY_MOST,
+            "empires": [{"id": e["id"], "name": e["name"]} for e in _rows(conn, "SELECT id, name FROM empires WHERE status = 'active'"
+                                                                                 " ORDER BY name")] if is_leader else [],
+            "levies": levies, "lobbied": lobbied, "can_lobby": seat is not None,
         },
     }

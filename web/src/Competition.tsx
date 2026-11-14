@@ -171,10 +171,10 @@ export function CompetitionWork({ onLoggedOut }: Props) {
     <>
       <PageHead title="Competition" sub="Work with a winner: against other players, and for your empire" aside={`${d.quarter} · day ${d.day}`} />
       <Band label="Where you stand" columns={4}>
-        <BandCell label="Your forecast this quarter" value={mine?.entry ? "● sealed" : mine?.open ? "open" : "—"} note={`forecasts close on day ${d.contest_last_day}`} />
+        <BandCell label="Your forecast" value={mine?.entry ? "● sealed" : mine?.open ? "open" : "—"} note={`closes day ${d.contest_last_day}`} />
         <BandCell label="Your empire" value={d.empire ?? "—"} note={d.empire ? "its best entry earns its points" : "join one for its points"} />
         <BandCell label="Mandates open" value={d.mandates.filter((m) => m.open).length} note={`pitches close on day ${d.pitch_last_day}`} />
-        <BandCell label="What a company trusts you for" value={d.trust_bps === null ? "—" : pct(d.trust_bps)} note={d.can_pitch ? "your level and your empire's record" : "for an empire's banker or head"} />
+        <BandCell label="Trust in you" value={d.trust_bps === null ? "—" : pct(d.trust_bps)} note={d.can_pitch ? "level and empire record" : "bankers and heads only"} />
       </Band>
       {d.protected && <p className="small" role="status">Up to Level {d.protected_level} your work is marked alone while you learn. Competing opens at Level {d.protected_level + 1}; until then you can watch how it goes.</p>}
       {act.error && <p className="small change-down" role="alert">{act.error}</p>}

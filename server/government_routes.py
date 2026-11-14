@@ -3,7 +3,7 @@
 A player: who governs this year and how they came to (or the stand-in, and its published personality), the tax rates in
 force and their limits, this year's budget and how the Assembly voted, the Assembly's members, any motion of no
 confidence, and the election for next year. A player may stand or vote in the election; the leader may put the budget;
-the head of an empire run by players may vote in the Assembly and table a motion of no confidence.
+the head of an empire run by players may vote in the Assembly and table a motion of no confidence. Part 2: the leader\nmay decree the Central Bank's rate and ask the Assembly for a levy on an empire; a head may lobby computer-run members.
 """
 
 from __future__ import annotations
@@ -51,6 +51,21 @@ class BudgetRequest(Request):
     company_bps: Bps
     property_bps: Bps
     land_bps: Bps
+
+
+class DecreeRequest(Request):
+    rate_bps: Annotated[int, Field(ge=0, le=5000, strict=True)]
+
+
+class LevyRequest(Request):
+    empire_id: int = Field(ge=1, le=9_000_000_000_000_000_000, strict=True)
+    bps: Annotated[int, Field(ge=1, le=10_000, strict=True)]
+    reason: str = Field(min_length=1, max_length=300)
+
+
+class LobbyRequest(Request):
+    subject: str = Field(pattern=r"^(budget|motion):\d{1,18}$")
+    seat: int = Field(ge=1, le=1000, strict=True)
 
 
 class AssemblyVoteRequest(Request):
@@ -101,3 +116,18 @@ def government_assembly_vote(body: AssemblyVoteRequest, player: dict = Depends(c
 @app.post("/api/government/no-confidence")
 def government_no_confidence(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     return _act(conn, player, lambda now: government.no_confidence(conn, player["id"], now))
+
+
+@app.post("/api/government/decree")
+def government_decree(body: DecreeRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: government.decree(conn, player["id"], body.rate_bps, now))
+
+
+@app.post("/api/government/levy")
+def government_levy(body: LevyRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: government.propose_levy(conn, player["id"], body.empire_id, body.bps, body.reason, now))
+
+
+@app.post("/api/government/lobby")
+def government_lobby(body: LobbyRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: government.lobby(conn, player["id"], body.subject, body.seat, now))

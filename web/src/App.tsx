@@ -4,7 +4,7 @@ import { Auth } from "./Auth";
 import { AccountantRail, AccountantWork, AssetManagerRail, AssetManagerWork, BuildRail } from "./BuildDesk";
 import { CareerRail, CareerWork } from "./Career";
 import { CompetitionWork } from "./Competition";
-import { GovernmentWork } from "./Government";
+import { GovernmentRail, GovernmentWork } from "./Government";
 import { CompaniesRail, CompaniesWork } from "./Companies";
 import { CompanyRail, CompanyWork } from "./Company";
 import { DeskRail, DeskWork } from "./Desk";
@@ -122,7 +122,7 @@ export function App() {
   } else if (section === "government") {
     current = "government";
     work = <GovernmentWork player={player} onLoggedOut={loggedOut} />;
-    rail = <CharitiesRail />;
+    rail = <GovernmentRail />;
   } else if (section === "charities") {
     current = "charities";
     work = <CharitiesWork player={player} onLoggedOut={loggedOut} />;

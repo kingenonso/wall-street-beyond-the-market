@@ -1047,6 +1047,16 @@ export type GovernmentPage = {
   assembly: { kind: "head" | "computer"; empire_id?: number; empire?: string; player_id?: string; name: string; seat?: number;
               leaning?: string; words?: string }[];
   your_seat: string | null;
+  powers?: {
+    is_leader: boolean; can_decree: boolean; decree_now_bps: number | null;
+    last_decree: { quarter: string; rate_bps: number; rule_bps: number } | null;
+    decree_most_bps: number; decree_price_bps: number; decree_confidence_bps: number; levy_most_bps: number;
+    leader_pay: number; lobby_cost: number; lobby_most: number; empires: { id: number; name: string }[];
+    levies: { id: number; empire: string; bps: number; reason: string; status: string; votes_for: number | null;
+              votes_against: number | null; collected: number | null }[];
+    lobbied: { subject: string; seat: number; empire: string; vote: boolean; paid: number }[];
+    can_lobby: boolean;
+  };
   election: { open: boolean; for_year: number; stand_last_day: number;
               candidates: { player_id: string; name: string; pitch: string; reputation: number }[];
               your_vote: string | null; can_stand: boolean; can_vote: boolean; least_reputation: number; least_level: number };
@@ -1425,6 +1435,11 @@ export const api = {
     request<GovernmentPage>("/government/budget", { method: "POST", body: JSON.stringify(body) }),
   governmentAssemblyVote: (body: { subject: string; aye: boolean }) =>
     request<GovernmentPage>("/government/assembly-vote", { method: "POST", body: JSON.stringify(body) }),
+  governmentDecree: (body: { rate_bps: number }) => request<GovernmentPage>("/government/decree", { method: "POST", body: JSON.stringify(body) }),
+  governmentLevy: (body: { empire_id: number; bps: number; reason: string }) =>
+    request<GovernmentPage>("/government/levy", { method: "POST", body: JSON.stringify(body) }),
+  governmentLobby: (body: { subject: string; seat: number }) =>
+    request<GovernmentPage>("/government/lobby", { method: "POST", body: JSON.stringify(body) }),
   governmentNoConfidence: () => request<GovernmentPage>("/government/no-confidence", { method: "POST", body: "{}" }),
   // Competition, under Work.
   competition: () => request<CompetitionPage>("/competition"),
