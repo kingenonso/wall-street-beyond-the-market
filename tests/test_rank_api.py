@@ -34,11 +34,11 @@ def test_a_player_sees_the_gate_ahead_sits_a_case_and_reports_marking(db, client
     # The work board now carries the three settings, the map and the tracker.
     board = client.get("/api/objectives").json()
     # (Eight modules in the first band, each three ways; the gap stage's higher bands are listed too, locked until their level.)
-    first = [o for o in board["offers"] if objectives.TEMPLATES[o["template"]].level <= 4]
-    assert {o["setting"] for o in board["offers"]} == {"solo", "empire", "live"} and len(first) == 24
+    first = [o for o in board["offers"] if objectives.TEMPLATES[o["template"]].level <= 4 and o["track"] == "asset_manager"]
+    assert {o["setting"] for o in board["offers"]} == {"solo", "empire", "live"} and len(first) == 3 * 12
     total = len(objectives.modules("asset_manager"))
-    assert board["tracks"][0]["name"] == "Accountant" and board["tracks"][0]["modules"] == total
-    assert set(board["weekend"]) == {"open", "opens", "closes", "hours"} and len(board["skills"]) == total
+    assert board["tracks"][0]["name"] == "Asset Manager" and board["tracks"][0]["modules"] == total
+    assert set(board["weekend"]) == {"open", "opens", "closes", "hours"} and len([s for s in board["skills"] if s["track"] == "asset_manager"]) == total
 
     player = client.get("/api/me").json()
     account = ledger.player_account_id(db, player["id"])

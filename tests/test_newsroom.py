@@ -52,10 +52,13 @@ def test_a_journalist_publishes_a_checked_story_under_their_name_and_a_first_wit
     out = write(db, j, [card])
     assert out["scoop"] and out["readers"] > 0
     item = _one(db, "SELECT * FROM news_items WHERE id = %s", (out["news_item_id"],))
-    assert item["outlet"] == "press" and item["author_id"] == j and item["facts"]["outlet"] == "Ogene News Network"
+    # Nobody's employer is a paper since the builds became three: the largest paper picks the story up and prints it.
+    assert item["outlet"] == "press" and item["author_id"] == j
+    assert item["facts"]["outlet"] == "Ogene News Network, from an independent journalist"
     assert card["line"] in item["body"] and "By " in item["body"]
-    # The scoop bonus comes from the employer, through the ledger.
-    assert ledger.balance(db, account) - before == data.SCOOP_BONUS_NAIRA * 100 == paper_before - ledger.balance(db, onn)
+    # The paper that printed it pays for it, scoop bonus included, through the ledger.
+    assert ledger.balance(db, account) - before == out["paid"] == paper_before - ledger.balance(db, onn)
+    assert out["paid"] >= data.SCOOP_BONUS_NAIRA * 100
     prof = newsroom.profile(db, j)
     assert prof["scoops"] == 1 and prof["following"] == out["readers"] * data.FOLLOW_SHARE_BPS // 10_000
     # A second journalist with the same fact is not first with it.
@@ -81,10 +84,13 @@ def test_every_fact_is_checked_before_print_and_the_authors_own_view_has_no_figu
         newsroom.set_words(db, j, "straight", "Profits will double to 50%", False, NOW9)
     with pytest.raises(newsroom.NewsroomError, match="not a confirmed fact"):
         newsroom.add_fact(db, j, "results:ZZZ:8", NOW9)
-    # Only a Financial Journalist publishes.
-    a, _ = pro(db, "asset_manager", "notreporter", level=10)
-    with pytest.raises(newsroom.NewsroomError, match="Financial Journalist"):
-        newsroom.start(db, a, NOW9)
+    # The newsroom is open to every build, and only to a player with one.
+    from tests.test_market import trader
+    nobody = _one(db, "SELECT player_id FROM ledger_accounts WHERE id = %s", (trader(db, "nobuild"),))["player_id"]
+    with pytest.raises(newsroom.NewsroomError, match="with a build"):
+        newsroom.start(db, nobody, NOW9)
+    a, _ = pro(db, "asset_manager", "anyreporter", level=10)
+    newsroom.start(db, a, NOW9)
 
 
 def test_no_trading_a_company_from_the_first_draft_until_two_trading_days_after_publication(db):
@@ -324,18 +330,15 @@ def test_an_empires_reputation_moves_with_fines_audits_and_answers_and_shows_in_
     assert standing.history(db, empire["id"])[0]["after"] == 100
 
 
-def test_pay_rises_with_reach_and_an_independent_is_paid_by_the_paper_that_picks_the_story_up(db):
-    j, _ = pro(db, "investment_banker", "famous", level=10)
-    db.execute("INSERT INTO journalist_profiles (player_id, following) VALUES (%s, 300000)", (j,))
-    assert careers.reach_pay_bps(db, j) == 3000
-    db.execute("UPDATE journalist_profiles SET following = 9000000 WHERE player_id = %s", (j,))
-    assert careers.reach_pay_bps(db, j) == data.REACH_PAY_MOST_BPS
+def test_an_independent_is_paid_by_the_paper_that_picks_the_story_up(db):
+    # (Pay for reach, paid by a paper to the journalists on its staff, went when no build was employed by a paper.)
     free, account = pro(db, "investment_banker", "freelancer", level=10)
     careers.leave_job(db, free, NOW9)
     before = ledger.balance(db, account)
     out = write(db, free, [results_card(db)])
     assert out["paid"] > 0 and ledger.balance(db, account) - before == out["paid"]
-    assert _one(db, "SELECT facts->>'outlet' AS o FROM news_items WHERE id = %s", (out["news_item_id"],))["o"] == "an independent journalist"
+    assert _one(db, "SELECT facts->>'outlet' AS o FROM news_items WHERE id = %s", (out["news_item_id"],))["o"].endswith(
+        "an independent journalist")
     sound(db)
 
 

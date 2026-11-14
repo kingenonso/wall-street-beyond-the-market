@@ -103,6 +103,22 @@ def _outlet(conn: Connection, player_id) -> dict | None:
     return company if company and company["sector"] == "media" else None
 
 
+def _picks_up(conn: Connection, player_id, period: int) -> dict | None:
+    """The paper that would buy an independent's story now: the largest, while it and the author both have money left this
+    quarter for outside writing. With the most it may still pay, as `room`."""
+    buyer = _one(conn, "SELECT c.* FROM companies c JOIN company_results r ON r.company_id = c.id AND r.period ="
+                       " (SELECT max(period) FROM company_results WHERE company_id = c.id)"
+                       " WHERE c.sector = 'media' AND c.listed AND c.status = 'trading' ORDER BY r.staff DESC LIMIT 1")
+    if buyer is None:
+        return None
+    spent = _one(conn, "SELECT coalesce(sum(paid), 0)::bigint AS mine, (SELECT coalesce(sum(paid), 0)::bigint FROM stories"
+                       " WHERE status = 'published' AND outlet_company IS NULL AND period = %s) AS all_"
+                       " FROM stories WHERE author_id = %s AND status = 'published' AND period = %s", (period, player_id, period))
+    room = min(max(naira(data.FREELANCE_MOST_A_QUARTER_NAIRA) - spent["mine"], 0),
+               max(naira(data.FREELANCE_HOUSE_MOST_A_QUARTER_NAIRA) - spent["all_"], 0))
+    return {**buyer, "room": room} if room > 0 else None
+
+
 def _audience(conn: Connection, outlet: dict | None, following: int) -> int:
     """How many people a story could reach: a media house's audience, or an independent's own following."""
     if outlet is None:
@@ -583,6 +599,12 @@ def publish(conn: Connection, player_id, now: datetime) -> dict:
             raise NewsroomError("You can no longer print in that title. Choose where it runs again.")
         if titled:
             outlet = None
+        # Nobody's employer is a media house since the builds became three, so most stories are written independently.
+        # The largest paper picks an independent's story up while it has money left this quarter for outside writers, and
+        # prints it to its own readers (owner, 14 November 2026: the newsroom is open to every build).
+        picked = None
+        if not titled and outlet is None:
+            picked = _picks_up(conn, player_id, period)
         conn.execute("UPDATE stories SET outlet_company = %s WHERE id = %s", (outlet["id"] if outlet else None, story["id"]))
         _block(conn, story, story["tickers"], now)
         # Lapse any interview whose deadline has passed.
@@ -596,7 +618,8 @@ def publish(conn: Connection, player_id, now: datetime) -> dict:
             declaration = (f"Declared interest: {author['display_name']} sits in {empire['name']}, which "
                            f"{'has a position in' if held else 'holds no position in'} the companies named.")
         prof = profile(conn, player_id)
-        outlet_name = titled["name"] if titled else outlet["name"] if outlet else "an independent journalist"
+        outlet_name = (titled["name"] if titled else outlet["name"] if outlet
+                       else f"{picked['name']}, from an independent journalist" if picked else "an independent journalist")
         headline, body = _write(story, author["display_name"], outlet_name, interviews, declaration, lead)
 
         # Readers: how big the news is, how early, the audience, and the author's name.
@@ -611,7 +634,7 @@ def publish(conn: Connection, player_id, now: datetime) -> dict:
         freshness = data.SCOOP_READERS_BPS if scoop else data.OLD_NEWS_READERS_BPS if late else BPS
         credibility = min(max(prof["credibility"] * BPS // 50, 5000), 15000)
         answered = min(sum(1 for i in interviews if i["status"] == "answered"), data.INTERVIEWS_COUNTED)
-        audience = titled["audience"] if titled else _audience(conn, outlet, 0)
+        audience = titled["audience"] if titled else _audience(conn, outlet or picked, 0)
         readers = (audience * importance // 100 * freshness // BPS * credibility // BPS
                    + prof["following"] * data.FOLLOWERS_READ_BPS // BPS)
         readers = readers * (BPS + answered * data.INTERVIEW_READERS_BPS) // BPS
@@ -634,19 +657,11 @@ def publish(conn: Connection, player_id, now: datetime) -> dict:
                 paid = ledger.pay_up_to(conn, payer=titled["account_id"], receiver=ledger.player_account_id(conn, player_id),
                                         wanted=naira(data.SCOOP_BONUS_NAIRA), kind="professional_fee",
                                         memo=f"{titled['name']}: scoop bonus to {author['display_name']}", period=period)
-        elif outlet is None:
-            buyer = _one(conn, "SELECT c.* FROM companies c JOIN company_results r ON r.company_id = c.id AND r.period ="
-                               " (SELECT max(period) FROM company_results WHERE company_id = c.id)"
-                               " WHERE c.sector = 'media' AND c.listed AND c.status = 'trading' ORDER BY r.staff DESC LIMIT 1")
-            if buyer:
-                fee = min(readers * data.FREELANCE_KOBO_PER_READER, naira(data.FREELANCE_MOST_NAIRA))
-                fee += naira(data.SCOOP_BONUS_NAIRA) if paid_scoop else 0
-                this_quarter = _one(conn, "SELECT coalesce(sum(paid), 0)::bigint AS mine, (SELECT coalesce(sum(paid), 0)::bigint FROM stories"
-                                          " WHERE status = 'published' AND outlet_company IS NULL AND period = %s) AS all_"
-                                          " FROM stories WHERE author_id = %s AND status = 'published' AND period = %s", (period, player_id, period))
-                fee = min(fee, max(naira(data.FREELANCE_MOST_A_QUARTER_NAIRA) - this_quarter["mine"], 0),
-                          max(naira(data.FREELANCE_HOUSE_MOST_A_QUARTER_NAIRA) - this_quarter["all_"], 0))
-                paid = _pay(conn, buyer, player_id, fee, f"for a story by {author['display_name']}", period)
+        elif picked:
+            fee = min(readers * data.FREELANCE_KOBO_PER_READER, naira(data.FREELANCE_MOST_NAIRA))
+            fee += naira(data.SCOOP_BONUS_NAIRA) if paid_scoop else 0
+            fee = min(fee, picked["room"])
+            paid = _pay(conn, picked, player_id, fee, f"for a story by {author['display_name']}", period)
         elif paid_scoop:
             paid = _pay(conn, outlet, player_id, naira(data.SCOOP_BONUS_NAIRA), f"scoop bonus to {author['display_name']}", period)
         conn.execute("UPDATE stories SET status = 'published', headline = %s, body = %s, readers = %s, scoop = %s, paid = %s,"

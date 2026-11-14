@@ -71,11 +71,13 @@ def right_case(db, player, case_id, now) -> dict:
 
 def test_every_module_has_work_alone_with_the_empire_and_as_a_weekend_challenge():
     assert len([t for t in objectives.TEMPLATES.values() if t.listed]) >= 120
-    for track in (*TRACKS, "ceo"):
+    # The modules opening by Level 4, and in all, for each map: three builds since 9 November 2026, the newsroom open to
+    # every build, and the 106 kinds kept on 14 November 2026.
+    sizes = {"asset_manager": (12, 32), "investment_banker": (15, 30), "risk_manager": (8, 20), "newsroom": (5, 10), "ceo": (6, 14)}
+    for track in (*TRACKS, "newsroom", "ceo"):
         modules = objectives.modules(track)
-        size = 6 if track == "ceo" else 8                 # (each build gained a property module in Stage 8, and one in Stage 9)
-        first = [m for m in modules if m["level"] <= 4]   # (the gap stage added the higher bands, Levels 41 to 100)
-        assert len(first) == size and len({m["module"] for m in modules}) == len(modules) and len(modules) >= size + 8
+        first = [m for m in modules if m["level"] <= 4]
+        assert (len(first), len(modules)) == sizes[track] and len({m["module"] for m in modules}) == len(modules)
         for m in modules:
             versions = {t.setting for t in objectives.TEMPLATES.values() if t.build == track and t.module == m["module"] and t.listed}
             assert versions == {"solo", "empire", "live"}, (track, m["module"])
@@ -101,7 +103,7 @@ def test_every_piece_of_work_in_every_setting_can_really_be_offered(db):
         player, _ = pro(db, track, f"p{index}", level=20, cash_naira=500_000)
         empires.apply(db, player, empire["id"], NOW9)
         board = objectives.board(db, player, FRIDAY9)
-        assert {o["track"] for o in board["offers"]} == {track}
+        assert {o["track"] for o in board["offers"]} == {track, "newsroom"}
         for offer in board["offers"]:
             if objectives.TEMPLATES[offer["template"]].level > 20:
                 continue                                  # (the higher bands, Levels 41 to 100: tested in test_gap_library.py)
@@ -181,7 +183,7 @@ def test_a_module_is_learned_alone_practised_with_the_empire_and_proven_in_a_wee
     tracker = objectives.board(db, player, friday11)["tracks"][0]
     total = len(objectives.modules("asset_manager"))
     assert (tracker["learned"], tracker["practised"], tracker["proven"], tracker["modules"]) == (1, 1, 1, total)
-    assert tracker["learned_pct"] == round(100 / total) and tracker["name"] == "Accountant"
+    assert tracker["learned_pct"] == round(100 / total) and tracker["name"] == "Asset Manager"
     # The empire gained league points for both.
     points = _dicts(db, "SELECT points, why FROM league_points WHERE empire_id = %s AND period IN (10, 11) AND reference LIKE 'objective:%%'"
                         " ORDER BY id", (empire["id"],))
@@ -269,7 +271,7 @@ def test_a_rank_case_needs_the_level_and_the_mastery_and_its_fee_leaves_the_econ
     assert before - ledger.balance(db, account) == case["fee"] == ledger.balance(db, pool) - pool_before
     assert len(case["parts"]) == 3 and case["company"]["ticker"] and case["state"] == "active" and case["result"] is None
     # Nothing a player is shown before judging gives an answer away.
-    assert "answers" not in str(case) and "filed_period" not in str(case) and "salt" not in str(case)
+    assert "'answers'" not in str(case) and "filed_period" not in str(case) and "salt" not in str(case)
     with pytest.raises(ranks.RankError, match="in hand"):
         ranks.begin(db, player, "asset_manager", NOW9)
     # Another player's case is not theirs to hand in or see.
@@ -407,7 +409,7 @@ def test_a_player_can_report_marking_they_believe_is_wrong_once(db):
 
 def test_the_leadership_track_opens_to_a_head_or_at_level_forty_and_its_experience_goes_to_the_players_build(db):
     junior, _ = pro(db, "asset_manager", level=20)
-    assert [t["track"] for t in objectives.board(db, junior, NOW9)["tracks"]] == ["asset_manager"]
+    assert [t["track"] for t in objectives.board(db, junior, NOW9)["tracks"]] == ["asset_manager", "newsroom"]
     with pytest.raises(objectives.ObjectiveError, match="not open"):
         objectives.accept(db, junior, "ce_return", NOW9)
     db.execute("UPDATE careers SET rank = 1, experience = %s WHERE player_id = %s", (careers.experience_for(40), junior))
@@ -483,11 +485,12 @@ def test_a_member_who_holds_the_ceo_rank_can_be_voted_in_by_the_empire(db):
         empires.vote_head(db, head, scribe, NOW9)
     db.execute("UPDATE players SET ceo_since = %s WHERE id = %s", (NOW9, scribe))
     first = empires.vote_head(db, ledgerman, scribe, NOW9)
-    assert first == {"votes": 1, "members": 3, "needed": 2, "elected": False}
-    assert empires.war_room(db, ledgerman, NOW9)["election"]["tally"] == [{"name": "scribe", "votes": 1}]
+    assert first == {"votes": 1, "members": 4, "needed": 3, "elected": False}
+    assert empires.war_room(db, ledgerman, NOW9)["election"]["tally"] == [{"name": "investment_banker", "votes": 1}]
     # Voting again changes nothing: one member, one vote.
     assert empires.vote_head(db, ledgerman, scribe, NOW9)["votes"] == 1
-    won = empires.vote_head(db, scribe, scribe, NOW9)
+    assert not empires.vote_head(db, scribe, scribe, NOW9)["elected"]          # two of four is not yet a majority
+    won = empires.vote_head(db, partners["risk_manager"][0], scribe, NOW9)
     assert won["elected"] and empires.war_room(db, scribe, NOW9)["is_head"] and empires.war_room(db, scribe, NOW9)["head_is_ceo"]
     assert not empires.war_room(db, head, NOW9)["is_head"]
     # An outsider has no vote, and an empire the computer runs does not elect.

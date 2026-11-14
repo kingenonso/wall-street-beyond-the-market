@@ -648,7 +648,7 @@ def test_the_skill_tree_shows_what_has_been_learned_and_what_to_practise_again(d
     taken = objectives.accept(db, player, "ac_cash_flow", NOW9)
     objectives.submit(db, player, taken["id"], {"closing": 1}, NOW9)
     seen = objectives.board(db, player, NOW9)
-    skills = {s["title"]: s for s in seen["skills"]}
+    skills = {s["title"]: s for s in seen["skills"] if s["track"] == "asset_manager"}      # (the newsroom's map is beside it)
     total = len(objectives.modules("asset_manager"))           # (the gap stage's higher bands are on the map, locked until their level)
     assert seen["coverage"] == {"learned": 1, "modules": total} and len(skills) == total
     assert skills["The lender's one-page view"]["stage"] == "learned" and not skills["The lender's one-page view"]["practise_again"]
@@ -708,7 +708,7 @@ def test_the_build_screens_have_their_figures(db, client):
     assert latest["ratios"]["Profit after tax ÷ sales (%)"] == round(income["net_profit"] * 100 / income["revenue"], 2)
     assert client.get("/api/desk/accountant?ticker=ZCB").json()["name"] == "Zuma Capital Bank"
     assert client.get("/api/desk/accountant?ticker=QQQ").status_code == 404
-    mine = client.get("/api/desk/accountant").json()
+    mine = client.get("/api/desk/asset-manager").json()
     assert int(mine["total_kobo"]) == int(mine["cash_kobo"]) == naira(data.GRANT_ON_JOINING_NAIRA)
     assert [a["label"] for a in mine["allocation"]] == ["Cash"] and mine["allocation"][0]["share_bps"] == 10_000
 
