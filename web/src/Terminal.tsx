@@ -7,7 +7,7 @@
 // Every figure is the server's. What is worked out here is only where to draw it.
 
 import { useSyncExternalStore } from "react";
-import { api, type CityFlow, type CompetitionScore, type Industry, type Player, type PriceLevel, type TradingDay } from "./api";
+import { api, type CityFlow, type CompetitionScore, type DivisionRow, type Industry, type Player, type PriceLevel, type TradingDay } from "./api";
 import { formatCompact, formatNaira } from "./format";
 import { useLoad } from "./hooks";
 import { Trend } from "./LeftColumn";
@@ -54,7 +54,7 @@ function Chip({ bps, big = false }: { bps: number | null; big?: boolean }) {
 // The company in the middle
 // ---------------------------------------------------------------------------
 
-const CHART = { width: 640, price: 176, top: 8, volumeTop: 190, volume: 36 };
+const CHART = { width: 640, price: 236, top: 8, volumeTop: 250, volume: 40 };
 
 /** Each trading day as a candle: the wick is the day's range, the body runs from its open to its close. */
 function Candles({ days }: { days: TradingDay[] }) {
@@ -199,6 +199,7 @@ function MoneyMap({ onLoggedOut }: { onLoggedOut: () => void }) {
   };
   return (
     <Panel title="Money on the move" aside={d.period_label ?? undefined}>
+      <div className="term-money">
       <svg className="term-map" viewBox="0 0 520 320" role="img"
            aria-label={`Money between the five cities in ${d.period_label}: company tax flowing to the Government in ${d.capital}, and the Government's money flowing back to households. The table underneath has every figure.`}>
         <defs><pattern id="term-dots" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" /></pattern></defs>
@@ -221,6 +222,7 @@ function MoneyMap({ onLoggedOut }: { onLoggedOut: () => void }) {
           );
         })}
       </svg>
+      <div className="term-money-side">
       <div className="map-key small">
         <span><span className="key-line key-tax" /> company tax, to the Government</span>
         <span><span className="key-line key-spend" /> the Government&rsquo;s money, to households</span>
@@ -228,12 +230,14 @@ function MoneyMap({ onLoggedOut }: { onLoggedOut: () => void }) {
       </div>
       <div className="table-scroll" tabIndex={0}>
         <table className="dense">
-          <thead><tr><th scope="col">City</th><th scope="col" className="num">Households spent</th><th scope="col" className="num">Wages</th><th scope="col" className="num">Tax paid</th><th scope="col" className="num">From the Government</th><th scope="col" className="num">Jobs</th></tr></thead>
+          <thead><tr><th scope="col">City</th><th scope="col" className="num">Spent</th><th scope="col" className="num">Wages</th><th scope="col" className="num">Tax paid</th><th scope="col" className="num">From Government</th><th scope="col" className="num">Jobs</th></tr></thead>
           <tbody>{d.cities.map((c) => (
             <tr key={c.name}><th scope="row">{c.name}</th><td className="num mono">{formatCompact(c.spending_kobo)}</td><td className="num mono">{formatCompact(c.wages_kobo)}</td>
               <td className="num mono">{formatCompact(c.taxes_kobo)}</td><td className="num mono">{formatCompact(c.government_kobo)}</td><td className="num mono">{c.jobs.toLocaleString("en-NG")}</td></tr>
           ))}</tbody>
         </table>
+      </div>
+      </div>
       </div>
     </Panel>
   );
@@ -291,9 +295,9 @@ export function TerminalWork({ onLoggedOut }: { player: Player; onLoggedOut: () 
           </div>
           <p className="muted small monitor-foot">Choose a row and the whole wall follows it: the chart, the order book and the reasons.</p>
         </Panel>
-        <MoneyMap onLoggedOut={onLoggedOut} />
+        <Heat onLoggedOut={onLoggedOut} />
       </div>
-      <Heat onLoggedOut={onLoggedOut} />
+      <MoneyMap onLoggedOut={onLoggedOut} />
     </>
   );
 }
@@ -322,42 +326,43 @@ function Ripple({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: () => vo
   );
 }
 
-const DUEL_PARTS: { key: keyof CompetitionScore; label: string }[] = [
-  { key: "contest", label: "Forecasts" }, { key: "mandate", label: "Mandates won" }, { key: "defence", label: "Defences" }, { key: "call", label: "Rival calls" },
-];
-
-function Duel({ player, onLoggedOut }: { player: Player; onLoggedOut: () => void }) {
+/**
+ * The duel: your empire against the one next to it in the league (without an empire, the two at the top), on the
+ * four things the league publishes about every empire, and on this year's competition points once any are scored.
+ */
+function Duel({ onLoggedOut }: { onLoggedOut: () => void }) {
+  const league = useLoad(api.empires, "terminal-league", onLoggedOut);
   const page = useLoad(api.competition, "terminal-competition", onLoggedOut);
-  const d = page.data;
-  if (d === null) return <Panel title="The duel"><p className="muted small">Reading the league…</p></Panel>;
-  const board = [...(d.ready ? d.scoreboard : [])].sort((a, b) => b.total - a.total);
-  const mine = board.findIndex((s) => s.empire === (d.empire ?? player.empire?.name));
-  if (board.length < 2) {
-    return (
-      <Panel title="The duel">
-        <p className="muted small">No empire has scored yet this year. Points come from forecasts, mandates and calls on rivals.</p>
-        <a className="button-outline" href="#/competition">How competition works</a>
-      </Panel>
-    );
-  }
-  // Your empire against the one next to it in the table; without an empire, the two at the top.
-  const you = mine >= 0 ? board[mine] : board[0];
-  const them = mine > 0 ? board[mine - 1] : board[1];
-  const gap = you.total - them.total;
+  if (league.data === null) return <Panel title="The duel"><p className="muted small">Reading the league…</p></Panel>;
+  const divisions = league.data.directory.divisions;
+  const table: DivisionRow[] = (divisions.find((d) => d.empires.some((e) => e.yours)) ?? divisions[0])?.empires ?? [];
+  const mine = table.findIndex((e) => e.yours);
+  if (table.length < 2) return <Panel title="The duel"><p className="muted small">The league needs two empires before there is a duel.</p></Panel>;
+  const you = mine >= 0 ? table[mine] : table[0];
+  const them = mine > 0 ? table[mine - 1] : table[1];
+  const scores = page.data?.ready ? page.data.scoreboard : [];
+  const scored = (name: string) => scores.find((s: CompetitionScore) => s.empire === name)?.total ?? 0;
+  const gap = you.points - them.points;
+  const parts: { label: string; a: number; b: number; shownA: string; shownB: string }[] = [
+    { label: "League points", a: you.points, b: them.points, shownA: String(you.points), shownB: String(them.points) },
+    { label: "Competition points", a: scored(you.name), b: scored(them.name), shownA: String(scored(you.name)), shownB: String(scored(them.name)) },
+    { label: "Worth", a: Number(you.worth_kobo), b: Number(them.worth_kobo), shownA: formatCompact(you.worth_kobo), shownB: formatCompact(them.worth_kobo) },
+    { label: "Trust", a: you.trust, b: them.trust, shownA: String(you.trust), shownB: String(them.trust) },
+    { label: "Reputation", a: you.reputation ?? 50, b: them.reputation ?? 50, shownA: String(you.reputation ?? 50), shownB: String(them.reputation ?? 50) },
+  ];
   return (
     <Panel title="The duel" aside={mine >= 0 ? "the empire next to yours" : "the race at the top"}>
       <div className="duel-heads">
-        <div className="duel-side duel-you"><span className="small">{mine >= 0 ? `${you.empire} (yours)` : you.empire}</span><span className="mono duel-score">{you.total}</span></div>
-        <span className={`mono small ${gap >= 0 ? "change-up" : "change-down"}`}>{gap === 0 ? "level" : `${Math.abs(gap)} ${gap > 0 ? "ahead" : "behind"}`}</span>
-        <div className="duel-side duel-them"><span className="small">{them.empire}</span><span className="mono duel-score">{them.total}</span></div>
+        <div className="duel-side duel-you"><span className="small">{mine >= 0 ? `${you.name} (yours)` : you.name}</span><span className="mono duel-score">{you.points}</span></div>
+        <span className={`mono small ${gap > 0 ? "change-up" : gap < 0 ? "change-down" : "muted"}`}>{gap === 0 ? "level" : `${Math.abs(gap)} ${gap > 0 ? "ahead" : "behind"}`}</span>
+        <div className="duel-side duel-them"><span className="small">{them.name}</span><span className="mono duel-score">{them.points}</span></div>
       </div>
-      {DUEL_PARTS.map(({ key, label }) => {
-        const a = Number(you[key]), b = Number(them[key]);
-        const share = a + b === 0 ? 50 : Math.round((a * 100) / (a + b));
+      {parts.map(({ label, a, b, shownA, shownB }) => {
+        const share = a + b === 0 ? 50 : Math.min(96, Math.max(4, Math.round((a * 100) / (a + b))));
         return (
-          <div key={key} className="duel-part">
-            <div className="duel-figures mono small"><span>{a}</span><span className="muted">{label}</span><span>{b}</span></div>
-            <div className="duel-bar" role="img" aria-label={`${label}: ${you.empire} ${a}, ${them.empire} ${b}`}>
+          <div key={label} className="duel-part">
+            <div className="duel-figures mono small"><span>{shownA}</span><span className="muted">{label}</span><span>{shownB}</span></div>
+            <div className="duel-bar" role="img" aria-label={`${label}: ${you.name} ${shownA}, ${them.name} ${shownB}`}>
               <span className="duel-bar-you" style={{ width: `${share}%` }} /><span className="duel-bar-them" />
             </div>
           </div>
@@ -365,8 +370,8 @@ function Duel({ player, onLoggedOut }: { player: Player; onLoggedOut: () => void
       })}
       <p className="small duel-foot">
         {mine < 0
-          ? <>You are not in an empire yet. <a href="#/empire">Join one</a> to score for it.</>
-          : <>A mandate won is worth {d.points.mandate} points. <a href="#/competition">See what is open</a>.</>}
+          ? <>You are not in an empire yet, so these are the two at the top. <a href="#/empire">Join one</a> and the duel is yours.</>
+          : <>Points come from tasks, forecasts and mandates. <a href="#/competition">See what is open</a>.</>}
       </p>
     </Panel>
   );
@@ -397,14 +402,14 @@ function Wire({ onLoggedOut }: { onLoggedOut: () => void }) {
   );
 }
 
-export function TerminalRail({ player, onLoggedOut }: { player: Player; onLoggedOut: () => void }) {
+export function TerminalRail({ onLoggedOut }: { player: Player; onLoggedOut: () => void }) {
   const monitor = useMonitor(onLoggedOut);
   const picked = useChosen();
   const ticker = monitor.showing(picked)?.ticker;
   return (
     <>
       {ticker && <Ripple key={ticker} ticker={ticker} onLoggedOut={onLoggedOut} />}
-      <Duel player={player} onLoggedOut={onLoggedOut} />
+      <Duel onLoggedOut={onLoggedOut} />
       <Wire onLoggedOut={onLoggedOut} />
     </>
   );

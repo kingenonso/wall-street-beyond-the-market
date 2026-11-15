@@ -1641,7 +1641,10 @@ th[aria-sort="ascending"] .sort-head, th[aria-sort="descending"] .sort-head { co
 .monitor-foot { margin: 10px 0 0; }
 
 /* Money on the move. */
-.term-map { display: block; width: 100%; height: auto; }
+.term-money { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; }
+.term-money-side { flex: 1.4 1 430px; min-width: 0; }
+.term-money-side table.dense { font-size: 12px; }
+.term-map { display: block; flex: 1 1 300px; min-width: 0; max-width: 430px; height: auto; }
 .term-map pattern circle { fill: var(--border); }
 .flow { fill: none; stroke-linecap: round; stroke-dasharray: 5 9; animation: term-flow 1.8s linear infinite; }
 .flow-tax { stroke: var(--gold); }
@@ -1652,7 +1655,7 @@ th[aria-sort="ascending"] .sort-head, th[aria-sort="descending"] .sort-head { co
 .map-capital { fill: var(--info); }
 .map-name { fill: var(--text); font-family: var(--mono); font-size: 13px; font-weight: 700; }
 .map-note { fill: var(--muted); font-family: var(--mono); font-size: 10px; }
-.map-key { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 6px 0 10px; color: var(--text-2); }
+.map-key { display: flex; flex-direction: column; gap: 4px; margin: 0 0 12px; color: var(--text-2); }
 .key-line { display: inline-block; width: 22px; height: 3px; vertical-align: middle; margin-right: 6px; border-radius: 1px; }
 .key-tax { background: var(--gold); } .key-spend { background: var(--info); }
 
@@ -1662,8 +1665,11 @@ th[aria-sort="ascending"] .sort-head, th[aria-sort="descending"] .sort-head { co
   flex: 1 1 108px; min-height: 58px; padding: 7px 9px; display: flex; flex-direction: column; justify-content: space-between; gap: 6px;
   color: var(--text); text-decoration: none; border-radius: 2px;
 }
+.term-heat .heat-tile, .term-heat .heat-tile:visited { color: var(--text); }
 .heat-tile:hover { text-decoration: none; outline: 1px solid var(--border-strong); }
-.heat-name { font-size: 11px; line-height: 1.25; }
+.term-money-side table.dense th, .term-money-side table.dense td { padding-left: 6px; padding-right: 6px; }
+.term-money-side thead th { white-space: normal; }
+.heat-name { font-size: 11.5px; line-height: 1.25; color: var(--text); opacity: 1; }
 .heat-move { font-size: 14px; font-weight: 700; }
 .heat-up-2 { background: color-mix(in srgb, var(--up) 42%, var(--panel)); }
 .heat-up-1 { background: color-mix(in srgb, var(--up) 20%, var(--panel)); }
