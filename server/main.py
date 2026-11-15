@@ -69,6 +69,7 @@ from server.schemas import (
     StatementQuarter, TickerRequest, WatchRow,
     CurvePoint, GrantResponse, GrantStep, IntegrationQuarter, IntegrationRow, Notice, OfferRow, OwnershipRow, SharesRequest,
     TakeoverRow, VoteRequest, VoteRow, WaitingSwap,
+    CityFlow, FlowsResponse,
 )
 from simulation import clock, exchange, investors, ledger, moneywatch, news, news_kinds, players, quarters
 from simulation import auctions, bonds, careers, closingbell, corporate, desks, grants, insight, marketview, messages, objectives
@@ -660,9 +661,47 @@ def _move(now: int, before: int | None, unit: str) -> tuple[str | None, int | No
     return f"{abs(bps) / 100:.1f}%", bps
 
 
-def _line(name: str, value: str, now: int, before: int | None, unit: str) -> Indicator:
+# What a move in each indicator means for a player, in one plain sentence: (when it rose, when it fell).
+_MEANS = {
+    "Policy rate": ("Loans cost more from next quarter. Savings pay more, and banks earn more on what they lend.",
+                    "Loans get cheaper from next quarter. Savings pay less, and companies that borrow breathe easier."),
+    "Inflation": ("Prices are rising faster. Above what the Central Bank accepts, expect it to raise its rate.",
+                  "Prices are rising more slowly, so there is less pressure on the Central Bank to raise its rate."),
+    "Jobs": ("More people are in work, so households have more to spend at the shops, the hotels and the banks.",
+             "Fewer people are in work. Households spend less, and the companies that sell to them feel it first."),
+    "Confidence": ("Households feel better off and spend more of what they earn.",
+                   "Households are holding back and saving more, so sales to them slow."),
+    "Oil and gas": ("Dearer fuel: good for oil producers and the Treasury, costly for steel, cement and transport.",
+                    "Cheaper fuel: it helps steel, cement and transport, and oil producers earn less."),
+    "Farm produce": ("Good for growers. Food makers and shops pay more for what they buy.",
+                     "Food makers and shops pay less for what they buy. Growers earn less."),
+    "Metals": ("Good for miners. Steelmakers and builders pay more.", "Steelmakers and builders pay less. Miners earn less."),
+    "Building materials": ("Good for cement and block makers. Building, and so property, costs more.",
+                           "Building costs less. Cement and block makers earn less."),
+}
+
+
+def _line(name: str, value: str, now: int, before: int | None, unit: str, *, past: list[int] | None = None,
+          write=None, band: tuple[int, int] | None = None, band_words: str | None = None) -> Indicator:
+    """One indicator. `past` is its record, oldest first and ending with `now`: it gives the trend line, the scale and
+    (unless `band` names one) the usual range, which is the middle half of the record."""
     change, bps = _move(now, before, unit)
-    return Indicator(name=name, value=value, change=change, change_bps=bps)
+    line = Indicator(name=name, value=value, change=change, change_bps=bps)
+    if bps:
+        line.means = _MEANS.get(name, (None, None))[0 if bps > 0 else 1]
+    if past and write and len(past) >= 2:
+        ordered = sorted(past)
+        if band is None:
+            band = (ordered[len(ordered) // 4], ordered[(3 * len(ordered)) // 4])
+            band_words = "the middle half of its own record"
+        low, high = min(ordered[0], band[0]), max(ordered[-1], band[1])
+        pad = max((high - low) // 10, 1)
+        low, high = max(low - pad, 0), high + pad
+        at = lambda v: max(0, min(100, round((v - low) * 100 / (high - low))))      # noqa: E731
+        line.history = [float(v) for v in past]
+        line.low, line.high = write(low), write(high)
+        line.position_pct, line.band_from_pct, line.band_to_pct, line.band_words = at(now), at(band[0]), at(band[1]), band_words
+    return line
 
 
 @app.get("/api/readout", response_model=ReadoutResponse)
@@ -675,8 +714,17 @@ def readout(player: dict = Depends(current_player), conn: Connection = Depends(g
     state = conn.execute("SELECT * FROM economy_results WHERE period = %s", (period,)).fetchone() if period else None
     if state:
         before = conn.execute("SELECT * FROM economy_results WHERE period = %s", (period - 1,)).fetchone() if period > 1 else None
+        # The record each figure is set against: the last sixteen quarters, oldest first.
+        record = conn.execute("SELECT * FROM economy_results WHERE period BETWEEN %s AND %s ORDER BY period",
+                              (max(period - 15, 1), period)).fetchall()
+        past = lambda column: [r[column] for r in record]                             # noqa: E731
+        jobs_record = [r["n"] for r in conn.execute(
+            "SELECT period, coalesce(sum(jobs), 0)::bigint AS n FROM household_results WHERE period BETWEEN %s AND %s"
+            " GROUP BY period ORDER BY period", (max(period - 15, 1), period)).fetchall()]
+        index = lambda v: f"{v / 100:.2f}"                                           # noqa: E731
+        percent = lambda v: f"{v / 100:.2f}%"                                        # noqa: E731
         groups.append(IndicatorGroup(title="Commodities", indicators=[
-            _line(name, f"{state[column] / 100:.2f}", state[column], (before or {}).get(column), "%")
+            _line(name, f"{state[column] / 100:.2f}", state[column], (before or {}).get(column), "%", past=past(column), write=index)
             for name, column in _COMMODITY_READOUT
         ]))
         # The people the companies employ, and the Central Bank's three published readings.
@@ -685,13 +733,15 @@ def readout(player: dict = Depends(current_player), conn: Connection = Depends(g
         jobs_before = conn.execute("SELECT coalesce(sum(jobs), 0)::bigint AS n FROM household_results WHERE period = %s",
                                    (period - 1,)).fetchone()["n"]
         groups.append(IndicatorGroup(title="Macroeconomic", indicators=[
-            _line("Jobs", f"{jobs_now:,}", jobs_now, jobs_before, "%"),
+            _line("Jobs", f"{jobs_now:,}", jobs_now, jobs_before, "%", past=jobs_record, write=lambda v: f"{v:,}"),
             _line("Policy rate", f"{state['next_policy_rate_bps'] / 100:.2f}%",
-                  state["next_policy_rate_bps"], state["policy_rate_bps"], "pt"),
+                  state["next_policy_rate_bps"], state["policy_rate_bps"], "pt", past=past("next_policy_rate_bps"), write=percent),
             _line("Inflation", f"{state['inflation_bps'] / 100:.2f}%",
-                  state["inflation_bps"], (before or {}).get("inflation_bps"), "pt"),
+                  state["inflation_bps"], (before or {}).get("inflation_bps"), "pt", past=past("inflation_bps"), write=percent,
+                  band=(data.INFLATION_TARGET_BPS - data.INFLATION_BAND_BPS, data.INFLATION_TARGET_BPS + data.INFLATION_BAND_BPS),
+                  band_words="what the Central Bank accepts"),
             _line("Confidence", f"{state['confidence_bps'] / 100:.2f}",
-                  state["confidence_bps"], (before or {}).get("confidence_bps"), "pt"),
+                  state["confidence_bps"], (before or {}).get("confidence_bps"), "pt", past=past("confidence_bps"), write=index),
         ]))
 
     # The player's own closes. A new player has none until the first bell, which the panel says in words.
@@ -718,6 +768,26 @@ def readout(player: dict = Depends(current_player), conn: Connection = Depends(g
         net_worth_unit="naira",
         my_tickers=mine,
     )
+
+
+@app.get("/api/economy/flows", response_model=FlowsResponse)
+def money_flows(_: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """Money on the move in the last closed quarter, city by city: what households earned and spent, what the companies
+    with their head office there paid the Government in tax, and what the Government paid the city's households. All of it
+    is the published record of the quarter: no player's money can be read from it."""
+    world = _world(conn)
+    period = world["last_closed_period"] if world else 0
+    cities = [] if not period else [
+        CityFlow(name=r["name"], spending_kobo=r["spending"], wages_kobo=r["wages"], government_kobo=r["government"],
+                 taxes_kobo=r["taxes"], jobs=r["jobs"])
+        for r in conn.execute(
+            "SELECT l.name, h.spending, h.wages, h.government, h.jobs,"
+            "       (SELECT coalesce(sum(r.tax), 0)::bigint FROM company_results r JOIN companies c ON c.id = r.company_id"
+            "         WHERE r.period = h.period AND c.headquarters = l.name) AS taxes"
+            " FROM household_results h JOIN locations l ON l.name = h.location WHERE h.period = %s ORDER BY l.sort_order",
+            (period,)).fetchall()
+    ]
+    return FlowsResponse(period=period, period_label=clock.period_label(period) if period else None, capital="Abuja", cities=cities)
 
 
 # ---------------------------------------------------------------------------

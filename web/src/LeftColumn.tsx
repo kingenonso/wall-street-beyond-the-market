@@ -151,28 +151,49 @@ function NetWorthPanel({ player, readout }: { player: Player; readout: Readout |
  * move against the biggest move in the panel. The name is never cut to a letter or an ellipsis — where it will
  * not fit across, it takes its own line and wraps, and the figure sits underneath it.
  */
-function IndicatorLine({ item, biggest }: { item: Indicator; biggest: number }) {
+/** The figure's own record as a small line: drawn from the server's numbers, never a figure of its own. */
+export function Trend({ values, way }: { values: number[]; way: string }) {
+  if (values.length < 2) return null;
+  const low = Math.min(...values), high = Math.max(...values);
+  const span = high - low || 1;
+  const points = values.map((v, i) => `${((i * 60) / (values.length - 1)).toFixed(1)},${(20 - ((v - low) * 18) / span).toFixed(1)}`).join(" ");
+  return <svg className={`trend trend-${way}`} viewBox="0 0 60 22" aria-hidden="true"><polyline points={points} /></svg>;
+}
+
+function IndicatorLine({ item }: { item: Indicator }) {
   const bps = item.change_bps;
   const way = bps === null || bps === 0 ? "flat" : bps > 0 ? "up" : "down";
   const arrow = bps === null || bps === 0 ? "–" : bps > 0 ? "▲" : "▼";
-  const size = bps === null ? 0 : Math.max(4, Math.round((Math.abs(bps) / Math.max(biggest, 1)) * 100));
+  const scaled = item.position_pct !== null && item.band_from_pct !== null && item.band_to_pct !== null;
   return (
     <div className="indicator">
-      <div className="indicator-name">{item.name}</div>
+      <div className="indicator-top">
+        <div className="indicator-name">{item.name}</div>
+        <Trend values={item.history ?? []} way={way} />
+      </div>
       <div className="indicator-figure">
-        <span className="mono">{item.value}</span>
+        <span className="mono indicator-value">{item.value}</span>
         {item.change === null
           ? <span className="muted small">no earlier figure</span>
-          : <span className={`mono change-${way}`}>{arrow} {item.change}</span>}
+          : <span className={`mono chip chip-${way}`}>{arrow} {item.change}</span>}
       </div>
-      <div className="indicator-bar" aria-hidden="true">{size > 0 && <span className={`bar-${way}`} style={{ width: `${size}%` }} />}</div>
+      {scaled && (
+        <div className="gauge" role="img"
+             aria-label={`${item.name} stands at ${item.value}, on a scale from ${item.low} to ${item.high}. The shaded band is ${item.band_words}.`}>
+          <div className="gauge-track">
+            <span className="gauge-band" style={{ left: `${item.band_from_pct}%`, width: `${Math.max(2, item.band_to_pct! - item.band_from_pct!)}%` }} />
+            <span className={`gauge-mark mark-${way}`} style={{ left: `${item.position_pct}%` }} />
+          </div>
+          <div className="gauge-ends mono"><span>{item.low}</span><span>{item.high}</span></div>
+        </div>
+      )}
+      {item.means && <p className="indicator-means">{item.means}</p>}
     </div>
   );
 }
 
 function IndicatorsPanel({ readout }: { readout: Readout | null }) {
   const groups = readout?.groups ?? [];
-  const biggest = Math.max(1, ...groups.flatMap((g) => g.indicators.map((i) => Math.abs(i.change_bps ?? 0))));
   return (
     <Panel title="Market indicators" aside={readout?.period_label ?? undefined}>
       {readout === null ? (
@@ -185,11 +206,11 @@ function IndicatorsPanel({ readout }: { readout: Readout | null }) {
             <div className="indicator-group" key={group.title}>
               <div className="group-label">{group.title}</div>
               <div className="indicators">
-                {group.indicators.map((item) => <IndicatorLine key={item.name} item={item} biggest={biggest} />)}
+                {group.indicators.map((item) => <IndicatorLine key={item.name} item={item} />)}
               </div>
             </div>
           ))}
-          <p className="muted small indicator-foot">Every move is {readout.since}.</p>
+          <p className="muted small indicator-foot">Every move is {readout.since}. The shaded band on each scale is the figure&rsquo;s usual range.</p>
         </>
       )}
     </Panel>

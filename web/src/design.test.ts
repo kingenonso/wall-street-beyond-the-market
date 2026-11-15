@@ -217,7 +217,7 @@ describe("the column that never moves", () => {
     expect(rail, "the rail's condition has moved").toBeGreaterThan(-1);
     expect(left, "the column has been put behind the rail's condition, so a focused screen loses it").toBeLessThan(rail);
     expect(rule(".column")).toMatch(/position:\s*sticky/);
-    expect(rule(".shell")).toMatch(/grid-template-columns:\s*260px/);
+    expect(rule(".shell")).toMatch(/grid-template-columns:\s*300px/);     // wider since the terminal: each indicator carries its scale
   });
 
   it("is the reference's three panels, in the reference's order", () => {

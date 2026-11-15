@@ -193,7 +193,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, rect:focus-visible {
   flex: 1;
   display: grid;
   /* The left edge is the readout that never moves; the sections live in the strip's menu. */
-  grid-template-columns: 260px minmax(0, 1fr) 330px;
+  grid-template-columns: 300px minmax(0, 1fr) 340px;
   gap: 22px;
   padding: 20px;
   max-width: 1560px; width: 100%; margin: 0 auto;
@@ -1013,7 +1013,7 @@ tr.row-alert > * { background: var(--gold-soft); }
 .seat-empty { border-style: dashed; background: transparent; color: var(--muted); }
 .seat-frozen { opacity: 0.6; border-style: dotted; }
 .seat-initial { font-weight: 700; font-size: 18px; }
-.shell-wide { grid-template-columns: 260px minmax(0, 1fr); }
+.shell-wide { grid-template-columns: 300px minmax(0, 1fr); }
 @media (max-width: 1150px) { .shell-wide { grid-template-columns: 220px minmax(0, 1fr); } }
 @media (max-width: 760px) { .shell-wide { grid-template-columns: minmax(0, 1fr); } }
 
@@ -1472,8 +1472,27 @@ th[aria-sort="ascending"] .sort-head, th[aria-sort="descending"] .sort-head { co
 /* The indicators: two across, each a name that wraps rather than loses a letter, its figure, and a bar. */
 .indicator-group + .indicator-group { margin-top: 12px; }
 .group-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
-.indicators { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.indicator { min-width: 0; }
+.indicators { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
+.indicator { min-width: 0; padding: 9px 0; border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
+.indicators .indicator:first-child { border-top: 0; padding-top: 4px; }
+.indicator-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.indicator-value { font-size: 17px; font-weight: 700; color: var(--text); }
+.indicator-means { margin: 6px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--text-2); }
+/* A move, as a chip: the arrow says the direction, the ground only echoes it. */
+.chip { padding: 1px 6px; border-radius: 2px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.chip-up { color: var(--up); background: color-mix(in srgb, var(--up) 16%, transparent); }
+.chip-down { color: var(--down); background: color-mix(in srgb, var(--down) 16%, transparent); }
+.chip-flat { color: var(--text-2); background: var(--band); }
+.trend { width: 60px; height: 22px; flex-shrink: 0; }
+.trend polyline { fill: none; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.trend-up polyline { stroke: var(--up); } .trend-down polyline { stroke: var(--down); } .trend-flat polyline { stroke: var(--muted); }
+/* Where a figure stands in its own record: a scale, the usual range shaded on it, and a mark for today. */
+.gauge { margin-top: 7px; }
+.gauge-track { position: relative; height: 8px; background: var(--band); border-radius: 1px; }
+.gauge-band { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--head) 80%, var(--info)); border-radius: 1px; }
+.gauge-mark { position: absolute; top: -4px; width: 3px; height: 16px; margin-left: -1px; border-radius: 1px; background: var(--text); }
+.gauge-mark.mark-up { background: var(--up); } .gauge-mark.mark-down { background: var(--down); }
+.gauge-ends { display: flex; justify-content: space-between; margin-top: 5px; font-size: 10px; color: var(--muted); }
 .indicator-name { font-size: 11.5px; color: var(--text-2); line-height: 1.25; }
 /* The figure and its move sit on one line where they can. The gap is 4 pixels because at 13 pixels of monospace a
    nine-character figure and its move are within a pixel of half a 260-pixel column: at 6 they wrap, at 4 they fit, and
@@ -1576,3 +1595,117 @@ th[aria-sort="ascending"] .sort-head, th[aria-sort="descending"] .sort-head { co
   color: var(--text);
 }
 
+
+/* ---------- The terminal (15 November 2026) ----------
+   The desk as one wall: a company in the middle, the economy around it. Every colour is one of the theme's own,
+   so the wall follows the player into the light theme. */
+.chip-big { font-size: 15px; padding: 3px 9px; }
+.term-company { display: flex; flex-wrap: wrap; gap: 0 14px; }
+.term-chart { flex: 3 1 380px; min-width: 0; }
+.term-price { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 14px; margin: 2px 0 8px; }
+.term-last { font-size: 38px; font-weight: 700; line-height: 1; color: var(--text); }
+.term-range { margin-left: auto; }
+.term-empty { margin: 18px 0; }
+.term-candles { display: block; width: 100%; height: auto; }
+.term-candles .grid-line { stroke: var(--border); stroke-width: 1; }
+.term-candles .tick-label { fill: var(--muted); font-family: var(--mono); font-size: 10px; }
+.candle line { stroke-width: 1; }
+.candle-up line, .candle-up rect { stroke: var(--up); fill: var(--up); }
+.candle-down line, .candle-down rect { stroke: var(--down); fill: var(--down); }
+.candle .candle-volume { opacity: 0.38; stroke: none; }
+.term-book { flex: 1 1 190px; min-width: 0; padding-left: 14px; border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
+.term-book .group-label { margin-bottom: 4px; }
+.book-level { position: relative; display: flex; justify-content: space-between; gap: 8px; padding: 3px 6px; font-size: 12px; }
+.book-level > .mono { position: relative; }
+.book-depth { position: absolute; right: 0; top: 1px; bottom: 1px; border-radius: 1px; }
+.book-sell .book-depth { background: color-mix(in srgb, var(--down) 22%, transparent); }
+.book-buy .book-depth { background: color-mix(in srgb, var(--up) 22%, transparent); }
+.book-sell > .mono:first-of-type { color: var(--down); } .book-buy > .mono:first-of-type { color: var(--up); }
+.book-last { display: flex; justify-content: space-between; align-items: baseline; padding: 6px; margin: 3px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font-size: 15px; }
+.term-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.term-actions a { min-height: 40px; display: inline-flex; align-items: center; }
+.term-pair { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 16px; align-items: start; }
+
+/* The monitor: a row is a button, because choosing it moves the wall. */
+.monitor { display: flex; flex-direction: column; }
+.monitor-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 60px auto auto; align-items: center; gap: 10px;
+  min-height: 46px; padding: 4px 8px; text-align: left; font: inherit; color: var(--text); cursor: pointer;
+  background: transparent; border: 0; border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent); border-left: 3px solid transparent;
+}
+.monitor-row:first-child { border-top: 0; }
+.monitor-row:hover { background: var(--band); }
+.monitor-row.current { background: var(--gold-soft); border-left-color: var(--gold); }
+.monitor-name { display: flex; flex-direction: column; min-width: 0; }
+.monitor-name .small { overflow-wrap: anywhere; }
+.monitor-foot { margin: 10px 0 0; }
+
+/* Money on the move. */
+.term-map { display: block; width: 100%; height: auto; }
+.term-map pattern circle { fill: var(--border); }
+.flow { fill: none; stroke-linecap: round; stroke-dasharray: 5 9; animation: term-flow 1.8s linear infinite; }
+.flow-tax { stroke: var(--gold); }
+.flow-spend { stroke: var(--info); animation-direction: reverse; }
+@keyframes term-flow { to { stroke-dashoffset: -56; } }
+@media (prefers-reduced-motion: reduce) { .flow { animation: none; } }
+.map-city { fill: var(--text-2); stroke: var(--panel); stroke-width: 2; }
+.map-capital { fill: var(--info); }
+.map-name { fill: var(--text); font-family: var(--mono); font-size: 13px; font-weight: 700; }
+.map-note { fill: var(--muted); font-family: var(--mono); font-size: 10px; }
+.map-key { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 6px 0 10px; color: var(--text-2); }
+.key-line { display: inline-block; width: 22px; height: 3px; vertical-align: middle; margin-right: 6px; border-radius: 1px; }
+.key-tax { background: var(--gold); } .key-spend { background: var(--info); }
+
+/* Every industry's day. */
+.term-heat { display: flex; flex-wrap: wrap; gap: 3px; }
+.heat-tile {
+  flex: 1 1 108px; min-height: 58px; padding: 7px 9px; display: flex; flex-direction: column; justify-content: space-between; gap: 6px;
+  color: var(--text); text-decoration: none; border-radius: 2px;
+}
+.heat-tile:hover { text-decoration: none; outline: 1px solid var(--border-strong); }
+.heat-name { font-size: 11px; line-height: 1.25; }
+.heat-move { font-size: 14px; font-weight: 700; }
+.heat-up-2 { background: color-mix(in srgb, var(--up) 42%, var(--panel)); }
+.heat-up-1 { background: color-mix(in srgb, var(--up) 20%, var(--panel)); }
+.heat-flat { background: var(--raised); }
+.heat-down-1 { background: color-mix(in srgb, var(--down) 20%, var(--panel)); }
+.heat-down-2 { background: color-mix(in srgb, var(--down) 42%, var(--panel)); }
+
+/* Why it moved: each reason a step on one line running down. */
+.ripple-summary { margin: 0 0 10px; font-size: 13px; line-height: 1.5; color: var(--text); }
+.ripple { list-style: none; margin: 0 0 10px; padding: 0; }
+.ripple li { position: relative; display: flex; gap: 10px; padding: 0 0 12px 0; font-size: 12.5px; line-height: 1.45; color: var(--text-2); }
+.ripple li::before { content: ""; position: absolute; left: 5px; top: 14px; bottom: 0; width: 2px; background: var(--border); }
+.ripple li:last-child::before { display: none; }
+.ripple-dot { flex-shrink: 0; width: 12px; height: 12px; margin-top: 3px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 8px color-mix(in srgb, var(--gold) 60%, transparent); }
+.ripple-value .ripple-dot { background: var(--info); box-shadow: none; }
+.ripple-more { display: inline-flex; min-height: 36px; align-items: center; }
+
+/* The duel. */
+.duel-heads { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.duel-side { display: flex; flex-direction: column; min-width: 0; }
+.duel-them { align-items: flex-end; text-align: right; }
+.duel-score { font-size: 32px; font-weight: 700; line-height: 1.05; }
+.duel-you, .duel-you .duel-score { color: var(--gold); }
+.duel-them, .duel-them .duel-score { color: var(--info); }
+.duel-part { margin-top: 8px; }
+.duel-figures { display: flex; justify-content: space-between; margin-bottom: 3px; }
+.duel-bar { display: flex; gap: 2px; height: 8px; }
+.duel-bar-you { background: var(--gold); border-radius: 1px; }
+.duel-bar-them { flex: 1; background: var(--info); border-radius: 1px; }
+.duel-foot { margin: 12px 0 0; color: var(--text-2); }
+
+/* The wire, beside the wall. */
+.wire { list-style: none; margin: 0; padding: 0; }
+.wire li { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 8px; padding: 8px 0; border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
+.wire li:first-child { border-top: 0; padding-top: 2px; }
+.wire-head { display: block; font-family: var(--serif); font-size: 13px; line-height: 1.35; color: var(--text); }
+.wire-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 3px; }
+.wire-ticker { font: inherit; font-family: var(--mono); font-size: 11px; padding: 1px 6px; cursor: pointer; color: var(--gold); background: var(--gold-soft); border: 0; border-radius: 2px; }
+.wire-ticker:hover { filter: brightness(1.15); }
+
+@media (max-width: 1150px) { .term-pair { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 760px) {
+  .term-book { padding-left: 0; border-left: 0; margin-top: 10px; }
+  .term-last { font-size: 30px; }
+}

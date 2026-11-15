@@ -608,7 +608,15 @@ export type Ticker = {
 };
 
 /** One line of the always-on readout: a figure, its move, and the size of that move for the bar under it. */
-export type Indicator = { name: string; value: string; change: string | null; change_bps: number | null };
+export type Indicator = {
+  name: string; value: string; change: string | null; change_bps: number | null;
+  /** The terminal: the figure's own record (oldest first), its scale, where it sits, its usual range, and what the move means. */
+  history: number[]; low: string | null; high: string | null; position_pct: number | null;
+  band_from_pct: number | null; band_to_pct: number | null; band_words: string | null; means: string | null;
+};
+/** Money on the move in the last closed quarter, city by city. */
+export type CityFlow = { name: string; spending_kobo: Kobo; wages_kobo: Kobo; government_kobo: Kobo; taxes_kobo: Kobo; jobs: number };
+export type Flows = { period: number; period_label: string | null; capital: string; cities: CityFlow[] };
 export type IndicatorGroup = { title: string; indicators: Indicator[] };
 /** The left column that never moves: the market's indicators, the player's money over time, what they hold. */
 export type Readout = {
@@ -1238,6 +1246,7 @@ export const api = {
   clock: () => request<Clock>("/world/clock"),
   worldStatus: () => request<WorldStatus>("/world/status"),
   readout: () => request<Readout>("/readout"),
+  flows: () => request<Flows>("/economy/flows"),
   companies: () => request<{ sectors: Sector[] }>("/companies"),
   economy: () => request<Economy>("/economy"),
   property: () => request<PropertyMarket>("/property"),

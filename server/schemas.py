@@ -174,6 +174,32 @@ class Indicator(BaseModel):
     value: str                         # written here with its unit, so no screen has to invent one
     change: str | None                 # what the arrow says, in the figure's own units ("2.4%", "0.25 pt")
     change_bps: int | None             # the size of the move, for the bar and its colour; None when there is no "before"
+    # The terminal (15 November 2026): where the figure sits in its own record, and what it means for a player.
+    history: list[float] = []          # the last quarters' figures, oldest first, for the small trend line
+    low: str | None = None             # the lowest and highest the scale shows, written like `value`
+    high: str | None = None
+    position_pct: int | None = None    # where the figure sits on that scale, 0 to 100
+    band_from_pct: int | None = None   # the usual range on the same scale (for inflation: what the Central Bank accepts)
+    band_to_pct: int | None = None
+    band_words: str | None = None      # what the band is, in words
+    means: str | None = None           # what the move means for a player, in one plain sentence
+
+
+class CityFlow(BaseModel):
+    """One city in a quarter: what its households earned and spent, and what moved between it and the Government."""
+    name: str
+    spending_kobo: Kobo                # what its households spent
+    wages_kobo: Kobo                   # what they were paid in wages
+    government_kobo: Kobo              # what the Government paid them
+    taxes_kobo: Kobo                   # company tax paid by the companies with their head office there
+    jobs: int
+
+
+class FlowsResponse(BaseModel):
+    period: int
+    period_label: str | None
+    capital: str                       # where the Government sits
+    cities: list[CityFlow]
 
 
 class IndicatorGroup(BaseModel):
