@@ -1411,16 +1411,20 @@ def _grow_library() -> None:
 # of work that repeated others are retired: they are never offered again, but anything in hand finishes as it was
 # given and every record of them stays. See docs/TASKS_TRIM_AND_COMPETITION_PLAN_2026-11-14.md.
 NEWSROOM = frozenset({"jr_results", "jr_economy", "jr_verify", "jr_scoop", "jn_nudge", "jn_short", "jn_bank_losses",
-                      "jn_source_odds", "jn_declare", "jn_exclusive"})
+                      "jn_source_odds", "jn_declare", "jn_exclusive",
+                      "jn_film_quarter"})   # brought back 14 Nov 2026 (owner): film has a piece of its own again
+# Three of the six industry pieces were retired with the rest and brought back the same day (owner, 14 November 2026), so
+# that every industry has work of its own: retail (ac_retail_margin), film (jn_film_quarter) and medicines
+# (lw_currency_clause). 35 are retired; 109 kinds of work are on the board.
 RETIRED = frozenset({
     # The Accountant's, now the Asset Manager's: a repeat of another, or too narrow.
-    "ac_bills", "ac_forecast", "ac_press_check", "ac_deferred", "ac_carry", "ac_lease", "ac_property", "ac_retail_margin",
+    "ac_bills", "ac_forecast", "ac_press_check", "ac_deferred", "ac_carry", "ac_lease", "ac_property",
     # The Investment Banker's, now the Investment Banker's.
-    "lw_zoning", "lw_claims_advice", "lw_consent", "lw_lending", "lw_currency_clause", "lw_prepublication",
+    "lw_zoning", "lw_claims_advice", "lw_consent", "lw_lending", "lw_prepublication",
     "lw_lease_break", "lw_preferred", "lw_closeout",
     # The journalism that was a "report this market" variation of the same skill.
     "jn_check_story", "jn_company_risk", "jr_rate", "jn_foreign_money", "jr_league", "jn_expose_ready", "jn_oil_naira",
-    "jn_property", "jn_readers", "jn_rate_read", "jn_film_quarter", "jn_open_interest", "jn_preferred", "jn_hedging",
+    "jn_property", "jn_readers", "jn_rate_read", "jn_open_interest", "jn_preferred", "jn_hedging",
     "jn_property_index", "jn_infrastructure", "jn_real_wages", "jn_repossessions", "jn_breadth", "jn_scoop",
     "jn_front_page",
 })

@@ -18,7 +18,7 @@ drawn at random and published.
   on the page:
   - **steady** keeps the rates;
   - **a hawk** raises every rate a point when the Treasury has been running down;
-  - **a dove** cuts every rate a point when the Treasury has been filling up.
+  - **a dove** cuts every rate a point when the Treasury grew by more than a tenth over the year (until 14 November 2026: when it grew at all).
 
 ## The budget
 

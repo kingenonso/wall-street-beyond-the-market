@@ -1,8 +1,9 @@
 """The work for three builds (owner, 14 November 2026: "approve the tasks").
 
-106 kinds of work on the board: the Asset Manager 32, the Investment Banker 30, the Risk Manager 20, the newsroom 10
-(open to every build) and the head's 14. Thirty-eight kinds that repeated others are retired: never offered again, but
-work in hand finishes and every record stays. See docs/TASKS_TRIM_AND_COMPETITION_PLAN_2026-11-14.md.
+109 kinds of work on the board: the Asset Manager 33, the Investment Banker 31, the Risk Manager 20, the newsroom 11
+(open to every build) and the head's 14. Thirty-five kinds that repeated others are retired: never offered again, but
+work in hand finishes and every record stays. (It was 106 and 38 until three industry pieces were brought back the same
+day, so that retail, film and medicines each have work of their own.) See docs/TASKS_TRIM_AND_COMPETITION_PLAN_2026-11-14.md.
 """
 
 from __future__ import annotations
@@ -30,10 +31,10 @@ def offered():
     return [t for t in objectives.TEMPLATES.values() if t.listed and t.setting == "solo" and not t.retired]
 
 
-def test_there_are_106_kinds_of_work_balanced_across_the_three_builds():
+def test_there_are_109_kinds_of_work_balanced_across_the_three_builds():
     count = Counter(t.build for t in offered())
-    assert count == {"asset_manager": 32, "investment_banker": 30, "risk_manager": 20, "newsroom": 10, "ceo": 14}
-    assert len(objectives.RETIRED) == 38
+    assert count == {"asset_manager": 33, "investment_banker": 31, "risk_manager": 20, "newsroom": 11, "ceo": 14}
+    assert len(objectives.RETIRED) == 35
     assert not objectives.RETIRED & objectives.NEWSROOM
     # Every retired kind still exists, in all three settings, so work in hand can be marked.
     for code in objectives.RETIRED:
@@ -52,10 +53,10 @@ def test_retired_work_is_never_offered_and_cannot_be_taken(db):
 
 def test_work_taken_before_it_was_retired_still_finishes_and_pays(db, monkeypatch):
     player, _ = pro(db, "asset_manager", "inhand", level=10, cash_naira=1_000_000)
-    taken_before_retirement(monkeypatch, "ac_retail_margin")
-    taken = objectives.accept(db, player, "ac_retail_margin", NOW9)
+    taken_before_retirement(monkeypatch, "ac_carry")
+    taken = objectives.accept(db, player, "ac_carry", NOW9)
     monkeypatch.undo()                                   # retired again, with the work still in hand
-    assert objectives.TEMPLATES["ac_retail_margin"].retired
+    assert objectives.TEMPLATES["ac_carry"].retired
     answers = right_answers(db, taken["id"])
     done = objectives.submit(db, player, taken["id"], answers, NOW9)
     assert done["state"] == "passed"

@@ -61,6 +61,20 @@ from simulation.money import BPS, apply_bps
 log = logging.getLogger("wsbm.quarters")
 
 
+def book_problems(conn: Connection) -> list[str]:
+    """The whole ledger re-added, and every part of the game checking its own books: an empty list means all is well.
+    Run before each quarter is allowed to close (and by simulation.check_world, which only reads)."""
+    from simulation import firm_deals
+    return (ledger.audit(conn) + exchange.check_books(conn) + corporate.check_books(conn) + firm_deals.check_books(conn)
+            + lending.check_books(conn) + derivatives.check_books(conn)
+            + crashfund.check_books(conn) + instruments.check_books(conn)
+            + conveyancing.check_books(conn) + development.check_books(conn) + propfunds.check_books(conn)
+            + _crisis().check_books(conn) + _funds().check_books(conn)
+            + _etfs().check_books(conn) + _fx().check_books(conn) + _world().check_books(conn)
+            + commodities.check_books(conn) + commoditydesk.check_books(conn)
+            + _insurance().check_books(conn))
+
+
 def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
     """Close every quarter that has ended and is not yet closed. Returns the quarters closed."""
     closed: list[int] = []
@@ -79,15 +93,7 @@ def close_due_quarters(conn: Connection, now: datetime) -> list[int]:
             _close_period(conn, period, world["company_tax_bps"], world["fortune_seed"], now)
             # Re-add the whole ledger before the quarter is allowed to close. If anything
             # is out, the quarter is not closed and the fault is reported loudly.
-            from simulation import firm_deals
-            problems = (ledger.audit(conn) + exchange.check_books(conn) + corporate.check_books(conn) + firm_deals.check_books(conn)
-                        + lending.check_books(conn) + derivatives.check_books(conn)
-                        + crashfund.check_books(conn) + instruments.check_books(conn)
-                        + conveyancing.check_books(conn) + development.check_books(conn) + propfunds.check_books(conn)
-                        + _crisis().check_books(conn) + _funds().check_books(conn)
-                        + _etfs().check_books(conn) + _fx().check_books(conn) + _world().check_books(conn)
-                        + commodities.check_books(conn) + commoditydesk.check_books(conn)
-                        + _insurance().check_books(conn))
+            problems = book_problems(conn)
             if problems:
                 raise ledger.LedgerError("The ledger failed its end-of-quarter check: " + " ".join(problems))
             conn.execute("UPDATE world_state SET last_closed_period = %s", (period,))

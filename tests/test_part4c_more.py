@@ -24,7 +24,7 @@ from simulation import firm_practice, objectives_industries, private, quarters
 from simulation import news, news_kinds
 from simulation import world_data as data
 from simulation.money import BPS, apply_bps, million_naira, naira
-from tests.conftest import after_quarters, taken_before_retirement
+from tests.conftest import after_quarters
 from tests.test_builds import pro, right_answers
 from tests.test_careers import NOW9, professional, sound
 from tests.test_dealmaking import cash, house, job_truth
@@ -433,13 +433,11 @@ def test_every_industry_has_work_for_every_build(db):
     assert set(work.values()) == {t.code for t in objectives_industries.INDUSTRIES}
     pieces = {industry: objectives.TEMPLATES[code] for industry, code in work.items()}
 
-    # The trim to 106 kinds of work (approved by the owner, 14 November 2026) retired three of the six: retail, film and
-    # medicines. They stay in the library for the record and are no longer offered.
-    assert {i for i, t in pieces.items() if t.retired} == {"retail", "entertainment", "pharma"}
-    pieces = {i: t for i, t in pieces.items() if not t.retired}
-    # Every build keeps one of those still offered, so no build is left out, and each opens at Level 5 — above the four
+    # All six are offered (the trim retired three and they were brought back the same day, owner, 14 November 2026). Every
+    # build has one or more, and film's is in the newsroom, open to every build; each opens at Level 5 — above the four
     # modules a new player starts with, and below the bands that were already there.
-    assert {t.build for t in pieces.values()} == set(careers.BUILDS)
+    assert not any(t.retired for t in pieces.values())
+    assert {t.build for t in pieces.values()} == set(careers.BUILDS) | {"newsroom"}
     for piece in pieces.values():
         assert piece.level == 5 and piece.listed and piece.payer == "employer", piece.code
         assert piece.module in {m["module"] for m in objectives.modules(piece.build)}, piece.code
@@ -517,7 +515,6 @@ def test_objective_am_growth_rates(db):
 
 def test_objective_ac_retail_margin(db, monkeypatch):
     """The Accountant: a grocer's margin, and how little its sales may fall."""
-    taken_before_retirement(monkeypatch, "ac_retail_margin")
     f, answers, verdict = sits(db, "asset_manager", "ac_retail_margin", "grocer")
     gross = f["sales"] * f["margin"] / 100
     profit = gross * (1 - f["overhead"] / 100)
@@ -530,7 +527,6 @@ def test_objective_ac_retail_margin(db, monkeypatch):
 
 def test_objective_jn_film_quarter(db, monkeypatch):
     """The Journalist: a studio's quarter, and what it looks like without the hit."""
-    taken_before_retirement(monkeypatch, "jn_film_quarter")
     f, answers, verdict = sits(db, "investment_banker", "jn_film_quarter", "film")
     sales = f["hit"] + f["other"]
     cost = sales * f["cost"] / 100
@@ -564,7 +560,6 @@ def test_objective_rm_gas_cost(db):
 
 def test_objective_lw_currency_clause(db, monkeypatch):
     """The Legal Counsel: a supply contract, and who carries the currency risk."""
-    taken_before_retirement(monkeypatch, "lw_currency_clause")
     f, answers, verdict = sits(db, "investment_banker", "lw_currency_clause", "clause")
     extra = f["order"] * f["fall"] / 100
     assert abs(answers["extra"] - extra) <= 0.011

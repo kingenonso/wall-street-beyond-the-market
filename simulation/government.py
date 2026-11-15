@@ -36,7 +36,7 @@ NAMES = {"income": "Income tax", "company": "Company tax", "property": "Property
 STAND_INS = {
     "steady": "Steady: keeps the rates as they are.",
     "hawk": "A hawk: raises every rate by a step when the Treasury has been running down.",
-    "dove": "A dove: cuts every rate by a step when the Treasury has been filling up.",
+    "dove": "A dove: cuts every rate by a step when the Treasury grew by more than a tenth over the year.",
 }
 LEANINGS = {
     "low_tax": "vote against any budget that raises a rate",
@@ -354,9 +354,14 @@ def _stand_in_budget(conn: Connection, year: int, period: int, now: datetime) ->
     trend = _treasury_trend(conn, period)
     step = data.TAX_STEP_BPS
     new = dict(old)
+    # A dove cuts only on a real surplus: the Treasury grew by more than a tenth over the year. A hawk raises when it fell
+    # at all. (The Treasury spends its taxes back into the economy, so it grows a little most years: with a dove cutting on
+    # any growth, ten years of stand-ins only ever cut. Owner, 14 November 2026.)
+    held = ledger.balance(conn, ledger.account_id(conn, ledger.TREASURY))
+    year_ago = held - trend
     if t["stand_in"] == "hawk" and trend < 0:
         new = {k: v + step for k, v in old.items()}
-    elif t["stand_in"] == "dove" and trend > 0:
+    elif t["stand_in"] == "dove" and trend > max(year_ago, 0) * data.STAND_IN_DOVE_SURPLUS_BPS // BPS:
         new = {k: v - step for k, v in old.items()}
     return {k: min(max(v, data.TAX_LIMITS_BPS[k][0]), data.TAX_LIMITS_BPS[k][1]) for k, v in new.items()}
 

@@ -842,6 +842,7 @@ CALL_MOST_OPEN = 2                     # calls an empire may have open at once
 # Government, part 1 (14 November 2026): an elected leader sets the year's taxes within these limits.
 TAX_LIMITS_BPS = {"income": (500, 2500), "company": (1500, 4000), "property": (50, 300), "land": (25, 150)}
 TAX_STEP_BPS = 100                     # a step: one point (the stand-in's move, and the steady members' tolerance)
+STAND_IN_DOVE_SURPLUS_BPS = 1000    # a dove stand-in cuts only when the Treasury grew by more than a tenth over the year
 LEADER_LEAST_REPUTATION = 80           # a candidate needs this reputation...
 LEADER_LEAST_LEVEL = 20                # ...and this level
 ELECTION_STAND_LAST_DAY = 30           # candidates stand in the first third of a year's last quarter; then the vote opens

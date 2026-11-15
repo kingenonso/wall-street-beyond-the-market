@@ -167,3 +167,27 @@ def test_a_vote_of_no_confidence_can_remove_the_leader(db):
     else:
         assert row["status"] in ("passed", "failed")
     assert old
+
+
+def test_a_dove_cuts_only_on_a_real_surplus_and_a_hawk_raises_on_any_fall(db, monkeypatch):
+    """The stand-in by its personality (owner, 14 November 2026): a dove cuts only when the Treasury grew by more than a
+    tenth over the year; a hawk raises when it fell at all; steady never moves. A ten-year run had found that a dove
+    cutting on any growth meant taxes only ever fell."""
+    from simulation import ledger
+    government.term(db, YEAR, NOW9)
+    old = government.rates(db)
+    held = ledger.balance(db, ledger.account_id(db, ledger.TREASURY))
+
+    def budget(personality, trend):
+        db.execute("UPDATE government_terms SET stand_in = %s WHERE year = %s", (personality, YEAR))
+        monkeypatch.setattr(government, "_treasury_trend", lambda conn, period: trend)
+        return government._stand_in_budget(db, YEAR, P, NOW9)
+
+    year_ago = held - held // 20                                  # grew by about 5% over the year: not a real surplus
+    assert budget("dove", held - year_ago) == old
+    big = held // 2                                               # grew by half: a real surplus
+    cut = budget("dove", big)
+    assert all(cut[k] == max(old[k] - data.TAX_STEP_BPS, data.TAX_LIMITS_BPS[k][0]) for k in government.KINDS)
+    raised = budget("hawk", -1)                                   # fell, by any amount
+    assert all(raised[k] == min(old[k] + data.TAX_STEP_BPS, data.TAX_LIMITS_BPS[k][1]) for k in government.KINDS)
+    assert budget("hawk", 1) == old and budget("steady", big) == old and budget("steady", -big) == old
