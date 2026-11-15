@@ -17,30 +17,32 @@
    --margin  crimson; only where something is owed, overdue or refused
 */
 :root {
-  --bg: #0a1018;
-  --panel: #111a26;
-  --raised: #16222f;
-  --border: #223146;
-  --border-strong: #35496a;
-  --text: #dfe8f2;
-  --text-2: #b6c4d6;
-  --muted: #7d90a8;
-  --gold: #d6b25c;
-  --gold-soft: rgba(214, 178, 92, 0.12);
-  --head: #2b2a4d;
-  --head-text: #e2e0f5;
-  --head-soft: #232244;
-  --on-accent: #0a1018;
-  --up: #37d07c;
-  --down: #ff6259;
-  --warn: #e8b04b;
-  --info: #6fb8e8;
+  /* The terminal's sharper palette (owner, 15 November 2026): a deeper ground, a brighter indigo bar, and vivid
+     green, red, gold and indigo for the figures. */
+  --bg: #070c15;
+  --panel: #0e1626;
+  --raised: #172038;
+  --border: #1f2a44;
+  --border-strong: #3b4a6b;
+  --text: #eef2f8;
+  --text-2: #cbd5e1;
+  --muted: #94a3b8;
+  --gold: #fbbf24;
+  --gold-soft: rgba(251, 191, 36, 0.14);
+  --head: #2a2670;
+  --head-text: #ffffff;
+  --head-soft: #1f1d4a;
+  --on-accent: #070c15;
+  --up: #34d399;
+  --down: #f87171;
+  --warn: #fbbf24;
+  --info: #a5b4fc;
   --margin: #c2503f;
   --band: rgba(223, 232, 242, 0.055);
   --shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
   /* Each build's colour, used where a build is shown beside other builds (seats, cards, the mix of what is owned). */
   --build-am: #b3a2f5; --build-ac: #57c78e; --build-ib: #85b6e6; --build-rm: #f09a55; --build-lc: #d5dbe2; --build-fj: #cf98e8;
-  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  --mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
   --sans: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
   --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
   color-scheme: dark;
@@ -1692,12 +1694,12 @@ th[aria-sort="ascending"] .sort-head, th[aria-sort="descending"] .sort-head { co
 .duel-side { display: flex; flex-direction: column; min-width: 0; }
 .duel-them { align-items: flex-end; text-align: right; }
 .duel-score { font-size: 32px; font-weight: 700; line-height: 1.05; }
-.duel-you, .duel-you .duel-score { color: var(--gold); }
+.duel-you, .duel-you .duel-score { color: var(--warn); }
 .duel-them, .duel-them .duel-score { color: var(--info); }
 .duel-part { margin-top: 8px; }
 .duel-figures { display: flex; justify-content: space-between; margin-bottom: 3px; }
 .duel-bar { display: flex; gap: 2px; height: 8px; }
-.duel-bar-you { background: var(--gold); border-radius: 1px; }
+.duel-bar-you { background: var(--warn); border-radius: 1px; }
 .duel-bar-them { flex: 1; background: var(--info); border-radius: 1px; }
 .duel-foot { margin: 12px 0 0; color: var(--text-2); }
 
@@ -1715,3 +1717,14 @@ th[aria-sort="ascending"] .sort-head, th[aria-sort="descending"] .sort-head { co
   .term-book { padding-left: 0; border-left: 0; margin-top: 10px; }
   .term-last { font-size: 30px; }
 }
+
+/* The sharper look: heavier figures and bars, and a glow on what is live. */
+.panel-head h2, .panel-head h3 { font-weight: 800; letter-spacing: 0.1em; }
+.indicator-value, .term-last, .duel-score, .heat-move { font-weight: 800; }
+.chip { font-weight: 700; }
+.chip-up { background: color-mix(in srgb, var(--up) 22%, transparent); }
+.chip-down { background: color-mix(in srgb, var(--down) 22%, transparent); }
+.gauge-band { background: color-mix(in srgb, var(--head) 55%, var(--info)); }
+.gauge-mark.mark-up { box-shadow: 0 0 8px var(--up); } .gauge-mark.mark-down { box-shadow: 0 0 8px var(--down); }
+.trend polyline { stroke-width: 1.9; }
+.candle-up rect, .candle-down rect { rx: 0.5px; }
