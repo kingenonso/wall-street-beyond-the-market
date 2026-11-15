@@ -73,7 +73,8 @@ def test_every_module_has_work_alone_with_the_empire_and_as_a_weekend_challenge(
     assert len([t for t in objectives.TEMPLATES.values() if t.listed]) >= 120
     # The modules opening by Level 4, and in all, for each map: three builds since 9 November 2026, the newsroom open to
     # every build, and the 106 kinds kept on 14 November 2026.
-    sizes = {"asset_manager": (12, 32), "investment_banker": (15, 30), "risk_manager": (8, 20), "newsroom": (5, 10), "ceo": (6, 14)}
+    # (Level-5 industry work for retail, medicines and film came back on 14 November 2026: one more each.)
+    sizes = {"asset_manager": (12, 33), "investment_banker": (15, 31), "risk_manager": (8, 20), "newsroom": (5, 11), "ceo": (6, 14)}
     for track in (*TRACKS, "newsroom", "ceo"):
         modules = objectives.modules(track)
         first = [m for m in modules if m["level"] <= 4]
