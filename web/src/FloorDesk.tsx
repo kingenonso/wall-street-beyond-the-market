@@ -385,7 +385,9 @@ function Call({ r, d, now, act, compact = false }: { r: FloorIncoming; d: FloorR
         {r.kind === "basket" ? r.legs.map((l) => `${l.quantity.toLocaleString("en-NG")} ${l.ticker} at market ${formatNaira(l.mid)}`).join(" · ")
           : r.kind === "bond" ? <>Bond desk: buys {r.market.best_bid ? formatNaira(r.market.best_bid) : "—"}, sells {r.market.best_offer ? formatNaira(r.market.best_offer) : "—"}; fair {r.market.reference ? formatNaira(r.market.reference) : "—"} ({pct(r.market.fair_yield_bps)}). You hold {r.you_hold.toLocaleString("en-NG")}.</>
           : <>Exchange: buyers at {r.market.best_bid ? formatNaira(r.market.best_bid) : "—"}, sellers at {r.market.best_offer ? formatNaira(r.market.best_offer) : "—"}{r.market.last ? `, last ${formatNaira(r.market.last)}` : ""}. You hold {r.you_hold.toLocaleString("en-NG")}.</>}
-        {" "}Client record: {rec.deals} deal{rec.deals === 1 ? "" : "s"}{rec.right_bps !== null ? `, right ${pct(rec.right_bps, 0)} of the time` : ""}.
+        {" "}Client record: {rec.deals} deal{rec.deals === 1 ? "" : "s"}{rec.right_bps !== null ? `, right ${pct(rec.right_bps, 0)} of the time` : ""}
+        {rec.asked > 0 ? `; dealt ${rec.dealt} of their last ${rec.asked} requests` : ""}.
+        {rec.fishing && <span className="change-down"> Asks and never deals: fishing for prices.</span>}
       </p>
       {r.your_quote && <p className="small">Your price: {r.your_quote.margin_bps !== null ? `${signedBps(r.your_quote.margin_bps)} on the market` : ""}{r.your_quote.bid ? `buy ${formatNaira(r.your_quote.bid)}` : ""}{r.your_quote.bid && r.your_quote.offer ? " · " : ""}{r.your_quote.offer ? `sell ${formatNaira(r.your_quote.offer)}` : ""}{r.your_quote.firm ? "" : " (indicative)"}, holds {secondsLeft(r.your_quote.valid_until, now)}s.</p>}
       {r.asked_you && (

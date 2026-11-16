@@ -85,9 +85,10 @@ OFF_VALUE_BPS = 2_000                # an option, future or building dealt 20% o
 MARKS_KEPT_DAYS = 2                  # device marks are kept this long
 LINKED_TRADES = 3                    # ...this many times between the same two players: they are linked
 CRISIS_WINDOW_DAYS = 15              # money pulled out in the fifteen game days before a bank closed
-SECTIONS = ("investing", "work", "calls", "audits", "journalism", "leadership", "funds", "crisis", "challenges")
+SECTIONS = ("investing", "work", "calls", "audits", "journalism", "leadership", "funds", "crisis", "challenges", "floor")
 SECTION_NAMES = {"investing": "Investing", "work": "Work and levels", "calls": "Calls put in writing", "audits": "Audits",
                  "journalism": "Journalism", "leadership": "Leadership", "funds": "Funds managed", "crisis": "Bank crises", "challenges": "Firm challenges",
+                 "floor": "On the Floor",
                  "conduct": "Conduct"}
 
 
@@ -410,7 +411,25 @@ def work_out(conn: Connection, player_id, now: datetime) -> dict:
     return {"investing": inv, "work": work(conn, player_id), "calls": calls(conn, player_id), "audits": audits(conn, player_id),
             "journalism": journalism(conn, player_id), "leadership": leadership(conn, player_id),
             "crisis": crisis_conduct(conn, player_id), "conduct": conduct(conn, player_id),
-            "challenges": challenge_record(conn, player_id), "funds": fund_record(conn, player_id), "worked_at": now}
+            "challenges": challenge_record(conn, player_id), "funds": fund_record(conn, player_id), "floor": floor_record(conn, player_id),
+            "worked_at": now}
+
+
+def floor_record(conn: Connection, player_id) -> dict:
+    """The Floor (16 November 2026): as a client, how well the player dealt (against the exchange's best price, with its fee,
+    when they asked); as a bank, deals won, deals it could not deliver and prices it backed away from; and places won in
+    live events and floor hours. Percentages and counts only."""
+    if not _one(conn, "SELECT to_regclass('floor_trades') IS NOT NULL AS ok")["ok"]:
+        return {"client_deals": 0, "average_vs_exchange_bps": None, "bank_deals": 0, "failed": 0, "backed_away": 0, "places": 0}
+    from simulation import floor, ledger
+    account = ledger.player_account_id(conn, player_id)
+    card = floor.scorecard(conn, account) if account else {"deals": [], "average_vs_exchange_bps": None}
+    desk = _one(conn, "SELECT failed, backed_away FROM floor_desks WHERE player_id = %s", (player_id,)) or {"failed": 0, "backed_away": 0}
+    won = _one(conn, "SELECT count(*)::int AS n FROM floor_trades WHERE desk = %s AND request_id IS NOT NULL", (f"player:{player_id}",))["n"]
+    places = _one(conn, "SELECT count(*)::int AS n FROM floor_scores WHERE player_id = %s", (player_id,))["n"] \
+        if _one(conn, "SELECT to_regclass('floor_scores') IS NOT NULL AS ok")["ok"] else 0
+    return {"client_deals": len(card["deals"]), "average_vs_exchange_bps": card["average_vs_exchange_bps"], "bank_deals": won,
+            "failed": desk["failed"], "backed_away": desk["backed_away"], "places": places}
 
 
 def fund_record(conn: Connection, player_id) -> dict:

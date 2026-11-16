@@ -1828,9 +1828,10 @@ COURT_MIN_CLAIM_NAIRA = 100_000             # a claim worth less than this is no
 COURT_BOND_BPS = 1_000                      # a player bringing a case posts a tenth of the claim...
 COURT_BOND_FLOOR_NAIRA = 1_000_000          # ...but never less than ₦1 million
 COURT_SETTLE_BPS = 6_000                    # settling costs six tenths of the claim, paid at once
-COURT_FINE_BPS = {"insider": 10_000, "manipulation": 1_000, "undisclosed_stake": 5_000, "naked_short": 5_000, "insurance_fraud": 10_000}
+COURT_FINE_BPS = {"insider": 10_000, "manipulation": 1_000, "undisclosed_stake": 5_000, "naked_short": 5_000, "insurance_fraud": 10_000,
+                  "front_running": 10_000, "order_leak": 10_000, "collusion": 5_000}       # the Floor's wrongs (16 November 2026)
 COURT_COSTS_BPS = 500                       # the loser pays a twentieth of the claim as the winner's costs
-COURT_BAN_QUARTERS = {"manipulation": 4, "naked_short": 4, "insurance_fraud": 4}   # a judgment that bans trading, and for how long
+COURT_BAN_QUARTERS = {"manipulation": 4, "naked_short": 4, "insurance_fraud": 4, "collusion": 2}   # a judgment that bans trading, and for how long
 COURT_ENFORCE_BPS = {"insider": 2_500, "manipulation": 2_000, "undisclosed_stake": 3_000, "naked_short": 2_500, "insurance_fraud": 2_500}
 COURT_FINE_TO_REGULATOR_BPS = 5_000         # half of every fine funds the regulator; the rest goes to the Treasury
 COURT_PAYMENT_BPS = 2_500                   # a judgment is paid down a quarter at a time, as much as the defendant has
@@ -1885,3 +1886,11 @@ FLOOR_BOND_BAND_BPS = 2000             # a bond's price on the Floor stays withi
 FLOOR_COMPUTER_KEEPS_BPS = 4000        # a computer bank accepts a counter that leaves it 40% of its half-spread
 FLOOR_CONFIRM_SECONDS = 15             # a bank has this long after its price runs out to answer a client who took it
 FLOOR_TICKET_SECONDS = 60              # a deal ticket from the chat waits this long to be confirmed
+# Slice 4: the Floor in live events, the floor hour, and the Floor's wrongs.
+FLOOR_HOUR = 18                        # the floor hour: every trading day from 18:00 to 19:00 Lagos time...
+FLOOR_HOUR_CALL_FACTOR = 2             # ...and during a live event, the computer clients call twice as often
+FLOOR_PLACES = (5, 3, 1)               # league points for the best three banks and clients of a live event, to their empires
+FLOOR_FISHING_ASKS = 8                 # a client who asked this many of their last ten times and dealt none is fishing:
+FLOOR_FISHING_SPREAD = 2               # ...the computer banks widen their prices this many times for them
+FLOOR_LEAK_BPS = 200                   # what passing on a client's order is taken to be worth, of the order's value
+FLOOR_COLLUSION_BPS = 100              # ...and agreeing prices with another bank, of the request's value

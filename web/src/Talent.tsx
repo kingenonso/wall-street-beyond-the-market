@@ -181,6 +181,15 @@ function Section({ name, rec, names }: { name: string; rec: Partial<TalentRecord
       </Panel>
     );
   }
+  if (name === "floor" && rec.floor) {
+    const f = rec.floor;
+    return (
+      <Panel title={title} aside="price requests: as a client against the exchange, and as a bank">
+        <Facts items={[["Deals as a client", f.client_deals], ["Against the exchange, on average", f.average_vs_exchange_bps === null ? "n/a" : pct(f.average_vs_exchange_bps)],
+          ["Deals won as a bank", f.bank_deals], ["Could not deliver", f.failed], ["Prices backed away from", f.backed_away], ["Places in live events and floor hours", f.places]]} />
+      </Panel>
+    );
+  }
   if (name === "conduct" && rec.conduct) {
     const c = rec.conduct;
     return (

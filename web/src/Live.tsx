@@ -249,6 +249,9 @@ function Past({ event }: { event: LiveEvent }) {
       <p className="small">{event.story}</p>
       <Members event={event} />
       <Table event={event} running={false} />
+      {(event.floor ?? []).length > 0 && (
+        <p className="small">On the Floor: {(event.floor ?? []).map((f) => `${f.name} (${f.role === "bank" ? "bank" : "client"}, ${f.place}${f.points ? `, ${f.points} points` : ""})`).join(" · ")}</p>
+      )}
     </details>
   );
 }

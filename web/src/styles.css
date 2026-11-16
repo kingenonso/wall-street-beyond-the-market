@@ -1965,3 +1965,12 @@ span.floor-tag { cursor: default; }
 .floor-tickets { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
 .floor-tickets button { width: auto; margin-left: 6px; }
 .floor-ask select { width: auto; max-width: 100%; }
+
+/* The Floor, slice 4: the live event on the bar, the game's notes, the floor hour. */
+.floor-bar-live { grid-template-columns: repeat(8, minmax(0, 1fr)); border-color: var(--down); }
+.floor-bar-live .floor-bar-cell:last-child { background: color-mix(in srgb, var(--down) 18%, var(--head-soft)); }
+.floor-note .floor-headline { font-weight: 600; }
+.floor-note-nudge .floor-tag { color: var(--gold); }
+.floor-note-drop .floor-tag { color: var(--down); }
+.floor-note-hour .floor-tag { color: var(--up); }
+.floor-hour { border: 1px solid var(--up); background: color-mix(in srgb, var(--up) 12%, var(--panel)); border-radius: 10px; padding: 8px 12px; margin: 0 0 12px; }

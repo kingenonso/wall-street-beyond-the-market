@@ -1114,6 +1114,8 @@ export type LiveEvent = {
   table: LiveRow[]; your_actions: { what: string; done: boolean; at: string }[];
   /** Every member's prediction in the player's own empire (with how far each missed, once scored). */
   your_members: { name: string; prediction_bps: number; miss_bps: number | null }[];
+  /** The Floor's best banks and clients of the event (places and points only), once it is scored. */
+  floor?: { name: string; role: "bank" | "client"; place: number; points: number }[];
 };
 export type LivePage = {
   ready: boolean; now?: string; next_at?: string; days?: string; hour?: string; minutes?: number; predict_minutes?: number;
@@ -1131,6 +1133,11 @@ export type FloorPage = {
   bar: { realised: Kobo; unrealised: Kobo; total: Kobo; dividends: Kobo; fees: Kobo; exposure: Kobo; cash: Kobo; held_for_orders: Kobo; value: Kobo };
   positions: { ticker: string; name: string; shares: number; price: Kobo; change_bps: number; average_price: Kobo; value: Kobo; gain: Kobo }[];
   blotter: { id: number; traded_at: string; ticker: string; side: "buy" | "sell" | "both"; price: Kobo; quantity: number; fee: Kobo; value: Kobo; venue: "exchange" | "floor" }[];
+  /** Slice 4: the game's words on the Floor, a live event's figure for this account, and the floor hour. */
+  notes: { at: string; kind: "nudge" | "drop" | "hour"; words: string; ticker: string | null }[];
+  event: { name: string; pnl: Kobo; ends_at: string } | null;
+  floor_hour: { starts_at: string; ends_at: string } | null;
+  hour_at: string;
 };
 export type FloorChart = {
   ticker: string; name: string; minutes: number; state: MarketState; session_date: string; today: boolean;
@@ -1161,7 +1168,7 @@ export type FloorMyRequest = {
 export type FloorIncoming = {
   id: number; kind: "share" | "basket" | "bond"; label: string; name: string; ticker: string | null; side: "buy" | "sell" | "two_way"; quantity: number;
   legs: FloorLeg[]; block: boolean; for_empire: boolean;
-  client: string; computer_client: boolean; record: { deals: number; judged: number; right_bps: number | null };
+  client: string; computer_client: boolean; record: { deals: number; judged: number; right_bps: number | null; asked: number; dealt: number; fishing: boolean };
   created_at: string; quotes_until: string; status: "open" | "done" | "passed" | "expired";
   your_quote: { bid: Kobo | null; offer: Kobo | null; margin_bps: number | null; firm: boolean; valid_until: string; status: string } | null;
   asked_you: { id: number; kind: "counter" | "confirm"; side: "buy" | "sell"; price: Kobo | null; margin_bps: number | null; status: string; created_at: string } | null;
@@ -1665,6 +1672,8 @@ export type TalentRecord = {
   crisis: { banks_closed_with_savings: number; pulled_out_in_time: number; lost_savings: boolean; rescues_won: number; crises_lived_through: number };
   conduct: { proved: number; entries: { kind: string; words: string; at: string }[] };
   challenges: { entered: number; wins: number; top_tenth: number; results: { id: number; title: string; firm: string; place: number | null; entrants: number }[] };
+  /** The Floor (16 November 2026). Missing on records worked out before it. */
+  floor?: { client_deals: number; average_vs_exchange_bps: number | null; bank_deals: number; failed: number; backed_away: number; places: number };
   funds: { funds: TalentFund[]; best_stars: number | null; five_star_quarters: number; runs_survived: number };
 };
 export type TalentFund = {

@@ -42,6 +42,13 @@ KINDS = (
      "who": "The regulator only."},
     {"kind": "insurance_fraud", "name": "Insurance fraud: a claim on a loss of the claimant's own making",
      "who": "The insurer refers it, when it refuses the claim."},
+    # The Floor (16 November 2026): wrongs a bank does to its client.
+    {"kind": "front_running", "name": "Trading ahead of a client on the Floor",
+     "who": "The regulator, or the client who was wronged."},
+    {"kind": "order_leak", "name": "Passing on a client's order on the Floor",
+     "who": "The regulator, or the client who was wronged."},
+    {"kind": "collusion", "name": "Banks agreeing their prices on the Floor",
+     "who": "The regulator only."},
 )
 
 
@@ -96,7 +103,7 @@ def _page(conn: Connection, player: dict, now: datetime) -> dict:
 
 
 class BringRequest(Request):
-    kind: str = Field(pattern="^(insider|manipulation|undisclosed_stake|naked_short)$")
+    kind: str = Field(pattern="^(insider|manipulation|undisclosed_stake|naked_short|front_running|order_leak)$")
     defendant_id: UUID
     company_id: UUID | None = None
 

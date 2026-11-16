@@ -45,9 +45,10 @@ function Bar({ d }: { d: FloorPage }) {
     ["Exposure", formatNaira(b.exposure), "what your shares are worth now", null],
     ["Cash", formatNaira(b.cash), big(b.held_for_orders) > 0n ? `${formatNaira(b.held_for_orders)} held for orders` : "free to trade", null],
     ["Account value", formatNaira(b.value), "cash, held cash and shares", null],
+    ...(d.event ? [["Live event", signed(d.event.pnl), `what the event's shares have done to what you hold, since the bell: ${d.event.name}`, d.event.pnl] as [string, string, string, string | null]] : []),
   ];
   return (
-    <div className="floor-bar" role="group" aria-label="Your profit and loss">
+    <div className={d.event ? "floor-bar floor-bar-live" : "floor-bar"} role="group" aria-label="Your profit and loss">
       {cells.map(([label, value, note, by]) => (
         <div key={label} className="floor-bar-cell" title={note}>
           <span className="floor-bar-label">{label}</span>
@@ -85,7 +86,7 @@ function MarketList({ chosen, onChoose, onLoggedOut }: { chosen: string | null; 
   );
 }
 
-function NewsFeed({ onChoose, onLoggedOut }: { onChoose: (t: string) => void; onLoggedOut: () => void }) {
+function NewsFeed({ notes, onChoose, onLoggedOut }: { notes: FloorPage["notes"]; onChoose: (t: string) => void; onLoggedOut: () => void }) {
   const list = useLoad(() => api.news({ limit: 60 }), "floor-news", onLoggedOut);
   useEvery(list.reload, 30_000);
   const [words, setWords] = useState("");
@@ -101,7 +102,14 @@ function NewsFeed({ onChoose, onLoggedOut }: { onChoose: (t: string) => void; on
       <div className="floor-scroll">
         {!list.data && <p className="muted small">Reading the wire…</p>}
         {list.data && items.length === 0 && <p className="muted small">Nothing matches.</p>}
-        <ul className="floor-news">{items.map((n, i) => (
+        <ul className="floor-news">
+          {notes.filter((n) => !words.trim() || n.words.toLowerCase().includes(words.trim().toLowerCase())).map((n, i) => (
+            <li key={`note-${i}`} className={`floor-note floor-note-${n.kind}`}>
+              <span className="floor-tag mono">{n.kind === "hour" ? "Hour" : n.kind === "drop" ? (n.ticker ?? "Live") : "Note"}</span>
+              <span className="floor-headline">{n.words}</span>
+            </li>
+          ))}
+          {items.map((n, i) => (
           <li key={`${n.story}-${i}`}>
             {n.tickers[0]
               ? <button className="floor-tag mono" onClick={() => onChoose(n.tickers[0])} title={`Show ${n.tickers[0]}`}>{n.tickers[0]}</button>
@@ -334,11 +342,12 @@ export function FloorWork({ onLoggedOut }: Props) {
   tradedRef.current = traded;
   return (
     <>
-      <PageHead title="Trading floor" sub="Your own account: the market, the news, your positions and every trade, on one screen" aside={d.market_state === "open" ? "market open" : d.market_state === "opening_auction" ? "opening auction" : "market closed"} />
+      <PageHead title="Trading floor" sub={`Your own account: the market, the news, your positions and every trade, on one screen. The floor hour is every trading day at ${d.hour_at}.`} aside={d.market_state === "open" ? "market open" : d.market_state === "opening_auction" ? "opening auction" : "market closed"} />
+      {d.floor_hour && <p className="floor-hour" role="status"><strong>The floor hour</strong> until {new Date(d.floor_hour.ends_at).toLocaleTimeString("en-NG", { timeZone: "Africa/Lagos", hour: "2-digit", minute: "2-digit" })}: the clients call twice as often, and the best banks and clients of the hour are named at the end.</p>}
       <Bar d={d} />
       <div className="floor-grid-top">
         <MarketList chosen={ticker} onChoose={setPicked} onLoggedOut={onLoggedOut} />
-        <NewsFeed onChoose={setPicked} onLoggedOut={onLoggedOut} />
+        <NewsFeed notes={d.notes} onChoose={setPicked} onLoggedOut={onLoggedOut} />
         <Positions d={d} chosen={ticker} onChoose={setPicked} />
       </div>
       {ticker && (

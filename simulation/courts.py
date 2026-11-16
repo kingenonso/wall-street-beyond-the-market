@@ -11,6 +11,12 @@ Four kinds of case in this part, all against the market:
   undisclosed_stake  a holding past 5% that was never made public (stake_disclosures against the ledger)
   naked_short        borrowed shares that had to be bought in (short_positions, recorded since Stage 9)
 
+and since then insurance fraud, and on the Floor (16 November 2026) a bank's wrongs to its client (simulation/floor.py):
+
+  front_running      trading on the exchange on the client's side while the client's request was open to the desk
+  order_leak         writing the share's code to somebody else, who then traded on the client's side
+  collusion          two banks that priced the same request writing to each other while it was open
+
 The regulator is a computer institution with a budget. It pays to prove each case, and half of every fine it wins funds
 it, so enforcement is a choice about what is worth proving. A player may bring a case too, but posts a bond and pays the
 other side's costs if the claim fails.
@@ -39,7 +45,8 @@ from simulation.money import BPS, apply_bps, naira
 
 REGULATOR = "regulator"
 COMPENSATION_FUND = "compensation_fund"
-KINDS = ("insider", "manipulation", "undisclosed_stake", "naked_short", "insurance_fraud")
+KINDS = ("insider", "manipulation", "undisclosed_stake", "naked_short", "insurance_fraud",
+         "front_running", "order_leak", "collusion")       # the Floor's wrongs (16 November 2026)
 
 CASE_SQL = (
     "SELECT k.*, d.display_name AS defendant_name, c.display_name AS claimant_name, co.ticker"
@@ -401,6 +408,9 @@ def _wrongs(conn: Connection, period: int, now: datetime) -> list[dict]:
 
     for wrong in _stake_wrongs(conn, period, now) + _short_wrongs(conn, since):
         add(wrong)
+    from simulation import floor               # the Floor's wrongs (16 November 2026)
+    for wrong in floor.wrongs(conn, since, now):
+        add(wrong)
     return [w for w in wrongs if w["amount"] >= naira(data.COURT_MIN_CLAIM_NAIRA)]
 
 
@@ -415,8 +425,9 @@ def _evidence_of(wrong: dict) -> dict:
 def open_case(conn: Connection, *, kind: str, defendant_id, claimant_id, company_id, amount: int, evidence: dict,
               words: str, period: int, now: datetime, bond: int = 0) -> int:
     if kind not in KINDS:
-        raise CourtError("The tribunal hears five kinds of case against the market: dealing on confidential information, "
-                         "manipulation, an undisclosed stake, a naked short, and insurance fraud.")
+        raise CourtError("The tribunal hears eight kinds of case: dealing on confidential information, manipulation, an undisclosed "
+                         "stake, a naked short, insurance fraud, and on the Floor trading ahead of a client, passing on a client's "
+                         "order, and banks agreeing their prices.")
     if amount < naira(data.COURT_MIN_CLAIM_NAIRA):
         raise CourtError(f"A claim of {_naira(amount)} is not worth the tribunal's time.")
     # The row is read by name: the website's connection hands back dictionaries, a test's hands back tuples, and the
@@ -446,11 +457,13 @@ def _regulator_brings(conn: Connection, wrong: dict, period: int, now: datetime)
 def _standing(conn: Connection, player_id, wrong: dict) -> str | None:
     """Whether a player may bring this case, and if not, why. The regulator may bring any of them; a player only the
     ones they were on the other side of."""
-    if wrong["kind"] in ("manipulation", "naked_short"):
+    if wrong["kind"] in ("manipulation", "naked_short", "collusion"):
         return "Only the regulator can bring that kind of case."
     account = ledger.player_account_id(conn, player_id)
     if account is None:
         return "You have no account to bring a case from."
+    if wrong["kind"] in ("front_running", "order_leak"):
+        return None if str(wrong.get("victim_account")) == str(account) else "Only the client who was wronged can bring that case."
     if wrong["kind"] == "insider":
         side = wrong["lines"][0].get("side") if wrong["lines"] else None
         other_side = _one(conn, "SELECT 1 AS x FROM market_trades t WHERE t.company_id = %s"
@@ -489,8 +502,9 @@ def bring(conn: Connection, player_id, *, kind: str, defendant_id, company_id=No
     """A player brings a case. The court finds the evidence and the number itself: a player cannot name a number the
     record does not support. The bond is a tenth of the claim, and is lost if the claim fails."""
     if kind not in KINDS:
-        raise CourtError("The tribunal hears five kinds of case against the market: dealing on confidential information, "
-                         "manipulation, an undisclosed stake, a naked short, and insurance fraud.")
+        raise CourtError("The tribunal hears eight kinds of case: dealing on confidential information, manipulation, an undisclosed "
+                         "stake, a naked short, insurance fraud, and on the Floor trading ahead of a client, passing on a client's "
+                         "order, and banks agreeing their prices.")
     if str(player_id) == str(defendant_id):
         raise CourtError("You cannot bring a case against yourself.")
     ensure(conn)
@@ -581,7 +595,7 @@ def judge(conn: Connection, case_id: int, period: int, now: datetime) -> dict:
     if row["status"] != "open":
         raise CourtError("That case has already been decided.")
     amount = row["amount"]
-    disgorgement = amount if row["kind"] in ("insider", "undisclosed_stake") else 0
+    disgorgement = amount if row["kind"] in ("insider", "undisclosed_stake", "front_running", "order_leak") else 0
     fine = apply_bps(amount, data.COURT_FINE_BPS[row["kind"]])
     costs = apply_bps(amount, data.COURT_COSTS_BPS)
     ban = data.COURT_BAN_QUARTERS.get(row["kind"], 0)

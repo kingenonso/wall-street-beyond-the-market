@@ -16,7 +16,7 @@ from datetime import timedelta
 import pytest
 from psycopg.rows import dict_row
 
-from simulation import floor, ledger
+from simulation import clock, floor, ledger
 from tests.test_market import OPEN, place, sound, trader
 
 
@@ -525,3 +525,121 @@ def test_axes_the_scorecard_and_the_client_record(db):
     from simulation import ledger
     record = floor.client_record(db, ledger.player_account_id(db, me), None)
     assert record["deals"] == 1
+    from simulation import talent
+    on_floor = talent.floor_record(db, me)
+    assert on_floor["client_deals"] == 1 and on_floor["bank_deals"] == 0 and "floor" in talent.SECTIONS
+
+
+# ---------------------------------------------------------------------------
+# Slice 4: the Floor in live events, the floor hour, fishing, and the Floor's wrongs
+# ---------------------------------------------------------------------------
+
+def _ref(db, t):
+    return _q(db, "SELECT reference_price FROM market_instruments m JOIN companies c ON c.id = m.company_id WHERE c.ticker = %s", (t,))[0]["reference_price"]
+
+
+@pytest.mark.world("eight")
+def test_the_floor_in_a_live_event_notes_and_points(db, monkeypatch):
+    from simulation import liveevents
+    from tests.test_careers import NOW9
+    from tests.test_empires import founded
+    from tests.test_live_events import BELL, ring
+    empire, (head, _), partners = founded(db)
+    _ = partners
+    event = ring(db, monkeypatch, "fraud")
+    t = next(x["ticker"] for x in event["touched"])
+    floor.tick(db, BELL + timedelta(minutes=1))
+    said = [n["words"] for n in floor.notes(db, BELL + timedelta(minutes=1))]
+    assert any("Banks: make sure you give fast" in w for w in said)
+    floor.tick(db, BELL + timedelta(minutes=16))
+    floor.tick(db, BELL + timedelta(minutes=26))
+    said = [n["words"] for n in floor.notes(db, BELL + timedelta(minutes=26))]
+    assert any("halfway" in w for w in said) and any("Five minutes left" in w for w in said)
+    # The head buys the touched share for the empire from a computer bank during the event: it counts for the empire's
+    # result, and the head is the Floor's best client.
+    rid = floor.ask(db, head, t, "buy", 100, 30, ["computer:goldbridge"], BELL + timedelta(minutes=2), for_empire=True)["request_id"]
+    q = floor.requests_view(db, head, BELL + timedelta(minutes=2, seconds=20))["mine"][0]["quotes"][0]
+    floor.take(db, head, rid, q["id"], "buy", BELL + timedelta(minutes=2, seconds=20))
+    screen = floor.screen(db, empire["account_id"], BELL + timedelta(minutes=3))
+    assert screen["event"] is not None and screen["event"]["name"] == event["headline"]
+    liveevents.score(db, event["id"], BELL + timedelta(minutes=30))
+    entry = _q(db, "SELECT * FROM live_event_entries WHERE event_id = %s AND empire_id = %s", (event["id"], empire["id"]))[0]
+    assert entry["result_kobo"] is not None
+    seen = liveevents.view(db, head, BELL + timedelta(minutes=31))["past"][0]
+    stars = seen["floor"]
+    if stars:                                       # only when the head saved against the exchange
+        assert stars[0]["role"] == "client" and stars[0]["points"] == 5 and set(stars[0]) == {"name", "role", "place", "points"}
+        assert _q(db, "SELECT count(*)::int AS n FROM league_points WHERE reference = %s", (f"live:{event['id']}:floor_client:1",))[0]["n"] == 1
+    assert any("is over" in n["words"] for n in floor.notes(db, BELL + timedelta(minutes=31)))
+    assert NOW9 < BELL
+
+
+@pytest.mark.world("eight")
+def test_the_floor_hour_doubles_the_calls_and_names_its_best(db, monkeypatch):
+    from tests.test_builds import pro
+    from tests.test_careers import NOW9
+    lagos = clock.to_lagos(NOW9)
+    hour = lagos.replace(hour=18, minute=5)
+    assert floor.floor_hour(hour) is not None and floor.floor_hour(lagos) is None
+    banker, _ = pro(db, "investment_banker", "banker", level=5)
+    floor.set_desk(db, banker, True, hour)
+    floor.tick(db, hour)
+    assert any("floor hour has begun" in n["words"] for n in floor.notes(db, hour))
+    floor.tick(db, lagos.replace(hour=19, minute=1))
+    assert any("floor hour is over" in n["words"] for n in floor.notes(db, lagos.replace(hour=19, minute=1)))
+
+
+@pytest.mark.world("eight")
+def test_a_client_who_asks_and_never_deals_is_fishing_and_gets_wider_prices(db):
+    from tests.test_builds import pro
+    from tests.test_careers import NOW9
+    me, _ = pro(db, "asset_manager", "fisher", level=5, cash_naira=90_000_000)
+    other, _ = pro(db, "asset_manager", "honest", level=5, cash_naira=90_000_000)
+    t = _ticker(db)
+    for i in range(8):
+        rid = floor.ask(db, me, t, "buy", 100, 15, ["computer:atlas"], NOW9 + timedelta(minutes=i))["request_id"]
+        floor.pass_on(db, me, rid, NOW9 + timedelta(minutes=i, seconds=5))
+    assert floor.fishing(db, me) == {"asked": 8, "dealt": 0, "fishing": True}
+    mine = floor.ask(db, me, t, "buy", 100, 30, ["computer:atlas"], NOW9 + timedelta(minutes=10))["request_id"]
+    theirs = floor.ask(db, other, t, "buy", 100, 30, ["computer:atlas"], NOW9 + timedelta(minutes=10))["request_id"]
+    offer = {r: _q(db, "SELECT offer FROM floor_quotes WHERE request_id = %s", (r,))[0]["offer"] for r in (mine, theirs)}
+    assert offer[mine] > offer[theirs]
+
+
+@pytest.mark.world("eight")
+def test_the_floors_wrongs_go_to_the_tribunal(db):
+    from simulation import courts, ledger
+    from tests.test_builds import pro
+    from tests.test_careers import NOW9
+    from tests.test_market import place
+    client, _client_account = pro(db, "asset_manager", "client", level=5, cash_naira=90_000_000)
+    banker, bank_account = pro(db, "investment_banker", "banker", level=5, cash_naira=90_000_000)
+    rival, _ = pro(db, "investment_banker", "rival", level=5, cash_naira=10_000_000)
+    friend, friend_account = pro(db, "asset_manager", "friend", level=5, cash_naira=90_000_000)
+    seller, _ = pro(db, "asset_manager", "seller", level=5)
+    for b in (banker, rival):
+        floor.set_desk(db, b, True, NOW9)
+    t = _ticker(db)
+    ref = _ref(db, t)
+    _give(db, ledger.player_account_id(db, seller), t, 20_000)
+    rid = floor.ask(db, client, t, "buy", 10_000, 60, [f"player:{banker}", f"player:{rival}"], NOW9)["request_id"]
+    # The banker buys on the exchange ahead of the client, and tells a friend, who buys too; the two banks chat.
+    place(db, ledger.player_account_id(db, seller), "sell", 20_000, ref, now=NOW9 + timedelta(seconds=2), ticker=t)
+    place(db, bank_account, "buy", 10_000, ref, now=NOW9 + timedelta(seconds=3), ticker=t)
+    db.execute("INSERT INTO floor_chat (from_player, to_player, body, at) VALUES (%s, %s, %s, %s)",
+               (banker, friend, f"Big buyer in {t}, get in now", NOW9 + timedelta(seconds=4)))
+    place(db, friend_account, "buy", 5_000, ref, now=NOW9 + timedelta(seconds=5), ticker=t)
+    floor.say(db, banker, "rival", "Let us both stay wide on this one", NOW9 + timedelta(seconds=6))
+    high = int(floor.requests_view(db, banker, NOW9 + timedelta(seconds=7))["incoming"][0]["market"]["high"])
+    floor.quote(db, banker, rid, None, high, 30, NOW9 + timedelta(seconds=8))
+    floor.quote(db, rival, rid, None, high, 30, NOW9 + timedelta(seconds=8))
+    q = next(x for x in floor.requests_view(db, client, NOW9 + timedelta(seconds=9))["mine"][0]["quotes"] if x["desk"] == "banker's desk")
+    floor.take(db, client, rid, q["id"], "buy", NOW9 + timedelta(seconds=9))
+    found = {w["kind"]: w for w in floor.wrongs(db, NOW9 - timedelta(days=1), NOW9 + timedelta(minutes=1))}
+    assert found["front_running"]["defendant_id"] == banker and found["front_running"]["amount"] == 10_000 * (high - ref)
+    assert found["order_leak"]["defendant_id"] == banker and found["order_leak"]["amount"] > 0
+    assert {str(w["defendant_id"]) for w in floor.wrongs(db, NOW9 - timedelta(days=1), NOW9 + timedelta(minutes=1)) if w["kind"] == "collusion"} == {str(banker), str(rival)}
+    # The wronged client may bring the case; somebody else may not; agreeing prices is the regulator's alone.
+    assert courts._standing(db, client, found["front_running"]) is None
+    assert "wronged" in courts._standing(db, friend, found["front_running"])
+    assert "regulator" in courts._standing(db, client, found["collusion"])

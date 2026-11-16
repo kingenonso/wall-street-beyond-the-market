@@ -489,6 +489,16 @@ def _results(conn: Connection, event: dict, until: datetime) -> tuple[int, list[
                     result += trade["quantity"] * (prices[t["company_id"]] - trade["price"]) - trade["buyer_fee"]
                 if trade["sold"]:
                     result += trade["quantity"] * (trade["price"] - prices[t["company_id"]]) - trade["seller_fee"]
+            # Deals on the Floor in the touched shares during the window count too (no exchange fee).
+            if _one(conn, "SELECT to_regclass('floor_trades') IS NOT NULL AS ok")["ok"]:
+                for trade in _rows(conn, "SELECT price, quantity, buyer_account = %s AS bought, seller_account = %s AS sold FROM floor_trades"
+                                         " WHERE company_id = %s AND at >= %s AND at <= %s AND (buyer_account = %s OR seller_account = %s)",
+                                   (entry["account_id"], entry["account_id"], t["company_id"], start, until, entry["account_id"], entry["account_id"])):
+                    traded = True
+                    if trade["bought"]:
+                        result += trade["quantity"] * (prices[t["company_id"]] - trade["price"])
+                    if trade["sold"]:
+                        result += trade["quantity"] * (trade["price"] - prices[t["company_id"]])
         if entry["run_by_players"] and entry["prediction_bps"] is None:
             # The members' closest prediction counts for the empire; on a tie, the one sealed first.
             members = _rows(conn, "SELECT player_id, move_bps, at FROM live_event_predictions WHERE event_id = %s AND empire_id = %s",
@@ -549,6 +559,9 @@ def score(conn: Connection, event_id: int, now: datetime) -> dict:
             conn.execute("UPDATE live_event_entries SET result_kobo = %s, result_bps = %s, miss_bps = %s, points = %s"
                          " WHERE event_id = %s AND empire_id = %s",
                          (r["result_kobo"], r["result_bps"], r["miss_bps"], points, event_id, r["empire_id"]))
+        # The Floor (16 November 2026): its best banks and clients during the event earn their empires points too.
+        from simulation import floor
+        floor.live_scores(conn, event, now)
         end_price = event["start_price"] * (BPS + move) // BPS
         conn.execute("UPDATE live_events SET status = 'scored', scored_at = %s, end_price = %s WHERE id = %s", (now, end_price, event_id))
         top = _one(conn, "SELECT e.name, n.points FROM live_event_entries n JOIN empires e ON e.id = n.empire_id WHERE n.event_id = %s"
@@ -651,6 +664,10 @@ def _public(conn: Connection, event: dict, empire_id, now: datetime) -> dict:
         "touched": [{"ticker": t["ticker"], "name": t["name"], "direction": "up" if t["bps"] > 0 else "down" if t["bps"] < 0 else "bid"}
                     for t in event["touched"]],
         "table": table, "your_actions": actions, "your_members": members,
+        # The Floor's best banks and clients of the event: places and points only, never what they made.
+        "floor": _rows(conn, "SELECT p.display_name AS name, s.role, s.place, s.points FROM floor_scores s JOIN players p ON p.id = s.player_id"
+                             " WHERE s.window_key = %s ORDER BY s.role, s.place", (f"live:{event['id']}",))
+                 if not running and _one(conn, "SELECT to_regclass('floor_scores') IS NOT NULL AS ok")["ok"] else [],
     }
 
 

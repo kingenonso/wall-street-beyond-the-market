@@ -67,6 +67,11 @@ def screen(conn: Connection, account: UUID | str, now: datetime) -> dict:
         "positions": positions,
         "blotter": blotter,
         "fee_bps": data.EXCHANGE_FEE_BPS + data.STAMP_DUTY_BPS,
+        # Slice 4: the game's words on the Floor, the live event's figure for this account, and the floor hour.
+        "notes": notes(conn, now),
+        "event": event_pnl(conn, account, now) if _one(conn, "SELECT to_regclass('floor_trades') IS NOT NULL AS ok")["ok"] else None,
+        "floor_hour": {"starts_at": h[0], "ends_at": h[1]} if (h := floor_hour(now)) else None,
+        "hour_at": f"{data.FLOOR_HOUR}:00",
     }
 
 
@@ -335,6 +340,8 @@ def _computer_half(conn: Connection, request: dict, code: str, value: int) -> in
     size = min(value // 1_000_000_000 * data.FLOOR_SIZE_SPREAD_BPS, data.FLOOR_SIZE_SPREAD_MOST_BPS)
     jitter = round(_unit(_seed(conn), "floor-quote", request["id"], code) * 20) - 10
     half = max(desk["spread_bps"] // 2 + size + jitter, 5)
+    if request.get("client_player") and fishing(conn, request["client_player"])["fishing"]:
+        half *= data.FLOOR_FISHING_SPREAD                # a client who asks and never deals gets worse prices
     return max(half // 4, 3) if request["kind"] == "bond" else half      # bonds trade far tighter than shares
 
 
@@ -1063,9 +1070,11 @@ def _computer_calls(conn: Connection, now: datetime) -> int:
     if not listed:
         return 0
     account = ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
+    busy = _busy(conn, now)
     made = 0
     for d in open_desks:
-        if _unit(seed, "floor-call", slot, d["player_id"]) * data.FLOOR_CLIENT_CALL_CHANCE >= 1:
+        chance = data.FLOOR_CLIENT_CALL_CHANCE / (data.FLOOR_HOUR_CALL_FACTOR if busy else 1)
+        if _unit(seed, "floor-call", slot, d["player_id"]) * chance >= 1:
             continue
         if _one(conn, "SELECT 1 AS x FROM floor_requests r JOIN floor_request_desks k ON k.request_id = r.id"
                       " WHERE k.desk_player = %s AND r.client_player IS NULL AND r.status = 'open'", (d["player_id"],)):
@@ -1106,6 +1115,9 @@ def tick(conn: Connection, now: datetime) -> None:
                 conn.execute("UPDATE floor_requests SET status = 'expired', done_at = %s WHERE id = %s AND status = 'open'", (now, r["id"]))
                 conn.execute("UPDATE floor_quotes SET status = 'lost' WHERE request_id = %s AND status = 'live'", (r["id"],))
     conn.execute("UPDATE floor_tickets SET status = 'expired', done_at = %s WHERE status = 'open' AND valid_until <= %s", (now, now))
+    if _one(conn, "SELECT to_regclass('floor_notes') IS NOT NULL AS ok")["ok"]:
+        notes_tick(conn, now)
+        hour_tick(conn, now)
     if clock.market_state(now).value == "open":
         _computer_calls(conn, now)
 
@@ -1136,6 +1148,12 @@ def client_record(conn: Connection, account, client_name: str | None) -> dict:
             judged += 1
             right += (later["price"] > d["price"]) == bool(d["client_bought"])
     return {"deals": len(deals), "judged": judged, "right_bps": right * BPS // judged if judged else None}
+
+
+def _client_record(conn: Connection, r: dict) -> dict:
+    out = client_record(conn, r["client_account"], r["client_name"])
+    out.update(fishing(conn, r["client_player"]) if r["client_player"] else {"asked": 0, "dealt": 0, "fishing": False})
+    return out
 
 
 def scorecard(conn: Connection, account) -> dict:
@@ -1231,7 +1249,7 @@ def requests_view(conn: Connection, player_id, now: datetime) -> dict:
                 "legs": [{"ticker": leg["ticker"], "quantity": leg["quantity"], "mid": leg["mid"]} for leg in r["legs"]], "block": r["block"],
                 "client": client["display_name"] if client else (r["client_name"] or "A client"), "computer_client": r["client_player"] is None,
                 "for_empire": r["for_empire"] is not None,
-                "record": client_record(conn, r["client_account"], r["client_name"]),
+                "record": _client_record(conn, r),
                 "created_at": r["created_at"], "quotes_until": r["quotes_until"], "status": r["status"],
                 "your_quote": {k: own[k] for k in ("bid", "offer", "margin_bps", "firm", "valid_until", "status")} if own else None,
                 "asked_you": ask_me,
@@ -1267,3 +1285,245 @@ def requests_view(conn: Connection, player_id, now: datetime) -> dict:
         "blocks": blocks_reported(conn, now),
         "chat": chat_view(conn, player_id, now),
     }
+
+
+# ---------------------------------------------------------------------------
+# Slice 4: the Floor in live events, the floor hour, fishing, and the Floor's wrongs
+# ---------------------------------------------------------------------------
+
+def floor_hour(now: datetime) -> tuple[datetime, datetime] | None:
+    """The floor hour running at `now`, if one is: every trading day, an hour of busier client calls."""
+    lagos = clock.to_lagos(now)
+    starts = lagos.replace(hour=data.FLOOR_HOUR, minute=0, second=0, microsecond=0)
+    if starts <= lagos < starts + timedelta(hours=1) and clock.market_state(now).value == "open":
+        return starts, starts + timedelta(hours=1)
+    return None
+
+
+def _live_event(conn: Connection) -> dict | None:
+    if not _one(conn, "SELECT to_regclass('live_events') IS NOT NULL AS ok")["ok"]:
+        return None
+    return _one(conn, "SELECT * FROM live_events WHERE status = 'open' ORDER BY starts_at DESC LIMIT 1")
+
+
+def _busy(conn: Connection, now: datetime) -> bool:
+    event = _live_event(conn)
+    return floor_hour(now) is not None or bool(event and event["starts_at"] <= now < event["ends_at"])
+
+
+def _note(conn: Connection, key: str, kind: str, words: str, now: datetime, ticker: str | None = None) -> None:
+    conn.execute("INSERT INTO floor_notes (key, at, kind, words, ticker) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (key) DO NOTHING",
+                 (key, now, kind, words[:300], ticker))
+
+
+def notes_tick(conn: Connection, now: datetime) -> None:
+    """The game's words on the Floor during a live event (at the bell, halfway, five minutes before the end, and when the
+    featured share has moved) and at the floor hour's start and end."""
+    if not _one(conn, "SELECT to_regclass('floor_notes') IS NOT NULL AS ok")["ok"]:
+        return
+    event = _live_event(conn)
+    if event and event["starts_at"] <= now < event["ends_at"]:
+        e = event["id"]
+        minutes = (now - event["starts_at"]).total_seconds() / 60
+        featured = _one(conn, "SELECT ticker FROM companies WHERE id = %s", (event["featured_company_id"],))["ticker"]
+        _note(conn, f"live:{e}:bell", "nudge", f"Live: {event['headline']} Banks: make sure you give fast and competitive prices to your "
+              "clients. Asset managers: make sure you get your cash working.", now, featured)
+        if minutes >= 15:
+            _note(conn, f"live:{e}:half", "nudge", "We are now halfway through the live event: fifteen minutes left.", now)
+        if minutes >= 25:
+            _note(conn, f"live:{e}:last", "nudge", "Five minutes left in the live event. Deals done after the end do not count.", now)
+        price = _share(conn, featured, now)
+        last = price["last_price"] or price["reference_price"]
+        move = (last - event["start_price"]) * BPS // event["start_price"]
+        for step in (200, 400, 600):                 # each 2% the featured share moves from the bell is called out once
+            if abs(move) >= step:
+                _note(conn, f"live:{e}:move:{'up' if move > 0 else 'down'}:{step}", "drop",
+                      f"{featured} is {'up' if move > 0 else 'down'} {abs(move) / 100:.1f}% since the bell.", now, featured)
+    hour = floor_hour(now)
+    if hour:
+        day = hour[0].date().isoformat()
+        _note(conn, f"hour:{day}:start", "hour", "The floor hour has begun: the clients call twice as often until 19:00. "
+              "The best banks and the best-dealing clients of the hour are named at the end.", now)
+
+
+def _window_scores(conn: Connection, since: datetime, until: datetime, *, companies: list | None = None) -> dict:
+    """In a window of time: what each player's desk earned from the gap in its prices (against the market's middle when
+    asked), and what each client saved against the exchange (with its fee)."""
+    fee = data.EXCHANGE_FEE_BPS + data.STAMP_DUTY_BPS
+    banks: dict = {}
+    clients: dict = {}
+    for t in _rows(conn, "SELECT t.*, r.exchange_bid, r.exchange_offer, r.client_player FROM floor_trades t JOIN floor_requests r ON r.id = t.request_id"
+                         " WHERE t.at >= %s AND t.at < %s AND t.company_id IS NOT NULL" + (" AND t.company_id = ANY(%s)" if companies else ""),
+                   (since, until, companies) if companies else (since, until)):
+        mid = (t["exchange_bid"] + t["exchange_offer"]) // 2 if t["exchange_bid"] and t["exchange_offer"] else None
+        desk = _desk_player(t["desk"])
+        if desk and mid:
+            edge = (t["price"] - mid) if t["client_bought"] else (mid - t["price"])
+            banks[desk] = banks.get(desk, 0) + edge * t["quantity"]
+        if t["client_player"]:
+            if t["client_bought"] and t["exchange_offer"]:
+                saved = t["exchange_offer"] * (BPS + fee) // BPS - t["price"]
+            elif not t["client_bought"] and t["exchange_bid"]:
+                saved = t["price"] - t["exchange_bid"] * (BPS - fee) // BPS
+            else:
+                continue
+            key = str(t["client_player"])
+            clients[key] = clients.get(key, 0) + saved * t["quantity"]
+    return {"bank": banks, "client": clients}
+
+
+def _rank(conn: Connection, key: str, scores: dict, now: datetime, award=None) -> list[dict]:
+    out = []
+    for role, table in scores.items():
+        best = sorted(((p, a) for p, a in table.items() if a > 0), key=lambda pa: -pa[1])[:len(data.FLOOR_PLACES)]
+        for place, (player, amount) in enumerate(best, 1):
+            points = award(player, role, place) if award else 0
+            conn.execute("INSERT INTO floor_scores (window_key, player_id, role, amount, place, points, at) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+                         " ON CONFLICT DO NOTHING", (key, player, role, amount, place, points, now))
+            out.append({"player": player, "role": role, "place": place, "points": points})
+    return out
+
+
+def live_scores(conn: Connection, event: dict, now: datetime) -> list[dict]:
+    """When a live event is scored: the best three banks and clients on the Floor during it, in the shares it touched,
+    earn their empires league points (5, 3, 1)."""
+    from simulation import careers, empires, leagues
+    if not _one(conn, "SELECT to_regclass('floor_scores') IS NOT NULL AS ok")["ok"]:
+        return []
+    touched = [t["company_id"] for t in event["touched"]]
+    scores = _window_scores(conn, event["starts_at"], event["ends_at"], companies=touched)
+    period = careers.world_now(conn, now)["period"]
+
+    def award(player, role, place):
+        seat = empires.seat_of(conn, player)
+        if not seat or seat["empire_status"] != "active" or seat["empire_kind"] != "player":
+            return 0
+        points = data.FLOOR_PLACES[place - 1]
+        leagues.award(conn, seat["empire_id"], points, f"Live event on the Floor: one of the best {'banks' if role == 'bank' else 'clients'}",
+                      period, now, reference=f"live:{event['id']}:floor_{role}:{place}")
+        return points
+    ranked = _rank(conn, f"live:{event['id']}", scores, now, award)
+    if ranked:
+        _note(conn, f"live:{event['id']}:floor", "nudge", "The live event is over. The Floor's best: " + "; ".join(
+            f"{_one(conn, 'SELECT display_name FROM players WHERE id = %s', (r['player'],))['display_name']} ({'bank' if r['role'] == 'bank' else 'client'}, {r['place']})"
+            for r in ranked) + ".", now)
+    return ranked
+
+
+def hour_tick(conn: Connection, now: datetime) -> None:
+    """After each floor hour: its best three banks and clients are named on the Floor."""
+    lagos = clock.to_lagos(now)
+    starts = lagos.replace(hour=data.FLOOR_HOUR, minute=0, second=0, microsecond=0)
+    ends = starts + timedelta(hours=1)
+    if not ends <= lagos < ends + timedelta(hours=3):
+        return
+    key = f"hour:{starts.date().isoformat()}"
+    if _one(conn, "SELECT 1 AS x FROM floor_notes WHERE key = %s", (f"{key}:end",)):
+        return
+    ranked = _rank(conn, key, _window_scores(conn, starts, ends), now)
+    names = {str(r["player"]): _one(conn, "SELECT display_name FROM players WHERE id = %s", (r["player"],))["display_name"] for r in ranked}
+    _note(conn, f"{key}:end", "hour", "The floor hour is over. " + ("Best: " + "; ".join(
+        f"{names[str(r['player'])]} ({'bank' if r['role'] == 'bank' else 'client'}, {r['place']})" for r in ranked) + "."
+        if ranked else "No deals were scored."), now)
+
+
+def fishing(conn: Connection, client_player) -> dict:
+    """A client's last ten requests: how many were dealt. One who asks and asks and never deals is fishing for prices."""
+    rows = _rows(conn, "SELECT status FROM floor_requests WHERE client_player = %s AND status <> 'open' ORDER BY id DESC LIMIT 10", (client_player,))
+    dealt = sum(1 for r in rows if r["status"] == "done")
+    return {"asked": len(rows), "dealt": dealt, "fishing": len(rows) >= data.FLOOR_FISHING_ASKS and dealt == 0}
+
+
+def notes(conn: Connection, now: datetime, limit: int = 12) -> list[dict]:
+    if not _one(conn, "SELECT to_regclass('floor_notes') IS NOT NULL AS ok")["ok"]:
+        return []
+    return _rows(conn, "SELECT at, kind, words, ticker FROM floor_notes WHERE at > %s AND at <= %s ORDER BY at DESC, id DESC LIMIT %s",
+                 (now - timedelta(hours=6), now, limit))
+
+
+def event_pnl(conn: Connection, account, now: datetime) -> dict | None:
+    """During a live event: what the shares it touched have done to the account since the bell (on what it holds now)."""
+    from simulation import ledger
+    event = _live_event(conn)
+    if not event or not event["starts_at"] <= now < event["ends_at"]:
+        return None
+    total = 0
+    for t in event["touched"]:
+        asset = _one(conn, "SELECT share_asset, ticker FROM companies WHERE id = %s", (t["company_id"],))
+        held = ledger.balance(conn, account, asset["share_asset"])
+        if held:
+            share = _share(conn, asset["ticker"], now)
+            total += held * ((share["last_price"] or share["reference_price"]) - t["price"])
+    return {"name": event["headline"], "pnl": total, "ends_at": event["ends_at"]}
+
+
+# ---------------------------------------------------------------------------
+# The Floor's wrongs, for the tribunal
+# ---------------------------------------------------------------------------
+
+def wrongs(conn: Connection, since: datetime, now: datetime) -> list[dict]:
+    """Wrongs a banker can do on the Floor, found in the books:
+      * trading ahead: while a client's request was open to their desk, the banker traded the share on the exchange on the
+        client's side, then dealt with the client;
+      * passing on an order: while a client's request was open to their desk, the banker wrote the share's code in the
+        Floor chat to somebody else, who then traded it on the client's side;
+      * agreeing prices: two banks that both priced the same request wrote to each other while it was open."""
+    from simulation import ledger
+    if not _one(conn, "SELECT to_regclass('floor_requests') IS NOT NULL AS ok")["ok"]:
+        return []
+    out = []
+    for r in _rows(conn, "SELECT r.*, c.ticker, k.desk_player FROM floor_requests r JOIN floor_request_desks k ON k.request_id = r.id"
+                         " JOIN companies c ON c.id = r.company_id WHERE k.desk_player IS NOT NULL AND r.kind = 'share' AND r.created_at >= %s"
+                         " AND r.side <> 'two_way' ORDER BY r.id", (since,)):
+        closes = r["done_at"] or r["quotes_until"]
+        desk_account = ledger.player_account_id(conn, r["desk_player"])
+        client_buys = r["side"] == "buy"
+        deal = _one(conn, "SELECT price, quantity FROM floor_trades WHERE request_id = %s AND desk = %s LIMIT 1", (r["id"], f"player:{r['desk_player']}"))
+        ahead = _rows(conn, "SELECT price, quantity, traded_at FROM market_trades WHERE company_id = %s AND traded_at >= %s AND traded_at <= %s"
+                            " AND " + ("buyer_account_id" if client_buys else "seller_account_id") + " = %s",
+                      (r["company_id"], r["created_at"], closes, desk_account))
+        if deal and ahead:
+            shares = min(sum(a["quantity"] for a in ahead), deal["quantity"])
+            average = sum(a["price"] * a["quantity"] for a in ahead) // max(sum(a["quantity"] for a in ahead), 1)
+            gain = shares * ((deal["price"] - average) if client_buys else (average - deal["price"]))
+            if gain > 0:
+                out.append({"kind": "front_running", "key": f"front_running:{r['id']}", "defendant_id": r["desk_player"],
+                            "victim_account": r["client_account"], "company_id": r["company_id"], "ticker": r["ticker"], "amount": gain,
+                            "lines": [{"what": f"Traded {shares:,} {r['ticker']} on the exchange at about {_money(average)} while a client's request was open",
+                                       "side": "bought" if client_buys else "sold"},
+                                      {"what": f"Then dealt them to the client at {_money(deal['price'])}"}],
+                            "words": f"Traded {r['ticker']} ahead of a client's request on the Floor, and dealt with the client at a worse price."})
+        for line in _rows(conn, "SELECT f.to_player, f.at, f.body FROM floor_chat f WHERE f.from_player = %s AND f.at >= %s AND f.at <= %s",
+                          (r["desk_player"], r["created_at"], closes)):
+            if str(line["to_player"]) == str(r["client_player"]) or r["ticker"].lower() not in line["body"].lower():
+                continue
+            other = ledger.player_account_id(conn, line["to_player"])
+            used = _rows(conn, "SELECT price, quantity FROM market_trades WHERE company_id = %s AND traded_at >= %s AND traded_at <= %s"
+                               " AND " + ("buyer_account_id" if client_buys else "seller_account_id") + " = %s",
+                         (r["company_id"], line["at"], closes + timedelta(minutes=30), other))
+            if used:
+                value = sum(u["price"] * u["quantity"] for u in used)
+                out.append({"kind": "order_leak", "key": f"order_leak:{r['id']}:{line['to_player']}", "defendant_id": r["desk_player"],
+                            "victim_account": r["client_account"], "company_id": r["company_id"], "ticker": r["ticker"],
+                            "amount": value * data.FLOOR_LEAK_BPS // BPS,
+                            "lines": [{"what": f"Wrote about {r['ticker']} to another player while a client's request in it was open"},
+                                      {"what": f"That player then traded {_money(value)} of it on the client's side"}],
+                            "words": f"Passed a client's order in {r['ticker']} on the Floor to another player, who traded on it."})
+    for pair in _rows(conn, "SELECT r.id, r.company_id, c.ticker, r.quantity, r.exchange_bid, r.exchange_offer, r.created_at,"
+                            " coalesce(r.done_at, r.quotes_until) AS closes, a.desk_player AS a, b.desk_player AS b"
+                            " FROM floor_requests r JOIN companies c ON c.id = r.company_id"
+                            " JOIN floor_request_desks a ON a.request_id = r.id AND a.desk_player IS NOT NULL"
+                            " JOIN floor_request_desks b ON b.request_id = r.id AND b.desk_player IS NOT NULL AND b.desk_player > a.desk_player"
+                            " WHERE r.created_at >= %s AND r.kind = 'share'", (since,)):
+        quoted = _one(conn, "SELECT count(DISTINCT desk)::int AS n FROM floor_quotes WHERE request_id = %s AND desk IN (%s, %s)",
+                      (pair["id"], f"player:{pair['a']}", f"player:{pair['b']}"))["n"]
+        talked = _one(conn, "SELECT 1 AS x FROM floor_chat WHERE ((from_player = %s AND to_player = %s) OR (from_player = %s AND to_player = %s))"
+                            " AND at >= %s AND at <= %s LIMIT 1", (pair["a"], pair["b"], pair["b"], pair["a"], pair["created_at"], pair["closes"]))
+        if quoted == 2 and talked:
+            mid = ((pair["exchange_bid"] or 0) + (pair["exchange_offer"] or 0)) // 2 or 1
+            for who in (pair["a"], pair["b"]):
+                out.append({"kind": "collusion", "key": f"collusion:{pair['id']}:{who}", "defendant_id": who, "victim_account": None,
+                            "company_id": pair["company_id"], "ticker": pair["ticker"], "amount": mid * pair["quantity"] * data.FLOOR_COLLUSION_BPS // BPS,
+                            "lines": [{"what": f"Both banks priced the same request in {pair['ticker']}, and wrote to each other while it was open"}],
+                            "words": f"Agreed prices with another bank on a client's request in {pair['ticker']} on the Floor."})
+    return out

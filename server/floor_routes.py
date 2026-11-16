@@ -22,7 +22,7 @@ from simulation import exchange, floor
 
 MONEY = {"realised", "unrealised", "total", "dividends", "fees", "exposure", "cash", "held_for_orders", "value", "price",
          "average_price", "gain", "reference_price", "last_price", "lowest_today", "highest_today", "best_bid", "best_offer",
-         "start_price", "minimum", "fair", "your_limit", "bid", "offer", "last", "low", "high", "cost", "reference", "mid", "cover", "done_at_price"}
+         "start_price", "minimum", "fair", "your_limit", "pnl", "bid", "offer", "last", "low", "high", "cost", "reference", "mid", "cover", "done_at_price"}
 
 
 def _wire(value, key: str | None = None):
