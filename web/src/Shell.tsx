@@ -315,7 +315,7 @@ function NewsToasts({ player, onPlayer }: { player: Player; onPlayer?: (player: 
 
 export type Section = { path: string; label: string; count?: number; countWords?: string; tabs?: { path: string; label: string }[] };
 
-/** The sections of the player's screen: seven, each a group of pages shown as tabs along the top of the page (owner, 29
+/** The sections of the player's screen: eight, each a group of pages shown as tabs along the top of the page (owner, 29
  * October 2026: the sidebar stays short; a new feature goes inside a section, under the picture's menu, or pops up). */
 export function sectionsFor(player: Player): Section[] {
   return [
@@ -328,11 +328,12 @@ export function sectionsFor(player: Player): Section[] {
              ...(player.build === "investment_banker" ? [{ path: "legal", label: "Legal desk" }] : []),
              ...(player.build_name ? [{ path: "newsroom", label: "Newsroom" }] : []),
              { path: "work", label: "Work in hand" },
-             // Competition (part 1, 14 November 2026): ranked forecasts and contested mandates.
-             { path: "competition", label: "Competition" },
-             // Live events (part 1, 16 November 2026): three evenings a week, every empire at once.
-             { path: "live", label: "Live events" },
              { path: "career", label: "Career and levels" }] },
+    // The Floor (owner, 16 November 2026: "the floor should be where alot happen multiplayer"): the multiplayer home,
+    // the one section the owner allowed beyond the rule that the sidebar stays short. Live events and Competition moved
+    // here from Work.
+    { path: "floor", label: "The Floor", tabs: [{ path: "floor", label: "Trading floor" }, { path: "live", label: "Live events" },
+                                                { path: "competition", label: "Competition" }, { path: "auctions", label: "Auction House" }] },
     // One section for the empire: its overview, desks, requests, deals, companies and War Room are tabs inside it.
     { path: "empire", label: player.empire ? "Empire" : "Empires", ...(player.empire && !player.empire.forming ? { count: player.empire.waiting, countWords: "waiting" } : {}) },
     // Commodities (Stage 12) is a tab under Markets: buying, storing and selling goods is trading (owner, 14 November 2026).
@@ -391,6 +392,7 @@ const BAR_ICONS: Record<string, ReactNode> = {
   "": <path d="M3 11l9-7 9 7v9H3z" />,
   market: <path d="M3 17l6-6 4 4 8-8" />,
   work: <><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M8 9h8M8 13h8M8 17h5" /></>,
+  floor: <><path d="M3 20h18" /><path d="M6 20v-7M10 20V9M14 20v-5M18 20V5" /></>,
   empire: <><path d="M4 21V9l8-5 8 5v12" /><path d="M9 21v-6h6v6" /></>,
   more: <><circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /></>,
 };
@@ -399,9 +401,10 @@ const BAR_ICONS: Record<string, ReactNode> = {
 function BottomBar({ player, current }: { player: Player; current: string }) {
   const all = sectionsFor(player);
   const pick = (path: string) => all.find((s) => s.path === path)!;
-  const items = [pick(""), pick("market"), pick("work"), pick("empire")].map((s) => ({ ...s, label: s.path === "" ? "Desk" : s.label }));
+  const items = [pick(""), pick("floor"), pick("market"), pick("work"), pick("empire")]
+    .map((s) => ({ ...s, label: s.path === "" ? "Desk" : s.path === "floor" ? "Floor" : s.label }));
   const here = sectionOf(player, current)?.path ?? current;
-  const inMore = !["", "market", "work", "empire"].includes(here);
+  const inMore = !["", "floor", "market", "work", "empire"].includes(here);
   return (
     <nav className="bottom-bar" aria-label="Sections">
       {items.map((s) => (

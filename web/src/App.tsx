@@ -5,6 +5,7 @@ import { AccountantRail, AccountantWork, AssetManagerRail, AssetManagerWork, Bui
 import { CareerRail, CareerWork } from "./Career";
 import { CompetitionWork } from "./Competition";
 import { LiveWork } from "./Live";
+import { AuctionHouseWork, FloorWork } from "./Floor";
 import { GovernmentRail, GovernmentWork } from "./Government";
 import { CompaniesRail, CompaniesWork } from "./Companies";
 import { CompanyRail, CompanyWork } from "./Company";
@@ -209,6 +210,16 @@ export function App() {
     current = "rank";
     work = <RankWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <RankRail player={player} onLoggedOut={loggedOut} />;
+  } else if (section === "floor") {
+    current = "floor";
+    work = <FloorWork player={player} onLoggedOut={loggedOut} />;
+    rail = <></>;
+    wide = true;
+  } else if (section === "auctions") {
+    current = "auctions";
+    work = <AuctionHouseWork player={player} onLoggedOut={loggedOut} />;
+    rail = <></>;
+    wide = true;
   } else if (section === "live") {
     current = "live";
     work = <LiveWork player={player} onLoggedOut={loggedOut} />;

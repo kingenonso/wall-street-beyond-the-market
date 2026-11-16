@@ -1125,6 +1125,26 @@ export type LivePage = {
   chat?: { id: number; who: string; body: string; at: string; yours: boolean }[];
 };
 
+/** The Floor (16 November 2026): the trading floor screen, all of the player's own trading account. */
+export type FloorPage = {
+  now: string; market_state: MarketState; fee_bps: number;
+  bar: { realised: Kobo; unrealised: Kobo; total: Kobo; dividends: Kobo; fees: Kobo; exposure: Kobo; cash: Kobo; held_for_orders: Kobo; value: Kobo };
+  positions: { ticker: string; name: string; shares: number; price: Kobo; change_bps: number; average_price: Kobo; value: Kobo; gain: Kobo }[];
+  blotter: { id: number; traded_at: string; ticker: string; side: "buy" | "sell" | "both"; price: Kobo; quantity: number; fee: Kobo; value: Kobo }[];
+};
+export type FloorChart = {
+  ticker: string; name: string; minutes: number; state: MarketState; session_date: string; today: boolean;
+  reference_price: Kobo; last_price: Kobo | null; lowest_today: Kobo; highest_today: Kobo; best_bid: Kobo | null; best_offer: Kobo | null;
+  points: { at: string; price: Kobo; volume: number }[];
+};
+export type AuctionLot = {
+  id: number; kind: "property" | "title" | "bank"; kind_name: string; lot: string; where: string; reason: string;
+  status: "open" | "sold" | "unsold" | "cancelled"; opens_at: string; ends_at: string;
+  start_price: Kobo; price: Kobo | null; minimum: Kobo; fair: Kobo | null; lowest_price_met: boolean; bidders: number;
+  you_lead: boolean; your_limit: Kobo | null; your_status: string | null;
+};
+export type AuctionHouse = { now: string; auctions: AuctionLot[] };
+
 export type CompetitionPage = {
   ready: boolean; quarter: string; day: number; level: number; protected: boolean; protected_level: number;
   contest_last_day: number; pitch_last_day: number; fee_least_bps: number; fee_most_bps: number;
@@ -1489,6 +1509,9 @@ export const api = {
   /** The empire's War Room chat (the same chat as on the Empire page). */
   empireSay: (body: string) => request<unknown>("/empire/messages", { method: "POST", body: JSON.stringify({ body }) }),
   // Competition, under Work.
+  floor: () => request<FloorPage>("/floor"),
+  floorChart: (ticker: string, minutes: number) => request<FloorChart>(`/floor/chart/${encodeURIComponent(ticker)}?minutes=${minutes}`),
+  auctionHouse: () => request<AuctionHouse>("/floor/auctions"),
   competition: () => request<CompetitionPage>("/competition"),
   competitionPitch: (body: { mandate_id: number; fee_bps: number; take_up_bps: number }) =>
     request<CompetitionPage>("/competition/pitch", { method: "POST", body: JSON.stringify(body) }),

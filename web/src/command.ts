@@ -16,6 +16,8 @@ export const PAGES: Record<string, { href: string; name: string }> = {
   EMPIRE: { href: "#/empire", name: "your empire" },
   RIVALS: { href: "#/competition", name: "the competition: every empire's points" },
   LIVE: { href: "#/live", name: "the live event: the next bell, or the one running now" },
+  FLOOR: { href: "#/floor", name: "the trading floor: the market, news, positions and every trade on one screen" },
+  AUCTION: { href: "#/auctions", name: "the Auction House: every auction running" },
   RANK: { href: "#/rank", name: "the rankings" },
   WORK: { href: "#/work", name: "the work board" },
   INTEL: { href: "#/intel", name: "intelligence and sources" },
@@ -26,7 +28,7 @@ export const PAGES: Record<string, { href: string; name: string }> = {
 };
 const PAGE_WORDS: Record<string, string> = {
   GOVERNMENT: "GOV", ECONOMY: "ECO", PORTFOLIO: "PF", COMPETITION: "RIVALS", LEAGUE: "RIVALS", CURRENCIES: "FX",
-  COURTS: "COURT", TASKS: "WORK",
+  COURTS: "COURT", TASKS: "WORK", AUCTIONS: "AUCTION",
 };
 
 export type Command =
