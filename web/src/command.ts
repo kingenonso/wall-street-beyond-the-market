@@ -17,6 +17,7 @@ export const PAGES: Record<string, { href: string; name: string }> = {
   RIVALS: { href: "#/competition", name: "the competition: every empire's points" },
   LIVE: { href: "#/live", name: "the live event: the next bell, or the one running now" },
   DUEL: { href: "#/duels", name: "duels: your empire against another in a live event" },
+  ODDS: { href: "#/predictions", name: "prediction markets: bet YES or NO on what the game will decide" },
   FLOOR: { href: "#/floor", name: "the trading floor: the market, news, positions and every trade on one screen" },
   AUCTION: { href: "#/auctions", name: "the Auction House: every auction running" },
   RANK: { href: "#/rank", name: "the rankings" },

@@ -1997,3 +1997,20 @@ span.floor-tag { cursor: default; }
 .floor-swap-alarm { border-color: var(--down); background: color-mix(in srgb, var(--down) 12%, var(--raised)); }
 .floor-pop-alarm { border-color: var(--down); }
 .floor-pop-alarm .floor-pop-tag { color: var(--down); }
+
+/* Prediction markets. */
+.pm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.pm-card { border: 1px solid var(--border-strong); border-radius: 12px; background: var(--panel); padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.pm-done { opacity: 0.85; }
+.pm-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.pm-question { font-size: 16px; margin: 0; }
+.pm-chance { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pm-bar { flex: 1 1 120px; height: 10px; border-radius: 999px; background: color-mix(in srgb, var(--down) 35%, var(--raised)); overflow: hidden; }
+.pm-bar span { display: block; height: 100%; background: var(--up); }
+.pm-spark { width: 120px; height: 28px; }
+.pm-spark path { fill: none; stroke: var(--gold); stroke-width: 2; }
+.pm-trade { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pm-trade input { width: 90px; }
+.pm-trade button { width: auto; }
+.pm-yes { background: color-mix(in srgb, var(--up) 22%, var(--raised)); border: 1px solid var(--up); color: var(--text); font-weight: 700; border-radius: 8px; padding: 4px 10px; }
+.pm-no { background: color-mix(in srgb, var(--down) 22%, var(--raised)); border: 1px solid var(--down); color: var(--text); font-weight: 700; border-radius: 8px; padding: 4px 10px; }

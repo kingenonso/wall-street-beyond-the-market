@@ -69,3 +69,24 @@ Where: migration `060_floor_prime.sql`; `simulation/prime.py`; settings `FLOOR_F
 
 **Honest limits:** the computer banks are not in the fund's swaps (only players' desks); and the fall is set by the
 game's rule, on top of whatever the banks' own selling does to the price, rather than coming only from that selling.
+
+## Prediction markets (The Floor → Predictions)
+
+Players bet Yes or No on things the game itself decides. A winning share pays ₦100; a losing one pays nothing.
+The price of Yes is the crowd's chance that it happens: if Yes costs ₦70, the crowd says 70%.
+
+**The questions** (opened by the tick, one per subject):
+- Will the Central Bank raise the policy rate at this quarter's close?
+- Will each of the six largest companies make a bigger profit this quarter than last?
+- Will the next live event be a bank run?
+- In a live event, will the featured share end lower than it started? (Open while players can still predict.)
+
+**The price.** The computer makes the market by a fixed rule (the logarithmic market scoring rule, depth 2,000 shares),
+so there is always a price, and every purchase moves it. Money goes between the player and the public-investors account,
+which acts as the house. Buyers' costs round up and sellers' proceeds round down, so the house never pays for rounding.
+
+**Answers** come only from the game's own books: the economy's results, the companies' results and the live events' end
+prices. Nobody can rig them. A question that cannot be answered (an event that never came) is void and stakes are handed back.
+
+**Limits.** One player may have at most ₦5,000,000 in one question. The Government Leader may not bet on the rate,
+because they can set it by decree. Sell back any time before the close at the price then.

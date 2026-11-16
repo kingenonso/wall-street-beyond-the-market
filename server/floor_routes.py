@@ -18,11 +18,11 @@ from server import limits
 from server.db import get_connection
 from server.main import _exchange_time, _trading_account, app, current_player
 from server.schemas import Request
-from simulation import duels, exchange, floor, prime
+from simulation import duels, exchange, floor, predictions, prime
 
 MONEY = {"realised", "unrealised", "total", "dividends", "fees", "exposure", "cash", "held_for_orders", "value", "price",
          "average_price", "gain", "reference_price", "last_price", "lowest_today", "highest_today", "best_bid", "best_offer",
-         "start_price", "minimum", "fair", "your_limit", "pnl", "benchmark", "average_paid", "commission", "price_now", "margin", "interest", "offer_value", "bid", "offer", "last", "low", "high", "cost", "reference", "mid", "cover", "done_at_price"}
+         "start_price", "minimum", "fair", "your_limit", "pnl", "cost_10_yes", "cost_10_no", "worth_now", "paid", "paid_out", "payout", "most_stake", "amount", "benchmark", "average_paid", "commission", "price_now", "margin", "interest", "offer_value", "bid", "offer", "last", "low", "high", "cost", "reference", "mid", "cover", "done_at_price"}
 
 
 def _wire(value, key: str | None = None):
@@ -330,3 +330,31 @@ class SwapAnswer(Request):
 @app.post("/api/floor/swap")
 def answer_a_swap(body: SwapAnswer, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     return _act(conn, player, lambda now: prime.answer(conn, player["id"], body.swap_id, body.accept, now), "floor-desk", 20)
+
+
+
+# ---------------------------------------------------------------------------
+# Prediction markets (16 November 2026)
+# ---------------------------------------------------------------------------
+
+class PredictionTrade(Request):
+    market_id: int = ID
+    side: str = Field(pattern="^(yes|no)$")
+    shares: int = Field(ge=-1_000_000, le=1_000_000, strict=True)
+
+
+@app.get("/api/predictions")
+def the_prediction_markets(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _wire(predictions.view(conn, player["id"], _exchange_time(conn)))
+
+
+@app.post("/api/predictions/trade")
+def bet_on_a_question(body: PredictionTrade, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    limits.allow("predictions", str(player["id"]), attempts=40, per_seconds=60)
+    try:
+        done = predictions.trade(conn, player["id"], body.market_id, body.side, body.shares, _exchange_time(conn))
+    except predictions.PredictionError as refused:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
+    page = predictions.view(conn, player["id"], _exchange_time(conn))
+    page["result"] = done
+    return _wire(page)

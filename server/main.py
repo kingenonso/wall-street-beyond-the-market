@@ -111,6 +111,13 @@ def _close_due_quarters_once() -> None:
                     floor.tick(conn, now)
                 except Exception:                   # a fault here must never hold up the market
                     log.exception("The Floor's computer clients failed; they will be tried again.")
+            # Prediction markets (16 November 2026): questions made, betting closed, answers paid.
+            if conn.execute("SELECT to_regclass('prediction_markets') IS NOT NULL").fetchone()[0]:
+                from simulation import predictions
+                try:
+                    predictions.tick(conn, now)
+                except Exception:
+                    log.exception("The prediction markets failed; they will be tried again.")
             # The computer-run investors look at the market and renew their orders.
             investors.act(conn, now, force=rang)
             # After 22:00 the Closing Bell goes out, once for each trading day.

@@ -1919,3 +1919,10 @@ FLOOR_SWAP_ANSWER_MINUTES = 10
 FLOOR_BLOWUP_FALLS_BPS = (1200, 2000)  # the two falls after a blow-up, ten minutes apart...
 FLOOR_BLOWUP_GAP_MINUTES = 10
 FLOOR_BLOWUP_RECOVERY_BPS = 500        # ...and the bounce once the dust settles, twenty minutes after the second
+# Prediction markets (owner, 16 November 2026: "build").
+PREDICT_PAYOUT = 10_000                # a winning share pays ₦100 (in kobo)
+PREDICT_DEPTH = 2_000                  # the market maker's depth, in shares (the most it can lose is depth × ln 2 × ₦100)
+PREDICT_MOST_STAKE_NAIRA = 5_000_000   # what one player may have in one question
+PREDICT_MOST_SHARES = 50_000           # shares bought or sold at once
+PREDICT_PROFIT_COMPANIES = 6           # each quarter, the largest companies get a "beat last quarter's profit?" question
+PREDICT_LIVE_FALL_BPS = 300            # "will the featured share fall more than 3%?"

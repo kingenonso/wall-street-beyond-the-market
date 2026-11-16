@@ -397,6 +397,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/pension-fund/costs"),
         ("POST", "/api/pension-fund/orders"),
         ("POST", "/api/pension-funds"),
+        ("POST", "/api/predictions/trade"),
         ("POST", "/api/press/crises/{crisis_id}"),
         ("POST", "/api/press/fact-check"),
         ("POST", "/api/press/leaks/{leak_id}/hunt"),

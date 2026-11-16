@@ -7,6 +7,7 @@ import { CompetitionWork } from "./Competition";
 import { LiveWork } from "./Live";
 import { AuctionHouseWork, FloorWork } from "./Floor";
 import { DuelsWork } from "./Duels";
+import { PredictionsWork } from "./Predictions";
 import { GovernmentRail, GovernmentWork } from "./Government";
 import { CompaniesRail, CompaniesWork } from "./Companies";
 import { CompanyRail, CompanyWork } from "./Company";
@@ -219,6 +220,10 @@ export function App() {
   } else if (section === "duels") {
     current = "duels";
     work = <DuelsWork player={player} onLoggedOut={loggedOut} />;
+    rail = <CareerRail player={player} onLoggedOut={loggedOut} />;
+  } else if (section === "predictions") {
+    current = "predictions";
+    work = <PredictionsWork player={player} onLoggedOut={loggedOut} />;
     rail = <CareerRail player={player} onLoggedOut={loggedOut} />;
   } else if (section === "auctions") {
     current = "auctions";

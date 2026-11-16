@@ -1218,6 +1218,15 @@ export type DuelsPage = {
   rivals?: { id: number; name: string; computer: boolean; free: boolean; declines: number }[]; shown_declines?: number;
 };
 
+/** Prediction markets (16 November 2026). */
+export type PredictionMarket = {
+  id: number; kind: "rate_rise" | "profit_beat" | "live_kind" | "live_fall"; area: string; question: string; details: string;
+  status: "open" | "closed" | "resolved" | "void"; closes_at: string | null; outcome: boolean | null; chance_bps: number; history: number[];
+  volume: number; cost_10_yes: Kobo | null; cost_10_no: Kobo | null; barred: boolean;
+  yours: { yes: number; no: number; paid: Kobo; paid_out: Kobo; worth_now: Kobo | null } | null;
+};
+export type PredictionsPage = { ready: boolean; now?: string; markets?: PredictionMarket[]; payout?: number; most_stake?: Kobo; most_shares?: number };
+
 export type CompetitionPage = {
   ready: boolean; quarter: string; day: number; level: number; protected: boolean; protected_level: number;
   contest_last_day: number; pitch_last_day: number; fee_least_bps: number; fee_most_bps: number;
@@ -1585,6 +1594,9 @@ export const api = {
   floor: () => request<FloorPage>("/floor"),
   floorChart: (ticker: string, minutes: number) => request<FloorChart>(`/floor/chart/${encodeURIComponent(ticker)}?minutes=${minutes}`),
   auctionHouse: () => request<AuctionHouse>("/floor/auctions"),
+  predictions: () => request<PredictionsPage>("/predictions"),
+  predictionTrade: (market_id: number, side: "yes" | "no", shares: number) =>
+    request<PredictionsPage>("/predictions/trade", { method: "POST", body: JSON.stringify({ market_id, side, shares }) }),
   duels: () => request<DuelsPage>("/floor/duels"),
   duelChallenge: (empire_id: number) => request<DuelsPage>("/floor/duels/challenge", { method: "POST", body: JSON.stringify({ empire_id }) }),
   duelAnswer: (duel_id: number, accept: boolean) => request<DuelsPage>("/floor/duels/answer", { method: "POST", body: JSON.stringify({ duel_id, accept }) }),
