@@ -1103,7 +1103,8 @@ export type CompetitionScore = { empire: string; total: number; mandate: number;
 // are never sent while an event runs: only whether an empire has predicted, and its result against its worth at the bell.
 export type LiveRow = {
   empire: string; yours: boolean; run_by: string; result_bps: number; result_kobo: string | null;
-  predicted: boolean; prediction_bps: number | null; miss_bps: number | null; points: number | null;
+  predicted: boolean; predictions: number; prediction_bps: number | null; counted_by: string | null;
+  miss_bps: number | null; points: number | null;
 };
 export type LiveEvent = {
   id: number; kind: string; name: string; headline: string; story: string;
@@ -1111,13 +1112,15 @@ export type LiveEvent = {
   featured: { name: string; ticker: string }; start_price: string; price_now: string; move_bps: number;
   touched: { ticker: string; name: string; direction: "up" | "down" | "bid" }[];
   table: LiveRow[]; your_actions: { what: string; done: boolean; at: string }[];
+  /** Every member's prediction in the player's own empire (with how far each missed, once scored). */
+  your_members: { name: string; prediction_bps: number; miss_bps: number | null }[];
 };
 export type LivePage = {
   ready: boolean; now?: string; next_at?: string; days?: string; hour?: string; minutes?: number; predict_minutes?: number;
   points?: { places: number[]; took_part: number; most_miss_bps: number };
   kinds?: { code: string; name: string }[]; plans?: { code: string; words: string }[];
   empire?: string | null; is_head?: boolean; plan?: { plan: string; budget: string; at: string } | null;
-  live?: LiveEvent | null; can_predict?: boolean; past?: LiveEvent[];
+  live?: LiveEvent | null; can_predict?: boolean; your_prediction_bps?: number | null; past?: LiveEvent[];
 };
 
 export type CompetitionPage = {

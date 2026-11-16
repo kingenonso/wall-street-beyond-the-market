@@ -21,9 +21,10 @@ institutions a day later; the founders not at all. The mark fades over a few tra
 
 Scoring, when the thirty minutes end:
 
-  The prediction   Each empire may hand in one sealed prediction of how far the featured share will move from the bell to
-                   the end, in the first ten minutes. The closest three earn 10, 6 and 3 league points, if they missed by
-                   no more than five points and at least two empires predicted.
+  The prediction   Every member of an empire run by players may seal a prediction of their own of how far the featured
+                   share will move from the bell to the end, in the first ten minutes; the empire's closest counts. The
+                   closest three empires earn 10, 6 and 3 league points, if they missed by no more than five points and
+                   at least two empires predicted.
   The money        What the event did to each empire's money: the shares it touched, held and traded in the window,
                    against what the empire was worth at the bell (so a small empire can beat a big one). The best three
                    that made money earn 10, 6 and 3.
@@ -426,7 +427,8 @@ def _event(conn: Connection, event_id: int, *, lock: bool = False) -> dict:
 
 
 def predict(conn: Connection, player_id, event_id: int, move_bps: int, now: datetime) -> dict:
-    """An empire's one sealed prediction of how far the featured share will move from the bell to the end."""
+    """A member's own sealed prediction of how far the featured share will move from the bell to the end. One each; the
+    empire's closest counts."""
     if not isinstance(move_bps, int) or isinstance(move_bps, bool) or not -5_000 <= move_bps <= 5_000:
         raise LiveEventError("Predict a move between −50% and +50%.")
     with conn.transaction():
@@ -435,14 +437,13 @@ def predict(conn: Connection, player_id, event_id: int, move_bps: int, now: date
             raise LiveEventError("Predictions are taken in the first ten minutes after the bell.")
         seat = empires.seat_of(conn, player_id)
         if seat is None or seat["empire_status"] != "active" or seat["empire_kind"] != "player":
-            raise LiveEventError("Predictions are made for an empire run by players. Join one to take part.")
-        entry = _one(conn, "SELECT * FROM live_event_entries WHERE event_id = %s AND empire_id = %s FOR UPDATE", (event_id, seat["empire_id"]))
-        if entry is None:
+            raise LiveEventError("Predictions are made by members of an empire run by players. Join one to take part.")
+        if _one(conn, "SELECT 1 AS x FROM live_event_entries WHERE event_id = %s AND empire_id = %s", (event_id, seat["empire_id"])) is None:
             raise LiveEventError("Your empire was not in the field at the bell (it joined the league afterwards).")
-        if entry["prediction_bps"] is not None:
-            raise LiveEventError("Your empire has already made its prediction. It is sealed and cannot be changed.")
-        conn.execute("UPDATE live_event_entries SET prediction_bps = %s, predicted_by = %s, predicted_at = %s WHERE event_id = %s AND empire_id = %s",
-                     (move_bps, player_id, now, event_id, seat["empire_id"]))
+        done = conn.execute("INSERT INTO live_event_predictions (event_id, player_id, empire_id, move_bps, at) VALUES (%s, %s, %s, %s, %s)"
+                            " ON CONFLICT (event_id, player_id) DO NOTHING", (event_id, player_id, seat["empire_id"], move_bps, now)).rowcount
+        if not done:
+            raise LiveEventError("You have already made your prediction. It is sealed and cannot be changed.")
     return {"event_id": event_id, "prediction_bps": move_bps}
 
 
@@ -485,6 +486,14 @@ def _results(conn: Connection, event: dict, until: datetime) -> tuple[int, list[
                     result += trade["quantity"] * (prices[t["company_id"]] - trade["price"]) - trade["buyer_fee"]
                 if trade["sold"]:
                     result += trade["quantity"] * (trade["price"] - prices[t["company_id"]]) - trade["seller_fee"]
+        if entry["run_by_players"] and entry["prediction_bps"] is None:
+            # The members' closest prediction counts for the empire; on a tie, the one sealed first.
+            members = _rows(conn, "SELECT player_id, move_bps, at FROM live_event_predictions WHERE event_id = %s AND empire_id = %s",
+                            (event["id"], entry["empire_id"]))
+            best = min(members, key=lambda m: (abs(m["move_bps"] - move), m["at"]), default=None)
+            entry = {**entry, "predictions": len(members)}
+            if best:
+                entry.update(prediction_bps=best["move_bps"], predicted_by=best["player_id"], predicted_at=best["at"])
         out.append({**entry, "result_kobo": result, "traded": traded,
                     "result_bps": result * BPS // entry["worth_at_bell"] if entry["worth_at_bell"] > 0 else 0,
                     "miss_bps": abs(entry["prediction_bps"] - move) if entry["prediction_bps"] is not None else None})
@@ -530,6 +539,10 @@ def score(conn: Connection, event_id: int, now: datetime) -> dict:
                 points += data.LIVE_TOOK_PART
                 leagues.award(conn, r["empire_id"], data.LIVE_TOOK_PART, f"Live event, {name}: took part", period, now,
                               reference=f"live:{event_id}:took_part")
+            if r["run_by_players"] and r["prediction_bps"] is not None:
+                conn.execute("UPDATE live_event_entries SET prediction_bps = %s, predicted_by = %s, predicted_at = %s"
+                             " WHERE event_id = %s AND empire_id = %s AND prediction_bps IS NULL",
+                             (r["prediction_bps"], r["predicted_by"], r["predicted_at"], event_id, r["empire_id"]))
             conn.execute("UPDATE live_event_entries SET result_kobo = %s, result_bps = %s, miss_bps = %s, points = %s"
                          " WHERE event_id = %s AND empire_id = %s",
                          (r["result_kobo"], r["result_bps"], r["miss_bps"], points, event_id, r["empire_id"]))
@@ -603,16 +616,27 @@ def _public(conn: Connection, event: dict, empire_id, now: datetime) -> dict:
     running = event["status"] == "open"
     move, rows = _results(conn, event, min(now, event["ends_at"]) if running else event["ends_at"])
     featured = _one(conn, "SELECT name, ticker FROM companies WHERE id = %s", (event["featured_company_id"],))
+    names = {r["id"]: r["display_name"] for r in _rows(
+        conn, "SELECT id, display_name FROM players WHERE id IN (SELECT player_id FROM live_event_predictions WHERE event_id = %s"
+              " UNION SELECT predicted_by FROM live_event_entries WHERE event_id = %s AND predicted_by IS NOT NULL)", (event["id"], event["id"]))}
     table = []
     for r in sorted(rows, key=lambda r: (-(r["points"] if not running else 0), -r["result_bps"], r["empire_id"])):
         mine = r["empire_id"] == empire_id
         table.append({
             "empire": r["name"], "yours": mine, "run_by": "players" if r["run_by_players"] else "the computer",
             "result_bps": r["result_bps"], "result_kobo": r["result_kobo"] if mine else None,
-            # Sealed until the event is scored: others only see that an empire has predicted.
-            "predicted": r["prediction_bps"] is not None,
-            "prediction_bps": r["prediction_bps"] if (mine or not running) else None,
+            # Sealed until the event is scored: others only see how many of an empire's members have predicted.
+            "predicted": r["prediction_bps"] is not None, "predictions": r.get("predictions", 1 if r["prediction_bps"] is not None else 0),
+            "prediction_bps": r["prediction_bps"] if not running else None,
+            "counted_by": names.get(r["predicted_by"]) if not running and r["run_by_players"] else None,
             "miss_bps": r["miss_bps"] if not running else None, "points": r["points"] if not running else None})
+    # The player's own empire: every member's prediction, to its own members only (others' only once scored).
+    members = []
+    if empire_id:
+        for m in _rows(conn, "SELECT player_id, move_bps, at FROM live_event_predictions WHERE event_id = %s AND empire_id = %s ORDER BY at",
+                       (event["id"], empire_id)):
+            members.append({"name": names.get(m["player_id"], "A member"), "prediction_bps": m["move_bps"],
+                            "miss_bps": None if running else abs(m["move_bps"] - move)})
     actions = _rows(conn, "SELECT what, done, at FROM live_event_actions WHERE event_id = %s AND empire_id = %s ORDER BY at",
                     (event["id"], empire_id)) if empire_id else []
     return {
@@ -622,7 +646,7 @@ def _public(conn: Connection, event: dict, empire_id, now: datetime) -> dict:
         "start_price": event["start_price"], "price_now": event["start_price"] * (BPS + move) // BPS, "move_bps": move,
         "touched": [{"ticker": t["ticker"], "name": t["name"], "direction": "up" if t["bps"] > 0 else "down" if t["bps"] < 0 else "bid"}
                     for t in event["touched"]],
-        "table": table, "your_actions": actions,
+        "table": table, "your_actions": actions, "your_members": members,
     }
 
 
@@ -634,8 +658,10 @@ def view(conn: Connection, player_id, now: datetime) -> dict:
     live = _one(conn, "SELECT * FROM live_events WHERE status = 'open' ORDER BY starts_at DESC LIMIT 1")
     past = _rows(conn, "SELECT * FROM live_events WHERE status = 'scored' ORDER BY starts_at DESC LIMIT 6")
     plan = _one(conn, "SELECT plan, budget, at FROM live_event_plans WHERE empire_id = %s", (empire_id,)) if empire_id else None
-    mine = _one(conn, "SELECT prediction_bps FROM live_event_entries WHERE event_id = %s AND empire_id = %s",
-                (live["id"], empire_id)) if live and empire_id else None
+    in_field = _one(conn, "SELECT 1 AS x FROM live_event_entries WHERE event_id = %s AND empire_id = %s",
+                    (live["id"], empire_id)) if live and empire_id else None
+    mine = _one(conn, "SELECT move_bps FROM live_event_predictions WHERE event_id = %s AND player_id = %s",
+                (live["id"], player_id)) if live else None
     return {
         "ready": True, "now": now,
         "next_at": next_slot(now), "days": "Monday, Wednesday and Friday", "hour": f"{data.LIVE_EVENT_HOUR}:00 Lagos time",
@@ -646,6 +672,7 @@ def view(conn: Connection, player_id, now: datetime) -> dict:
         "empire": seat["empire_name"] if empire_id else None, "is_head": bool(seat and empire_id and seat["head_player_id"] == player_id),
         "plan": plan,
         "live": _public(conn, live, empire_id, now) if live else None,
-        "can_predict": bool(live and empire_id and mine is not None and mine["prediction_bps"] is None and now < live["predict_until"]),
+        "can_predict": bool(live and in_field and mine is None and now < live["predict_until"]),
+        "your_prediction_bps": mine["move_bps"] if mine else None,
         "past": [_public(conn, e, empire_id, now) for e in past],
     }

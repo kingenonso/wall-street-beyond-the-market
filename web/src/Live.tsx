@@ -2,8 +2,8 @@
 //
 // Three evenings a week (Monday, Wednesday and Friday at 20:00 Lagos time) something happens in the shared world at once
 // for everybody, and for thirty minutes every empire competes on how it reads and handles it. This page counts down to
-// the bell, shows the event as it runs (the story, the featured share, the table), takes the empire's one sealed
-// prediction in the first ten minutes, lets the head leave a standing plan, and keeps the past events with their scores.
+// the bell, shows the event as it runs (the story, the featured share, the table), takes each member's own sealed
+// prediction in the first ten minutes (the empire's closest counts), lets the head leave a standing plan, and keeps the past events with their scores.
 // Every figure comes from the server; the countdown is the server's time, ticked on between visits.
 
 import { useEffect, useRef, useState } from "react";
@@ -75,7 +75,7 @@ function Prediction({ event, act }: { event: LiveEvent; act: Act }) {
   return (
     <form className="live-predict" onSubmit={(e) => {
       e.preventDefault();
-      if (ok) act.run(() => api.livePredict({ event_id: event.id, move_bps: Math.round(value * 100) }), "Your empire's prediction is in, sealed.");
+      if (ok) act.run(() => api.livePredict({ event_id: event.id, move_bps: Math.round(value * 100) }), "Your prediction is in, sealed.");
     }}>
       <label htmlFor="live-move">How far will {event.featured.ticker} move from the bell to the end?</label>
       <div className="live-predict-row">
@@ -83,8 +83,20 @@ function Prediction({ event, act }: { event: LiveEvent; act: Act }) {
         <span className="muted">%</span>
         <button type="submit" className="button-primary" disabled={!ok || act.busy}>Seal the prediction</button>
       </div>
-      <p className="small muted">One for the whole empire, by whichever member is first. Sealed: nobody else sees it until the event is scored, and it cannot be changed.</p>
+      <p className="small muted">Every member makes their own; your empire's closest counts. Your own empire's members can see it, to talk it over; rivals see nothing until the event is scored. One each, and it cannot be changed.</p>
     </form>
+  );
+}
+
+function Members({ event }: { event: LiveEvent }) {
+  if (event.your_members.length === 0) return null;
+  return (
+    <div className="live-members small">
+      <span className="muted">Your empire's predictions{event.status === "open" ? " (only your empire sees these)" : ""}:</span>
+      {event.your_members.map((m, i) => (
+        <span key={i} className="live-chip">{m.name} <span className="mono">{signedPct(m.prediction_bps)}</span>{m.miss_bps !== null && <span className="muted"> · missed {pct(m.miss_bps)}</span>}</span>
+      ))}
+    </div>
   );
 }
 
@@ -94,7 +106,7 @@ function Table({ event, running }: { event: LiveEvent; running: boolean }) {
       <thead><tr>
         <th scope="col">Empire</th>
         <th scope="col" className="num" title="What the event did to its money: the shares it touched, held and traded, against what the empire was worth at the bell">Result</th>
-        <th scope="col" className="num">Prediction</th>
+        <th scope="col" className="num" title="The empire's closest prediction counts. While the event runs, only how many members have predicted is shown">Prediction</th>
         {!running && <th scope="col" className="num">Missed by</th>}
         {!running && <th scope="col" className="num">Points</th>}
       </tr></thead>
@@ -102,7 +114,9 @@ function Table({ event, running }: { event: LiveEvent; running: boolean }) {
         <tr key={r.empire} className={r.yours ? "live-yours" : ""}>
           <th scope="row">{r.empire}{r.run_by === "the computer" && <span className="muted small"> · computer</span>}</th>
           <td className={`num mono ${tone(r.result_bps)}`}>{signedPct(r.result_bps)}{r.result_kobo !== null && <span className="muted small"> ({r.result_kobo.startsWith("-") ? "−" + formatNaira(r.result_kobo.slice(1)) : formatNaira(r.result_kobo)})</span>}</td>
-          <td className="num mono">{r.prediction_bps !== null ? signedPct(r.prediction_bps) : r.predicted ? "● sealed" : "—"}</td>
+          <td className="num mono">{r.prediction_bps !== null
+            ? <>{signedPct(r.prediction_bps)}{r.counted_by && <span className="muted small"> by {r.counted_by}</span>}</>
+            : r.predicted ? `● ${r.predictions > 1 ? `${r.predictions} sealed` : "sealed"}` : "—"}</td>
           {!running && <td className="num mono">{r.miss_bps === null ? "—" : pct(r.miss_bps)}</td>}
           {!running && <td className="num"><strong>{r.points ?? 0}</strong></td>}
         </tr>
@@ -138,8 +152,12 @@ function LiveNow({ d, event, now, act }: { d: LivePage; event: LiveEvent; now: n
         ))}
       </div>
       {d.can_predict ? <Prediction event={event} act={act} /> : (
-        <p className="small muted">{predictLeft > 0 ? (d.empire ? "Your empire's prediction is in." : "Join an empire run by players to predict for it.") : "Predictions closed ten minutes after the bell."}{predictLeft > 0 && ` Predictions close in ${untilWords(predictLeft)}.`}</p>
+        <p className="small muted">{d.your_prediction_bps !== null && d.your_prediction_bps !== undefined
+          ? `Your prediction is in: ${signedPct(d.your_prediction_bps)}.`
+          : predictLeft > 0 ? (d.empire ? "" : "Join an empire run by players to predict.") : "Predictions closed ten minutes after the bell."}
+          {predictLeft > 0 && ` Predictions close in ${untilWords(predictLeft)}.`}</p>
       )}
+      <Members event={event} />
       {event.your_actions.length > 0 && (
         <ul className="small live-actions">{event.your_actions.map((a, i) => <li key={i} className={a.done ? "" : "change-down"}>Your standing plan: {a.what}</li>)}</ul>
       )}
@@ -192,6 +210,7 @@ function Past({ event }: { event: LiveEvent }) {
         <span className="small">{winner ? <>Won by <strong>{winner.empire}</strong>, {winner.points} points</> : "No points"}</span>
       </summary>
       <p className="small">{event.story}</p>
+      <Members event={event} />
       <Table event={event} running={false} />
     </details>
   );
@@ -224,7 +243,7 @@ export function LiveWork({ onLoggedOut }: Props) {
       <Band label="Where you stand" columns={4}>
         <BandCell label="The next bell" value={d.next_at ? whenWords(d.next_at) : "—"} note={d.live ? "after this one" : `in ${untilWords((nextAt ?? now) - now)}`} />
         <BandCell label="Your empire" value={d.empire ?? "—"} note={d.empire ? "competes as one" : "join one to compete"} />
-        <BandCell label="To win" value={`${p.places[0]} + ${p.places[0]}`} note="best prediction, best result" />
+        <BandCell label="To win" value={`${p.places[0]} + ${p.places[0]}`} note="closest prediction, best result" />
         <BandCell label="Your plan" value={d.plan ? (d.plans ?? []).find((x) => x.code === d.plan!.plan)?.words.split(":")[0] : "Hold"} note={d.is_head ? "you set it" : "the head sets it"} />
       </Band>
       {act.error && <p className="small change-down" role="alert">{act.error}</p>}
@@ -241,7 +260,7 @@ export function LiveWork({ onLoggedOut }: Props) {
       <Panel title="How it works" aside="points go to the league">
         <ul className="small live-rules">
           <li><strong>The bell.</strong> At {d.hour} on {d.days}, one of five things happens for real: a fraud uncovered, a fuel crisis, a run on a bank, an emergency rate move, or a takeover bid. It is in the news at once, and its effect is real: in the companies' accounts, savers' trust, or the Central Bank's next rate.</li>
-          <li><strong>The prediction.</strong> In the first {d.predict_minutes} minutes your empire seals one prediction of how far the featured share will move by the end. The closest three earn {p.places.join(", ")} points, if they missed by no more than {pct(p.most_miss_bps)}.</li>
+          <li><strong>The prediction.</strong> In the first {d.predict_minutes} minutes every member seals their own prediction of how far the featured share will move by the end; your empire's closest counts. The three closest empires earn {p.places.join(", ")} points, if they missed by no more than {pct(p.most_miss_bps)}.</li>
           <li><strong>The money.</strong> What the event did to each empire's money: the shares it touched, held and traded in the window, against what the empire was worth at the bell, so a small empire can beat a big one. The best three that made money earn {p.places.join(", ")}.</li>
           <li><strong>Taking part</strong> earns {p.took_part}: predict, trade a touched share, or have your plan act.</li>
           <li>Investors who read the news at once react within minutes; the institutions a day later. Computer-run empires are in the field too.</li>

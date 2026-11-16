@@ -6,7 +6,7 @@
 -- spike, a run on a bank, an emergency move by the Central Bank, and a takeover bid. Which kind, and whom it strikes, is
 -- decided at the bell from the world's secret, so nobody can know it in advance.
 --
--- Empires are scored on how far their prediction of the featured share's move came from what happened, and on what the
+-- Empires are scored on how far their members' closest prediction of the featured share's move came from what happened, and on what the
 -- event did to their money (the shares it touched, held and traded, against what the empire was worth at the bell).
 -- Points go to the league. An empire's head may leave a standing plan beforehand for members who cannot be there.
 
@@ -50,7 +50,9 @@ CREATE TABLE live_event_entries (
     run_by_players     boolean NOT NULL,
     worth_at_bell      bigint NOT NULL,
     held_at_bell       jsonb NOT NULL,                        -- {company_id: shares} of the shares the event touches
-    prediction_bps     integer,                               -- the featured share's move from the bell, as predicted
+    -- The prediction that counts: a computer-run empire's analyst's, made at the bell; for an empire run by players,
+    -- its members' closest, written in when the event is scored.
+    prediction_bps     integer,
     predicted_by       uuid REFERENCES players (id),
     predicted_at       timestamptz,
     result_kobo        bigint,                                -- at the end: what the event did to its money
@@ -76,6 +78,20 @@ BEGIN
 END $$;
 CREATE TRIGGER live_event_entries_sealed BEFORE UPDATE OR DELETE ON live_event_entries
     FOR EACH ROW EXECUTE FUNCTION live_prediction_sealed();
+
+-- Every member of an empire run by players seals a prediction of their own (owner, 16 November 2026: "every member
+-- predicts and the best one counts"). One each, in the first ten minutes, and it cannot be changed.
+CREATE TABLE live_event_predictions (
+    event_id    bigint NOT NULL REFERENCES live_events (id),
+    player_id   uuid NOT NULL REFERENCES players (id),
+    empire_id   bigint NOT NULL REFERENCES empires (id),
+    move_bps    integer NOT NULL CHECK (move_bps BETWEEN -5000 AND 5000),
+    at          timestamptz NOT NULL,
+    PRIMARY KEY (event_id, player_id)
+);
+CREATE INDEX live_event_predictions_by_empire ON live_event_predictions (event_id, empire_id);
+CREATE TRIGGER live_event_predictions_permanent BEFORE UPDATE OR DELETE ON live_event_predictions
+    FOR EACH ROW EXECUTE FUNCTION records_forbid_change();
 
 -- A head's standing plan, for when nobody from the empire can be there: carried out at the bell, by the head's own
 -- authority and inside every limit an order from the head would meet.

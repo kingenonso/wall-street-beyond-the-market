@@ -7,8 +7,8 @@ a takeover bid); investors who read the news at once mark the touched shares wit
 later; the empires are scored on their sealed prediction and on what the event did to their money, and the league gets
 the points once; a head's standing plan is carried out at the bell; the news reports the bell and the result.
 
-Loopholes: a prediction after the first ten minutes, a second prediction, a changed prediction, a prediction for an empire
-the player is not in, or for an empire not in the field at the bell; seeing a rival's prediction before the end; a plan
+Loopholes: a prediction after the first ten minutes, a second prediction by the same member, a changed prediction, a
+prediction by a player in no empire, or for an empire not in the field at the bell; seeing a rival's prediction before the end; a plan
 set by anyone but the head; scoring twice; a bell rung late after a long outage; the same kind twice in a row.
 """
 
@@ -176,19 +176,20 @@ def test_never_the_same_kind_twice_in_a_row_and_the_choice_comes_from_the_worlds
                for n in range(1, 6))
 
 
-def test_one_sealed_prediction_for_each_empire_in_the_first_ten_minutes(db, monkeypatch):
+def test_every_member_seals_a_prediction_of_their_own_in_the_first_ten_minutes(db, monkeypatch):
     empire, (head, _), partners = founded(db)
     banker = partners["investment_banker"][0]
     event = ring(db, monkeypatch, "fraud")
     liveevents.predict(db, banker, event["id"], -400, BELL + timedelta(minutes=3))
+    liveevents.predict(db, head, event["id"], -200, BELL + timedelta(minutes=4))         # every member has their own
     with pytest.raises(liveevents.LiveEventError, match="already"):
-        liveevents.predict(db, head, event["id"], -200, BELL + timedelta(minutes=4))
-    with pytest.raises(Exception, match="cannot be changed"):
+        liveevents.predict(db, banker, event["id"], -300, BELL + timedelta(minutes=5))
+    with pytest.raises(Exception, match="permanent|cannot"):
         with db.transaction():
-            db.execute("UPDATE live_event_entries SET prediction_bps = 0 WHERE event_id = %s AND empire_id = %s", (event["id"], empire["id"]))
+            db.execute("UPDATE live_event_predictions SET move_bps = 0 WHERE event_id = %s AND player_id = %s", (event["id"], banker))
     # Too late, and from nobody's empire.
     with pytest.raises(liveevents.LiveEventError, match="first ten minutes"):
-        liveevents.predict(db, head, event["id"], 100, BELL + timedelta(minutes=11))
+        liveevents.predict(db, partners["asset_manager"][0], event["id"], 100, BELL + timedelta(minutes=11))
     from tests.test_builds import pro
     loner, _ = pro(db, "asset_manager", "loner", level=10)
     with pytest.raises(liveevents.LiveEventError, match="Join one"):
@@ -199,13 +200,17 @@ def test_one_sealed_prediction_for_each_empire_in_the_first_ten_minutes(db, monk
         db.execute("DELETE FROM live_event_entries WHERE event_id = %s AND empire_id = %s", (event["id"], empire["id"]))
         db.execute("ALTER TABLE live_event_entries ENABLE TRIGGER live_event_entries_sealed")
         with pytest.raises(liveevents.LiveEventError, match="not in the field"):
-            liveevents.predict(db, head, event["id"], 100, BELL + timedelta(minutes=2))
-    # Sealed: a rival sees only that the empire has predicted, not the figure, until the event is scored.
-    seen = liveevents.view(db, loner, BELL + timedelta(minutes=5))["live"]["table"]
-    row = next(r for r in seen if r["empire"] == empire["name"])
-    assert row["predicted"] and row["prediction_bps"] is None and row["result_kobo"] is None
+            liveevents.predict(db, partners["asset_manager"][0], event["id"], 100, BELL + timedelta(minutes=2))
+    # Sealed: a rival sees only how many members have predicted, never a figure, until the event is scored.
+    seen = liveevents.view(db, loner, BELL + timedelta(minutes=5))["live"]
+    row = next(r for r in seen["table"] if r["empire"] == empire["name"])
+    assert row["predicted"] and row["predictions"] == 2 and row["prediction_bps"] is None and row["result_kobo"] is None
+    assert seen["your_members"] == []
+    # The empire's own members see each other's, to talk it over; each sees their own, and cannot predict again.
     mine = liveevents.view(db, banker, BELL + timedelta(minutes=5))
-    assert next(r for r in mine["live"]["table"] if r["yours"])["prediction_bps"] == -400 and not mine["can_predict"]
+    assert [m["prediction_bps"] for m in mine["live"]["your_members"]] == [-400, -200]
+    assert mine["your_prediction_bps"] == -400 and not mine["can_predict"]
+    assert liveevents.view(db, partners["asset_manager"][0], BELL + timedelta(minutes=5))["can_predict"]
 
 
 def test_the_head_sets_a_standing_plan_and_it_is_carried_out_at_the_bell(db, monkeypatch):
@@ -246,7 +251,8 @@ def test_scoring_ranks_the_predictions_and_the_money_and_gives_the_league_its_po
     last = _one(db, "SELECT price FROM market_trades WHERE company_id = %s ORDER BY id DESC LIMIT 1", (target["id"],))["price"]
     assert placed["trades"] and start < last
     move = (last - start) * BPS // start
-    # The players' empire predicts exactly; the computer-run analysts guessed a fall.
+    # One member is far out, another exactly right: the empire's closest counts. The computer-run analysts guessed a fall.
+    liveevents.predict(db, head, event["id"], move - 900, BELL + timedelta(minutes=2))
     liveevents.predict(db, partners["asset_manager"][0], event["id"], move, BELL + timedelta(minutes=9))
     # Nothing is scored before the end.
     liveevents.tick(db, BELL + timedelta(minutes=20))
@@ -256,6 +262,7 @@ def test_scoring_ranks_the_predictions_and_the_money_and_gives_the_league_its_po
     assert done["status"] == "scored" and done["end_price"] == start * (BPS + move) // BPS
     entry = _one(db, "SELECT * FROM live_event_entries WHERE event_id = %s AND empire_id = %s", (event["id"], empire["id"]))
     assert entry["miss_bps"] == 0 and entry["result_kobo"] == 20_000 * (last - start)
+    assert entry["prediction_bps"] == move and entry["predicted_by"] == partners["asset_manager"][0]
     assert points(db, empire["id"], "prediction") == data.LIVE_PLACES[0]
     assert points(db, empire["id"], "money") == data.LIVE_PLACES[0]          # the only empire whose money the event raised
     assert points(db, empire["id"], "took_part") == data.LIVE_TOOK_PART
@@ -266,6 +273,9 @@ def test_scoring_ranks_the_predictions_and_the_money_and_gives_the_league_its_po
     # Now everyone may see every prediction and the points; the news reports the winner.
     table = liveevents.view(db, buyer, BELL + timedelta(minutes=41))["past"][0]["table"]
     assert all(r["prediction_bps"] is not None for r in table if r["predicted"]) and table[0]["empire"] == empire["name"]
+    assert table[0]["counted_by"] == "asset_manager"                      # whose prediction counted, by name
+    members = liveevents.view(db, head, BELL + timedelta(minutes=41))["past"][0]["your_members"]
+    assert sorted(m["miss_bps"] for m in members) == [0, 900]
     result = _one(db, "SELECT facts FROM news_items WHERE kind = 'live_event_result' LIMIT 1")["facts"]
     assert result["winner"] == empire["name"]
     sound(db)

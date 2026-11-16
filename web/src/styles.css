@@ -1826,3 +1826,4 @@ th[aria-sort="ascending"] .sort-head, th[aria-sort="descending"] .sort-head { co
 .live-plan input[type="radio"] { width: auto; flex: none; margin: 3px 0 0; padding: 0; height: auto; }
 .live-plan > span { flex: 1; text-align: left; }
 .live-plans .live-plan { margin: 0; }
+.live-members { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 12px; }

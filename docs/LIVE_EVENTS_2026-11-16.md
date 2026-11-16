@@ -37,10 +37,11 @@ news carries the bell at once and the result at the end.
 Every empire in the league is in the field: what it was worth at the bell and what it held of the touched shares are
 written down and cannot be changed.
 
-- **The prediction (10, 6, 3 points).** In the first ten minutes an empire hands in one sealed prediction of how far
-  the featured share will move from the bell to the end. Any member may hand it in, but only once for the whole empire,
-  and it cannot be changed. The closest three earn points if they missed by no more than five points, and only if at
-  least two empires predicted. On a tie, the earlier prediction wins.
+- **The prediction (10, 6, 3 points).** In the first ten minutes every member of a player-run empire seals their own
+  prediction of how far the featured share will move from the bell to the end (owner, 16 November 2026: "every member
+  predicts and the best one counts"). One each, and it cannot be changed. The empire's closest prediction counts. The
+  closest three empires earn points if they missed by no more than five points, and only if at least two empires
+  predicted. On a tie, the earlier prediction wins. Once scored, the table names whose prediction counted.
 - **The money (10, 6, 3 points).** What the event did to each empire's money: the touched shares it held at the bell
   and what it traded in them during the window, with fees, against what it was worth at the bell, so a small empire can
   beat a big one. The best three that made money earn points.
@@ -50,8 +51,10 @@ written down and cannot be changed.
 Computer-run empires are in the field too. Their analysts predict from what anybody could see: the direction, and a
 guess at the size.
 
-**Sealed until the end.** While the event runs, a rival sees only that an empire has predicted, and its result as a
-share of its worth. It never sees the figure, or the empire's money. Everything is shown once the event is scored.
+**Sealed until the end.** While the event runs, a rival sees only how many of an empire's members have predicted, and
+the empire's result as a share of its worth. It never sees a figure, or the empire's money. An empire's own members see
+each other's predictions, so they can talk them over. Everything is shown once the event is scored, with how far each
+member missed.
 
 ## The standing plan
 
@@ -110,3 +113,7 @@ Also updated: the news counts in `tests/test_news.py`, and the capitals rule in 
 - A takeover needs a company with cash to spare and a target in its own industry. When none can bid, another kind
   happens at that bell instead.
 - An event's result counts only the shares it touched: an empire that hedged with something else is not credited for it.
+- Because the closest member counts, a bigger empire can spread its members' predictions across a range and is more
+  likely to have one close. Seats are limited (seven at most), and the computer-run empires are scored on one analyst's
+  guess. If this proves too strong, the fix is to score on the members' average, or to give fewer points the more
+  members predicted.
