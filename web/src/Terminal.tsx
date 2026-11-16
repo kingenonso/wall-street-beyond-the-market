@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from "react";
 import { hintsFor, readCommand, type Command } from "./command";
 import { TradePanel, type TradePreset } from "./Trade";
+import { LiveStrip } from "./Live";
 import { api, type CityFlow, type CompetitionScore, type DivisionRow, type Industry, type Player, type PriceLevel, type TradingDay } from "./api";
 import { formatCompact, formatNaira } from "./format";
 import { useLoad } from "./hooks";
@@ -434,6 +435,7 @@ export function TerminalWork({ onLoggedOut }: { player: Player; onLoggedOut: () 
   const row = monitor.showing(picked);
   return (
     <>
+      <LiveStrip onLoggedOut={onLoggedOut} />
       <CommandLine onLoggedOut={onLoggedOut} />
       {row && <div id="term-company"><CompanyBoard key={row.ticker} row={row} onLoggedOut={onLoggedOut} /></div>}
       <div className="term-pair">

@@ -924,7 +924,8 @@ def _issue_bond(conn: Connection, company: dict, result: dict, period: int, rati
 
 
 def _propose_takeover(conn: Connection, period: int, seed: str, now: datetime, listed: list, ratings: dict, prices: dict,
-                      busy: set, banks: dict, policy_rate_bps: int) -> None:
+                      busy: set, banks: dict, policy_rate_bps: int, only_target=None) -> None:
+    """At most one bid. `only_target`: a live event's bid, for that company only (16 November 2026)."""
     value = {c["id"]: prices[c["id"]] * r["shares_in_issue"] for c, r in listed}
     owned_by_company = {r["company_id"] for r in _rows(
         conn, "SELECT o.company_id FROM share_owners o JOIN ledger_accounts a ON a.id = o.account_id WHERE a.kind = 'company'")}
@@ -934,6 +935,7 @@ def _propose_takeover(conn: Connection, period: int, seed: str, now: datetime, l
     for bidder, result in bidders:
         for target, target_result in listed:
             if (target["id"] == bidder["id"] or target["id"] in busy or target["id"] in owned_by_company
+                    or (only_target is not None and target["id"] != only_target)
                     or target["sector"] != bidder["sector"] or prices[target["id"]] < 200
                     or value[target["id"]] * BPS > value[bidder["id"]] * data.TAKEOVER_TARGET_SIZE_BPS):
                 continue

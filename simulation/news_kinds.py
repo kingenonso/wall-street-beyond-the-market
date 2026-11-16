@@ -280,6 +280,11 @@ KINDS: tuple[NewsKind, ...] = (
                              "new_empire": "Eko Skyways Holdings"}),
     NewsKind("audit_refused", 55, {"company": "Eko Skyways", "firm": "Adebayo Okafor and Partners"}),
     # --- Smaller items, gathered together ---
+    # Live events (16 November 2026): three evenings a week, something happens at once for everybody.
+    NewsKind("live_event_open", 90, {"show": "Fuel Crisis", "happening": "Fuel crisis: energy prices jump 18%",
+                                     "detail_line": "The price of energy has jumped 18% across the country."}),
+    NewsKind("live_event_result", 58, {"show": "Fuel Crisis", "winner": "Harbour Lights Capital", "points": "16",
+                                       "company": "Delta Creek Gas", "move": "+4.2%"}),
     NewsKind("roundup_results", 35, {"quarter": "Year 2 Q3", "count": "six",
                                      "list": "Ikoyi Bank (profit up 4%), Kainji Textiles (profit down 6%) and Zuma Rock Hotels (profit up 3%)"}),
     NewsKind("roundup_jobs", 32, {"quarter": "Year 2 Q3", "count": "four",
@@ -355,4 +360,10 @@ FIELD_NOTES = {
     "other": "the name of the empire that joins another and stops being separate",
     "new_empire": "the name of a new empire formed in a spin-off",
     "firm": "the name of an audit firm",
+    # Live events.
+    "show": "the name of an evening's live event, e.g. 'Fuel Crisis', 'Bank Run', 'Takeover Battle'",
+    "happening": "a ready-made headline-style phrase saying what happened, e.g. 'Queues outside Ikenga Bank'",
+    "detail_line": "one complete sentence saying what happened",
+    "winner": "the name of the empire that earned the most points in the event, or 'nobody'",
+    "points": "how many league points it earned, in figures",
 }

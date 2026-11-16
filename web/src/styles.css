@@ -1769,3 +1769,60 @@ th[aria-sort="ascending"] .sort-head, th[aria-sort="descending"] .sort-head { co
 @media (max-width: 760px) {
   .column { position: static; max-height: none; overflow: visible; }
 }
+
+/* Live events (16 November 2026): three evenings a week, every empire at once. */
+.live-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--down); box-shadow: 0 0 0 0 color-mix(in srgb, var(--down) 60%, transparent); animation: live-pulse 1.6s ease-out infinite; flex: none; }
+@keyframes live-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--down) 60%, transparent); } 70% { box-shadow: 0 0 0 9px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+.live-word { font-family: var(--mono); font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--down); }
+.live-eyebrow { letter-spacing: 0.14em; text-transform: uppercase; font-family: var(--mono); }
+.live-pill { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--down); }
+
+.live-now { margin-bottom: 16px; padding: 18px 20px; background: var(--panel); border: 1px solid color-mix(in srgb, var(--down) 55%, var(--border)); border-radius: 8px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--down) 20%, transparent), 0 16px 40px rgba(0, 0, 0, 0.35); }
+.live-now-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.live-name { font-family: var(--mono); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--gold); }
+.live-clock { margin-left: auto; font-size: 30px; font-weight: 800; color: var(--text); letter-spacing: 0.04em; }
+.live-headline { margin: 10px 0 6px; font-size: 24px; line-height: 1.25; }
+.live-story { margin: 0 0 14px; color: var(--text-2); max-width: 78ch; }
+.live-figures { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.live-figures > div { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; background: var(--raised); border: 1px solid var(--border); border-radius: 6px; }
+.live-figures .strong { font-size: 18px; }
+.live-touched { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 14px; }
+.live-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--raised);
+  font-family: var(--mono); font-size: 12px; color: var(--text-2); text-decoration: none; }
+.live-chip.up { color: var(--up); border-color: color-mix(in srgb, var(--up) 45%, var(--border)); }
+.live-chip.down { color: var(--down); border-color: color-mix(in srgb, var(--down) 45%, var(--border)); }
+.live-chip.bid { color: var(--gold); border-color: color-mix(in srgb, var(--gold) 45%, var(--border)); }
+.live-predict { margin: 0 0 14px; padding: 12px 14px; border: 1px dashed var(--gold); border-radius: 6px; background: color-mix(in srgb, var(--gold) 6%, var(--panel)); }
+.live-predict label { font-weight: 600; }
+.live-predict-row { display: flex; gap: 8px; align-items: center; margin: 8px 0 4px; flex-wrap: wrap; }
+.live-predict-row input { width: 130px; font-size: 18px; }
+.live-actions { margin: 0 0 12px; padding-left: 18px; }
+.live-table .live-yours th, .live-table .live-yours td { background: color-mix(in srgb, var(--gold) 8%, transparent); }
+.live-wait { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin-bottom: 16px; padding: 20px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+.live-countdown { font-size: 44px; font-weight: 800; letter-spacing: 0.04em; color: var(--gold); line-height: 1.1; }
+.live-kinds { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.live-plans { border: 0; padding: 0; margin: 0 0 10px; display: grid; gap: 6px; }
+.live-plan { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 13px; }
+.live-plan.on { border-color: var(--gold); background: color-mix(in srgb, var(--gold) 7%, transparent); }
+.live-rules { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.live-past { border-top: 1px solid var(--border); padding: 8px 0; }
+.live-past summary { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; cursor: pointer; }
+.live-strip { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--panel); color: var(--text); text-decoration: none; font-size: 13px; }
+.live-strip:hover { border-color: var(--gold); }
+.live-strip.on { border-color: color-mix(in srgb, var(--down) 60%, var(--border)); background: color-mix(in srgb, var(--down) 8%, var(--panel)); }
+.live-strip-clock { margin-left: auto; font-weight: 700; color: var(--gold); }
+.live-strip-headline { color: var(--text-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46ch; }
+.live-strip-last { flex-basis: 100%; }
+@media (max-width: 720px) {
+  .live-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .live-clock { font-size: 24px; }
+  .live-headline { font-size: 20px; }
+  .live-countdown { font-size: 34px; }
+  .live-strip-headline { max-width: 100%; flex-basis: 100%; }
+}
+.live-plan input[type="radio"] { width: auto; flex: none; margin: 3px 0 0; padding: 0; height: auto; }
+.live-plan > span { flex: 1; text-align: left; }
+.live-plans .live-plan { margin: 0; }

@@ -50,7 +50,8 @@ describe("the terminal's lettering", () => {
    * words themselves stay in sentence case, which is copy.test.ts's job. So capitals are allowed to come from
    * the stylesheet — but only on the handful of rules that are labels, so the allowance cannot spread.
    */
-  const MAY_SHOUT = /^(\.panel-head h2|\.panel-head h3|thead th|\.group-label|\.why-title|\.tape-table thead th)$/;
+  // Live events (16 November 2026): the "Live" badge, the eyebrow over a countdown and the event's name are labels too.
+  const MAY_SHOUT = /^(\.panel-head h2|\.panel-head h3|thead th|\.group-label|\.why-title|\.tape-table thead th|\.live-word|\.live-eyebrow|\.live-pill|\.live-name)$/;
 
   it("shouts only on a label, and never on anything else", () => {
     const shouting = [...css.matchAll(/\n([^\n{}]+)\{[^}]*text-transform:\s*uppercase[^}]*\}/g)]

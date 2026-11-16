@@ -38,6 +38,7 @@ from simulation.news_wordings import etfs as _etfs
 from simulation.news_wordings import funds as _funds
 from simulation.news_wordings import fx as _fx
 from simulation.news_wordings import industries as _industries
+from simulation.news_wordings import live as _live
 from simulation.news_wordings import world as _world_news
 from simulation.news_wordings import happenings as _happenings
 from simulation.news_wordings import media as _media
@@ -49,7 +50,7 @@ from simulation.news_wordings import results as _results
 WORDINGS: dict[str, dict[str, list[tuple[str, str]]]] = {
     **_abroad.WORDINGS, **_property.WORDINGS, **_property2.WORDINGS, **_places.WORDINGS, **_happenings.WORDINGS, **_economy.WORDINGS, **_results.WORDINGS, **_capital.WORDINGS, **_deals.WORDINGS, **_dealmaking.WORDINGS,
     **_media.WORDINGS, **_banks.WORDINGS, **_funds.WORDINGS, **_etfs.WORDINGS, **_fx.WORDINGS, **_world_news.WORDINGS,
-    **_industries.WORDINGS,
+    **_industries.WORDINGS, **_live.WORDINGS,
 }
 
 # How a kind of business reads in the middle of a sentence.

@@ -816,6 +816,29 @@ COUNTER_OFFER_MOST_BPS = 500                       # a counter-offer's bonus may
 # Leagues: divisions of empires, with promotion and relegation as each game year ends.
 DIVISION_SIZE = 5
 DIVISION_MOVES = 1                                 # how many go up and down between two divisions each year
+# Live events, part 1 (owner, 16 November 2026): three times a week something happens in the shared world at once for
+# everybody, and for thirty minutes every empire competes on how it reads and handles it.
+LIVE_EVENT_DAYS = (0, 2, 4)            # Monday, Wednesday and Friday...
+LIVE_EVENT_HOUR = 20                   # ...at 20:00, Lagos time...
+LIVE_EVENT_MINUTES = 30                # ...for thirty minutes
+LIVE_PREDICT_MINUTES = 10              # predictions are taken in the first ten minutes, sealed
+LIVE_LATE_OPEN_MINUTES = 10            # a server that was down at the bell may still ring it up to ten minutes late
+LIVE_PLACES = (10, 6, 3)               # league points for the first three, for the prediction and again for the money
+LIVE_TOOK_PART = 2                     # an empire run by players that predicted, traded or whose plan acted
+LIVE_MOST_MISS_BPS = 500               # a prediction more than five points out earns nothing
+LIVE_LEAST_EMPIRES = 2                 # no prediction points unless at least two empires predicted
+# How far investors who read the news at once mark the shares it touches (the institutions a day later), fading over a
+# few trading days. Within the day's price limit of a tenth.
+LIVE_SHOCK_BPS = {"fraud": 700, "oil_gain": 400, "oil_loss": 300, "bank_run": 700, "other_banks": 200,
+                  "rate_banks": 200, "rate_borrowers": 400, "bidder": 300}
+LIVE_SHOCK_MOST_BPS = 800
+LIVE_SHOCK_DAYS = 3
+LIVE_FUEL_USERS = ("transport", "aviation", "shipping", "manufacturing", "cement")
+LIVE_RATE_BORROWERS = ("real_estate", "cement")
+LIVE_RATE_MOVE_BPS = 100               # an emergency move: a point on the Central Bank's next rate
+LIVE_RUN_TRUST_POINTS = 15             # a run: savers' trust in the bank falls by this much...
+LIVE_RUN_GAME_DAYS = 6                 # ...for this many game days
+
 LEAGUE_POINTS = {"task": 10, "work": 2, "challenge": 3, "theft": -5, "growth_most": 20, "mandate": 8,
                  "defence": 8, "call_right": 6, "call_exposed": 3, "call_wrong": 3}
 

@@ -95,8 +95,17 @@ def _close_due_quarters_once() -> None:
         # Start the trading day and run each share's opening auction when the market opens.
         if conn.execute("SELECT to_regclass('market_instruments') IS NOT NULL AND EXISTS (SELECT 1 FROM world_state)").fetchone()[0]:
             exchange.open_market(conn, now)
+            # Live events (16 November 2026): ring the bell when it is due and score each event when it ends. A bell that
+            # has just rung sends the investors back to their screens at once, so the news moves prices within the minute.
+            rang = False
+            if conn.execute("SELECT to_regclass('live_events') IS NOT NULL").fetchone()[0]:
+                from simulation import liveevents
+                try:
+                    rang = liveevents.tick(conn, now)
+                except Exception:                   # a fault here must never hold up the market
+                    log.exception("The live event failed to ring or to be scored; it will be tried again.")
             # The computer-run investors look at the market and renew their orders.
-            investors.act(conn, now)
+            investors.act(conn, now, force=rang)
             # After 22:00 the Closing Bell goes out, once for each trading day.
             closingbell.ring(conn, now)
         # Stage 10: journalists' questions that ran out of time, and stories that must be corrected.
@@ -1957,3 +1966,4 @@ from server import insurance_routes  # noqa: E402,F401  (importing it adds its r
 from server import commodity_routes  # noqa: E402,F401
 from server import competition_routes  # noqa: E402,F401
 from server import government_routes  # noqa: E402,F401
+from server import live_routes  # noqa: E402,F401

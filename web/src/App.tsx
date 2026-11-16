@@ -4,6 +4,7 @@ import { Auth } from "./Auth";
 import { AccountantRail, AccountantWork, AssetManagerRail, AssetManagerWork, BuildRail } from "./BuildDesk";
 import { CareerRail, CareerWork } from "./Career";
 import { CompetitionWork } from "./Competition";
+import { LiveWork } from "./Live";
 import { GovernmentRail, GovernmentWork } from "./Government";
 import { CompaniesRail, CompaniesWork } from "./Companies";
 import { CompanyRail, CompanyWork } from "./Company";
@@ -208,6 +209,10 @@ export function App() {
     current = "rank";
     work = <RankWork player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <RankRail player={player} onLoggedOut={loggedOut} />;
+  } else if (section === "live") {
+    current = "live";
+    work = <LiveWork player={player} onLoggedOut={loggedOut} />;
+    rail = <CareerRail player={player} onLoggedOut={loggedOut} />;
   } else if (section === "competition") {
     current = "competition";
     work = <CompetitionWork player={player} onLoggedOut={loggedOut} />;

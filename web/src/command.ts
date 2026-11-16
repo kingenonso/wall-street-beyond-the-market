@@ -15,6 +15,7 @@ export const PAGES: Record<string, { href: string; name: string }> = {
   PF: { href: "#/portfolio", name: "your portfolio" },
   EMPIRE: { href: "#/empire", name: "your empire" },
   RIVALS: { href: "#/competition", name: "the competition: every empire's points" },
+  LIVE: { href: "#/live", name: "the live event: the next bell, or the one running now" },
   RANK: { href: "#/rank", name: "the rankings" },
   WORK: { href: "#/work", name: "the work board" },
   INTEL: { href: "#/intel", name: "intelligence and sources" },

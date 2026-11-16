@@ -1099,6 +1099,27 @@ export type CompetitionCall = {
 export type CompetitionTarget = { id: string; ticker: string; name: string; rival: string; rival_stake_bps: number };
 export type CompetitionScore = { empire: string; total: number; mandate: number; defence: number; contest: number;
   call: number; call_exposed: number; other: number };
+// Live events (16 November 2026): Work → Live events. Money is in kobo, as text. Other empires' predictions and money
+// are never sent while an event runs: only whether an empire has predicted, and its result against its worth at the bell.
+export type LiveRow = {
+  empire: string; yours: boolean; run_by: string; result_bps: number; result_kobo: string | null;
+  predicted: boolean; prediction_bps: number | null; miss_bps: number | null; points: number | null;
+};
+export type LiveEvent = {
+  id: number; kind: string; name: string; headline: string; story: string;
+  starts_at: string; ends_at: string; predict_until: string; status: "open" | "scored";
+  featured: { name: string; ticker: string }; start_price: string; price_now: string; move_bps: number;
+  touched: { ticker: string; name: string; direction: "up" | "down" | "bid" }[];
+  table: LiveRow[]; your_actions: { what: string; done: boolean; at: string }[];
+};
+export type LivePage = {
+  ready: boolean; now?: string; next_at?: string; days?: string; hour?: string; minutes?: number; predict_minutes?: number;
+  points?: { places: number[]; took_part: number; most_miss_bps: number };
+  kinds?: { code: string; name: string }[]; plans?: { code: string; words: string }[];
+  empire?: string | null; is_head?: boolean; plan?: { plan: string; budget: string; at: string } | null;
+  live?: LiveEvent | null; can_predict?: boolean; past?: LiveEvent[];
+};
+
 export type CompetitionPage = {
   ready: boolean; quarter: string; day: number; level: number; protected: boolean; protected_level: number;
   contest_last_day: number; pitch_last_day: number; fee_least_bps: number; fee_most_bps: number;
@@ -1454,6 +1475,12 @@ export const api = {
   governmentLobby: (body: { subject: string; seat: number }) =>
     request<GovernmentPage>("/government/lobby", { method: "POST", body: JSON.stringify(body) }),
   governmentNoConfidence: () => request<GovernmentPage>("/government/no-confidence", { method: "POST", body: "{}" }),
+  // Live events, under Work.
+  live: () => request<LivePage>("/live"),
+  livePredict: (body: { event_id: number; move_bps: number }) =>
+    request<LivePage>("/live/predict", { method: "POST", body: JSON.stringify(body) }),
+  livePlan: (body: { plan: string; budget_kobo: number }) =>
+    request<LivePage>("/live/plan", { method: "POST", body: JSON.stringify(body) }),
   // Competition, under Work.
   competition: () => request<CompetitionPage>("/competition"),
   competitionPitch: (body: { mandate_id: number; fee_bps: number; take_up_bps: number }) =>

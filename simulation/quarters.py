@@ -41,6 +41,7 @@ from simulation import (
     investors,
     ledger,
     lending,
+    liveevents,
     macro,
     marketview,
     mindsets,
@@ -253,7 +254,7 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
         conn, period, fortune_seed, company_sales=company_sales, household_spending=household_spending,
         money=money, commodity_events=commodity_events,
         premium_index_bps=economy.premium_index_bps(conn, period, claims_paid),
-        confidence_bps=confidence, rate_extra_bps=watch["rate_extra_bps"] + crisis.rate_relief_bps(conn),
+        confidence_bps=confidence, rate_extra_bps=watch["rate_extra_bps"] + crisis.rate_relief_bps(conn) + liveevents.rate_extra_bps(conn, period),
         energy_bps=abroad.energy_index_bps(oil_next, abroad.state(conn, period - 1)["fx"]),
         import_push_bps=abroad.import_push_bps(conn, period),
     )

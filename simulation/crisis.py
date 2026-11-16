@@ -57,6 +57,7 @@ PART_NAMES = {
     "capital": "its owners' funds against its loans", "bad_loans": "its loans gone bad", "cash": "its cash against its savers' money",
     "rating": "its credit rating", "withdrawals": "savers leaving", "news": "what the papers say", "share_price": "its share price",
     "other_banks": "trouble at other banks", "guarantee": "the Government's guarantee", "support": "emergency help (borrowed, or new money)",
+    "live_event": "word going round that it is in trouble (a live event)",
 }
 FUNDAMENTAL = ("capital", "bad_loans", "cash", "rating")
 
@@ -202,6 +203,12 @@ def _news_points(conn: Connection, ticker: str, period: int, day: int) -> int:
     return max(min(points, 5), -20)
 
 
+def _live_hit(conn: Connection, company_id, period: int, day: int) -> int:
+    """A run set off by a live event: savers' trust is down for some game days (live events, 16 November 2026)."""
+    from simulation import liveevents
+    return liveevents.trust_hit(conn, company_id, period, day)
+
+
 def _price_points(closes: dict, company_id) -> int:
     days = closes.get(company_id) or []
     if len(days) < 2 or days[0][1] <= 0:
@@ -223,6 +230,7 @@ def target(conn: Connection, b: dict, period: int, day: int, others: dict, close
         "share_price": _price_points(closes, b["id"]),
         "other_banks": 0, "guarantee": data.BLANKET_TRUST_POINTS if blanket else 0,
         "support": -4 if f["emergency"] > 0 else 0,
+        "live_event": _live_hit(conn, b["id"], period, day),
     }
     hit = 0
     for other_id, o in others.items():
