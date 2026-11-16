@@ -87,6 +87,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     and giving up professional work (test_objectives.py). Stage 6 added empires and pension funds run
     by players (test_empires.py, test_savings.py, test_empire_api.py): every one of those requests acts
     on the empire or fund the server knows the player belongs to, and moves money only through the ledger.
+    Live events (16 November 2026) added a member's sealed prediction and the head's standing plan (test_live_events.py).
     Stage 7 added resignation letters, counter-offers and the vote for a head (test_leaving.py), rank cases
     and reports of marking (test_mastery.py, test_rank_api.py). The private equity stage, part 1, added the firm: duties,
     requests, votes, papers, borrowing, budgets, contracts, poaching, tasks, events and cover (test_firm.py, test_firm_api.py),
@@ -340,6 +341,8 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/investigations/{file_id}/publish"),
         ("POST", "/api/investigations/{file_id}/second-source"),
         ("POST", "/api/leak"),
+        ("POST", "/api/live/plan"),
+        ("POST", "/api/live/predict"),
         ("POST", "/api/market/orders"),
         ("POST", "/api/me/grant"),
         ("POST", "/api/media/{title_id}/sell"),
