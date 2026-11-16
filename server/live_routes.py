@@ -16,7 +16,7 @@ from psycopg import Connection
 from psycopg.errors import DeadlockDetected, UniqueViolation
 from pydantic import Field
 
-from server import limits
+from server import limits, live_stream
 from server.db import get_connection
 from server.main import _exchange_time, app, current_player
 from server.schemas import Request
@@ -75,3 +75,7 @@ def live_predict(body: PredictRequest, player: dict = Depends(current_player), c
 @app.post("/api/live/plan")
 def live_plan(body: PlanRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     return _act(conn, player, lambda now: liveevents.set_plan(conn, player["id"], body.plan, body.budget_kobo, now))
+
+
+# Part 2 (16 November 2026): the quiet line that tells an open page the moment something changes.
+app.add_api_route("/api/live/stream", live_stream.live_stream, methods=["GET"], include_in_schema=False)

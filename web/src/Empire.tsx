@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import { api, ApiError, type EmpireRoom, type EmpireView, type Player } from "./api";
 import { formatCompact, formatNaira, formatPercent } from "./format";
 import { useLoad } from "./hooks";
+import { useLivePushes } from "./pushes";
 import { NumberTile, ProgressTracker } from "./Parts";
 import { Failed, Gain, Loading, Panel } from "./Shell";
 import { BondOrderForm, ShareOrderForm } from "./TradeForm";
@@ -49,6 +50,8 @@ export function AmountForm({ label, button, busy, onSubmit, hint }: {
 
 function useEmpire(player: Player, onLoggedOut: () => void, onChanged: () => void) {
   const loaded = useLoad(api.empires, `empires:${player.id}`, onLoggedOut);
+  // Live events, part 2: a new message in the War Room chat appears at once.
+  useLivePushes(loaded.reload, ["chat"]);
   const [view, setView] = useState<EmpireView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

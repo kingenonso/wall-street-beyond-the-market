@@ -11,7 +11,7 @@ import asyncio
 import bisect
 import logging
 from contextlib import asynccontextmanager, suppress
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import psycopg
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Request, Response, status
@@ -164,6 +164,18 @@ def _close_due_quarters_once() -> None:
             auctions.run(conn, now)
 
 
+def _seconds_to_next_check(now: datetime) -> float:
+    """Every half minute; but a live event's bell, and its end, are not kept waiting: the loop wakes just after them, so
+    open screens see the bell and the scores within seconds."""
+    from simulation import liveevents
+    due = [liveevents.next_slot(now)]
+    running = liveevents.slot_now(now)
+    if running is not None:
+        due.append(running + timedelta(minutes=data.LIVE_EVENT_MINUTES))
+    soonest = min((d - now).total_seconds() for d in due) + 1
+    return max(1.0, min(float(QUARTER_CHECK_SECONDS), soonest))
+
+
 async def _quarter_closer() -> None:
     """Runs for as long as the server is up: closes each game quarter when it ends."""
     while True:
@@ -171,14 +183,19 @@ async def _quarter_closer() -> None:
             await asyncio.to_thread(_close_due_quarters_once)
         except Exception:  # keep trying; one failure must not stop the calendar
             log.exception("Closing the quarter failed. It will be tried again.")
-        await asyncio.sleep(QUARTER_CHECK_SECONDS)
+        await asyncio.sleep(_seconds_to_next_check(datetime.now(timezone.utc)))
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = get_settings()  # Fail at start-up, not mid-request, if a setting is missing.
     closer = asyncio.create_task(_quarter_closer()) if settings.run_quarter_closer else None
+    # Live events, part 2: hear the database's pings and pass them to the open live pages.
+    from server import live_stream
+    if settings.live_pushes:
+        live_stream.listener.start()
     yield
+    live_stream.listener.stop()
     if closer:
         closer.cancel()
         with suppress(asyncio.CancelledError):

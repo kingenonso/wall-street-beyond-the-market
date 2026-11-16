@@ -15,6 +15,7 @@ class Settings:
     world_start: datetime
     cookie_secure: bool
     run_quarter_closer: bool = True
+    live_pushes: bool = True
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_user: str | None = None
@@ -66,6 +67,9 @@ def get_settings() -> Settings:
         cookie_secure=cookie_secure,
         # The server closes each game quarter when it ends. Switched off in automated tests.
         run_quarter_closer=os.environ.get("RUN_QUARTER_CLOSER", "true").lower() != "false",
+        # Live events: open screens are told the moment something changes (a bell, a prediction, an empire's chat).
+        # Switched off in automated tests, which start it themselves where it is tested.
+        live_pushes=os.environ.get("LIVE_PUSHES", "true").lower() != "false",
         # Limits on how fast one address may try to log in or sign up. Switched off in most tests.
         rate_limits=os.environ.get("RATE_LIMITS", "true").lower() != "false",
         database_pool_size=int(os.environ.get("DATABASE_POOL_SIZE", "20")),

@@ -1121,6 +1121,8 @@ export type LivePage = {
   kinds?: { code: string; name: string }[]; plans?: { code: string; words: string }[];
   empire?: string | null; is_head?: boolean; plan?: { plan: string; budget: string; at: string } | null;
   live?: LiveEvent | null; can_predict?: boolean; your_prediction_bps?: number | null; past?: LiveEvent[];
+  /** Part 2: the empire's War Room chat, for its own members only. */
+  chat?: { id: number; who: string; body: string; at: string; yours: boolean }[];
 };
 
 export type CompetitionPage = {
@@ -1484,6 +1486,8 @@ export const api = {
     request<LivePage>("/live/predict", { method: "POST", body: JSON.stringify(body) }),
   livePlan: (body: { plan: string; budget_kobo: number }) =>
     request<LivePage>("/live/plan", { method: "POST", body: JSON.stringify(body) }),
+  /** The empire's War Room chat (the same chat as on the Empire page). */
+  empireSay: (body: string) => request<unknown>("/empire/messages", { method: "POST", body: JSON.stringify({ body }) }),
   // Competition, under Work.
   competition: () => request<CompetitionPage>("/competition"),
   competitionPitch: (body: { mandate_id: number; fee_bps: number; take_up_bps: number }) =>

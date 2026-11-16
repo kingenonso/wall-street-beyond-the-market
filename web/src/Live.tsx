@@ -5,12 +5,15 @@
 // the bell, shows the event as it runs (the story, the featured share, the table), takes each member's own sealed
 // prediction in the first ten minutes (the empire's closest counts), lets the head leave a standing plan, and keeps the past events with their scores.
 // Every figure comes from the server; the countdown is the server's time, ticked on between visits.
+// Part 2 (16 November 2026): the page is told the moment something changes (the bell, a prediction, a chat message, the
+// plan, the scores) and loads itself again; the empire's War Room chat is on the page, so members can talk it over here.
 
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, type LiveEvent, type LivePage, type Player } from "./api";
 import { asKobo } from "./Empire";
 import { formatNaira, formatPercent } from "./format";
 import { useLoad } from "./hooks";
+import { useLivePushes } from "./pushes";
 import { Band, BandCell, Failed, Loading, PageHead, Panel } from "./Shell";
 
 type Props = { player: Player; onLoggedOut: () => void };
@@ -102,6 +105,7 @@ function Members({ event }: { event: LiveEvent }) {
 
 function Table({ event, running }: { event: LiveEvent; running: boolean }) {
   return (
+    <div className="live-table-wrap">
     <table className="dense live-table">
       <thead><tr>
         <th scope="col">Empire</th>
@@ -112,7 +116,7 @@ function Table({ event, running }: { event: LiveEvent; running: boolean }) {
       </tr></thead>
       <tbody>{event.table.map((r) => (
         <tr key={r.empire} className={r.yours ? "live-yours" : ""}>
-          <th scope="row">{r.empire}{r.run_by === "the computer" && <span className="muted small"> · computer</span>}</th>
+          <th scope="row">{r.empire}{r.run_by === "the computer" && <span className="muted small live-computer"> · computer</span>}</th>
           <td className={`num mono ${tone(r.result_bps)}`}>{signedPct(r.result_bps)}{r.result_kobo !== null && <span className="muted small"> ({r.result_kobo.startsWith("-") ? "−" + formatNaira(r.result_kobo.slice(1)) : formatNaira(r.result_kobo)})</span>}</td>
           <td className="num mono">{r.prediction_bps !== null
             ? <>{signedPct(r.prediction_bps)}{r.counted_by && <span className="muted small"> by {r.counted_by}</span>}</>
@@ -122,6 +126,7 @@ function Table({ event, running }: { event: LiveEvent; running: boolean }) {
         </tr>
       ))}</tbody>
     </table>
+    </div>
   );
 }
 
@@ -162,8 +167,40 @@ function LiveNow({ d, event, now, act }: { d: LivePage; event: LiveEvent; now: n
         <ul className="small live-actions">{event.your_actions.map((a, i) => <li key={i} className={a.done ? "" : "change-down"}>Your standing plan: {a.what}</li>)}</ul>
       )}
       <Table event={event} running />
-      <p className="small muted">Trade on the desk or a company's page as usual: it all counts. The table is updated every few seconds; other empires' predictions stay sealed until the end.</p>
+      <p className="small muted">Trade on the desk or a company's page as usual: it all counts. Predictions, messages and the scores appear the moment they happen; prices in the table are updated every few seconds. Other empires' predictions stay sealed until the end.</p>
     </section>
+  );
+}
+
+function LiveChat({ d, act, open }: { d: LivePage; act: Act; open: boolean }) {
+  const [body, setBody] = useState("");
+  const log = useRef<HTMLDivElement>(null);
+  const lines = d.chat ?? [];
+  const last = lines.length ? lines[lines.length - 1].id : 0;
+  useEffect(() => {
+    const box = log.current;
+    if (box) box.scrollTop = box.scrollHeight;          // the newest message in view
+  }, [last]);
+  return (
+    <Panel title="Your empire's chat" aside={open ? "messages appear at once" : "same chat as the War Room"}>
+      <div className="chat" role="log" aria-live="polite" ref={log}>
+        {lines.length === 0 && <p className="muted small">Nobody has said anything yet. Talk the event over here: only {d.empire}'s members see it.</p>}
+        {lines.map((m) => (
+          <div key={m.id} className={m.yours ? "chat-line yours" : "chat-line"}>
+            <div className="muted small">{m.yours ? "You" : m.who} · {new Date(m.at).toLocaleTimeString("en-NG", { timeZone: "Africa/Lagos", hour: "2-digit", minute: "2-digit" })}</div>
+            <div>{m.body}</div>
+          </div>
+        ))}
+      </div>
+      <form className="chat-form" onSubmit={(e) => {
+        e.preventDefault();
+        const text = body.trim();
+        if (text) act.run(async () => { await api.empireSay(text); setBody(""); return d; }, "");
+      }}>
+        <input type="text" aria-label="Your message" maxLength={500} value={body} onChange={(e) => setBody(e.target.value)} placeholder={`Say something to ${d.empire}`} />
+        <button className="button-outline" disabled={act.busy || !body.trim()}>Send</button>
+      </form>
+    </Panel>
   );
 }
 
@@ -221,14 +258,16 @@ export function LiveWork({ onLoggedOut }: Props) {
   const act = useAct(page.reload, onLoggedOut);
   const d = page.data;
   const now = useServerNow(d?.now);
-  // Every five seconds while an event runs; every minute otherwise, and at the bell itself.
   const running = Boolean(d?.live);
   const nextAt = d?.next_at ? new Date(d.next_at).getTime() : null;
   const reload = page.reload;
+  // The moment something changes, the server says so. Prices move all the time, so while an event runs the table is
+  // still read every ten seconds (every five if the line to the server is down); between events, every five minutes.
+  const pushed = useLivePushes(reload);
   useEffect(() => {
-    const id = window.setInterval(reload, running ? 5_000 : 60_000);
+    const id = window.setInterval(reload, running ? (pushed ? 10_000 : 5_000) : (pushed ? 300_000 : 60_000));
     return () => window.clearInterval(id);
-  }, [running, reload]);
+  }, [running, pushed, reload]);
   const bellPassed = nextAt !== null && now >= nextAt + 2_000;
   useEffect(() => { if (bellPassed && !running) reload(); }, [bellPassed, running, reload]);
 
@@ -256,6 +295,7 @@ export function LiveWork({ onLoggedOut }: Props) {
           <span className="live-kinds">{(d.kinds ?? []).map((k) => <span key={k.code} className="live-chip">{k.name}</span>)}</span>
         </section>
       )}
+      {d.empire && <LiveChat d={d} act={act} open={pushed} />}
       {d.empire && <Plan key={d.plan?.at ?? "none"} d={d} act={act} />}
       <Panel title="How it works" aside="points go to the league">
         <ul className="small live-rules">
@@ -280,6 +320,7 @@ export function LiveStrip({ onLoggedOut }: { onLoggedOut: () => void }) {
   const now = useServerNow(d?.now);
   const running = Boolean(d?.live);
   const reload = page.reload;
+  useLivePushes(reload, ["event"]);                    // the bell and the scores at once
   useEffect(() => {
     const id = window.setInterval(reload, running ? 15_000 : 120_000);
     return () => window.clearInterval(id);

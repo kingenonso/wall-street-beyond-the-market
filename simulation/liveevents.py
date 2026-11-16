@@ -47,7 +47,7 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from simulation import careers, clock, empires, events, exchange, leagues, news
+from simulation import careers, clock, empires, events, exchange, leagues, news, pings
 from simulation import world_data as data
 from simulation.money import BPS
 
@@ -379,6 +379,7 @@ def open_event(conn: Connection, bell: datetime, now: datetime) -> dict | None:
                      facts={"show": KINDS[kind], "happening": made["headline"], "detail_line": made["story"].split(". ")[0] + "."},
                      tickers=[t["ticker"] for t in made["touched"]][:4])
     _carry_out_plans(conn, event, now)
+    pings.ping(conn, "event")                 # every open screen shows the bell at once
     return event
 
 
@@ -444,6 +445,7 @@ def predict(conn: Connection, player_id, event_id: int, move_bps: int, now: date
                             " ON CONFLICT (event_id, player_id) DO NOTHING", (event_id, player_id, seat["empire_id"], move_bps, now)).rowcount
         if not done:
             raise LiveEventError("You have already made your prediction. It is sealed and cannot be changed.")
+        pings.ping(conn, "prediction", seat["empire_id"])
     return {"event_id": event_id, "prediction_bps": move_bps}
 
 
@@ -461,6 +463,7 @@ def set_plan(conn: Connection, player_id, plan: str, budget: int, now: datetime)
         conn.execute("INSERT INTO live_event_plans (empire_id, plan, budget, set_by, at) VALUES (%s, %s, %s, %s, %s)"
                      " ON CONFLICT (empire_id) DO UPDATE SET plan = EXCLUDED.plan, budget = EXCLUDED.budget, set_by = EXCLUDED.set_by, at = EXCLUDED.at",
                      (seat["empire_id"], plan, budget if plan in ("buy_the_fall", "ride") else 0, player_id, now))
+        pings.ping(conn, "plan", seat["empire_id"])
     return {"plan": plan, "budget": budget}
 
 
@@ -556,6 +559,7 @@ def score(conn: Connection, event_id: int, now: datetime) -> dict:
                      facts={"show": name, "winner": top["name"] if top else "nobody", "points": str(top["points"] if top else 0),
                             "company": featured["name"], "move": _pct(move)},
                      tickers=[featured["ticker"]])
+        pings.ping(conn, "event")             # heard once the scores are saved
     return _event(conn, event_id)
 
 
@@ -675,4 +679,9 @@ def view(conn: Connection, player_id, now: datetime) -> dict:
         "can_predict": bool(live and in_field and mine is None and now < live["predict_until"]),
         "your_prediction_bps": mine["move_bps"] if mine else None,
         "past": [_public(conn, e, empire_id, now) for e in past],
+        # The empire's War Room chat, here too, so members can talk an event over without leaving the page. Only the
+        # empire's own members ever see it.
+        "chat": list(reversed(_rows(conn, "SELECT m.id, p.display_name AS who, m.body, m.at, m.player_id = %s AS yours FROM empire_messages m"
+                                          " JOIN players p ON p.id = m.player_id WHERE m.empire_id = %s ORDER BY m.id DESC LIMIT %s",
+                                    (player_id, empire_id, data.LIVE_CHAT_LINES)))) if empire_id else [],
     }

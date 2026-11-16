@@ -1982,7 +1982,10 @@ def say(conn: Connection, player_id, body: str, now: datetime) -> None:
     body = _text(body or "")
     if not 1 <= len(body) <= 500:
         raise EmpireError("A message is 1 to 500 characters.")
-    conn.execute("INSERT INTO empire_messages (empire_id, player_id, body, at) VALUES (%s, %s, %s, %s)", (seat["empire_id"], player_id, body, now))
+    with conn.transaction():
+        conn.execute("INSERT INTO empire_messages (empire_id, player_id, body, at) VALUES (%s, %s, %s, %s)", (seat["empire_id"], player_id, body, now))
+        from simulation import pings
+        pings.ping(conn, "chat", seat["empire_id"])        # the empire's open screens show it at once
 
 
 # ---------------------------------------------------------------------------

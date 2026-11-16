@@ -69,6 +69,31 @@ rule.
 
 What the plan did, or why a limit refused it, is shown to the empire. A plan cannot be changed while an event runs.
 
+## Part 2: everything at once, and the empire's chat on the page
+
+Built on the owner's "build" the same day, after asking how an empire's members follow an event together. Each member
+plays on their own screen; nobody shares one.
+
+- **Updates the moment they happen.** Each open Live events page (and the desk's live strip, and the Empire page's War
+  Room chat) keeps one quiet line open to the server, shared by the whole browser tab. The server says only what kind
+  of thing changed: the bell, a sealed prediction, a chat message, the standing plan, or the scores. The page then
+  loads itself again, so it still shows each player only what they may see; the line itself never carries a figure or a
+  message. A chat or plan ping goes only to that empire's members.
+- **Prices** move with every trade, so while an event runs the table is still read every ten seconds (five if the line
+  is down).
+- **The bell and the end are on time.** The server's loop wakes just after each bell and each event's end (it otherwise
+  looks every half minute), so screens show the bell and the scores within seconds.
+- **The empire's chat on the page.** The War Room chat (the same one as on the Empire page) is on the Live events page
+  for the empire's members: the last 40 messages and a box to write. Rivals, and players in no empire, never see it.
+- **Phones.** The table scrolls sideways inside its box instead of being cut off; the "computer" tag is hidden there.
+- **Limits that keep it safe.** A line needs a login and is checked every 25 seconds (logging out closes it); one player
+  may have four open, the server five thousand; it closes after twenty minutes and the browser opens a fresh one by
+  itself. If the line drops, the page looks again as soon as it is back, in case it missed something.
+
+Where: `simulation/pings.py`; `server/live_stream.py` (the line, and one listener per server process); the route
+`GET /api/live/stream`; the setting `LIVE_PUSHES` (on; off in the tests, which start it themselves); `web/src/pushes.ts`.
+Tests: `tests/test_live_pushes.py` (8) and `web/src/pushes.test.ts` (3).
+
 ## Where it is
 
 - **Engine:**
@@ -107,6 +132,9 @@ What the plan did, or why a limit refused it, is shown to the empire. A plan can
 Also updated: the news counts in `tests/test_news.py`, and the capitals rule in `web/src/design.test.ts`.
 
 ## Honest limits
+
+- Part 2's line is one-way: the server says something changed and the page asks again, which takes about a second.
+  Voice is still not connected (it needs an outside voice service, the owner's decision).
 
 - The five kinds are the first set. The October list's other themes (Election Weekend, The Great Auction, the Wildcard
   hour, sudden death, trophies, the highlight reel and the rest) are still on the list for later parts.

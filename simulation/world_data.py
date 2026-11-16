@@ -821,6 +821,7 @@ DIVISION_MOVES = 1                                 # how many go up and down bet
 LIVE_EVENT_DAYS = (0, 2, 4)            # Monday, Wednesday and Friday...
 LIVE_EVENT_HOUR = 20                   # ...at 20:00, Lagos time...
 LIVE_EVENT_MINUTES = 30                # ...for thirty minutes
+LIVE_CHAT_LINES = 40                   # the last messages of the empire's chat shown on the Live events page
 LIVE_PREDICT_MINUTES = 10              # predictions are taken in the first ten minutes, sealed
 LIVE_LATE_OPEN_MINUTES = 10            # a server that was down at the bell may still ring it up to ten minutes late
 LIVE_PLACES = (10, 6, 3)               # league points for the first three, for the prediction and again for the money

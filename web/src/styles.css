@@ -1800,6 +1800,8 @@ th[aria-sort="ascending"] .sort-head, th[aria-sort="descending"] .sort-head { co
 .live-predict-row input { width: 130px; font-size: 18px; }
 .live-actions { margin: 0 0 12px; padding-left: 18px; }
 .live-table .live-yours th, .live-table .live-yours td { background: color-mix(in srgb, var(--gold) 8%, transparent); }
+.live-table-wrap { overflow-x: auto; max-width: 100%; }
+@media (max-width: 760px) { .live-table .live-computer { display: none; } }
 .live-wait { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin-bottom: 16px; padding: 20px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
 .live-countdown { font-size: 44px; font-weight: 800; letter-spacing: 0.04em; color: var(--gold); line-height: 1.1; }
 .live-kinds { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
