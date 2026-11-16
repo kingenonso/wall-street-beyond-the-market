@@ -44,7 +44,7 @@ function niceCeil(value: number): number {
   return [1, 2, 2.5, 5, 10].map((m) => m * step).find((candidate) => candidate >= value) ?? 10 * step;
 }
 
-const PLOT = { width: 260, height: 132, left: 4, right: 56, top: 20, bottom: 20 };
+const PLOT = { width: 260, height: 132, left: 4, right: 62, top: 20, bottom: 20 };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** The month a recorded close fell in, from its date written the way the server writes it (2026-11-07). */
@@ -53,7 +53,7 @@ function monthOf(iso: string): string {
   return MONTHS[month - 1] ?? "";
 }
 
-type Point = { label: string; value: number };
+type Point = { label: string; value: number; bench: number | null };
 
 /**
  * The player's own money, as a filled chart. It fills under the line, conventionally: the reference fills above
@@ -63,12 +63,19 @@ type Point = { label: string; value: number };
 function NetWorthPlot({ name, points }: { name: string; points: Point[] }) {
   const [at, setAt] = useState<number | null>(null);
   const W = PLOT.width, H = PLOT.height;
-  const top = niceCeil(Math.max(...points.map((p) => p.value)));
+  const highest = Math.max(...points.map((p) => Math.max(p.value, p.bench ?? 0)));
+  const lowest = Math.min(...points.map((p) => Math.min(p.value, p.bench ?? p.value)));
+  // A record that moved only a little is drawn from just under its lowest point, so the two lines can be told apart;
+  // one that swung by half or more is drawn from nought.
+  const floor = lowest > highest * 0.5 ? Math.floor((lowest * 0.97) / niceCeil(highest / 20)) * niceCeil(highest / 20) : 0;
+  const top = floor + niceCeil(highest - floor);
   const span = Math.max(1, points.length - 1);
   const x = (i: number) => PLOT.left + (i * (W - PLOT.left - PLOT.right)) / span;
-  const y = (value: number) => PLOT.top + ((top - value) * (H - PLOT.top - PLOT.bottom)) / top;
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((n) => top * n);
+  const y = (value: number) => PLOT.top + ((top - value) * (H - PLOT.top - PLOT.bottom)) / (top - floor || 1);
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((n) => floor + (top - floor) * n);
   const line = points.map((p, i) => `${x(i)},${y(p.value)}`).join(" ");
+  // The BSX 50 beside it: the first figure, grown or shrunk exactly as the index was. Drawn only where the index has a close.
+  const bench = points.map((p, i) => (p.bench === null ? null : `${x(i)},${y(p.bench)}`)).filter(Boolean).join(" ");
   const first = points[0], last = points[points.length - 1];
   // About three months along the foot, always including the last, and never two labels for one month.
   const every = Math.max(1, Math.floor(points.length / 3));
@@ -88,13 +95,20 @@ function NetWorthPlot({ name, points }: { name: string; points: Point[] }) {
            aria-label={`${name}'s money, from ${naira(first.value)} on ${first.label} to ${naira(last.value)} on ${last.label}, over ${points.length} closes.`}
            onPointerMove={look} onPointerLeave={() => setAt(null)}>
         <text x={PLOT.left} y={12} className="plot-title">{name}, in naira</text>
+        {bench && (
+          <g className="plot-legend">
+            <line x1={W - PLOT.right - 46} x2={W - PLOT.right - 34} y1={9} y2={9} className="plot-bench" />
+            <text x={W - PLOT.right - 31} y={12} className="tick-label">BSX 50</text>
+          </g>
+        )}
         {ticks.map((tick) => (
           <g key={tick}>
-            <line x1={PLOT.left} x2={W - PLOT.right} y1={y(tick)} y2={y(tick)} className={tick === 0 ? "axis-zero" : "grid-line"} />
+            <line x1={PLOT.left} x2={W - PLOT.right} y1={y(tick)} y2={y(tick)} className={tick === floor ? "axis-zero" : "grid-line"} />
             <text x={W - PLOT.right + 6} y={y(tick) + 3} className="tick-label">{formatCompact(Math.round(tick * 100).toString())}</text>
           </g>
         ))}
-        <polygon className="plot-fill" points={`${PLOT.left},${y(0)} ${line} ${x(points.length - 1)},${y(0)}`} />
+        <polygon className="plot-fill" points={`${PLOT.left},${y(floor)} ${line} ${x(points.length - 1)},${y(floor)}`} />
+        {bench && <polyline className="plot-bench" points={bench} />}
         <polyline className="plot-line" points={line} />
         {/* The first and last months are anchored inward: a name centred on the plot's edge loses its first letter to
             the edge of the drawing, and "Mar" cut to "lar" is a month nobody can read. */}
@@ -110,6 +124,7 @@ function NetWorthPlot({ name, points }: { name: string; points: Point[] }) {
             <circle cx={x(at)} cy={y(shown.value)} r={3} className="plot-dot" />
             <text x={x(at)} y={y(shown.value) - 6} textAnchor={x(at) > W - PLOT.right - 40 ? "end" : "start"} className="plot-read">
               {formatCompact(Math.round(shown.value * 100).toString())}
+              {shown.bench !== null ? ` · BSX 50 ${formatCompact(Math.round(shown.bench * 100).toString())}` : ""}
             </text>
           </g>
         )}
@@ -127,8 +142,13 @@ function naira(value: number): string {
 }
 
 function NetWorthPanel({ player, readout }: { player: Player; readout: Readout | null }) {
-  const points: Point[] = (readout?.net_worth ?? []).map((d) => ({ label: d.session_date, value: Number(BigInt(d.total_kobo) / 100n) }));
+  const points: Point[] = (readout?.net_worth ?? []).map((d) => ({
+    label: d.session_date, value: Number(BigInt(d.total_kobo) / 100n),
+    bench: d.index_kobo == null ? null : Number(BigInt(d.index_kobo) / 100n),
+  }));
   const last = points.length ? points[points.length - 1].value : null;
+  const own = readout?.net_worth_change_bps ?? null, index = readout?.index_change_bps ?? null;
+  const pct = (bps: number) => `${bps > 0 ? "+" : bps < 0 ? "−" : ""}${(Math.abs(bps) / 100).toFixed(1)}%`;
   return (
     <Panel title="Net worth history" aside={last === null ? undefined : naira(last)}>
       {readout === null ? (
@@ -136,7 +156,18 @@ function NetWorthPanel({ player, readout }: { player: Player; readout: Readout |
       ) : points.length === 0 ? (
         <p className="muted small">Your first figure is written at tonight’s Closing Bell. Until then this panel stays empty rather than guessing.</p>
       ) : (
-        <NetWorthPlot name={player.display_name} points={points} />
+        <>
+          <NetWorthPlot name={player.display_name} points={points} />
+          {own !== null && index !== null && (
+            <p className="small vs-index" title="Your figure counts everything that came in and went out, your pay and fees too, not only how your shares did.">
+              <span>You <span className={`mono ${own > 0 ? "change-up" : own < 0 ? "change-down" : ""}`}>{pct(own)}</span></span>
+              <span>BSX 50 <span className={`mono ${index > 0 ? "change-up" : index < 0 ? "change-down" : ""}`}>{pct(index)}</span></span>
+              <span className={own > index ? "change-up" : own < index ? "change-down" : "muted"}>
+                {own > index ? "ahead of the market" : own < index ? "behind the market" : "level with the market"}
+              </span>
+            </p>
+          )}
+        </>
       )}
     </Panel>
   );

@@ -6,7 +6,9 @@
 //
 // Every figure is the server's. What is worked out here is only where to draw it.
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from "react";
+import { hintsFor, readCommand, type Command } from "./command";
+import { TradePanel, type TradePreset } from "./Trade";
 import { api, type CityFlow, type CompetitionScore, type DivisionRow, type Industry, type Player, type PriceLevel, type TradingDay } from "./api";
 import { formatCompact, formatNaira } from "./format";
 import { useLoad } from "./hooks";
@@ -18,13 +20,37 @@ import { Panel } from "./Shell";
 // ---------------------------------------------------------------------------
 
 let chosen: string | null = null;
+// The order a typed command filled in, for the share it names; the trade panel in the rail picks it up.
+let preset: (TradePreset & { ticker: string }) | null = null;
+let stamps = 0;
 const watchers = new Set<() => void>();
+const tellAll = () => watchers.forEach((tell) => tell());
 function choose(ticker: string) {
   chosen = ticker;
-  watchers.forEach((tell) => tell());
+  if (preset && preset.ticker !== ticker) preset = null;
+  tellAll();
 }
+function fillOrder(ticker: string, side: "buy" | "sell", quantity: number, price_kobo: number | null) {
+  chosen = ticker;
+  preset = { ticker, side, quantity, price_kobo, stamp: ++stamps };
+  tellAll();
+}
+const listen = (tell: () => void) => { watchers.add(tell); return () => { watchers.delete(tell); }; };
 function useChosen(): string | null {
-  return useSyncExternalStore((tell) => { watchers.add(tell); return () => { watchers.delete(tell); }; }, () => chosen);
+  return useSyncExternalStore(listen, () => chosen);
+}
+function usePreset() {
+  return useSyncExternalStore(listen, () => preset);
+}
+
+/** Bring a panel of the wall into view (on a phone the rail sits below the wall), and put the cursor in it. */
+function bringUp(id: string, field?: string) {
+  window.setTimeout(() => {
+    const panel = document.getElementById(id);
+    if (!panel) return;
+    panel.scrollIntoView?.({ behavior: "auto", block: "start" });
+    if (field) (panel.querySelector(field) as HTMLElement | null)?.focus({ preventScroll: true });
+  }, 60);
 }
 
 type Row = { ticker: string; name: string; price_kobo: string; change_bps: number };
@@ -143,7 +169,7 @@ function CompanyBoard({ row, onLoggedOut }: { row: Row; onLoggedOut: () => void 
         {q ? <OrderBook offers={q.offers} bids={q.bids} last={q.last_price_kobo} /> : <div className="term-book"><p className="muted small">Reading the order book…</p></div>}
       </div>
       <div className="term-actions">
-        <a className="button-primary" href={`#/companies/${row.ticker}`}>Buy or sell {row.ticker}</a>
+        <button type="button" className="button-primary" onClick={() => bringUp("term-trade", "input")}>Buy or sell {row.ticker}</button>
         <a className="button-outline" href="#/market">The whole market</a>
         <a className="button-outline" href="#/empire">Trade for my empire</a>
       </div>
@@ -279,13 +305,137 @@ function Heat({ onLoggedOut }: { onLoggedOut: () => void }) {
 // The page
 // ---------------------------------------------------------------------------
 
+type Answer = { tone: "plain" | "problem"; title?: string; text: string; example?: string; list?: { text: string; does: string }[] };
+
+/**
+ * The command line across the top of the wall: type a command, press Enter. The lines under it say what each matching
+ * command would do while the player types; the arrow keys move between them and Enter or a click runs one. "/" anywhere
+ * on the desk puts the cursor here.
+ */
+function CommandLine({ onLoggedOut }: { onLoggedOut: () => void }) {
+  const tape = useLoad(api.ticker, "terminal-ticker", onLoggedOut);
+  const shares = tape.data?.shares ?? [];
+  const [line, setLine] = useState("");
+  const [open, setOpen] = useState(false);
+  const [at, setAt] = useState(0);
+  const [answer, setAnswer] = useState<Answer | null>(null);
+  const field = useRef<HTMLInputElement>(null);
+  const hints = hintsFor(line, shares);
+
+  useEffect(() => {
+    function slash(event: globalThis.KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const typing = target && (["input", "textarea", "select"].includes(target.tagName.toLowerCase()) || target.isContentEditable);
+      if (event.key === "/" && !typing && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        field.current?.focus();
+      }
+    }
+    window.addEventListener("keydown", slash);
+    return () => window.removeEventListener("keydown", slash);
+  }, []);
+
+  function run(text: string) {
+    const command: Command = readCommand(text, shares.map((s) => s.ticker));
+    const name = (code: string) => shares.find((s) => s.ticker === code)?.name ?? code;
+    setOpen(false);
+    switch (command.kind) {
+      case "nothing": return;
+      case "show":
+        choose(command.ticker);
+        setAnswer({ tone: "plain", text: `${name(command.ticker)} is on the wall.` });
+        bringUp("term-company");
+        break;
+      case "trade": {
+        fillOrder(command.ticker, command.side, command.quantity, command.price_kobo);
+        const at = command.price_kobo === null ? "" : ` at ${formatNaira(String(command.price_kobo))} each`;
+        setAnswer({ tone: "plain", text: `The order form is filled in: ${command.side} ${command.quantity.toLocaleString("en-NG")} ${name(command.ticker)} shares${at}. Check it, then press the button to send it. Nothing is sent until you do.` });
+        bringUp("term-trade", "button[type=submit]");
+        break;
+      }
+      case "ripple":
+        choose(command.ticker);
+        setAnswer({ tone: "plain", text: `Why ${name(command.ticker)} moved is beside the wall.` });
+        bringUp("term-ripple");
+        break;
+      case "page":
+        window.location.hash = command.href;
+        break;
+      case "help":
+        setAnswer({ tone: "plain", title: command.word, text: command.means, example: command.example });
+        break;
+      case "help-list":
+        setAnswer({ tone: "plain", title: "What you can type", text: "Every command is also a button somewhere on the screen.", list: hintsFor("", shares) });
+        break;
+      case "unknown":
+        setAnswer({ tone: "problem", text: command.message });
+        return;
+    }
+    setLine("");
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    run(open && hints[at] && line.trim() && hints[at].text.toUpperCase().startsWith(line.trim().toUpperCase()) && hints[at].text.toUpperCase() !== line.trim().toUpperCase()
+      ? hints[at].text : line);
+  }
+  function keys(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowDown") { event.preventDefault(); setOpen(true); setAt((a) => Math.min(hints.length - 1, a + 1)); }
+    else if (event.key === "ArrowUp") { event.preventDefault(); setAt((a) => Math.max(0, a - 1)); }
+    else if (event.key === "Escape") { setOpen(false); setAnswer(null); }
+    else if (event.key === "Tab" && open && hints[at] && line.trim()) { event.preventDefault(); setLine(hints[at].text + " "); }
+  }
+
+  return (
+    <section className="cmd" aria-label="The command line">
+      <form className="cmd-form" onSubmit={submit} role="search">
+        <span className="cmd-prompt mono" aria-hidden="true">&gt;</span>
+        <input ref={field} className="cmd-input mono" value={line} spellCheck={false} autoComplete="off"
+               aria-label="Type a command, such as HMB GO, BUY HMB 500, RIPPLE HMB or HELP P/E, and press Enter"
+               aria-expanded={open && hints.length > 0} aria-controls="cmd-hints" role="combobox"
+               aria-activedescendant={open && hints[at] ? `cmd-hint-${at}` : undefined}
+               placeholder="Type a command: HMB GO · BUY HMB 500 · RIPPLE HMB · HELP P/E"
+               onFocus={() => setOpen(true)} onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+               onChange={(event) => { setLine(event.target.value); setOpen(true); setAt(0); }} onKeyDown={keys} />
+        <span className="cmd-key mono small" aria-hidden="true">{line ? "Enter" : "/"}</span>
+      </form>
+      {open && hints.length > 0 && (
+        <ul className="cmd-hints" id="cmd-hints" role="listbox">
+          {hints.map((h, i) => (
+            <li key={h.text} id={`cmd-hint-${i}`} role="option" aria-selected={i === at} className={i === at ? "cmd-hint on" : "cmd-hint"}
+                onMouseDown={(event) => { event.preventDefault(); run(h.text); }} onMouseEnter={() => setAt(i)}>
+              <span className="mono cmd-hint-text">{h.text}</span><span className="cmd-hint-does">{h.does}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {answer && (
+        <div className={answer.tone === "problem" ? "cmd-answer cmd-problem" : "cmd-answer"} role="status">
+          <div className="cmd-answer-text">
+            {answer.title && <span className="mono strong cmd-answer-title">{answer.title}</span>}
+            <span>{answer.text}</span>
+            {answer.example && <span className="muted small">For example: {answer.example}</span>}
+            {answer.list && (
+              <ul className="cmd-list">
+                {answer.list.map((h) => <li key={h.text}><button type="button" className="mono link-button" onClick={() => { setLine(h.text); field.current?.focus(); }}>{h.text}</button> <span className="muted">{h.does}</span></li>)}
+              </ul>
+            )}
+          </div>
+          <button type="button" className="button-quiet small" onClick={() => setAnswer(null)} aria-label="Close this answer">✕</button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function TerminalWork({ onLoggedOut }: { player: Player; onLoggedOut: () => void }) {
   const monitor = useMonitor(onLoggedOut);
   const picked = useChosen();
   const row = monitor.showing(picked);
   return (
     <>
-      {row && <CompanyBoard key={row.ticker} row={row} onLoggedOut={onLoggedOut} />}
+      <CommandLine onLoggedOut={onLoggedOut} />
+      {row && <div id="term-company"><CompanyBoard key={row.ticker} row={row} onLoggedOut={onLoggedOut} /></div>}
       <div className="term-pair">
         <Panel title="Monitor" aside={monitor.mine ? "your watchlist" : "today's biggest moves"}>
           {!monitor.ready && <p className="muted small">Reading the market…</p>}
@@ -406,9 +556,16 @@ export function TerminalRail({ onLoggedOut }: { player: Player; onLoggedOut: () 
   const monitor = useMonitor(onLoggedOut);
   const picked = useChosen();
   const ticker = monitor.showing(picked)?.ticker;
+  const filled = usePreset();
   return (
     <>
-      {ticker && <Ripple key={ticker} ticker={ticker} onLoggedOut={onLoggedOut} />}
+      {ticker && (
+        <div id="term-trade">
+          <TradePanel key={ticker} ticker={ticker} layout="rail" onLoggedOut={onLoggedOut} onTraded={() => undefined}
+                      preset={filled && filled.ticker === ticker ? filled : null} />
+        </div>
+      )}
+      {ticker && <div id="term-ripple"><Ripple key={ticker} ticker={ticker} onLoggedOut={onLoggedOut} /></div>}
       <Duel onLoggedOut={onLoggedOut} />
       <Wire onLoggedOut={onLoggedOut} />
     </>

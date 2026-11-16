@@ -54,3 +54,26 @@ def test_the_money_map_is_the_last_closed_quarters_published_record(client, db):
     assert all(int(c["government_kobo"]) >= 0 and c["jobs"] > 0 for c in body["cities"])
     # Nothing of a player's is in it: the player's own name and money appear nowhere.
     assert "Ada" not in str(body)
+
+
+def test_your_money_is_drawn_against_the_bsx_50_from_the_same_first_close(client, db):
+    """The terminal's second line: the first figure, grown or shrunk exactly as the index was; a close with no index
+    day of its own takes the last one before it."""
+    from datetime import date
+
+    from simulation import ledger
+
+    assert join(client, ADULT).status_code == 201
+    player = db.execute("SELECT id FROM players WHERE lower(email) = lower(%s)", (ADULT["email"],)).fetchone()[0]
+    account = ledger.player_account_id(db, player)
+    db.execute("DELETE FROM net_worth_days WHERE account_id = %s", (account,))
+    days = [date(2090, 1, 2), date(2090, 1, 3), date(2090, 1, 4)]
+    for day, worth in zip(days, [100_000_000, 110_000_000, 105_000_000]):
+        db.execute("INSERT INTO net_worth_days (account_id, session_date, cash, investments) VALUES (%s, %s, %s, 0)", (account, day, worth))
+    for day, level in zip(days[:2], [100_000, 120_000]):
+        db.execute("INSERT INTO index_days (session_date, level) VALUES (%s, %s)", (day, level))
+
+    body = client.get("/api/readout").json()
+    assert [int(p["index_kobo"]) for p in body["net_worth"]] == [100_000_000, 120_000_000, 120_000_000]
+    assert [int(p["total_kobo"]) for p in body["net_worth"]] == [100_000_000, 110_000_000, 105_000_000]
+    assert body["net_worth_change_bps"] == 500 and body["index_change_bps"] == 2000      # +5% against the market's +20%

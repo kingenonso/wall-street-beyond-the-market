@@ -624,9 +624,13 @@ export type Readout = {
   period_label: string | null;
   since: string;
   groups: IndicatorGroup[];
-  net_worth: { session_date: string; total_kobo: Kobo }[];
+  /** index_kobo: the first figure, had it followed the BSX 50 instead (null before the index's first close). */
+  net_worth: { session_date: string; total_kobo: Kobo; index_kobo?: Kobo | null }[];
   net_worth_unit: string;
   my_tickers: string[];
+  /** The player's money and the BSX 50 over the same closes, each as a move from the first. */
+  net_worth_change_bps?: number | null;
+  index_change_bps?: number | null;
 };
 
 export type BellMover = { ticker: string; name: string; close_kobo: Kobo; change_bps: number };

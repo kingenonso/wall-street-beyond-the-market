@@ -264,9 +264,10 @@ describe("the column that never moves", () => {
   });
 
   it("fills the chart under its line, and anchors the first and last month inward", () => {
-    // The fill runs from the zero line, so the colour is where the money is; and a month centred on the plot's
-    // edge loses its first letter — "Mar" came out as "lar" in the first look book.
-    expect(column).toMatch(/points=\{`\$\{PLOT\.left\},\$\{y\(0\)\}/);
+    // The fill runs down from the line to the foot of the scale, so the colour is where the money is (the foot is
+    // nought, or just under the lowest close when the record moved only a little, 16 November 2026); and a month
+    // centred on the plot's edge loses its first letter — "Mar" came out as "lar" in the first look book.
+    expect(column).toMatch(/points=\{`\$\{PLOT\.left\},\$\{y\(floor\)\}/);
     expect(column).toMatch(/textAnchor=\{p\.i === 0 \? "start"/);
   });
 

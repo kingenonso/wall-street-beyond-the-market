@@ -1728,3 +1728,44 @@ th[aria-sort="ascending"] .sort-head, th[aria-sort="descending"] .sort-head { co
 .gauge-mark.mark-up { box-shadow: 0 0 8px var(--up); } .gauge-mark.mark-down { box-shadow: 0 0 8px var(--down); }
 .trend polyline { stroke-width: 1.9; }
 .candle-up rect, .candle-down rect { rx: 0.5px; }
+
+/* The terminal's command line (16 November 2026): type it, press Enter. */
+.cmd { position: relative; margin-bottom: 14px; }
+.cmd-form { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; }
+.cmd-form:focus-within { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+.cmd-prompt { color: var(--gold); font-weight: 700; font-size: 16px; }
+.cmd-input { flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: var(--text); font-size: 15px; letter-spacing: 0.02em; padding: 2px 0; }
+.cmd-input::placeholder { color: var(--muted); }
+.cmd-key { color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; }
+.cmd-hints { position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% - 2px); margin: 0; padding: 4px 0; list-style: none;
+  background: var(--raised); border: 1px solid var(--gold); border-top: 0; border-radius: 0 0 6px 6px; box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45); }
+.cmd-hint { display: flex; gap: 14px; align-items: baseline; padding: 8px 14px; cursor: pointer; border-left: 3px solid transparent; }
+.cmd-hint.on { background: color-mix(in srgb, var(--gold) 10%, var(--raised)); border-left-color: var(--gold); }
+.cmd-hint-text { flex: 0 0 170px; font-weight: 600; color: var(--text); }
+.cmd-hint.on .cmd-hint-text { color: var(--gold); }
+.cmd-hint-does { color: var(--text-2); font-size: 13px; }
+.cmd-answer { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; margin-top: 8px; padding: 10px 14px;
+  background: color-mix(in srgb, var(--info) 8%, var(--panel)); border: 1px solid var(--border); border-left: 3px solid var(--info); border-radius: 6px; }
+.cmd-problem { border-left-color: var(--down); background: color-mix(in srgb, var(--down) 8%, var(--panel)); }
+.cmd-answer-text { display: flex; flex-direction: column; gap: 4px; }
+.cmd-answer-title { color: var(--gold); }
+.cmd-list { margin: 6px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 20px; }
+.cmd-list .link-button { color: var(--gold); }
+@media (max-width: 720px) {
+  .cmd-hint { flex-direction: column; gap: 2px; }
+  .cmd-hint-text { flex: none; }
+  .cmd-list { grid-template-columns: 1fr; }
+  .cmd-input { font-size: 14px; }
+}
+
+/* Net worth against the BSX 50 */
+.plot-bench { fill: none; stroke: var(--info); stroke-width: 1.4; stroke-dasharray: 4 3; stroke-linejoin: round; }
+.vs-index { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0 0; }
+.cmd .cmd-input, .cmd .cmd-input:focus, .cmd .cmd-input:focus-visible { border: 0; outline: none; box-shadow: none; background: transparent; padding: 2px 0; height: auto; }
+.cmd .cmd-input { margin-top: 0; }
+#term-trade, #term-company, #term-ripple { scroll-margin-top: 72px; }
+/* The column's own rule above comes later in this file than the phone rules, so it won back position: sticky on a
+   phone and the column slid over the rail below it. On a phone it lies flat at the foot of the page. */
+@media (max-width: 760px) {
+  .column { position: static; max-height: none; overflow: visible; }
+}

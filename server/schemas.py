@@ -211,6 +211,9 @@ class ReadoutPoint(BaseModel):
     """One recorded close of the player's own money."""
     session_date: date
     total_kobo: Kobo
+    # The terminal: what the first figure on the chart would be worth on this day had it followed the BSX 50 instead.
+    # None for a day before the first recorded close of the index.
+    index_kobo: Kobo | None = None
 
 
 class ReadoutResponse(BaseModel):
@@ -222,6 +225,9 @@ class ReadoutResponse(BaseModel):
     net_worth: list[ReadoutPoint]      # one point per recorded close, oldest first; empty for a world's first day
     net_worth_unit: str                # what the chart's scale and title say the figures are
     my_tickers: list[str]              # the companies whose shares the player holds: what makes a story "my news"
+    # The terminal: the player's money and the BSX 50 over the same closes, each as a move from the first one.
+    net_worth_change_bps: int | None = None
+    index_change_bps: int | None = None
 
 
 class CompanySummary(BaseModel):

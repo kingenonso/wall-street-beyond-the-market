@@ -8,6 +8,7 @@ Stage 2: the player's cash and account history from the ledger, the companies
 from __future__ import annotations
 
 import asyncio
+import bisect
 import logging
 from contextlib import asynccontextmanager, suppress
 from datetime import date, datetime, timezone
@@ -75,6 +76,7 @@ from simulation import clock, exchange, investors, ledger, moneywatch, news, new
 from simulation import auctions, bonds, careers, closingbell, corporate, desks, grants, insight, marketview, messages, objectives
 from simulation import world_data as data
 from simulation.ledger import NGN
+from simulation.money import BPS
 
 log = logging.getLogger("wsbm.server")
 
@@ -752,12 +754,31 @@ def readout(player: dict = Depends(current_player), conn: Connection = Depends(g
             " JOIN companies c ON c.id = m.company_id WHERE b.account_id = %s AND b.balance > 0 ORDER BY c.ticker",
             (account,)).fetchall()
     ]
-    points = [] if account is None else [
-        ReadoutPoint(session_date=r["session_date"], total_kobo=r["cash"] + r["investments"])
-        for r in conn.execute(
-            "SELECT * FROM (SELECT session_date, cash, investments FROM net_worth_days WHERE account_id = %s"
-            " ORDER BY session_date DESC LIMIT %s) d ORDER BY session_date", (account, READOUT_SESSIONS)).fetchall()
-    ]
+    days = [] if account is None else conn.execute(
+        "SELECT * FROM (SELECT session_date, cash, investments FROM net_worth_days WHERE account_id = %s"
+        " ORDER BY session_date DESC LIMIT %s) d ORDER BY session_date", (account, READOUT_SESSIONS)).fetchall()
+    # The BSX 50 beside the player's money: the first figure on the chart, grown or shrunk exactly as the index was
+    # between that close and each later one. A day the index has no close of its own takes the last close before it.
+    levels = [] if not days else conn.execute(
+        "SELECT session_date, level FROM index_days WHERE session_date <= %s ORDER BY session_date",
+        (days[-1]["session_date"],)).fetchall()
+    level_dates = [row["session_date"] for row in levels]
+    def level_on(day):
+        at = bisect.bisect_right(level_dates, day)
+        return levels[at - 1]["level"] if at else None
+    first_total = days[0]["cash"] + days[0]["investments"] if days else 0
+    first_level = level_on(days[0]["session_date"]) if days else None
+    points = []
+    for r in days:
+        level = level_on(r["session_date"])
+        points.append(ReadoutPoint(
+            session_date=r["session_date"], total_kobo=r["cash"] + r["investments"],
+            index_kobo=first_total * level // first_level if first_level and level else None))
+    own_move = index_move = None
+    if len(points) >= 2 and first_total > 0:
+        own_move = (points[-1].total_kobo - first_total) * BPS // first_total
+    if len(points) >= 2 and first_level and points[-1].index_kobo is not None:
+        index_move = (level_on(days[-1]["session_date"]) - first_level) * BPS // first_level
 
     return ReadoutResponse(
         period=period,
@@ -767,6 +788,8 @@ def readout(player: dict = Depends(current_player), conn: Connection = Depends(g
         net_worth=points,
         net_worth_unit="naira",
         my_tickers=mine,
+        net_worth_change_bps=own_move,
+        index_change_bps=index_move,
     )
 
 

@@ -56,12 +56,17 @@ function describe(order: Pick<Order, "side" | "quantity" | "remaining" | "limit_
 }
 
 /** Buy or sell one company's shares, and see your own orders in it. */
-export function TradePanel({ ticker, onLoggedOut, onTraded, layout = "wide" }: {
+/** An order typed on the terminal's command line ("BUY HMB 500"): it fills the form in, and nothing is sent until the
+ * player presses the button. `stamp` changes with every command, so typing the same order twice fills it in again. */
+export type TradePreset = { side: "buy" | "sell"; quantity: number; price_kobo: number | null; stamp: number };
+
+export function TradePanel({ ticker, onLoggedOut, onTraded, layout = "wide", preset = null }: {
   ticker: string;
   onLoggedOut: () => void;
   onTraded: () => void;
   /** "rail": one narrow column beside a company's page, with the waiting orders as bars. */
   layout?: "wide" | "rail";
+  preset?: TradePreset | null;
 }) {
   const rail = layout === "rail";
   const quote = useLoad(() => api.quote(ticker), `quote:${ticker}`, onLoggedOut);
@@ -83,6 +88,14 @@ export function TradePanel({ ticker, onLoggedOut, onTraded, layout = "wide" }: {
   // The switch was set to the empire but the empire cannot be traded for right now (a failed read, or the
   // seat lost its trading): nothing is sent with the player's own money by mistake.
   const empireLost = forEmpire && room === null && !empire.loading;
+  useEffect(() => {
+    if (!preset) return;
+    setSide(preset.side);
+    setQuantity(String(preset.quantity));
+    setProblem(null);
+    setDone(null);
+    if (preset.price_kobo !== null) { setKind("limit"); setPrice((preset.price_kobo / 100).toFixed(2)); }
+  }, [preset?.stamp]); // eslint-disable-line react-hooks/exhaustive-deps
   // An empire the computer runs deals only at a price the trader names.
   useEffect(() => {
     if (empireMode && room?.fair_dealing && kind === "market") setKind("limit");
