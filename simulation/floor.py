@@ -1120,6 +1120,8 @@ def tick(conn: Connection, now: datetime) -> None:
         notes_tick(conn, now)
         hour_tick(conn, now)
     mandates_tick(conn, now)
+    from simulation import prime  # the Archegos moment
+    prime.tick(conn, now)
     if clock.market_state(now).value == "open":
         _computer_calls(conn, now)
 
@@ -1287,6 +1289,7 @@ def requests_view(conn: Connection, player_id, now: datetime) -> dict:
         "blocks": blocks_reported(conn, now),
         "chat": chat_view(conn, player_id, now),
         "mandates": mandates_view(conn, player_id, now),
+        "swaps": _prime_view(conn, player_id, now),
     }
 
 
@@ -1697,3 +1700,8 @@ def tape(conn: Connection, now: datetime) -> list[dict]:
                    (now - timedelta(hours=6), now, data.FLOOR_TAPE_EXCHANGE_NAIRA * 100)):
         items.append({"at": t["at"], "venue": "exchange", "words": "Exchange", "what": t["ticker"], "quantity": t["quantity"], "price": t["price"]})
     return sorted(items, key=lambda x: x["at"], reverse=True)[:30]
+
+
+def _prime_view(conn: Connection, player_id, now: datetime) -> list[dict]:
+    from simulation import prime
+    return prime.view(conn, player_id, now)

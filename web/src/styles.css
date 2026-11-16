@@ -1994,3 +1994,6 @@ span.floor-tag { cursor: default; }
 .floor-squawk.on { background: var(--gold); color: var(--on-accent); }
 .floor-mandates { margin-top: 12px; }
 .floor-mandate-new { border-color: var(--gold); }
+.floor-swap-alarm { border-color: var(--down); background: color-mix(in srgb, var(--down) 12%, var(--raised)); }
+.floor-pop-alarm { border-color: var(--down); }
+.floor-pop-alarm .floor-pop-tag { color: var(--down); }

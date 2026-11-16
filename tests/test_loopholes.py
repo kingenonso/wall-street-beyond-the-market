@@ -297,6 +297,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/floor/mandate"),
         ("POST", "/api/floor/pass"),
         ("POST", "/api/floor/quote"),
+        ("POST", "/api/floor/swap"),
         ("POST", "/api/floor/take"),
         ("POST", "/api/floor/ticket"),
         ("POST", "/api/floor/ticket/answer"),

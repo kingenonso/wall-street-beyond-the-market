@@ -18,11 +18,11 @@ from server import limits
 from server.db import get_connection
 from server.main import _exchange_time, _trading_account, app, current_player
 from server.schemas import Request
-from simulation import duels, exchange, floor
+from simulation import duels, exchange, floor, prime
 
 MONEY = {"realised", "unrealised", "total", "dividends", "fees", "exposure", "cash", "held_for_orders", "value", "price",
          "average_price", "gain", "reference_price", "last_price", "lowest_today", "highest_today", "best_bid", "best_offer",
-         "start_price", "minimum", "fair", "your_limit", "pnl", "benchmark", "average_paid", "commission", "bid", "offer", "last", "low", "high", "cost", "reference", "mid", "cover", "done_at_price"}
+         "start_price", "minimum", "fair", "your_limit", "pnl", "benchmark", "average_paid", "commission", "price_now", "margin", "interest", "offer_value", "bid", "offer", "last", "low", "high", "cost", "reference", "mid", "cover", "done_at_price"}
 
 
 def _wire(value, key: str | None = None):
@@ -165,7 +165,7 @@ def _act(conn: Connection, player: dict, action, bucket: str = "floor", attempts
     limits.allow(bucket, str(player["id"]), attempts=attempts, per_seconds=60)
     try:
         done = action(_exchange_time(conn))
-    except (floor.FloorError, exchange.ExchangeError) as refused:
+    except (floor.FloorError, exchange.ExchangeError, prime.PrimeError) as refused:
         raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
     except (DeadlockDetected, UniqueViolation):
         raise HTTPException(status.HTTP_409_CONFLICT, "Somebody else changed this at the same moment. Please try again.") from None
@@ -319,3 +319,14 @@ class MandateAnswer(Request):
 @app.post("/api/floor/mandate")
 def answer_a_mandate(body: MandateAnswer, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     return _act(conn, player, lambda now: floor.answer_mandate(conn, player["id"], body.mandate_id, body.accept, now), "floor-desk", 20)
+
+
+
+class SwapAnswer(Request):
+    swap_id: int = ID
+    accept: bool = Field(strict=True)
+
+
+@app.post("/api/floor/swap")
+def answer_a_swap(body: SwapAnswer, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: prime.answer(conn, player["id"], body.swap_id, body.accept, now), "floor-desk", 20)

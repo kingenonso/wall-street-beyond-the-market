@@ -609,6 +609,18 @@ export function FloorCalls({ onLoggedOut }: { onLoggedOut: () => void }) {
   const newest = open[0] ? `${open[0].id}:${open[0].asked_you?.id ?? ""}` : undefined;
   const rang = useRef<string | undefined>(undefined);
   useEffect(() => { if (newest && newest !== rang.current) { rang.current = newest; play("decision"); } }, [newest]);
+  const alarm = (f.d?.swaps ?? []).find((s) => s.status === "defaulted" && s.held_now > 0 && (s.stage ?? 0) < 2);
+  if (!here && alarm) {
+    return (
+      <div className="floor-pop-region">
+        <div className="floor-pop floor-pop-alarm" role="alertdialog" aria-labelledby={`swap-pop-${alarm.id}`}>
+          <div className="floor-pop-tag" id={`swap-pop-${alarm.id}`}>● {alarm.fund} missed its margin call</div>
+          <p className="small">You hold {alarm.held_now.toLocaleString("en-NG")} {alarm.ticker} for it, now at {formatNaira(alarm.price_now)}. The other banks are selling. Sell before the next fall, or be the last out.</p>
+          <div className="floor-pop-foot"><a href="#/floor" className="button-primary small">Open the Floor</a></div>
+        </div>
+      </div>
+    );
+  }
   if (here || !f.d || !f.d.desk_open || open.length === 0) return null;
   const r = open[0];
   return (
@@ -665,6 +677,55 @@ export function MandatePanel({ f, onLoggedOut }: { f: Floor; onLoggedOut: () => 
                 {m.score_bps !== null && <> · <span className={m.score_bps >= 0 ? "change-up" : "change-down"}>{signedBps(m.score_bps)} against the average</span></>}.</p>
             )}
             {(m.status === "declined" || m.status === "lapsed") && <p className="small muted">{m.status === "declined" ? "Turned down." : "Not answered in time."}</p>}
+          </div>
+        );
+      })}
+    </Panel>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The Archegos moment: a bank's swaps with a computer hedge fund
+// ---------------------------------------------------------------------------
+
+export function SwapPanel({ f, onLoggedOut }: { f: Floor; onLoggedOut: () => void }) {
+  const act = useAct(f.setFresh, onLoggedOut);
+  const now = useClock(f.d?.now);
+  const list = f.d?.swaps ?? [];
+  if (list.length === 0) return null;
+  return (
+    <Panel title="Prime brokerage" aside="you hold shares for a hedge fund; you see only your own swap" className="floor-panel floor-mandates">
+      {act.error && <p className="small change-down" role="alert">{act.error}</p>}
+      {act.notice && <p className="small" role="status">{act.notice}</p>}
+      {list.map((s) => {
+        const left = secondsLeft(s.answer_by, now);
+        const loss = s.price && s.held_now ? (BigInt(s.price_now) - BigInt(s.price)) * BigInt(s.held_now) : 0n;
+        return (
+          <div key={s.id} className={`floor-request ${s.status === "defaulted" && s.held_now > 0 ? "floor-swap-alarm" : ""}`}>
+            <div className="floor-request-head">
+              <strong>{s.fund}</strong>
+              <span className="small">{s.shares.toLocaleString("en-NG")} <span className="mono strong">{s.ticker}</span> on a swap</span>
+              {s.status === "offered" && <span className="floor-clock mono">{Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")}</span>}
+            </div>
+            {s.status === "offered" && (
+              <>
+                <p className="small">You would buy them now for about {s.offer_value ? formatNaira(s.offer_value) : "—"} and hold them for the fund. It posts 20% as margin with you,
+                  and pays {(s.rate_bps / 100).toFixed(1)}% interest when it closes the swap and buys them back at the market price. If it fails, you keep its margin, and its shares.</p>
+                <div className="duel-actions">
+                  <button className="button-primary small" disabled={act.busy} onClick={() => act.run(() => api.floorSwap(s.id, true), "Taken on: you hold the shares for the fund.")}>Take it on</button>
+                  <button className="button-outline small" disabled={act.busy} onClick={() => act.run(() => api.floorSwap(s.id, false), "Turned down.")}>Turn down</button>
+                </div>
+              </>
+            )}
+            {s.status === "open" && <p className="small">Holding {s.held_now.toLocaleString("en-NG")} at {s.price ? formatNaira(s.price) : "—"}; now {formatNaira(s.price_now)}. Margin held: {s.margin ? formatNaira(s.margin) : "—"}.</p>}
+            {s.status === "defaulted" && (
+              <p className="small" role={s.held_now > 0 ? "alert" : undefined}>
+                <strong className="change-down">{s.fund} missed its margin call.</strong> You keep its margin ({s.margin ? formatNaira(s.margin) : "—"}).
+                {s.held_now > 0 ? <> You still hold {s.held_now.toLocaleString("en-NG")} {s.ticker} ({loss < 0n ? "−" : ""}{formatNaira(String(loss < 0n ? -loss : loss))} on them){s.stage !== null && s.stage < 2 ? ": sell before the next fall, or be the last out." : "."}</> : <> You are out{s.out_before === 1 ? ", before the first fall" : s.out_before === 2 ? ", before the second fall" : ""}.</>}
+              </p>
+            )}
+            {s.status === "closed" && <p className="small">Closed quietly: the fund bought them back and paid {formatNaira(s.interest)} interest.</p>}
+            {(s.status === "declined" || s.status === "lapsed") && <p className="small muted">{s.status === "declined" ? "Turned down." : "Not answered in time."}</p>}
           </div>
         );
       })}

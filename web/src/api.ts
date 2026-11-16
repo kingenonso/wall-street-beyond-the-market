@@ -1190,6 +1190,13 @@ export type FloorRequests = {
   blocks: { at: string; ticker: string; quantity: number; price: Kobo }[];
   chat: { talks: FloorTalk[]; tickets: FloorTicket[] };
   mandates: FloorMandate[];
+  swaps: FloorSwap[];
+};
+/** The Archegos moment: a bank's own swaps with a computer hedge fund. */
+export type FloorSwap = {
+  id: number; fund: string; ticker: string; company: string; shares: number; status: "offered" | "declined" | "lapsed" | "open" | "closed" | "defaulted";
+  answer_by: string; price: Kobo | null; price_now: Kobo; margin: Kobo | null; rate_bps: number; interest: Kobo; held_now: number;
+  stage: number | null; out_before: number | null; offer_value: Kobo | null;
 };
 /** A big client order handed to an asset manager. */
 export type FloorMandate = {
@@ -1605,6 +1612,7 @@ export const api = {
     request<FloorRequests>("/floor/ticket", { method: "POST", body: JSON.stringify(body) }),
   floorTicketAnswer: (ticket_id: number, accept: boolean) => request<FloorRequests>("/floor/ticket/answer", { method: "POST", body: JSON.stringify({ ticket_id, accept }) }),
   floorMandate: (mandate_id: number, accept: boolean) => request<FloorRequests>("/floor/mandate", { method: "POST", body: JSON.stringify({ mandate_id, accept }) }),
+  floorSwap: (swap_id: number, accept: boolean) => request<FloorRequests>("/floor/swap", { method: "POST", body: JSON.stringify({ swap_id, accept }) }),
   floorBonds: () => request<{ bonds: { code: string; name: string; fair: Kobo }[] }>("/floor/bonds"),
   competition: () => request<CompetitionPage>("/competition"),
   competitionPitch: (body: { mandate_id: number; fee_bps: number; take_up_bps: number }) =>

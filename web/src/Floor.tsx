@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, type AuctionLot, type FloorChart, type FloorPage, type NewsItem, type Player } from "./api";
 import { formatChange, formatCompact, formatNaira } from "./format";
-import { AskPanel, BlocksPanel, ChatPanel, DeskPanel, FloorDeals, MandatePanel, ScorePanel, useFloorRequests } from "./FloorDesk";
+import { AskPanel, BlocksPanel, ChatPanel, DeskPanel, FloorDeals, MandatePanel, ScorePanel, SwapPanel, useFloorRequests } from "./FloorDesk";
 import { useLoad } from "./hooks";
 import { Failed, Loading, PageHead, Panel } from "./Shell";
 import { play } from "./sound";
@@ -392,6 +392,7 @@ export function FloorWork({ onLoggedOut }: Props) {
         <Positions d={d} chosen={ticker} onChoose={setPicked} />
       </div>
       <MandatePanel f={requests} onLoggedOut={onLoggedOut} />
+      <SwapPanel f={requests} onLoggedOut={onLoggedOut} />
       {ticker && (
         <div className="floor-grid-requests">
           <AskPanel f={requests} ticker={ticker} onTraded={onFloorDeal} onLoggedOut={onLoggedOut} />

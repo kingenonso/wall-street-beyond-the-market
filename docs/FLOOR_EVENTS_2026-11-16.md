@@ -44,3 +44,28 @@ Where: migration `059_floor_mandates.sql`; `simulation/floor.py` (`mandates_tick
 
 **Honest limit:** big client orders are orders to buy only, for now. An order to sell would need the fund to hand the
 manager its shares first; it can come later.
+
+## The Archegos moment
+
+Modelled on Archegos Capital, March 2021, when the banks that sold first lost little and the last out lost billions.
+
+- **Prime brokerage.** Now and then a computer hedge fund (Kestrel Capital, Obsidian Bay Partners and others) asks every
+  open bank desk to hold shares of one company for it on a swap: up to 30% of the desk's free cash. A banker who takes it
+  on buys the shares at the market price with their own cash and holds them; the fund posts 20% of the value with the
+  bank as margin. The banker has ten minutes to answer. **Each bank sees only its own swap**: never how much the fund
+  asked of the others, nor whether it will blow up.
+- **Most close quietly.** When its time is up (three to eight hours), the fund buys the shares back at the market price,
+  takes its margin back and pays 3% interest.
+- **Some blow up.** About a third, decided from the world's secret when the fund starts. The fund misses its margin
+  call: the banks keep its margin and are left with its shares. The share falls 12% at once, another 20% ten minutes
+  later, and bounces 5% twenty minutes after that. Every banker holding it gets a red pop-up wherever they are in the
+  game: sell before the next fall, or be the last out. The Floor's notes call each fall, and how many banks were still
+  holding at the second: the last out. Each bank's record shows whether it got out before the first fall, the second,
+  or not at all.
+
+Where: migration `060_floor_prime.sql`; `simulation/prime.py`; settings `FLOOR_FUND_*`, `FLOOR_SWAP_*`,
+`FLOOR_BLOWUP_*`; the route `POST /api/floor/swap`; the "Prime brokerage" panel and the red pop-up. Tests:
+`tests/test_prime.py` (2).
+
+**Honest limits:** the computer banks are not in the fund's swaps (only players' desks); and the fall is set by the
+game's rule, on top of whatever the banks' own selling does to the price, rather than coming only from that selling.
