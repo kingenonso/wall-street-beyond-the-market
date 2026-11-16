@@ -12,7 +12,7 @@ import { formatNaira, formatPercent } from "./format";
 import { useLoad } from "./hooks";
 import { Band, BandCell, Failed, Loading, PageHead, Panel } from "./Shell";
 
-type Props = { player: Player; onLoggedOut: () => void };
+type Props = { player: Player; onLoggedOut: () => void; inLive?: boolean };
 
 function useAct(reload: () => void, onLoggedOut: () => void) {
   const [busy, setBusy] = useState(false);
@@ -159,7 +159,7 @@ function MakeCall({ d, act }: { d: CompetitionPage; act: Act }) {
   );
 }
 
-export function CompetitionWork({ onLoggedOut }: Props) {
+export function CompetitionWork({ onLoggedOut, inLive }: Props) {
   const page = useLoad(api.competition, "competition", onLoggedOut);
   const act = useAct(page.reload, onLoggedOut);
   if (page.loading && !page.data) return <Loading what="the competition" />;
@@ -169,8 +169,9 @@ export function CompetitionWork({ onLoggedOut }: Props) {
   const mine = d.contests.find((c) => c.yours && c.quarter === d.quarter);
   return (
     <>
-      <PageHead title="Competition" sub="Work with a winner: against other players, and for your empire" aside={`${d.quarter} · day ${d.day}`} />
-      <Band label="Where you stand" columns={4}>
+      {inLive ? <h2 className="season-head" id="season">The season: competition <span className="small muted">{d.quarter} · day {d.day}</span></h2>
+        : <PageHead title="Competition" sub="Work with a winner: against other players, and for your empire" aside={`${d.quarter} · day ${d.day}`} />}
+      <Band label={inLive ? "Your season" : "Where you stand"} columns={4}>
         <BandCell label="Your forecast" value={mine?.entry ? "● sealed" : mine?.open ? "open" : "—"} note={`closes day ${d.contest_last_day}`} />
         <BandCell label="Your empire" value={d.empire ?? "—"} note={d.empire ? "its best entry earns its points" : "join one for its points"} />
         <BandCell label="Mandates open" value={d.mandates.filter((m) => m.open).length} note={`pitches close on day ${d.pitch_last_day}`} />

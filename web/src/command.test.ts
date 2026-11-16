@@ -26,7 +26,7 @@ describe("the command line", () => {
     expect(readCommand("RIPPLE DSW", LISTED)).toEqual({ kind: "ripple", ticker: "DSW" });
     expect(readCommand("why ikb go", LISTED)).toEqual({ kind: "ripple", ticker: "IKB" });
     expect(readCommand("GOV GO", LISTED)).toMatchObject({ kind: "page", href: "#/government" });
-    expect(readCommand("rivals", LISTED)).toMatchObject({ kind: "page", href: "#/competition" });
+    expect(readCommand("rivals", LISTED)).toMatchObject({ kind: "page", href: "#/live" });
     expect(readCommand("HELP P/E", LISTED)).toMatchObject({ kind: "help", word: "P/E" });
     expect(readCommand("help market value", LISTED)).toMatchObject({ kind: "help", word: "Market value" });
     expect(readCommand("HELP", LISTED)).toEqual({ kind: "help-list" });

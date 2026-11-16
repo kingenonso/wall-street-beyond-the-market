@@ -3,7 +3,6 @@ import { api, type Player } from "./api";
 import { Auth } from "./Auth";
 import { AccountantRail, AccountantWork, AssetManagerRail, AssetManagerWork, BuildRail } from "./BuildDesk";
 import { CareerRail, CareerWork } from "./Career";
-import { CompetitionWork } from "./Competition";
 import { LiveWork } from "./Live";
 import { AuctionHouseWork, FloorWork } from "./Floor";
 import { DuelsWork } from "./Duels";
@@ -230,13 +229,10 @@ export function App() {
     work = <AuctionHouseWork player={player} onLoggedOut={loggedOut} />;
     rail = <></>;
     wide = true;
-  } else if (section === "live") {
+  } else if (section === "live" || section === "competition") {
+    // Competition is the bottom half of the Live events page (owner, 16 November 2026); old links still land there.
     current = "live";
     work = <LiveWork player={player} onLoggedOut={loggedOut} />;
-    rail = <CareerRail player={player} onLoggedOut={loggedOut} />;
-  } else if (section === "competition") {
-    current = "competition";
-    work = <CompetitionWork player={player} onLoggedOut={loggedOut} />;
     rail = <CareerRail player={player} onLoggedOut={loggedOut} />;
   } else if (section === "career" || (section === "build" && !player.build)) {
     current = "career";

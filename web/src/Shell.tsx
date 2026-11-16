@@ -335,7 +335,7 @@ export function sectionsFor(player: Player): Section[] {
     // here from Work.
     { path: "floor", label: "The Floor", tabs: [{ path: "floor", label: "Trading floor" }, { path: "live", label: "Live events" },
                                                 { path: "duels", label: "Duels" }, { path: "predictions", label: "Predictions" },
-                                                { path: "competition", label: "Competition" }, { path: "auctions", label: "Auction House" }] },
+                                                { path: "auctions", label: "Auction House" }] },
     // One section for the empire: its overview, desks, requests, deals, companies and War Room are tabs inside it.
     { path: "empire", label: player.empire ? "Empire" : "Empires", ...(player.empire && !player.empire.forming ? { count: player.empire.waiting, countWords: "waiting" } : {}) },
     // Commodities (Stage 12) is a tab under Markets: buying, storing and selling goods is trading (owner, 14 November 2026).

@@ -14,6 +14,7 @@ import { asKobo } from "./Empire";
 import { formatNaira, formatPercent } from "./format";
 import { useLoad } from "./hooks";
 import { useLivePushes } from "./pushes";
+import { CompetitionWork } from "./Competition";
 import { Band, BandCell, Failed, Loading, PageHead, Panel } from "./Shell";
 
 type Props = { player: Player; onLoggedOut: () => void };
@@ -256,7 +257,7 @@ function Past({ event }: { event: LiveEvent }) {
   );
 }
 
-export function LiveWork({ onLoggedOut }: Props) {
+export function LiveWork({ player, onLoggedOut }: Props) {
   const page = useLoad(api.live, "live-events", onLoggedOut);
   const act = useAct(page.reload, onLoggedOut);
   const d = page.data;
@@ -312,6 +313,7 @@ export function LiveWork({ onLoggedOut }: Props) {
       <Panel title="Past events" aside="newest first">
         {(d.past ?? []).length === 0 ? <p className="muted small">No live event has been held yet.</p> : (d.past ?? []).map((e) => <Past key={e.id} event={e} />)}
       </Panel>
+      <CompetitionWork player={player} onLoggedOut={onLoggedOut} inLive />
     </>
   );
 }

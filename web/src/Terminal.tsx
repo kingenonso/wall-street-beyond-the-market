@@ -523,7 +523,7 @@ function Duel({ onLoggedOut }: { onLoggedOut: () => void }) {
       <p className="small duel-foot">
         {mine < 0
           ? <>You are not in an empire yet, so these are the two at the top. <a href="#/empire">Join one</a> and the duel is yours.</>
-          : <>Points come from tasks, forecasts and mandates. <a href="#/competition">See what is open</a>.</>}
+          : <>Points come from tasks, forecasts and mandates. <a href="#/live">See what is open</a>.</>}
       </p>
     </Panel>
   );

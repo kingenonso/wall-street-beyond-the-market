@@ -2014,3 +2014,6 @@ span.floor-tag { cursor: default; }
 .pm-trade button { width: auto; }
 .pm-yes { background: color-mix(in srgb, var(--up) 22%, var(--raised)); border: 1px solid var(--up); color: var(--text); font-weight: 700; border-radius: 8px; padding: 4px 10px; }
 .pm-no { background: color-mix(in srgb, var(--down) 22%, var(--raised)); border: 1px solid var(--down); color: var(--text); font-weight: 700; border-radius: 8px; padding: 4px 10px; }
+
+/* The season (Competition) under the live events. */
+.season-head { margin: 28px 0 10px; padding-top: 16px; border-top: 1px solid var(--border-strong); display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }

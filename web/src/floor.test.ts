@@ -11,8 +11,8 @@ describe("the Floor", () => {
   it("is a section of its own with the multiplayer tabs", () => {
     const floor = sectionsFor(player).find((s) => s.path === "floor");
     expect(floor?.label).toBe("The Floor");
-    expect(floor?.tabs?.map((t) => t.path)).toEqual(["floor", "live", "duels", "predictions", "competition", "auctions"]);
-    for (const page of ["floor", "live", "duels", "predictions", "competition", "auctions"]) expect(sectionOf(player, page)?.path).toBe("floor");
+    expect(floor?.tabs?.map((t) => t.path)).toEqual(["floor", "live", "duels", "predictions", "auctions"]);
+    for (const page of ["floor", "live", "duels", "predictions", "auctions"]) expect(sectionOf(player, page)?.path).toBe("floor");
   });
   it("took Live events and Competition out of Work", () => {
     const work = sectionsFor(player).find((s) => s.path === "work");
