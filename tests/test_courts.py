@@ -505,7 +505,7 @@ def test_the_court_page_shows_the_docket_and_keeps_the_worlds_secret(client, pla
     body = got.json()
     assert body["ready"] is True
     assert set(body) >= {"docket", "claims", "mine", "regulator", "fund", "kinds", "rules"}
-    assert len(body["kinds"]) == 5
+    assert len(body["kinds"]) == 8                     # five, and the Floor's three (16 November 2026)
     # Money is sent as text, so no figure is ever rounded on the way.
     assert isinstance(body["regulator"]["budget"], str) and isinstance(body["fund"], str)
     # The world's secret, which decides which wrongs become cases, is never sent.
