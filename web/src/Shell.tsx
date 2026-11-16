@@ -8,6 +8,7 @@ import { play } from "./sound";
 import type { LiveClock } from "./useClock";
 import { LeftColumn } from "./LeftColumn";
 import { BankAlerts } from "./Crisis";
+import { FloorCalls } from "./FloorDesk";
 import { FundAlerts } from "./Funds";
 import { EtfAlerts } from "./Etfs";
 import { FxAlerts } from "./Currencies";
@@ -557,6 +558,7 @@ export function Shell({ player, live, current, onLogout, onPlayer, work, rail, a
       </div>
       <BottomBar player={player} current={current} />
       <NewsToasts player={player} onPlayer={onPlayer} />
+      {player.build === "investment_banker" && <FloorCalls onLoggedOut={onLogout} />}
       <BankAlerts onLoggedOut={onLogout} />
       <FundAlerts onLoggedOut={onLogout} />
       <EtfAlerts onLoggedOut={onLogout} />

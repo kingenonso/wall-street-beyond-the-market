@@ -86,6 +86,8 @@ class Hub:
     def hears(line: Line, heard: dict) -> bool:
         if heard["what"] in pings.FOR_EVERYBODY:
             return True
+        if heard["what"] in pings.FOR_THE_PLAYER:
+            return line.player_id == heard.get("player")
         return line.empire_id is not None and line.empire_id == heard["empire"]
 
     def deliver(self, heard: dict) -> int:

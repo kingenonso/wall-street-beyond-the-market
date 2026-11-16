@@ -1897,3 +1897,50 @@ span.floor-tag { cursor: default; }
   .floor-grid-top { grid-template-columns: minmax(0, 1fr); }
   .floor-scroll { max-height: 260px; }
 }
+
+/* The Floor, slice 2: price requests, the desk and the pop-up. */
+.floor-grid-requests { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; margin-top: 12px; }
+.floor-grid-requests > :only-child { grid-column: 1 / -1; }
+.floor-ask { display: flex; flex-direction: column; gap: 8px; }
+.floor-ask-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.floor-ask-row input { flex: 1 1 140px; min-width: 0; }
+.floor-inline { display: flex; align-items: center; gap: 6px; }
+.floor-inline select { width: auto; }
+.floor-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.floor-seg button { width: auto; border: 0; border-radius: 0; padding: 4px 12px; background: var(--raised); color: var(--text); font-weight: 600; }
+.floor-seg button.on { background: var(--gold); color: var(--on-accent); }
+.floor-desks { display: flex; flex-wrap: wrap; gap: 6px; border: 0; padding: 0; margin: 0; }
+.floor-desk { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; cursor: pointer; }
+.floor-desk input { width: auto; margin: 0; }
+.floor-desk.on { border-color: var(--gold); background: var(--gold-soft); }
+.floor-player-tag { font-size: 10px; font-weight: 700; margin-left: 6px; padding: 0 5px; border-radius: 999px; border: 1px solid var(--info); color: var(--info); }
+.floor-live { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.floor-request, .floor-call { border: 1px solid var(--border-strong); border-radius: 10px; padding: 8px 10px; background: var(--raised); }
+.floor-request-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin-bottom: 6px; }
+.floor-request-head > :last-child { margin-left: auto; }
+.floor-request-head button { width: auto; }
+.floor-gone td, .floor-gone th { opacity: 0.5; }
+.floor-best { color: var(--gold); font-weight: 700; }
+.floor-take { white-space: nowrap; text-align: right; }
+.floor-take button { width: auto; padding: 2px 10px; margin-left: 4px; font-weight: 700; border-radius: 6px; color: var(--text); }
+.floor-take-buy { background: color-mix(in srgb, var(--up) 22%, var(--raised)); border: 1px solid var(--up); }
+.floor-take-sell { background: color-mix(in srgb, var(--down) 22%, var(--raised)); border: 1px solid var(--down); }
+.floor-old { margin-top: 10px; }
+.floor-old summary { cursor: pointer; }
+.floor-quote-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.floor-quote-form label { display: flex; flex-direction: column; gap: 2px; }
+.floor-quote-form input { width: 120px; }
+.floor-quote-form select, .floor-quote-form button { width: auto; }
+.floor-clock { font-size: 18px; font-weight: 700; }
+.floor-call-market { margin: 0 0 6px; }
+.floor-desk-switch { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+.floor-desk-switch button { width: auto; flex: none; }
+.floor-outcomes { margin: 6px 0 0; padding-left: 18px; }
+.floor-pop-region { position: fixed; right: 16px; bottom: 16px; z-index: 55; max-width: min(460px, calc(100vw - 32px)); }
+.floor-pop { background: var(--panel); border: 2px solid var(--gold); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); }
+.floor-pop-tag { color: var(--gold); font-weight: 700; font-size: 12px; letter-spacing: 0.06em; margin-bottom: 6px; }
+.floor-pop .floor-call { background: none; border: 0; padding: 0; }
+.floor-pop-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+.floor-pop-foot button { width: auto; }
+@media (max-width: 1100px) { .floor-grid-requests { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 760px) { .floor-pop-region { right: 8px; left: 8px; bottom: 84px; max-width: none; } .floor-quote-form input { width: 100px; } }

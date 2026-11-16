@@ -104,6 +104,13 @@ def _close_due_quarters_once() -> None:
                     rang = liveevents.tick(conn, now)
                 except Exception:                   # a fault here must never hold up the market
                     log.exception("The live event failed to ring or to be scored; it will be tried again.")
+            # The Floor (16 November 2026): computer clients decide on the prices they were given, and call the open desks.
+            if conn.execute("SELECT to_regclass('floor_requests') IS NOT NULL").fetchone()[0]:
+                from simulation import floor
+                try:
+                    floor.tick(conn, now)
+                except Exception:                   # a fault here must never hold up the market
+                    log.exception("The Floor's computer clients failed; they will be tried again.")
             # The computer-run investors look at the market and renew their orders.
             investors.act(conn, now, force=rang)
             # After 22:00 the Closing Bell goes out, once for each trading day.

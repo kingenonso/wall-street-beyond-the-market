@@ -88,6 +88,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
     by players (test_empires.py, test_savings.py, test_empire_api.py): every one of those requests acts
     on the empire or fund the server knows the player belongs to, and moves money only through the ledger.
     Live events (16 November 2026) added a member's sealed prediction and the head's standing plan (test_live_events.py).
+    The Floor (16 November 2026) added opening a desk, asking for prices, quoting, taking and passing (test_floor.py).
     Stage 7 added resignation letters, counter-offers and the vote for a head (test_leaving.py), rank cases
     and reports of marking (test_mastery.py, test_rank_api.py). The private equity stage, part 1, added the firm: duties,
     requests, votes, papers, borrowing, budgets, contracts, poaching, tasks, events and cover (test_firm.py, test_firm_api.py),
@@ -282,6 +283,11 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/firms/pay-out"),
         ("POST", "/api/firms/restructurings"),
         ("POST", "/api/firms/signup"),
+        ("POST", "/api/floor/ask"),
+        ("POST", "/api/floor/desk"),
+        ("POST", "/api/floor/pass"),
+        ("POST", "/api/floor/quote"),
+        ("POST", "/api/floor/take"),
         ("POST", "/api/funds/launch"),
         ("POST", "/api/funds/manage/bonds"),
         ("POST", "/api/funds/manage/close"),

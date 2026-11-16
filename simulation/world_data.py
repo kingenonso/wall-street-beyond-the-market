@@ -1840,3 +1840,37 @@ COURT_WASH_TRADES = 3                       # this many trades with itself in a 
 COURT_RAMP_BUYS = 3                         # this many buys before sales into the rise is a ramp
 COURT_STAKE_STEP_BPS = 500                  # every 5% step in a listed company must be made public
 COURT_SHORT_PREMIUM_BPS = 500               # a forced buy-in costs 5% above the close (the same as the buy-in itself)
+
+# ---------------------------------------------------------------------------
+# The Floor (16 November 2026): price requests between clients and banks
+# ---------------------------------------------------------------------------
+FLOOR_WINDOW_SECONDS = (15, 60)        # the client chooses how long the banks have to answer
+FLOOR_QUOTE_SECONDS = (10, 60)         # a bank chooses how long its prices hold
+FLOOR_MOST_DESKS = 5                   # one to five banks for each request
+FLOOR_MOST_OPEN_REQUESTS = 3           # a player's requests waiting at once
+FLOOR_MOST_SHARES_BPS = 100            # one request is at most 1% of a company's shares
+# The computer banks: (code, name, spread in hundredths of a percent, seconds to answer). Their style shows in the price.
+FLOOR_COMPUTER_DESKS = (
+    ("goldbridge", "Goldbridge Securities", 40, 4),
+    ("atlas", "Atlas Bank Markets", 55, 8),
+    ("coral", "Coral Street Capital", 80, 3),
+    ("nigervalley", "Niger Valley Brokers", 65, 12),
+    ("lagoon", "Lagoon Markets", 50, 6),
+    ("sahel", "Sahel Capital Desk", 110, 15),
+)
+FLOOR_COMPUTER_QUOTE_SECONDS = 30
+FLOOR_SIZE_SPREAD_BPS = 10             # a computer bank widens its price this much for each ₦10m in the deal...
+FLOOR_SIZE_SPREAD_MOST_BPS = 150       # ...up to this much
+# Computer clients ask the players' open desks for prices, so a banker always has work: (name, style, seconds given).
+FLOOR_COMPUTER_CLIENTS = (
+    ("Harbour Pension Fund", "patient", 60),
+    ("Kano Growth Fund", "steady", 40),
+    ("Delta Insurance", "patient", 50),
+    ("Eko Family Office", "steady", 35),
+    ("Savanna Foreign Fund", "impatient", 15),
+    ("Plateau Asset Management", "steady", 30),
+    ("Benue Cement Treasury", "impatient", 20),
+    ("Swift Alpha Partners", "fast", 15),
+)
+FLOOR_CLIENT_CALL_CHANCE = 6           # each check, one chance in this many of a call to each open player desk
+FLOOR_CLIENT_DEAL_NAIRA = (2_000_000, 60_000_000)    # what a computer client's request is worth

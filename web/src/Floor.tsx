@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, type AuctionLot, type FloorChart, type FloorPage, type NewsItem, type Player } from "./api";
 import { formatChange, formatCompact, formatNaira } from "./format";
+import { AskPanel, DeskPanel, FloorDeals, useFloorRequests } from "./FloorDesk";
 import { useLoad } from "./hooks";
 import { Failed, Loading, PageHead, Panel } from "./Shell";
 import { play } from "./sound";
@@ -145,7 +146,7 @@ function Positions({ d, chosen, onChoose }: { d: FloorPage; chosen: string | nul
                 <tr key={t.id}>
                   <td className="mono small" title={new Date(t.traded_at).toLocaleString("en-NG", { timeZone: "Africa/Lagos" })}>{lagosTime(t.traded_at)}</td>
                   <th scope="row" className="mono">{t.ticker}</th>
-                  <td className={t.side === "buy" ? "change-up" : t.side === "sell" ? "change-down" : "muted"}>{t.side === "both" ? "own trade" : t.side === "buy" ? "Bought" : "Sold"}</td>
+                  <td className={t.side === "buy" ? "change-up" : t.side === "sell" ? "change-down" : "muted"}>{t.side === "both" ? "own trade" : t.side === "buy" ? "Bought" : "Sold"}{t.venue === "floor" && <span className="floor-player-tag" title="Done with a bank on the Floor, away from the exchange">floor</span>}</td>
                   <td className="num mono">{t.quantity.toLocaleString("en-NG")}</td>
                   <td className="num mono">{formatNaira(t.price)}</td>
                   <td className="num mono muted">{formatNaira(t.fee)}</td>
@@ -322,9 +323,13 @@ export function FloorWork({ onLoggedOut }: Props) {
   const serverNow = d ? clock + (new Date(d.now).getTime() - Date.now()) : clock;
   useEvery(chart.reload, 15_000);
 
+  const requests = useFloorRequests(onLoggedOut);
+  const tradedRef = useRef<() => void>(() => undefined);
+  const onFloorDeal = useMemo(() => () => tradedRef.current(), []);
   if (page.loading && !d) return <Loading what="the trading floor" />;
   if (page.error || !d) return <Failed message={page.error ?? "Could not load the trading floor."} onRetry={page.reload} />;
   const traded = () => { page.reload(); chart.reload(); };
+  tradedRef.current = traded;
   return (
     <>
       <PageHead title="Trading floor" sub="Your own account: the market, the news, your positions and every trade, on one screen" aside={d.market_state === "open" ? "market open" : d.market_state === "opening_auction" ? "opening auction" : "market closed"} />
@@ -335,11 +340,18 @@ export function FloorWork({ onLoggedOut }: Props) {
         <Positions d={d} chosen={ticker} onChoose={setPicked} />
       </div>
       {ticker && (
+        <div className="floor-grid-requests">
+          <AskPanel f={requests} ticker={ticker} onTraded={onFloorDeal} onLoggedOut={onLoggedOut} />
+          <DeskPanel f={requests} onLoggedOut={onLoggedOut} />
+        </div>
+      )}
+      {ticker && (
         <div className="floor-grid-bottom">
           <ExchangeBox ticker={ticker} feeBps={d.fee_bps} chart={chart.data} onTraded={traded} onLoggedOut={onLoggedOut} />
           <Chart chart={chart.data} zoom={zoom} setZoom={setZoom} now={serverNow} />
         </div>
       )}
+      <FloorDeals f={requests} />
     </>
   );
 }

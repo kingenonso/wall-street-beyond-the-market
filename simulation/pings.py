@@ -21,13 +21,21 @@ CHANNEL = "wsbm_live"
 # count is public). "chat": a message in an empire's War Room. "plan": an empire's standing plan changed.
 FOR_EVERYBODY = {"event", "prediction"}
 FOR_THE_EMPIRE = {"chat", "plan"}
-KINDS = FOR_EVERYBODY | FOR_THE_EMPIRE
+# The Floor (16 November 2026): "floor" goes to one player: a request reached their desk, a price reached them, or a deal
+# they were part of was done.
+FOR_THE_PLAYER = {"floor"}
+KINDS = FOR_EVERYBODY | FOR_THE_EMPIRE | FOR_THE_PLAYER
 
 
-def ping(conn: Connection, what: str, empire_id: int | None = None) -> None:
+def ping(conn: Connection, what: str, empire_id: int | None = None, *, player: str | None = None) -> None:
     if what not in KINDS:
         raise ValueError(f"Not a kind of ping: {what}")
-    conn.execute("SELECT pg_notify(%s, %s)", (CHANNEL, json.dumps({"what": what, "empire": empire_id})))
+    if (what in FOR_THE_PLAYER) != (player is not None):
+        raise ValueError("A floor ping names its player; no other ping does.")
+    heard = {"what": what, "empire": empire_id}
+    if player is not None:
+        heard["player"] = str(player)
+    conn.execute("SELECT pg_notify(%s, %s)", (CHANNEL, json.dumps(heard)))
 
 
 def read(payload: str) -> dict | None:
@@ -43,4 +51,9 @@ def read(payload: str) -> dict | None:
         return None
     if heard["what"] in FOR_THE_EMPIRE and empire is None:
         return None
+    if heard["what"] in FOR_THE_PLAYER:
+        player = heard.get("player")
+        if not isinstance(player, str) or not player:
+            return None
+        return {"what": heard["what"], "empire": None, "player": player}
     return {"what": heard["what"], "empire": empire}

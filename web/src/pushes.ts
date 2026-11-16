@@ -7,7 +7,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-export type PushKind = "event" | "prediction" | "chat" | "plan";
+export type PushKind = "event" | "prediction" | "chat" | "plan" | "floor";
 
 /** Pings arriving close together (many members sealing at once) become one reload. */
 export const GATHER_MS = 250;
@@ -21,7 +21,7 @@ export function wanted(data: string, only?: readonly PushKind[]): PushKind[] {
     return [];
   }
   if (!Array.isArray(kinds)) return [];
-  const known: PushKind[] = ["event", "prediction", "chat", "plan"];
+  const known: PushKind[] = ["event", "prediction", "chat", "plan", "floor"];
   return kinds.filter((k): k is PushKind => known.includes(k as PushKind) && (!only || only.includes(k as PushKind)));
 }
 
@@ -55,7 +55,7 @@ function connect() {
   line.addEventListener("hello", () => {
     setAll(true);
     // Back after a dropped line: something may have happened meanwhile.
-    if (before) tell(["event", "prediction", "chat", "plan"]);
+    if (before) tell(["event", "prediction", "chat", "plan", "floor"]);
     before = true;
   });
   line.addEventListener("changed", (message) => {
