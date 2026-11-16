@@ -186,7 +186,8 @@ function Section({ name, rec, names }: { name: string; rec: Partial<TalentRecord
     return (
       <Panel title={title} aside="price requests: as a client against the exchange, and as a bank">
         <Facts items={[["Deals as a client", f.client_deals], ["Against the exchange, on average", f.average_vs_exchange_bps === null ? "n/a" : pct(f.average_vs_exchange_bps)],
-          ["Deals won as a bank", f.bank_deals], ["Could not deliver", f.failed], ["Prices backed away from", f.backed_away], ["Places in live events and floor hours", f.places]]} />
+          ["Deals won as a bank", f.bank_deals], ["Could not deliver", f.failed], ["Prices backed away from", f.backed_away], ["Places in live events and floor hours", f.places],
+          ["Big client orders", f.mandates ?? 0], ["Done in full", f.completed ?? 0], ["Against the market's average", f.average_score_bps === null || f.average_score_bps === undefined ? "n/a" : pct(f.average_score_bps)]]} />
       </Panel>
     );
   }

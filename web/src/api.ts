@@ -1138,6 +1138,8 @@ export type FloorPage = {
   event: { name: string; pnl: Kobo; ends_at: string } | null;
   floor_hour: { starts_at: string; ends_at: string } | null;
   hour_at: string;
+  /** The deal tape: every Floor deal and every big exchange trade, newest first; never a client's name. */
+  tape: { at: string; venue: "floor" | "block" | "exchange"; words: string; what: string; quantity: number; price: Kobo }[];
 };
 export type FloorChart = {
   ticker: string; name: string; minutes: number; state: MarketState; session_date: string; today: boolean;
@@ -1187,6 +1189,14 @@ export type FloorRequests = {
   scorecard: { deals: { id: number; at: string; what: string; price: Kobo; quantity: number; bought: boolean; vs_exchange_bps: number | null; vs_cover_bps: number | null }[]; average_vs_exchange_bps: number | null };
   blocks: { at: string; ticker: string; quantity: number; price: Kobo }[];
   chat: { talks: FloorTalk[]; tickets: FloorTicket[] };
+  mandates: FloorMandate[];
+};
+/** A big client order handed to an asset manager. */
+export type FloorMandate = {
+  id: number; client_name: string; ticker: string; name: string; quantity: number; offered_at: string; answer_by: string;
+  status: "offered" | "working" | "declined" | "lapsed" | "done"; started_at: string | null; deadline: string | null;
+  delivered: number | null; benchmark: Kobo | null; average_paid: Kobo | null; commission: Kobo | null; score_bps: number | null;
+  live_event: boolean; bought_so_far?: number;
 };
 
 /** Duels on the Floor (16 November 2026): two empires against each other in a live event. */
@@ -1594,6 +1604,7 @@ export const api = {
   floorTicket: (body: { to: string; ticker: string; side: "buy" | "sell"; quantity: number; price_kobo: number }) =>
     request<FloorRequests>("/floor/ticket", { method: "POST", body: JSON.stringify(body) }),
   floorTicketAnswer: (ticket_id: number, accept: boolean) => request<FloorRequests>("/floor/ticket/answer", { method: "POST", body: JSON.stringify({ ticket_id, accept }) }),
+  floorMandate: (mandate_id: number, accept: boolean) => request<FloorRequests>("/floor/mandate", { method: "POST", body: JSON.stringify({ mandate_id, accept }) }),
   floorBonds: () => request<{ bonds: { code: string; name: string; fair: Kobo }[] }>("/floor/bonds"),
   competition: () => request<CompetitionPage>("/competition"),
   competitionPitch: (body: { mandate_id: number; fee_bps: number; take_up_bps: number }) =>
@@ -1689,7 +1700,8 @@ export type TalentRecord = {
   conduct: { proved: number; entries: { kind: string; words: string; at: string }[] };
   challenges: { entered: number; wins: number; top_tenth: number; results: { id: number; title: string; firm: string; place: number | null; entrants: number }[] };
   /** The Floor (16 November 2026). Missing on records worked out before it. */
-  floor?: { client_deals: number; average_vs_exchange_bps: number | null; bank_deals: number; failed: number; backed_away: number; places: number };
+  floor?: { client_deals: number; average_vs_exchange_bps: number | null; bank_deals: number; failed: number; backed_away: number; places: number;
+            mandates?: number; completed?: number; average_score_bps?: number | null };
   funds: { funds: TalentFund[]; best_stars: number | null; five_star_quarters: number; runs_survived: number };
 };
 export type TalentFund = {

@@ -643,3 +643,44 @@ def test_the_floors_wrongs_go_to_the_tribunal(db):
     assert courts._standing(db, client, found["front_running"]) is None
     assert "wronged" in courts._standing(db, friend, found["front_running"])
     assert "regulator" in courts._standing(db, client, found["collusion"])
+
+
+# ---------------------------------------------------------------------------
+# Big client orders, and the deal tape
+# ---------------------------------------------------------------------------
+
+@pytest.mark.world("eight")
+def test_a_big_client_order_is_offered_worked_delivered_and_scored(db, monkeypatch):
+    from tests.test_builds import pro
+    from tests.test_careers import NOW9, sound
+    me, account = pro(db, "asset_manager", "manager", level=5, cash_naira=50_000_000)
+    monkeypatch.setattr(floor.data, "FLOOR_MANDATE_CHANCE", 1)
+    floor.tick(db, NOW9)
+    m = floor.mandates_view(db, me, NOW9)[0]
+    assert m["status"] == "offered" and m["quantity"] > 0
+    with pytest.raises(floor.FloorError, match="no such order"):
+        floor.answer_mandate(db, pro(db, "asset_manager", "other", level=5)[0], m["id"], True, NOW9)
+    floor.answer_mandate(db, me, m["id"], True, NOW9 + timedelta(minutes=1))
+    with pytest.raises(floor.FloorError, match="no longer on offer"):
+        floor.answer_mandate(db, me, m["id"], True, NOW9 + timedelta(minutes=2))
+    # The manager buys part of it from a computer bank on the Floor.
+    part = max(m["quantity"] // 2 // 100 * 100, 100)
+    rid = floor.ask(db, me, m["ticker"], "buy", part, 30, ["computer:goldbridge"], NOW9 + timedelta(minutes=2))["request_id"]
+    q = floor.requests_view(db, me, NOW9 + timedelta(minutes=2, seconds=20))["mine"][0]["quotes"][0]
+    floor.take(db, me, rid, q["id"], "buy", NOW9 + timedelta(minutes=2, seconds=20))
+    assert floor.mandates_view(db, me, NOW9 + timedelta(minutes=3))[0]["bought_so_far"] == part
+    cash = ledger.balance(db, account)
+    monkeypatch.setattr(floor.data, "FLOOR_MANDATE_CHANCE", 10**9)
+    floor.tick(db, NOW9 + timedelta(minutes=32))
+    done = floor.mandates_view(db, me, NOW9 + timedelta(minutes=32))[0]
+    assert done["status"] == "done" and done["delivered"] == part and done["score_bps"] is not None
+    assert ledger.balance(db, account) == cash + part * done["benchmark"] + done["commission"]
+    floor.settle_mandate(db, m["id"], NOW9 + timedelta(minutes=33))               # once only
+    assert floor.mandates_view(db, me, NOW9 + timedelta(minutes=33))[0]["delivered"] == part
+    # The deal tape names the computer bank, never the client.
+    items = floor.tape(db, NOW9 + timedelta(minutes=33))
+    assert any(i["words"].startswith("Goldbridge") and i["what"] == m["ticker"] for i in items)
+    assert "manager" not in repr(items)
+    from simulation import talent
+    assert talent.floor_record(db, me)["mandates"] == 1
+    sound(db)

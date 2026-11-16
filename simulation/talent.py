@@ -429,7 +429,7 @@ def floor_record(conn: Connection, player_id) -> dict:
     places = _one(conn, "SELECT count(*)::int AS n FROM floor_scores WHERE player_id = %s", (player_id,))["n"] \
         if _one(conn, "SELECT to_regclass('floor_scores') IS NOT NULL AS ok")["ok"] else 0
     return {"client_deals": len(card["deals"]), "average_vs_exchange_bps": card["average_vs_exchange_bps"], "bank_deals": won,
-            "failed": desk["failed"], "backed_away": desk["backed_away"], "places": places}
+            "failed": desk["failed"], "backed_away": desk["backed_away"], "places": places, **floor.mandate_record(conn, player_id)}
 
 
 def fund_record(conn: Connection, player_id) -> dict:

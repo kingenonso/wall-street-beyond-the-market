@@ -1983,3 +1983,14 @@ span.floor-tag { cursor: default; }
 .duel-rivals { list-style: none; margin: 0; padding: 0; }
 .duel-rivals li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 0; border-bottom: 1px solid var(--border); }
 .duel-rivals li button { width: auto; margin-left: auto; }
+
+/* The deal tape, the squawk and big client orders. */
+.floor-tape { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); padding: 4px 6px; min-width: 0; }
+.floor-tape-run { display: flex; gap: 18px; overflow-x: auto; white-space: nowrap; min-width: 0; flex: 1; scrollbar-width: thin; }
+.floor-tape-item { font-size: 12px; }
+.floor-tape-block strong { color: var(--gold); }
+.floor-tape-floor strong { color: var(--info); }
+.floor-squawk { width: auto; flex: none; font-size: 12px; padding: 2px 8px; border-radius: 6px; background: var(--raised); border: 1px solid var(--border); color: var(--text); }
+.floor-squawk.on { background: var(--gold); color: var(--on-accent); }
+.floor-mandates { margin-top: 12px; }
+.floor-mandate-new { border-color: var(--gold); }

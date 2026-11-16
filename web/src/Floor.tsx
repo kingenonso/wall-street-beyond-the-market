@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, type AuctionLot, type FloorChart, type FloorPage, type NewsItem, type Player } from "./api";
 import { formatChange, formatCompact, formatNaira } from "./format";
-import { AskPanel, BlocksPanel, ChatPanel, DeskPanel, FloorDeals, ScorePanel, useFloorRequests } from "./FloorDesk";
+import { AskPanel, BlocksPanel, ChatPanel, DeskPanel, FloorDeals, MandatePanel, ScorePanel, useFloorRequests } from "./FloorDesk";
 import { useLoad } from "./hooks";
 import { Failed, Loading, PageHead, Panel } from "./Shell";
 import { play } from "./sound";
@@ -55,6 +55,46 @@ function Bar({ d }: { d: FloorPage }) {
           <span className={`floor-bar-value mono ${by ? tone(by) : ""}`}>{value}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The deal tape, and the squawk (headlines read out, if the player turns it on)
+// ---------------------------------------------------------------------------
+
+function useSquawk(d: FloorPage) {
+  const [on, setOn] = useState(() => { try { return window.localStorage.getItem("wsbm-squawk") === "on"; } catch { return false; } });
+  const heard = useRef<Set<string>>(new Set());
+  const first = useRef(true);
+  useEffect(() => {
+    const fresh = d.notes.filter((n) => !heard.current.has(`${n.at}${n.words}`));
+    fresh.forEach((n) => heard.current.add(`${n.at}${n.words}`));
+    if (first.current) { first.current = false; return; }
+    if (!on || typeof window.speechSynthesis === "undefined") return;
+    for (const n of fresh.reverse()) window.speechSynthesis.speak(new SpeechSynthesisUtterance(n.words));
+  }, [d.notes, on]);
+  const toggle = () => setOn((was) => {
+    try { window.localStorage.setItem("wsbm-squawk", was ? "off" : "on"); } catch { /* not remembered: fine */ }
+    if (was && typeof window.speechSynthesis !== "undefined") window.speechSynthesis.cancel();
+    return !was;
+  });
+  return { on, toggle };
+}
+
+function Tape({ d }: { d: FloorPage }) {
+  const squawk = useSquawk(d);
+  return (
+    <div className="floor-tape" aria-label="The deal tape">
+      <button className={squawk.on ? "floor-squawk on" : "floor-squawk"} aria-pressed={squawk.on} onClick={squawk.toggle}
+              title="Read the Floor's notes out loud as they come">{squawk.on ? "Squawk on" : "Squawk off"}</button>
+      <div className="floor-tape-run">
+        {d.tape.length === 0 ? <span className="muted small">No deals yet today.</span> : d.tape.map((t, i) => (
+          <span key={i} className={`floor-tape-item floor-tape-${t.venue}`}>
+            <span className="mono muted">{lagosTime(t.at)}</span> {t.venue === "block" ? "Block: " : ""}{t.words} <strong className="mono">{t.quantity.toLocaleString("en-NG")} {t.what}</strong> at <span className="mono">{formatNaira(t.price)}</span>
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -345,11 +385,13 @@ export function FloorWork({ onLoggedOut }: Props) {
       <PageHead title="Trading floor" sub={`Your own account: the market, the news, your positions and every trade, on one screen. The floor hour is every trading day at ${d.hour_at}.`} aside={d.market_state === "open" ? "market open" : d.market_state === "opening_auction" ? "opening auction" : "market closed"} />
       {d.floor_hour && <p className="floor-hour" role="status"><strong>The floor hour</strong> until {new Date(d.floor_hour.ends_at).toLocaleTimeString("en-NG", { timeZone: "Africa/Lagos", hour: "2-digit", minute: "2-digit" })}: the clients call twice as often, and the best banks and clients of the hour are named at the end.</p>}
       <Bar d={d} />
+      <Tape d={d} />
       <div className="floor-grid-top">
         <MarketList chosen={ticker} onChoose={setPicked} onLoggedOut={onLoggedOut} />
         <NewsFeed notes={d.notes} onChoose={setPicked} onLoggedOut={onLoggedOut} />
         <Positions d={d} chosen={ticker} onChoose={setPicked} />
       </div>
+      <MandatePanel f={requests} onLoggedOut={onLoggedOut} />
       {ticker && (
         <div className="floor-grid-requests">
           <AskPanel f={requests} ticker={ticker} onTraded={onFloorDeal} onLoggedOut={onLoggedOut} />

@@ -72,6 +72,7 @@ def screen(conn: Connection, account: UUID | str, now: datetime) -> dict:
         "event": event_pnl(conn, account, now) if _one(conn, "SELECT to_regclass('floor_trades') IS NOT NULL AS ok")["ok"] else None,
         "floor_hour": {"starts_at": h[0], "ends_at": h[1]} if (h := floor_hour(now)) else None,
         "hour_at": f"{data.FLOOR_HOUR}:00",
+        "tape": tape(conn, now),
     }
 
 
@@ -1118,6 +1119,7 @@ def tick(conn: Connection, now: datetime) -> None:
     if _one(conn, "SELECT to_regclass('floor_notes') IS NOT NULL AS ok")["ok"]:
         notes_tick(conn, now)
         hour_tick(conn, now)
+    mandates_tick(conn, now)
     if clock.market_state(now).value == "open":
         _computer_calls(conn, now)
 
@@ -1284,6 +1286,7 @@ def requests_view(conn: Connection, player_id, now: datetime) -> dict:
         "scorecard": scorecard(conn, account),
         "blocks": blocks_reported(conn, now),
         "chat": chat_view(conn, player_id, now),
+        "mandates": mandates_view(conn, player_id, now),
     }
 
 
@@ -1527,3 +1530,170 @@ def wrongs(conn: Connection, since: datetime, now: datetime) -> list[dict]:
                             "lines": [{"what": f"Both banks priced the same request in {pair['ticker']}, and wrote to each other while it was open"}],
                             "words": f"Agreed prices with another bank on a client's request in {pair['ticker']} on the Floor."})
     return out
+
+
+# ---------------------------------------------------------------------------
+# Big client orders (mandates), and the deal tape
+# ---------------------------------------------------------------------------
+
+def _offer_mandate(conn: Connection, player_id, company: dict, quantity: int, client: str, now: datetime, event_id=None) -> int:
+    row = _one(conn, "INSERT INTO floor_mandates (player_id, client_name, company_id, quantity, offered_at, answer_by, event_id)"
+                     " VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+               (player_id, client, company["id"], quantity, now, now + timedelta(minutes=data.FLOOR_MANDATE_ANSWER_MINUTES), event_id))
+    _ping_player(conn, player_id)
+    return row["id"]
+
+
+def _mandate_size(conn: Connection, player_id, price: int) -> int:
+    from simulation import ledger
+    cash = ledger.balance(conn, ledger.player_account_id(conn, player_id))
+    low, high = data.FLOOR_MANDATE_NAIRA
+    value = min(max(cash * data.FLOOR_MANDATE_CASH_BPS // BPS, low * 100), high * 100)
+    return max(value // max(price, 1) // 100 * 100, 100)
+
+
+def _free_managers(conn: Connection) -> list[dict]:
+    return _rows(conn, "SELECT p.id FROM players p WHERE p.build = 'asset_manager' AND NOT EXISTS (SELECT 1 FROM floor_mandates m"
+                       " WHERE m.player_id = p.id AND m.status IN ('offered', 'working')) ORDER BY p.id")
+
+
+def mandates_tick(conn: Connection, now: datetime) -> None:
+    """Offers lapse; mandates whose time is up are delivered and scored; free asset managers are offered new ones (each one
+    at a live event's bell, in its featured share)."""
+    if not _one(conn, "SELECT to_regclass('floor_mandates') IS NOT NULL AS ok")["ok"]:
+        return
+    conn.execute("UPDATE floor_mandates SET status = 'lapsed' WHERE status = 'offered' AND answer_by <= %s", (now,))
+    for m in _rows(conn, "SELECT id FROM floor_mandates WHERE status = 'working' AND deadline <= %s ORDER BY id", (now,)):
+        settle_mandate(conn, m["id"], now)
+    if clock.market_state(now).value != "open":
+        return
+    seed, slot = _seed(conn), int(now.timestamp()) // 30
+    event = _live_event(conn)
+    listed = _rows(conn, "SELECT c.id, c.ticker FROM companies c JOIN market_instruments m ON m.company_id = c.id WHERE m.halted_reason IS NULL ORDER BY c.ticker")
+    for p in _free_managers(conn):
+        if event and event["starts_at"] <= now < event["ends_at"] - timedelta(minutes=10):
+            if _one(conn, "SELECT 1 AS x FROM floor_mandates WHERE player_id = %s AND event_id = %s", (p["id"], event["id"])):
+                continue
+            company = _one(conn, "SELECT id, ticker FROM companies WHERE id = %s", (event["featured_company_id"],))
+        else:
+            if not listed or _unit(seed, "mandate", slot, p["id"]) * data.FLOOR_MANDATE_CHANCE >= 1:
+                continue
+            company = listed[int(_unit(seed, "mandate-share", slot, p["id"]) * len(listed))]
+        share = _share(conn, company["ticker"], now)
+        client = data.FLOOR_COMPUTER_CLIENTS[int(_unit(seed, "mandate-client", slot, p["id"]) * len(data.FLOOR_COMPUTER_CLIENTS))][0]
+        with conn.transaction():
+            _offer_mandate(conn, p["id"], company, _mandate_size(conn, p["id"], share["last_price"] or share["reference_price"]), client, now,
+                           event["id"] if event and event["starts_at"] <= now < event["ends_at"] else None)
+
+
+def answer_mandate(conn: Connection, player_id, mandate_id: int, accept: bool, now: datetime) -> dict:
+    """The asset manager takes the order on (the clock starts) or turns it down."""
+    from simulation import ledger
+    with conn.transaction():
+        m = _one(conn, "SELECT m.*, c.share_asset FROM floor_mandates m JOIN companies c ON c.id = m.company_id WHERE m.id = %s FOR UPDATE OF m", (mandate_id,))
+        if m is None or str(m["player_id"]) != str(player_id):
+            raise FloorError("There is no such order for you.")
+        if m["status"] != "offered" or now >= m["answer_by"]:
+            raise FloorError("That order is no longer on offer.")
+        if not accept:
+            conn.execute("UPDATE floor_mandates SET status = 'declined' WHERE id = %s", (mandate_id,))
+            return {"declined": mandate_id}
+        event = _one(conn, "SELECT ends_at FROM live_events WHERE id = %s", (m["event_id"],)) if m["event_id"] else None
+        deadline = event["ends_at"] if event else now + timedelta(minutes=data.FLOOR_MANDATE_MINUTES)
+        held = ledger.balance(conn, ledger.player_account_id(conn, player_id), m["share_asset"])
+        conn.execute("UPDATE floor_mandates SET status = 'working', started_at = %s, deadline = %s, held_before = %s WHERE id = %s",
+                     (now, deadline, held, mandate_id))
+    return {"working": mandate_id, "deadline": deadline}
+
+
+def _benchmark(conn: Connection, company_id, since: datetime, until: datetime, fallback: int) -> int:
+    """The market's average price over the window: every trade on the exchange and on the Floor, weighted by size."""
+    row = _one(conn, "SELECT sum(price * quantity)::numeric AS v, sum(quantity)::numeric AS q FROM ("
+                     " SELECT price, quantity FROM market_trades WHERE company_id = %s AND traded_at >= %s AND traded_at < %s"
+                     " UNION ALL SELECT price, quantity FROM floor_trades WHERE company_id = %s AND at >= %s AND at < %s) t",
+               (company_id, since, until, company_id, since, until))
+    return int(row["v"] // row["q"]) if row and row["q"] else fallback
+
+
+def settle_mandate(conn: Connection, mandate_id: int, now: datetime) -> dict:
+    """At the deadline the fund takes what the manager bought for it (never more than it asked for), at the market's
+    average price over the window, and pays its commission. Scored on the manager's average price against that average."""
+    from simulation import corporate, ledger
+    from simulation.ledger import Leg
+    with conn.transaction():
+        m = _one(conn, "SELECT m.*, c.share_asset, c.ticker, c.name FROM floor_mandates m JOIN companies c ON c.id = m.company_id"
+                       " WHERE m.id = %s FOR UPDATE OF m", (mandate_id,))
+        if m is None or m["status"] != "working":
+            return {}
+        account = ledger.player_account_id(conn, m["player_id"])
+        fund = ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
+        bought = _rows(conn, "SELECT price, quantity FROM market_trades WHERE company_id = %s AND buyer_account_id = %s AND seller_account_id <> %s"
+                             " AND traded_at >= %s AND traded_at < %s UNION ALL SELECT price, quantity FROM floor_trades WHERE company_id = %s"
+                             " AND buyer_account = %s AND at >= %s AND at < %s",
+                       (m["company_id"], account, account, m["started_at"], m["deadline"], m["company_id"], account, m["started_at"], m["deadline"]))
+        got = sum(b["quantity"] for b in bought)
+        average = sum(b["price"] * b["quantity"] for b in bought) // got if got else None
+        held = ledger.balance(conn, account, m["share_asset"])
+        delivered = max(min(m["quantity"], got, held - (m["held_before"] or 0) if held > (m["held_before"] or 0) else 0, held), 0)
+        share = _share(conn, m["ticker"], now)
+        benchmark = _benchmark(conn, m["company_id"], m["started_at"], m["deadline"], share["last_price"] or share["reference_price"])
+        value = delivered * benchmark
+        commission = value * data.FLOOR_MANDATE_COMMISSION_BPS // BPS
+        if delivered > 0 and ledger.balance(conn, fund) >= value + commission:
+            ledger.post(conn, kind="floor_mandate", memo=f"{delivered:,} {m['name']} shares delivered to {m['client_name']}, at the market's average",
+                        reference=f"mandate:{mandate_id}",
+                        legs=[Leg(account, -delivered, m["share_asset"]), Leg(fund, delivered, m["share_asset"]),
+                              Leg(fund, -(value + commission)), Leg(account, value + commission)])
+            conn.execute("INSERT INTO holding_events (account_id, company_id, kind, shares, amount, after_trade_id) VALUES (%s, %s, 'floor', %s, %s, %s)",
+                         (account, m["company_id"], -delivered, value + commission, corporate._after_trade(conn)))
+        else:
+            delivered = 0
+        score = (benchmark - average) * BPS // benchmark if average and benchmark else None
+        conn.execute("UPDATE floor_mandates SET status = 'done', delivered = %s, benchmark = %s, average_paid = %s, commission = %s, score_bps = %s,"
+                     " done_at = %s WHERE id = %s", (delivered, benchmark, average, commission if delivered else 0, score, now, mandate_id))
+        _ping_player(conn, m["player_id"])
+    return {"delivered": delivered, "benchmark": benchmark, "score_bps": score}
+
+
+def mandates_view(conn: Connection, player_id, now: datetime) -> list[dict]:
+    from simulation import ledger
+    if not _one(conn, "SELECT to_regclass('floor_mandates') IS NOT NULL AS ok")["ok"]:
+        return []
+    account = ledger.player_account_id(conn, player_id)
+    out = []
+    for m in _rows(conn, "SELECT m.*, c.ticker, c.name, c.share_asset FROM floor_mandates m JOIN companies c ON c.id = m.company_id"
+                         " WHERE m.player_id = %s ORDER BY m.status IN ('offered', 'working') DESC, m.id DESC LIMIT 8", (player_id,)):
+        row = {k: m[k] for k in ("id", "client_name", "ticker", "name", "quantity", "offered_at", "answer_by", "status", "started_at",
+                                 "deadline", "delivered", "benchmark", "average_paid", "commission", "score_bps")}
+        row["live_event"] = m["event_id"] is not None
+        if m["status"] == "working" and account:
+            row["bought_so_far"] = max(ledger.balance(conn, account, m["share_asset"]) - (m["held_before"] or 0), 0)
+        out.append(row)
+    return out
+
+
+def mandate_record(conn: Connection, player_id) -> dict:
+    rows = _rows(conn, "SELECT score_bps, delivered, quantity FROM floor_mandates WHERE player_id = %s AND status = 'done'", (player_id,)) \
+        if _one(conn, "SELECT to_regclass('floor_mandates') IS NOT NULL AS ok")["ok"] else []
+    scored = [r["score_bps"] for r in rows if r["score_bps"] is not None]
+    return {"mandates": len(rows), "completed": sum(1 for r in rows if r["delivered"] and r["delivered"] >= r["quantity"]),
+            "average_score_bps": sum(scored) // len(scored) if scored else None}
+
+
+def tape(conn: Connection, now: datetime) -> list[dict]:
+    """The deal tape: every deal on the Floor and every big trade on the exchange, newest first. A computer bank is named;
+    a player's desk is "a desk"; a client never."""
+    items = []
+    if _one(conn, "SELECT to_regclass('floor_trades') IS NOT NULL AS ok")["ok"]:
+        for t in _rows(conn, "SELECT t.at, coalesce(c.ticker, substr(b.asset, 5)) AS what, t.price, t.quantity, t.desk, t.client_bought, t.block, t.ticket_id"
+                             " FROM floor_trades t LEFT JOIN companies c ON c.id = t.company_id LEFT JOIN bonds b ON b.id = t.bond_id"
+                             " WHERE t.at > %s AND t.at <= %s ORDER BY t.at DESC LIMIT 25", (now - timedelta(hours=6), now)):
+            who = "A chat ticket" if t["ticket_id"] else _desk_name(conn, t["desk"]) if t["desk"].startswith("computer:") else "A desk"
+            verb = "sells" if t["client_bought"] else "buys"
+            items.append({"at": t["at"], "venue": "block" if t["block"] else "floor", "words": f"{who} {verb if not t['ticket_id'] else 'trades'}",
+                          "what": t["what"], "quantity": t["quantity"], "price": t["price"]})
+    for t in _rows(conn, "SELECT t.traded_at AS at, c.ticker, t.price, t.quantity FROM market_trades t JOIN companies c ON c.id = t.company_id"
+                         " WHERE t.traded_at > %s AND t.traded_at <= %s AND t.price * t.quantity >= %s ORDER BY t.traded_at DESC LIMIT 15",
+                   (now - timedelta(hours=6), now, data.FLOOR_TAPE_EXCHANGE_NAIRA * 100)):
+        items.append({"at": t["at"], "venue": "exchange", "words": "Exchange", "what": t["ticker"], "quantity": t["quantity"], "price": t["price"]})
+    return sorted(items, key=lambda x: x["at"], reverse=True)[:30]

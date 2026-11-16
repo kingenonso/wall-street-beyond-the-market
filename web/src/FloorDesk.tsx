@@ -625,3 +625,49 @@ export function FloorCalls({ onLoggedOut }: { onLoggedOut: () => void }) {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Big client orders: a fund hands an asset manager a large order to buy before a deadline
+// ---------------------------------------------------------------------------
+
+export function MandatePanel({ f, onLoggedOut }: { f: Floor; onLoggedOut: () => void }) {
+  const act = useAct(f.setFresh, onLoggedOut);
+  const now = useClock(f.d?.now);
+  const list = f.d?.mandates ?? [];
+  if (list.length === 0) return null;
+  return (
+    <Panel title="Big client orders" aside="buy below the market's average, with your own cash" className="floor-panel floor-mandates">
+      {act.error && <p className="small change-down" role="alert">{act.error}</p>}
+      {act.notice && <p className="small" role="status">{act.notice}</p>}
+      {list.map((m) => {
+        const answer = secondsLeft(m.answer_by, now), left = m.deadline ? secondsLeft(m.deadline, now) : 0;
+        return (
+          <div key={m.id} className={`floor-request ${m.status === "offered" ? "floor-mandate-new" : ""}`}>
+            <div className="floor-request-head">
+              <strong>{m.client_name}</strong>
+              <span className="small">wants to buy <span className="mono strong">{m.quantity.toLocaleString("en-NG")} {m.ticker}</span>{m.live_event ? " in the live event" : ""}</span>
+              {m.status === "offered" && <span className="floor-clock mono">{Math.floor(answer / 60)}:{String(answer % 60).padStart(2, "0")}</span>}
+              {m.status === "working" && <span className="floor-clock mono">{Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")}</span>}
+            </div>
+            {m.status === "offered" && (
+              <>
+                <p className="small muted">Buy them on the exchange or from the banks, with your own cash, before the deadline. At the end the fund takes them at the market's average price over the window and pays {(0.15).toFixed(2)}% commission: buying below the average is your gain.</p>
+                <div className="duel-actions">
+                  <button className="button-primary small" disabled={act.busy} onClick={() => act.run(() => api.floorMandate(m.id, true), "Taken on: the clock is running.")}>Take it on</button>
+                  <button className="button-outline small" disabled={act.busy} onClick={() => act.run(() => api.floorMandate(m.id, false), "Turned down.")}>Turn down</button>
+                </div>
+              </>
+            )}
+            {m.status === "working" && <p className="small">Bought so far: <span className="mono">{(m.bought_so_far ?? 0).toLocaleString("en-NG")}</span> of {m.quantity.toLocaleString("en-NG")}. Ask the banks above, or use the exchange box.</p>}
+            {m.status === "done" && (
+              <p className="small">{m.delivered ? `Delivered ${m.delivered.toLocaleString("en-NG")} at the average ${m.benchmark ? formatNaira(m.benchmark) : "—"}` : "Nothing delivered"}
+                {m.average_paid ? `; you paid ${formatNaira(m.average_paid)} on average` : ""}
+                {m.score_bps !== null && <> · <span className={m.score_bps >= 0 ? "change-up" : "change-down"}>{signedBps(m.score_bps)} against the average</span></>}.</p>
+            )}
+            {(m.status === "declined" || m.status === "lapsed") && <p className="small muted">{m.status === "declined" ? "Turned down." : "Not answered in time."}</p>}
+          </div>
+        );
+      })}
+    </Panel>
+  );
+}

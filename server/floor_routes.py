@@ -22,7 +22,7 @@ from simulation import duels, exchange, floor
 
 MONEY = {"realised", "unrealised", "total", "dividends", "fees", "exposure", "cash", "held_for_orders", "value", "price",
          "average_price", "gain", "reference_price", "last_price", "lowest_today", "highest_today", "best_bid", "best_offer",
-         "start_price", "minimum", "fair", "your_limit", "pnl", "bid", "offer", "last", "low", "high", "cost", "reference", "mid", "cover", "done_at_price"}
+         "start_price", "minimum", "fair", "your_limit", "pnl", "benchmark", "average_paid", "commission", "bid", "offer", "last", "low", "high", "cost", "reference", "mid", "cover", "done_at_price"}
 
 
 def _wire(value, key: str | None = None):
@@ -304,3 +304,18 @@ def answer_a_challenge(body: DuelAnswer, player: dict = Depends(current_player),
 @app.post("/api/floor/duels/withdraw")
 def withdraw_a_challenge(body: DuelWithdraw, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     return _duel(conn, player, lambda now: duels.withdraw(conn, player["id"], body.duel_id, now))
+
+
+
+# ---------------------------------------------------------------------------
+# Big client orders (16 November 2026)
+# ---------------------------------------------------------------------------
+
+class MandateAnswer(Request):
+    mandate_id: int = ID
+    accept: bool = Field(strict=True)
+
+
+@app.post("/api/floor/mandate")
+def answer_a_mandate(body: MandateAnswer, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: floor.answer_mandate(conn, player["id"], body.mandate_id, body.accept, now), "floor-desk", 20)
