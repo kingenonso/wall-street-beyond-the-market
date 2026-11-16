@@ -304,3 +304,224 @@ def test_the_request_routes_need_a_login(client):
                        ("/api/floor/take", {"request_id": 1, "quote_id": 1, "side": "buy"})):
         assert client.post(path, json=body).status_code == 401
     assert client.get("/api/floor/requests").status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Slice 3: the deeper game
+# ---------------------------------------------------------------------------
+
+def _tickers(db, n):
+    from simulation import ledger
+    inst = ledger.account_id(db, ledger.INVESTORS_INSTITUTIONS)
+    return [r["ticker"] for r in _q(db, "SELECT c.ticker FROM companies c JOIN market_instruments m ON m.company_id = c.id"
+                                        " JOIN ledger_balances b ON b.account_id = %s AND b.asset = c.share_asset"
+                                        " WHERE m.halted_reason IS NULL AND b.balance > 10000000 ORDER BY c.ticker LIMIT %s", (inst, n))]
+
+
+def _give(db, account, ticker, shares):
+    from simulation import ledger
+    asset = _q(db, "SELECT share_asset FROM companies WHERE ticker = %s", (ticker,))[0]["share_asset"]
+    ledger.transfer(db, payer=ledger.account_id(db, ledger.INVESTORS_PUBLIC), receiver=account, amount=shares, asset=asset,
+                    kind="test_shares", memo="Test: shares")
+    return asset
+
+
+@pytest.mark.world("eight")
+def test_haggling_with_a_computer_bank_and_a_banker(db):
+    from simulation import ledger
+    from tests.test_builds import pro
+    from tests.test_careers import NOW9, sound
+    me, account = pro(db, "asset_manager", "client", level=5, cash_naira=90_000_000)
+    banker, bank_account = pro(db, "investment_banker", "banker", level=5, cash_naira=10_000_000)
+    floor.set_desk(db, banker, True, NOW9)
+    t = _ticker(db)
+    _give(db, bank_account, t, 1_000)
+    rid = floor.ask(db, me, t, "buy", 1_000, 30, ["computer:goldbridge", f"player:{banker}"], NOW9)["request_id"]
+    later = NOW9 + timedelta(seconds=20)
+    bank_q = next(q for q in floor.requests_view(db, me, later)["mine"][0]["quotes"] if q["kind"] == "computer")
+    offer = int(bank_q["offer"])
+    with pytest.raises(floor.FloorError, match="better for you"):
+        floor.counter(db, me, rid, bank_q["id"], "buy", later, price=offer + 1)
+    # A greedy counter is declined; one that leaves the bank most of its spread is done at once.
+    assert floor.counter(db, me, rid, bank_q["id"], "buy", later, price=offer * 98 // 100)["declined"]
+    # The banker's price: the client counters, the banker accepts, and the deal is done at the counter.
+    floor.quote(db, banker, rid, None, offer + 3, 30, later)
+    mine = floor.requests_view(db, me, later)["mine"][0]
+    desk_q = next(q for q in mine["quotes"] if q["kind"] == "player")
+    asked = floor.counter(db, me, rid, desk_q["id"], "buy", later, price=offer)
+    assert asked["waiting"]
+    call = floor.requests_view(db, banker, later)["incoming"][0]
+    assert call["asked_you"]["kind"] == "counter" and call["asked_you"]["price"] == offer
+    cash = ledger.balance(db, account)
+    floor.answer(db, banker, asked["counter_id"], True, later + timedelta(seconds=2))
+    assert ledger.balance(db, account) == cash - offer * 1_000
+    # The winner sees the price it beat; the request is done.
+    won = floor.requests_view(db, banker, later + timedelta(seconds=3))["incoming"][0]
+    assert won["outcome"] == "won" and won["cover"] is not None
+    sound(db)
+
+
+@pytest.mark.world("eight")
+def test_an_indicative_price_needs_the_banker_to_confirm_and_backing_away_is_shown(db):
+    from tests.test_builds import pro
+    from tests.test_careers import NOW9
+    me, _ = pro(db, "asset_manager", "client", level=5, cash_naira=90_000_000)
+    banker, bank_account = pro(db, "investment_banker", "banker", level=5, cash_naira=10_000_000)
+    floor.set_desk(db, banker, True, NOW9)
+    t = _ticker(db)
+    _give(db, bank_account, t, 500)
+    rid = floor.ask(db, me, t, "buy", 500, 30, [f"player:{banker}"], NOW9)["request_id"]
+    ref = floor.requests_view(db, banker, NOW9)["incoming"][0]["market"]["reference"]
+    floor.quote(db, banker, rid, None, int(ref), 30, NOW9 + timedelta(seconds=1), firm=False)
+    q = floor.requests_view(db, me, NOW9 + timedelta(seconds=2))["mine"][0]["quotes"][0]
+    assert q["firm"] is False
+    waiting = floor.take(db, me, rid, q["id"], "buy", NOW9 + timedelta(seconds=2))
+    assert waiting["waiting"]
+    floor.answer(db, banker, waiting["counter_id"], False, NOW9 + timedelta(seconds=3))
+    desk = next(d for d in floor.desks_for(db, me) if d["key"] == f"player:{banker}")
+    assert desk["backed_away"] == 1                                  # shown to every client
+    with pytest.raises(floor.FloorError, match="answered already"):
+        floor.answer(db, banker, waiting["counter_id"], True, NOW9 + timedelta(seconds=4))
+
+
+@pytest.mark.world("eight")
+def test_a_basket_a_block_and_a_bond_on_the_floor(db):
+    from simulation import bonds, ledger
+    from tests.test_builds import pro
+    from tests.test_careers import NOW9, sound
+    me, account = pro(db, "asset_manager", "client", level=5, cash_naira=900_000_000)
+    banker, bank_account = pro(db, "investment_banker", "banker", level=5, cash_naira=900_000_000)
+    floor.set_desk(db, banker, True, NOW9)
+    a, b = _tickers(db, 2)
+    with pytest.raises(floor.FloorError, match="two to 5"):
+        floor.ask_basket(db, me, [(a, 100)], "buy", 30, ["computer:atlas"], NOW9)
+    rid = floor.ask_basket(db, me, [(a, 300), (b, 200)], "buy", 30, ["computer:atlas"], NOW9)["request_id"]
+    r = floor.requests_view(db, me, NOW9 + timedelta(seconds=20))["mine"][0]
+    q = r["quotes"][0]
+    assert r["kind"] == "basket" and q["margin_bps"] > 0
+    held = {t: ledger.balance(db, account, f"SHR-{t}") for t in (a, b)}
+    floor.take(db, me, rid, q["id"], "buy", NOW9 + timedelta(seconds=20))
+    for leg in r["legs"]:
+        assert ledger.balance(db, account, f"SHR-{leg['ticker']}") == held[leg["ticker"]] + leg["quantity"]
+    paid = _q(db, "SELECT price, mid, l.quantity FROM floor_trades t JOIN floor_request_legs l ON l.request_id = t.request_id"
+                  " AND l.company_id = t.company_id WHERE t.request_id = %s", (rid,))
+    assert all(p["price"] == p["mid"] * (10_000 + q["margin_bps"]) // 10_000 for p in paid)
+    # A block: more than the usual 1% only as a block, and reported to everybody without names once done.
+    big = _q(db, "SELECT (SELECT r.shares_in_issue FROM company_results r WHERE r.company_id = c.id ORDER BY r.period DESC LIMIT 1) AS n"
+                 " FROM companies c WHERE ticker = %s", (a,))[0]["n"]
+    size = big * 2 // 100
+    with pytest.raises(floor.FloorError, match="bigger deal is a block"):
+        floor.ask(db, me, a, "sell", size, 30, [f"player:{banker}"], NOW9 + timedelta(minutes=1))
+    _give(db, account, a, size)
+    rid2 = floor.ask(db, me, a, "sell", size, 30, [f"player:{banker}"], NOW9 + timedelta(minutes=1), block=True)["request_id"]
+    ref = floor.requests_view(db, banker, NOW9 + timedelta(minutes=1))["incoming"][0]["market"]
+    price = int(ref["low"]) + 1
+    if price * size > ledger.balance(db, bank_account):
+        ledger.transfer(db, payer=ledger.account_id(db, ledger.TREASURY), receiver=bank_account, amount=price * size, kind="test_cash", memo="Test")
+    floor.quote(db, banker, rid2, price, None, 30, NOW9 + timedelta(minutes=1, seconds=2))
+    q2 = floor.requests_view(db, me, NOW9 + timedelta(minutes=1, seconds=3))["mine"][0]["quotes"][0]
+    floor.take(db, me, rid2, q2["id"], "sell", NOW9 + timedelta(minutes=1, seconds=3))
+    reported = floor.blocks_reported(db, NOW9 + timedelta(minutes=2))
+    assert reported and reported[0]["quantity"] == size and set(reported[0]) == {"at", "ticker", "quantity", "price"}
+    # A bond, priced on yield by the banker.
+    line = next(x for x in bonds.listing(db, NOW9) if x["issuer"] == "company" or x["kind"] != "bill")
+    rid3 = floor.ask_bond(db, me, line["code"], "two_way", 100, 30, [f"player:{banker}", "computer:lagoon"], NOW9 + timedelta(minutes=3))["request_id"]
+    call = next(c for c in floor.requests_view(db, banker, NOW9 + timedelta(minutes=3))["incoming"] if c["id"] == rid3)
+    fair_yield = call["market"]["fair_yield_bps"]
+    floor.quote(db, banker, rid3, None, None, 30, NOW9 + timedelta(minutes=3, seconds=1), bid_yield_bps=fair_yield + 30, offer_yield_bps=fair_yield - 30)
+    quotes = floor.requests_view(db, me, NOW9 + timedelta(minutes=3, seconds=25))["mine"][0]["quotes"]
+    desk_q = next(x for x in quotes if x["kind"] == "player")
+    assert desk_q["bid"] < desk_q["offer"] and abs(desk_q["offer_yield_bps"] - (fair_yield - 30)) <= 2
+    sound(db)
+
+
+@pytest.mark.world("eight")
+def test_chat_and_a_deal_ticket(db):
+    from simulation import ledger
+    from tests.test_builds import pro
+    from tests.test_careers import NOW9, sound
+    me, account = pro(db, "asset_manager", "client", level=5, cash_naira=90_000_000)
+    banker, bank_account = pro(db, "investment_banker", "banker", level=5, cash_naira=1_000_000)
+    stranger, _ = pro(db, "asset_manager", "stranger", level=5)
+    floor.set_desk(db, banker, False, NOW9)
+    t = _ticker(db)
+    asset = _give(db, bank_account, t, 1_000)
+    with pytest.raises(floor.FloorError, match="agree it in the chat"):
+        floor.propose_ticket(db, banker, "client", t, "sell", 1_000, 2_000, NOW9)
+    with pytest.raises(floor.FloorError, match="write to a bank"):
+        floor.say(db, me, "stranger", "hello", NOW9)
+    floor.say(db, me, "banker", "Can you sell me 1,000 at a good price?", NOW9)
+    ref = _q(db, "SELECT reference_price FROM market_instruments m JOIN companies c ON c.id = m.company_id WHERE c.ticker = %s", (t,))[0]["reference_price"]
+    ticket = floor.propose_ticket(db, banker, "client", t, "sell", 1_000, ref, NOW9 + timedelta(seconds=5))["ticket_id"]
+    seen = floor.chat_view(db, me, NOW9 + timedelta(seconds=6))
+    assert seen["talks"][0]["with"] == "banker" and seen["tickets"][0]["status"] == "open" and not seen["tickets"][0]["yours"]
+    with pytest.raises(floor.FloorError, match="other side confirms"):
+        floor.answer_ticket(db, banker, ticket, True, NOW9 + timedelta(seconds=6))
+    with pytest.raises(floor.FloorError, match="no such ticket"):
+        floor.answer_ticket(db, stranger, ticket, True, NOW9 + timedelta(seconds=6))
+    cash = ledger.balance(db, account)
+    floor.answer_ticket(db, me, ticket, True, NOW9 + timedelta(seconds=7))
+    assert ledger.balance(db, account) == cash - ref * 1_000 and ledger.balance(db, bank_account, asset) == 0
+    late = floor.propose_ticket(db, banker, "client", t, "buy", 10, ref, NOW9 + timedelta(seconds=10))["ticket_id"]
+    with pytest.raises(floor.FloorError, match="ran out"):
+        floor.answer_ticket(db, me, late, True, NOW9 + timedelta(seconds=80))
+    sound(db)
+
+
+@pytest.mark.world("eight")
+def test_trading_for_an_empire_on_the_floor_meets_the_empires_limits(db):
+    from simulation import ledger
+    from tests.test_careers import NOW9, sound
+    from tests.test_empires import founded
+    empire, (head, _), partners = founded(db)
+    manager = partners["asset_manager"][0]
+    banker, bank_account = partners["investment_banker"]
+    t = _ticker(db)
+    floor.set_desk(db, banker, True, NOW9)
+    with pytest.raises(floor.FloorError, match="Asset Managers"):
+        floor.ask(db, banker, t, "buy", 100, 30, ["computer:atlas"], NOW9, for_empire=True)
+    rid = floor.ask(db, head, t, "buy", 100, 30, ["computer:atlas", f"player:{banker}"], NOW9, for_empire=True)["request_id"]
+    _give(db, bank_account, t, 100)
+    ref = floor.requests_view(db, banker, NOW9)["incoming"][0]["market"]["reference"]
+    floor.quote(db, banker, rid, None, int(ref), 30, NOW9 + timedelta(seconds=1))
+    mine = floor.requests_view(db, head, NOW9 + timedelta(seconds=20))["mine"][0]
+    assert mine["for_empire"]
+    desk_q = next(q for q in mine["quotes"] if q["kind"] == "player")
+    with pytest.raises(floor.FloorError, match="empire they sit in"):
+        floor.take(db, head, rid, desk_q["id"], "buy", NOW9 + timedelta(seconds=20))
+    comp = next(q for q in mine["quotes"] if q["kind"] == "computer")
+    held = ledger.balance(db, empire["account_id"], f"SHR-{t}")
+    floor.take(db, head, rid, comp["id"], "buy", NOW9 + timedelta(seconds=20))
+    assert ledger.balance(db, empire["account_id"], f"SHR-{t}") == held + 100
+    assert _q(db, "SELECT what FROM empire_trades WHERE empire_id = %s ORDER BY at DESC LIMIT 1", (empire["id"],))[0]["what"].startswith("buy on the Floor")
+    # The member's trading limit applies as on the exchange.
+    db.execute("UPDATE empires SET trade_limit_bps = 1 WHERE id = %s", (empire["id"],))
+    rid2 = floor.ask(db, manager, t, "buy", 5_000, 30, ["computer:atlas"], NOW9 + timedelta(minutes=1), for_empire=True)["request_id"]
+    q2 = floor.requests_view(db, manager, NOW9 + timedelta(minutes=1, seconds=20))["mine"][0]["quotes"][0]
+    with pytest.raises(floor.FloorError, match="trading limit"):
+        floor.take(db, manager, rid2, q2["id"], "buy", NOW9 + timedelta(minutes=1, seconds=20))
+    sound(db)
+
+
+@pytest.mark.world("eight")
+def test_axes_the_scorecard_and_the_client_record(db):
+    from tests.test_builds import pro
+    from tests.test_careers import NOW9
+    me, _ = pro(db, "asset_manager", "client", level=5, cash_naira=90_000_000)
+    banker, _ = pro(db, "investment_banker", "banker", level=5)
+    floor.set_desk(db, banker, True, NOW9)
+    t = _ticker(db)
+    floor.set_axe(db, banker, t, "sell", 5_000, NOW9)
+    desk = next(d for d in floor.desks_for(db, me, NOW9) if d["key"] == f"player:{banker}")
+    assert desk["axes"] == [{"ticker": t, "side": "sell", "quantity": 5_000}]
+    with pytest.raises(floor.FloorError, match="bank's desk"):
+        floor.set_axe(db, me, t, "buy", 10, NOW9)
+    rid = floor.ask(db, me, t, "buy", 200, 30, ["computer:goldbridge", "computer:coral"], NOW9)["request_id"]
+    q = min(floor.requests_view(db, me, NOW9 + timedelta(seconds=20))["mine"][0]["quotes"], key=lambda x: x["offer"])
+    floor.take(db, me, rid, q["id"], "buy", NOW9 + timedelta(seconds=20))
+    card = floor.requests_view(db, me, NOW9 + timedelta(seconds=21))["scorecard"]
+    deal = card["deals"][0]
+    assert deal["what"] == t and deal["vs_cover_bps"] is not None and deal["vs_cover_bps"] >= 0
+    from simulation import ledger
+    record = floor.client_record(db, ledger.player_account_id(db, me), None)
+    assert record["deals"] == 1

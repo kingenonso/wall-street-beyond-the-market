@@ -149,14 +149,19 @@ def auction_house(conn: Connection, viewer, now: datetime) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Slice 2: price requests between clients and banks
+# Slices 2 and 3: price requests between clients and banks
 # ---------------------------------------------------------------------------
 
 class FloorError(Exception):
     """A request, a quote or a deal the Floor refuses, with a message for the player."""
 
 
+class _Held(Exception):
+    """The empire's Risk Manager would have to approve the trade first."""
+
+
 SIDE_WORDS = {"buy": "buy", "sell": "sell", "two_way": "a price both ways"}
+BPS = 10_000
 
 
 def _one(conn: Connection, sql: str, params=()) -> dict | None:
@@ -183,12 +188,17 @@ COMPUTER = {code: {"code": code, "name": name, "spread_bps": spread, "delay": de
             for code, name, spread, delay in data.FLOOR_COMPUTER_DESKS}
 
 
-def _desk_account(conn: Connection, desk: str):
-    if desk.startswith("computer:"):
-        from simulation import ledger
-        return ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
+def _desk_account(conn: Connection, desk: str, kind: str = "share"):
     from simulation import ledger
+    if desk.startswith("computer:"):
+        # The computer banks deal from the institutions' books; in bonds, from the pension funds' (who make that market).
+        from simulation import bonds
+        return ledger.account_id(conn, bonds.DEALER if kind == "bond" else ledger.INVESTORS_INSTITUTIONS)
     return ledger.player_account_id(conn, desk.split(":", 1)[1])
+
+
+def _desk_player(desk: str) -> str | None:
+    return desk.split(":", 1)[1] if desk.startswith("player:") else None
 
 
 def _desk_name(conn: Connection, desk: str) -> str:
@@ -209,14 +219,58 @@ def _ping_player(conn: Connection, player_id) -> None:
     pings.ping(conn, "floor", player=str(player_id))
 
 
+def _ping_desks(conn: Connection, request_id: int) -> None:
+    for d in _rows(conn, "SELECT desk_player FROM floor_request_desks WHERE request_id = %s AND desk_player IS NOT NULL", (request_id,)):
+        _ping_player(conn, d["desk_player"])
+
+
 def _share(conn: Connection, ticker: str, now: datetime) -> dict:
     found = exchange.quote(conn, ticker, now, depth=1)
     if found is None:
-        raise FloorError("There is no share with that code on the exchange.")
+        raise FloorError(f"There is no share with the code {ticker} on the exchange.")
     company = _one(conn, "SELECT c.id, c.ticker, c.name, c.share_asset, m.halted_reason,"
                          " (SELECT r.shares_in_issue FROM company_results r WHERE r.company_id = c.id ORDER BY r.period DESC LIMIT 1) AS shares_in_issue"
                          " FROM companies c JOIN market_instruments m ON m.company_id = c.id WHERE c.ticker = %s", (ticker,))
     return {**company, **found}
+
+
+def _mid(share: dict) -> int:
+    bid = share["bids"][0]["price"] if share["bids"] else None
+    offer = share["offers"][0]["price"] if share["offers"] else None
+    return (bid + offer) // 2 if bid and offer else (share["last_price"] or share["reference_price"])
+
+
+def _fast(share: dict) -> bool:
+    """A fast market: the share has moved more than the computer banks will hold a firm price through."""
+    last = share["last_price"] or share["reference_price"]
+    return abs(last - share["reference_price"]) * BPS > share["reference_price"] * data.FLOOR_FAST_MARKET_BPS
+
+
+def _bond(conn: Connection, code: str, now: datetime) -> dict:
+    from simulation import bonds
+    bond = bonds.find(conn, code)
+    if bond is None or bond["redeemed_period"] is not None:
+        raise FloorError("There is no such bond trading.")
+    state = bonds.market(conn, now)
+    day, _ = exchange.session_of(now)
+    return {**bond, "state": state, **bonds.prices(conn, bond, state, day)}
+
+
+def yield_at(bond: dict, price: int) -> int:
+    """The yield a buyer at `price` earns, in hundredths of a percent a year (found by halving the range)."""
+    from simulation import bonds
+    flows = bonds.payments(bond, bond["state"])
+    low, high = -0.5, 3.0
+    for _ in range(60):
+        mid = (low + high) / 2
+        value = sum(amount / (1 + mid) ** years for years, amount in flows)
+        low, high = (mid, high) if value > price else (low, mid)
+    return round((low + high) / 2 * BPS)
+
+
+def price_at_yield(bond: dict, yield_bps: int) -> int:
+    from simulation import bonds
+    return max(int(sum(amount / (1 + yield_bps / BPS) ** years for years, amount in bonds.payments(bond, bond["state"]))), 1)
 
 
 def _market_open(now: datetime) -> None:
@@ -234,215 +288,730 @@ def set_desk(conn: Connection, player_id, open_it: bool, now: datetime) -> dict:
     return {"open": bool(open_it)}
 
 
-def desks_for(conn: Connection, player_id) -> list[dict]:
-    """The banks a client may ask: the computer banks and every open player desk but their own."""
-    out = [{"key": f"computer:{c['code']}", "name": c["name"], "kind": "computer", "failed": 0} for c in COMPUTER.values()]
-    for d in _rows(conn, "SELECT d.player_id, d.failed, p.display_name FROM floor_desks d JOIN players p ON p.id = d.player_id"
+def set_axe(conn: Connection, player_id, ticker: str, side: str | None, quantity: int, now: datetime) -> dict:
+    """A banker advertises what their desk wants to buy or sell, for the rest of the trading day (or takes it down)."""
+    if not _is_banker(conn, player_id):
+        raise FloorError("Only a bank's desk advertises what it wants.")
+    share = _share(conn, ticker, now)
+    if side is None:
+        conn.execute("DELETE FROM floor_axes WHERE player_id = %s AND company_id = %s", (player_id, share["id"]))
+        return {"cleared": ticker}
+    if side not in ("buy", "sell") or not isinstance(quantity, int) or isinstance(quantity, bool) or quantity <= 0:
+        raise FloorError("Say whether you want to buy or sell, and how many.")
+    lagos = clock.to_lagos(now)
+    until = lagos.replace(hour=clock.MARKET_CLOSE.hour, minute=0, second=0, microsecond=0)
+    if until <= lagos:
+        until += timedelta(days=1)
+    conn.execute("INSERT INTO floor_axes (player_id, company_id, side, quantity, created_at, until) VALUES (%s, %s, %s, %s, %s, %s)"
+                 " ON CONFLICT (player_id, company_id) DO UPDATE SET side = EXCLUDED.side, quantity = EXCLUDED.quantity,"
+                 " created_at = EXCLUDED.created_at, until = EXCLUDED.until", (player_id, share["id"], side, quantity, now, until))
+    return {"axe": ticker}
+
+
+def _record(conn: Connection, player_id) -> dict:
+    row = _one(conn, "SELECT failed, backed_away FROM floor_desks WHERE player_id = %s", (player_id,))
+    return row or {"failed": 0, "backed_away": 0}
+
+
+def desks_for(conn: Connection, player_id, now: datetime | None = None) -> list[dict]:
+    """The banks a client may ask: the computer banks and every open player desk but their own, with what each wants."""
+    out = [{"key": f"computer:{c['code']}", "name": c["name"], "kind": "computer", "failed": 0, "backed_away": 0, "axes": []}
+           for c in COMPUTER.values()]
+    for d in _rows(conn, "SELECT d.player_id, d.failed, d.backed_away, p.display_name FROM floor_desks d JOIN players p ON p.id = d.player_id"
                          " WHERE d.open AND p.build = 'investment_banker' AND d.player_id <> %s ORDER BY p.display_name", (player_id,)):
-        out.append({"key": f"player:{d['player_id']}", "name": f"{d['display_name']}'s desk", "kind": "player", "failed": d["failed"]})
+        axes = _rows(conn, "SELECT c.ticker, a.side, a.quantity FROM floor_axes a JOIN companies c ON c.id = a.company_id"
+                           " WHERE a.player_id = %s AND a.until > %s ORDER BY c.ticker", (d["player_id"], now)) if now else []
+        out.append({"key": f"player:{d['player_id']}", "name": f"{d['display_name']}'s desk", "kind": "player",
+                    "failed": d["failed"], "backed_away": d["backed_away"], "axes": axes})
     return out
 
 
-def _computer_quote(conn: Connection, request: dict, share: dict, code: str, now: datetime) -> None:
-    """A computer bank's price: the middle of the market, less or plus half its spread, wider for a big deal."""
+# ---------------------------------------------------------------------------
+# The computer banks' prices
+# ---------------------------------------------------------------------------
+
+def _computer_half(conn: Connection, request: dict, code: str, value: int) -> int:
     desk = COMPUTER[code]
-    bid, offer = share["bids"][0]["price"] if share["bids"] else None, share["offers"][0]["price"] if share["offers"] else None
-    mid = (bid + offer) // 2 if bid and offer else (share["last_price"] or share["reference_price"])
-    value = mid * request["quantity"]
     size = min(value // 1_000_000_000 * data.FLOOR_SIZE_SPREAD_BPS, data.FLOOR_SIZE_SPREAD_MOST_BPS)
     jitter = round(_unit(_seed(conn), "floor-quote", request["id"], code) * 20) - 10
     half = max(desk["spread_bps"] // 2 + size + jitter, 5)
-    low, high = share["lowest_today"], share["highest_today"]
-    q_bid = max(low, mid * (10_000 - half) // 10_000)
-    q_offer = min(high, max(mid * (10_000 + half) // 10_000, q_bid + 1))
-    if q_offer <= q_bid:
+    return max(half // 4, 3) if request["kind"] == "bond" else half      # bonds trade far tighter than shares
+
+
+def _computer_quote(conn: Connection, request: dict, code: str, now: datetime) -> None:
+    """A computer bank's price: the middle of the market, less or plus half its spread, wider for a big deal; in a fast
+    market only an indicative one."""
+    desk = COMPUTER[code]
+    firm, bid, offer, margin = True, None, None, None
+    if request["kind"] == "share":
+        share = _share(conn, request["ticker"], now)
+        mid = _mid(share)
+        half = _computer_half(conn, request, code, mid * request["quantity"])
+        bid = max(share["lowest_today"], mid * (BPS - half) // BPS)
+        offer = min(share["highest_today"], max(mid * (BPS + half) // BPS, bid + 1))
+        if offer <= bid:
+            return
+        firm = not _fast(share)
+    elif request["kind"] == "bond":
+        bond = _bond(conn, request["code"], now)
+        half = _computer_half(conn, request, code, bond["fair"] * request["quantity"])
+        bid, offer = max(bond["fair"] * (BPS - half) // BPS, 1), max(bond["fair"] * (BPS + half) // BPS, 2)
+    else:
+        value = sum(leg["mid"] * leg["quantity"] for leg in request["legs"])
+        margin = _computer_half(conn, request, code, value) + data.FLOOR_BASKET_EXTRA_BPS
+    if request["side"] == "buy":
+        bid = None
+    elif request["side"] == "sell":
+        offer = None
+    # A computer bank never offers what it does not hold.
+    if request["kind"] != "basket" and offer is not None:
+        from simulation import ledger
+        asset = _one(conn, "SELECT asset FROM bonds WHERE id = %s", (request["bond_id"],))["asset"] if request["kind"] == "bond" \
+            else _one(conn, "SELECT share_asset FROM companies WHERE id = %s", (request["company_id"],))["share_asset"]
+        if ledger.balance(conn, _desk_account(conn, f"computer:{code}", request["kind"]), asset) < request["quantity"]:
+            offer = None
+    if bid is None and offer is None and margin is None:
         return
     shown = now + timedelta(seconds=desk["delay"] + round(_unit(_seed(conn), "floor-delay", request["id"], code) * 4))
-    conn.execute("INSERT INTO floor_quotes (request_id, desk, bid, offer, created_at, shown_at, valid_until) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                 (request["id"], f"computer:{code}", q_bid if request["side"] != "buy" else None,
-                  q_offer if request["side"] != "sell" else None, now, shown,
-                  shown + timedelta(seconds=data.FLOOR_COMPUTER_QUOTE_SECONDS)))
+    conn.execute("INSERT INTO floor_quotes (request_id, desk, bid, offer, margin_bps, firm, created_at, shown_at, valid_until)"
+                 " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                 (request["id"], f"computer:{code}", bid, offer, margin, firm, now, shown, shown + timedelta(seconds=data.FLOOR_COMPUTER_QUOTE_SECONDS)))
 
 
-def _open_request(conn: Connection, *, account, player_id, client_name, share: dict, side: str, quantity: int, seconds: int,
-                  desks: list[str], now: datetime) -> dict:
-    request = _one(conn, "INSERT INTO floor_requests (client_account, client_player, client_name, company_id, side, quantity, created_at, quotes_until)"
-                         " VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
-                   (account, player_id, client_name, share["id"], side, quantity, now, now + timedelta(seconds=seconds)))
+# ---------------------------------------------------------------------------
+# Asking
+# ---------------------------------------------------------------------------
+
+def _client(conn: Connection, player_id, for_empire: bool, now: datetime) -> tuple:
+    """The account a request deals for: the player's own, or their empire's (its head and its Asset Managers)."""
+    from simulation import empires, ledger
+    if not for_empire:
+        account = ledger.player_account_id(conn, player_id)
+        if account is None:
+            raise FloorError("Your account is not open yet.")
+        return account, None
+    try:
+        seat, _ = empires._trader(conn, player_id, now)
+    except empires.EmpireError as refused:
+        raise FloorError(str(refused)) from None
+    return seat["account_id"], seat["empire_id"]
+
+
+def _check_desks(conn: Connection, player_id, chosen: list[str], now: datetime) -> None:
+    if not 1 <= len(chosen) <= data.FLOOR_MOST_DESKS:
+        raise FloorError(f"Ask one to {data.FLOOR_MOST_DESKS} banks.")
+    allowed = {d["key"] for d in desks_for(conn, player_id)}
+    for desk in chosen:
+        if desk not in allowed:
+            raise FloorError("One of those banks is not taking requests now.")
+
+
+def _check_window(seconds: int) -> None:
+    least, most = data.FLOOR_WINDOW_SECONDS
+    if not isinstance(seconds, int) or isinstance(seconds, bool) or not least <= seconds <= most:
+        raise FloorError(f"Give the banks {least} to {most} seconds.")
+
+
+def _check_waiting(conn: Connection, account, now: datetime) -> None:
+    waiting = _one(conn, "SELECT count(*)::int AS n FROM floor_requests WHERE client_account = %s AND status = 'open' AND quotes_until > %s",
+                   (account, now))["n"]
+    if waiting >= data.FLOOR_MOST_OPEN_REQUESTS:
+        raise FloorError(f"You have {waiting} requests waiting. Take or pass one first.")
+
+
+def _whole(n) -> bool:
+    return isinstance(n, int) and not isinstance(n, bool) and n > 0
+
+
+def _load_request(conn: Connection, request_id: int, *, lock: bool = False) -> dict | None:
+    r = _one(conn, "SELECT r.*, c.ticker, c.name AS company_name, substr(b.asset, 5) AS code, b.name AS bond_name FROM floor_requests r"
+                   " LEFT JOIN companies c ON c.id = r.company_id LEFT JOIN bonds b ON b.id = r.bond_id WHERE r.id = %s"
+                   + (" FOR UPDATE OF r" if lock else ""), (request_id,))
+    if r is not None:
+        r["legs"] = _rows(conn, "SELECT l.*, c.ticker, c.name, c.share_asset FROM floor_request_legs l JOIN companies c ON c.id = l.company_id"
+                                " WHERE l.request_id = %s ORDER BY c.ticker", (request_id,))
+    return r
+
+
+def _open_request(conn: Connection, *, account, player_id, client_name, kind: str, company_id=None, bond_id=None, side: str,
+                  quantity: int, seconds: int, desks: list[str], now: datetime, legs: list[dict] | None = None, block: bool = False,
+                  for_empire=None, exchange_bid=None, exchange_offer=None) -> dict:
+    row = _one(conn, "INSERT INTO floor_requests (client_account, client_player, client_name, kind, company_id, bond_id, side, quantity,"
+                     " created_at, quotes_until, block, for_empire, exchange_bid, exchange_offer)"
+                     " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+               (account, player_id, client_name, kind, company_id, bond_id, side, quantity, now, now + timedelta(seconds=seconds), block,
+                for_empire, exchange_bid, exchange_offer))
+    for leg in legs or []:
+        conn.execute("INSERT INTO floor_request_legs (request_id, company_id, quantity, mid) VALUES (%s, %s, %s, %s)",
+                     (row["id"], leg["company_id"], leg["quantity"], leg["mid"]))
+    request = _load_request(conn, row["id"])
     for desk in desks:
-        player = desk.split(":", 1)[1] if desk.startswith("player:") else None
-        conn.execute("INSERT INTO floor_request_desks (request_id, desk, desk_player) VALUES (%s, %s, %s)", (request["id"], desk, player))
+        player = _desk_player(desk)
+        conn.execute("INSERT INTO floor_request_desks (request_id, desk, desk_player) VALUES (%s, %s, %s)", (row["id"], desk, player))
         if player:
             _ping_player(conn, player)
         else:
-            _computer_quote(conn, request, share, desk.split(":", 1)[1], now)
+            _computer_quote(conn, request, desk.split(":", 1)[1], now)
     return request
 
 
-def ask(conn: Connection, player_id, ticker: str, side: str, quantity: int, seconds: int, desks: list[str], now: datetime) -> dict:
-    """A client's request for prices: a share, buy or sell (or a price both ways, not saying which), how many, how long the
-    banks have, and which banks (one to five)."""
-    from simulation import ledger
+def ask(conn: Connection, player_id, ticker: str, side: str, quantity: int, seconds: int, desks: list[str], now: datetime, *,
+        for_empire: bool = False, block: bool = False) -> dict:
+    """A client's request for prices on a share: buy or sell (or a price both ways, not saying which), how many, how long the
+    banks have, and which banks (one to five). A block is a very large deal, reported to the market afterwards."""
     if side not in SIDE_WORDS:
         raise FloorError("Ask to buy, to sell, or for a price both ways.")
-    if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity <= 0:
+    if not _whole(quantity):
         raise FloorError("Ask for a whole number of shares, above nought.")
-    least, most = data.FLOOR_WINDOW_SECONDS
-    if not isinstance(seconds, int) or not least <= seconds <= most:
-        raise FloorError(f"Give the banks {least} to {most} seconds.")
+    _check_window(seconds)
     chosen = list(dict.fromkeys(desks))
-    if not 1 <= len(chosen) <= data.FLOOR_MOST_DESKS:
-        raise FloorError(f"Ask one to {data.FLOOR_MOST_DESKS} banks.")
     _market_open(now)
-    account = ledger.player_account_id(conn, player_id)
-    if account is None:
-        raise FloorError("Your account is not open yet.")
     with conn.transaction():
+        account, empire_id = _client(conn, player_id, for_empire, now)
         share = _share(conn, ticker, now)
         if share.get("halted_reason"):
             raise FloorError(f"No trading in this share: {share['halted_reason']}.")
-        if quantity * 10_000 > share["shares_in_issue"] * data.FLOOR_MOST_SHARES_BPS:
-            raise FloorError(f"One request is at most {data.FLOOR_MOST_SHARES_BPS / 100:g}% of the company's shares.")
-        waiting = _one(conn, "SELECT count(*)::int AS n FROM floor_requests WHERE client_account = %s AND status = 'open' AND quotes_until > %s",
-                       (account, now))["n"]
-        if waiting >= data.FLOOR_MOST_OPEN_REQUESTS:
-            raise FloorError(f"You have {waiting} requests waiting. Take or pass one first.")
-        allowed = {d["key"] for d in desks_for(conn, player_id)}
-        for desk in chosen:
-            if desk not in allowed:
-                raise FloorError("One of those banks is not taking requests now.")
-        request = _open_request(conn, account=account, player_id=player_id, client_name=None, share=share, side=side,
-                                quantity=quantity, seconds=seconds, desks=chosen, now=now)
+        most = data.FLOOR_BLOCK_MOST_BPS if block else data.FLOOR_MOST_SHARES_BPS
+        if quantity * BPS > share["shares_in_issue"] * most:
+            raise FloorError(f"One {'block' if block else 'request'} is at most {most / 100:g}% of the company's shares."
+                             + ("" if block else " A bigger deal is a block."))
+        if block and _mid(share) * quantity < data.FLOOR_BLOCK_LEAST_NAIRA * 100:
+            raise FloorError(f"A block is a deal of at least {_money(data.FLOOR_BLOCK_LEAST_NAIRA * 100)}.")
+        _check_waiting(conn, account, now)
+        _check_desks(conn, player_id, chosen, now)
+        request = _open_request(conn, account=account, player_id=player_id, client_name=None, kind="share", company_id=share["id"], side=side,
+                                quantity=quantity, seconds=seconds, desks=chosen, now=now, block=block, for_empire=empire_id,
+                                exchange_bid=share["bids"][0]["price"] if share["bids"] else None,
+                                exchange_offer=share["offers"][0]["price"] if share["offers"] else None)
     return {"request_id": request["id"]}
 
 
-def quote(conn: Connection, player_id, request_id: int, bid: int | None, offer: int | None, valid_seconds: int, now: datetime) -> dict:
-    """A banker's prices for a request sent to their desk. A new quote replaces the desk's last one."""
+def ask_basket(conn: Connection, player_id, legs: list[tuple[str, int]], side: str, seconds: int, desks: list[str], now: datetime, *,
+               for_empire: bool = False) -> dict:
+    """Several shares at once, all bought or all sold, priced by each bank as one margin over (or under) the market."""
+    if side not in ("buy", "sell"):
+        raise FloorError("A basket is all bought or all sold.")
+    tickers = [t for t, _ in legs]
+    if not 2 <= len(legs) <= data.FLOOR_BASKET_MOST or len(set(tickers)) != len(tickers):
+        raise FloorError(f"A basket is two to {data.FLOOR_BASKET_MOST} different shares.")
+    if not all(_whole(q) for _, q in legs):
+        raise FloorError("Ask for a whole number of each share, above nought.")
+    _check_window(seconds)
+    chosen = list(dict.fromkeys(desks))
+    _market_open(now)
+    with conn.transaction():
+        account, empire_id = _client(conn, player_id, for_empire, now)
+        rows = []
+        for ticker, quantity in legs:
+            share = _share(conn, ticker, now)
+            if share.get("halted_reason"):
+                raise FloorError(f"No trading in {ticker}: {share['halted_reason']}.")
+            if quantity * BPS > share["shares_in_issue"] * data.FLOOR_MOST_SHARES_BPS:
+                raise FloorError(f"{ticker}: one request is at most {data.FLOOR_MOST_SHARES_BPS / 100:g}% of the company's shares.")
+            rows.append({"company_id": share["id"], "quantity": quantity, "mid": _mid(share)})
+        _check_waiting(conn, account, now)
+        _check_desks(conn, player_id, chosen, now)
+        request = _open_request(conn, account=account, player_id=player_id, client_name=None, kind="basket", side=side,
+                                quantity=sum(q for _, q in legs), seconds=seconds, desks=chosen, now=now, legs=rows, for_empire=empire_id)
+    return {"request_id": request["id"]}
+
+
+def ask_bond(conn: Connection, player_id, code: str, side: str, units: int, seconds: int, desks: list[str], now: datetime, *,
+             for_empire: bool = False) -> dict:
+    """A request for prices on a bond, quoted as a price and the yield it gives."""
+    if side not in SIDE_WORDS:
+        raise FloorError("Ask to buy, to sell, or for a price both ways.")
+    if not _whole(units) or units > data.FLOOR_BOND_MOST_UNITS:
+        raise FloorError(f"Ask for 1 to {data.FLOOR_BOND_MOST_UNITS:,} bonds.")
+    _check_window(seconds)
+    chosen = list(dict.fromkeys(desks))
+    _market_open(now)
+    with conn.transaction():
+        account, empire_id = _client(conn, player_id, for_empire, now)
+        bond = _bond(conn, code, now)
+        _check_waiting(conn, account, now)
+        _check_desks(conn, player_id, chosen, now)
+        request = _open_request(conn, account=account, player_id=player_id, client_name=None, kind="bond", bond_id=bond["id"], side=side,
+                                quantity=units, seconds=seconds, desks=chosen, now=now, for_empire=empire_id,
+                                exchange_bid=bond["bid"] or None, exchange_offer=bond["ask"])
+    return {"request_id": request["id"]}
+
+
+# ---------------------------------------------------------------------------
+# Quoting
+# ---------------------------------------------------------------------------
+
+def quote(conn: Connection, player_id, request_id: int, bid: int | None, offer: int | None, valid_seconds: int, now: datetime, *,
+          firm: bool = True, margin_bps: int | None = None, bid_yield_bps: int | None = None, offer_yield_bps: int | None = None) -> dict:
+    """A banker's prices for a request sent to their desk: firm (the client may take it at once) or indicative (taking it asks
+    the banker to confirm). A bond may be quoted by yield; a basket by one margin. A new quote replaces the desk's last."""
     least, most = data.FLOOR_QUOTE_SECONDS
-    if not isinstance(valid_seconds, int) or not least <= valid_seconds <= most:
+    if not isinstance(valid_seconds, int) or isinstance(valid_seconds, bool) or not least <= valid_seconds <= most:
         raise FloorError(f"A price holds for {least} to {most} seconds.")
     for p in (bid, offer):
-        if p is not None and (not isinstance(p, int) or isinstance(p, bool) or p <= 0):
+        if p is not None and not _whole(p):
             raise FloorError("A price is a sum above nought.")
     desk = f"player:{player_id}"
     with conn.transaction():
-        request = _one(conn, "SELECT r.*, c.ticker FROM floor_requests r JOIN companies c ON c.id = r.company_id WHERE r.id = %s FOR UPDATE", (request_id,))
+        request = _load_request(conn, request_id, lock=True)
         if request is None or not _one(conn, "SELECT 1 AS x FROM floor_request_desks WHERE request_id = %s AND desk = %s", (request_id, desk)):
             raise FloorError("That request was not sent to your desk.")
         if request["status"] != "open" or now >= request["quotes_until"]:
             raise FloorError("Too late: the client's countdown has run out.")
-        needs = {"buy": ("offer",), "sell": ("bid",), "two_way": ("bid", "offer")}[request["side"]]
-        given = {"bid": bid, "offer": offer}
-        for word in needs:
-            if given[word] is None:
-                raise FloorError("The client asked for a price both ways: give a buying and a selling price." if request["side"] == "two_way"
-                                 else f"Give the price you would {'sell' if word == 'offer' else 'buy'} at.")
-        if bid is not None and offer is not None and bid >= offer:
-            raise FloorError("Your buying price must be below your selling price.")
-        share = _share(conn, request["ticker"], now)
-        for p in (bid, offer):
-            if p is not None and not share["lowest_today"] <= p <= share["highest_today"]:
-                raise FloorError(f"Today this share can trade only between {_money(share['lowest_today'])} and {_money(share['highest_today'])}.")
+        if request["kind"] == "basket":
+            if not isinstance(margin_bps, int) or isinstance(margin_bps, bool) or not -500 <= margin_bps <= 500:
+                raise FloorError("Price a basket as one margin over the market, between −5% and +5%.")
+            bid = offer = None
+        else:
+            if request["kind"] == "bond":
+                bond = _bond(conn, request["code"], now)
+                bid = price_at_yield(bond, bid_yield_bps) if bid_yield_bps is not None else bid
+                offer = price_at_yield(bond, offer_yield_bps) if offer_yield_bps is not None else offer
+            needs = {"buy": ("offer",), "sell": ("bid",), "two_way": ("bid", "offer")}[request["side"]]
+            given = {"bid": bid, "offer": offer}
+            for word in needs:
+                if given[word] is None:
+                    raise FloorError("The client asked for a price both ways: give a buying and a selling price." if request["side"] == "two_way"
+                                     else f"Give the price you would {'sell' if word == 'offer' else 'buy'} at.")
+            bid, offer = (bid if "bid" in needs else None), (offer if "offer" in needs else None)
+            if bid is not None and offer is not None and bid >= offer:
+                raise FloorError("Your buying price must be below your selling price.")
+            if request["kind"] == "share":
+                share = _share(conn, request["ticker"], now)
+                for p in (bid, offer):
+                    if p is not None and not share["lowest_today"] <= p <= share["highest_today"]:
+                        raise FloorError(f"Today this share can trade only between {_money(share['lowest_today'])} and {_money(share['highest_today'])}.")
+            else:
+                for p in (bid, offer):
+                    if p is not None and abs(p - bond["fair"]) * BPS > bond["fair"] * data.FLOOR_BOND_BAND_BPS:
+                        raise FloorError(f"A bond's price on the Floor stays within {data.FLOOR_BOND_BAND_BPS / 100:g}% of its fair value, {_money(bond['fair'])}.")
         conn.execute("UPDATE floor_quotes SET status = 'replaced' WHERE request_id = %s AND desk = %s AND status = 'live'", (request_id, desk))
-        row = _one(conn, "INSERT INTO floor_quotes (request_id, desk, bid, offer, created_at, shown_at, valid_until) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                   (request_id, desk, bid if "bid" in needs else None, offer if "offer" in needs else None, now, now, now + timedelta(seconds=valid_seconds)))
+        row = _one(conn, "INSERT INTO floor_quotes (request_id, desk, bid, offer, margin_bps, firm, created_at, shown_at, valid_until)"
+                         " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                   (request_id, desk, bid, offer, margin_bps if request["kind"] == "basket" else None, bool(firm), now, now,
+                    now + timedelta(seconds=valid_seconds)))
         if request["client_player"]:
             _ping_player(conn, request["client_player"])
     return {"quote_id": row["id"]}
 
 
-def _settle(conn: Connection, request: dict, q: dict, client_buys: bool, now: datetime) -> dict:
-    """The shares and the money change hands at once, away from the exchange. Refused (and nothing moves) if either side
-    cannot: a desk that cannot deliver is marked for it."""
+# ---------------------------------------------------------------------------
+# Settling a deal
+# ---------------------------------------------------------------------------
+
+def _price_of(q: dict, client_buys: bool) -> int | None:
+    return q["offer"] if client_buys else q["bid"]
+
+
+def _cover(conn: Connection, request: dict, winner_id: int, client_buys: bool) -> int | None:
+    """The second-best price on the side the client dealt: what the winner beat."""
+    others = _rows(conn, "SELECT bid, offer, margin_bps FROM floor_quotes WHERE request_id = %s AND id <> %s AND status IN ('live', 'lost')",
+                   (request["id"], winner_id))
+    if request["kind"] == "basket":
+        found = [o["margin_bps"] for o in others if o["margin_bps"] is not None]
+        return min(found) if found else None
+    found = [o["offer"] if client_buys else o["bid"] for o in others if (o["offer"] if client_buys else o["bid"])]
+    return (min(found) if client_buys else max(found)) if found else None
+
+
+def _empire_checks(conn: Connection, request: dict, legs: list[dict], client_buys: bool, now: datetime) -> None:
+    """A deal for an empire meets every limit an order for the empire would: the member's trading limit, the 30% rule,
+    no dealing with its own people, fair dealing for an empire the computer runs, and the Risk Manager's gate (a deal
+    that would have to wait for the Risk Manager cannot be done on the Floor, where prices hold for seconds)."""
+    from simulation import empires, firm_dealmaking, firm_risk
+    try:
+        seat, state = empires._trader(conn, request["client_player"], now)
+        if seat["empire_id"] != request["for_empire"]:
+            raise FloorError("You no longer trade for that empire.")
+        side = "buy" if client_buys else "sell"
+        total = sum(leg["price"] * leg["quantity"] for leg in legs)
+        for leg in legs:
+            if leg.get("company_id") is None:
+                continue
+            if seat["head_player_id"] is None:
+                empires.fair_dealing({"reference": leg["reference"]}, side, "limit", leg["price"], "An empire run by the computer")
+            empires.no_dealing_with_yourself(conn, seat["account_id"], leg["company_id"], side, empires._insiders(conn, seat["empire_id"]), "the empire")
+            if client_buys and seat["empire_kind"] == "player":
+                firm_dealmaking.buying_guard(conn, seat["empire_id"], leg["company_id"], leg["quantity"])
+        empires._within_trade_limit(conn, seat, state, total, now)
+        try:
+            with conn.transaction():
+                for leg in legs:
+                    if leg.get("company_id") is not None:
+                        held = firm_risk.gate_trade(conn, seat, {"id": leg["company_id"], "ticker": leg["ticker"]}, side, "limit",
+                                                    leg["quantity"], leg["price"], leg["price"] * leg["quantity"], state, now)
+                    else:
+                        held = firm_risk.gate_bond(conn, seat, leg["code"], side, leg["quantity"], leg["price"] * leg["quantity"], state, now)
+                    if held is not None:
+                        raise _Held(held["why"])
+        except _Held as held:
+            raise FloorError("This needs the empire's Risk Manager to approve it first (" + "; ".join(held.args[0])
+                             + "), and a price on the Floor holds only seconds. Ask for a smaller deal, or trade it on the exchange.") from None
+        conn.execute("INSERT INTO empire_trades (empire_id, player_id, period, what, value, at) VALUES (%s, %s, %s, %s, %s, %s)",
+                     (seat["empire_id"], request["client_player"], state["period"],
+                      f"{side} on the Floor: " + ", ".join(f"{leg['quantity']:,} {leg['ticker'] or leg['code']}" for leg in legs), total, now))
+    except empires.EmpireError as refused:
+        raise FloorError(str(refused)) from None
+
+
+def _legs(conn: Connection, request: dict, q: dict, client_buys: bool, price: int | None, margin: int | None) -> list[dict]:
+    if request["kind"] == "share":
+        share = _one(conn, "SELECT share_asset, (SELECT reference_price FROM market_instruments WHERE company_id = c.id) AS reference"
+                           " FROM companies c WHERE id = %s", (request["company_id"],))
+        return [{"company_id": request["company_id"], "bond_id": None, "ticker": request["ticker"], "code": None, "asset": share["share_asset"],
+                 "quantity": request["quantity"], "price": price, "reference": share["reference"]}]
+    if request["kind"] == "bond":
+        bond = _one(conn, "SELECT asset FROM bonds WHERE id = %s", (request["bond_id"],))
+        return [{"company_id": None, "bond_id": request["bond_id"], "ticker": None, "code": request["code"], "asset": bond["asset"],
+                 "quantity": request["quantity"], "price": price, "reference": price}]
+    sign = 1 if client_buys else -1
+    return [{"company_id": leg["company_id"], "bond_id": None, "ticker": leg["ticker"], "code": None, "asset": leg["share_asset"],
+             "quantity": leg["quantity"], "price": max(leg["mid"] * (BPS + sign * margin) // BPS, 1), "reference": leg["mid"]}
+            for leg in request["legs"]]
+
+
+def _settle(conn: Connection, request: dict, q: dict, client_buys: bool, now: datetime, *, price: int | None = None,
+            margin: int | None = None) -> dict:
+    """The shares (or bonds) and the money change hands at once, away from the exchange. Refused (and nothing moves) if either
+    side cannot: a desk that cannot deliver is marked for it."""
     from simulation import corporate, courts, ledger, newsroom
     from simulation.ledger import Leg
-    company = _one(conn, "SELECT id, name, ticker, share_asset FROM companies WHERE id = %s", (request["company_id"],))
-    desk_account = _desk_account(conn, q["desk"])
-    price = q["offer"] if client_buys else q["bid"]
-    if price is None:
-        raise FloorError("That bank gave no price on that side.")
+    if request["kind"] == "basket":
+        margin = q["margin_bps"] if margin is None else margin
+    else:
+        price = _price_of(q, client_buys) if price is None else price
+        if price is None:
+            raise FloorError("That bank gave no price on that side.")
+    desk_account = _desk_account(conn, q["desk"], request["kind"])
+    if desk_account is None:
+        raise FloorError("That desk has no account.")
     buyer, seller = (request["client_account"], desk_account) if client_buys else (desk_account, request["client_account"])
     if buyer == seller:
         raise FloorError("A desk cannot deal with itself.")
-    cost = price * request["quantity"]
+    player = _desk_player(q["desk"])
+    if player and request["for_empire"] and _one(conn, "SELECT 1 AS x FROM empire_seats WHERE empire_id = %s AND player_id = %s",
+                                                 (request["for_empire"], player)):
+        raise FloorError("A banker cannot deal with an empire they sit in.")
+    legs = _legs(conn, request, q, client_buys, price, margin)
+    cost = sum(leg["price"] * leg["quantity"] for leg in legs)
     for account in (buyer, seller):
         kind = _one(conn, "SELECT kind FROM ledger_accounts WHERE id = %s", (account,))["kind"]
         if kind in ("player", "empire"):
-            newsroom.check_trade(conn, account, company["id"], now)
+            for leg in legs:
+                if leg["company_id"]:
+                    newsroom.check_trade(conn, account, leg["company_id"], now)
             courts.check_trade(conn, account, now)
-    desk_short = (ledger.balance(conn, desk_account, company["share_asset"]) < request["quantity"]) if client_buys else (ledger.balance(conn, desk_account) < cost)
-    if desk_short:
-        if q["desk"].startswith("player:"):
-            conn.execute("UPDATE floor_desks SET failed = failed + 1 WHERE player_id = %s", (q["desk"].split(":", 1)[1],))
+    short = any(ledger.balance(conn, desk_account, leg["asset"]) < leg["quantity"] for leg in legs) if client_buys \
+        else ledger.balance(conn, desk_account) < cost
+    if short:
+        if player:
+            conn.execute("UPDATE floor_desks SET failed = failed + 1 WHERE player_id = %s", (player,))
         conn.execute("UPDATE floor_quotes SET status = 'failed' WHERE id = %s", (q["id"],))
-        return {"failed": f"{_desk_name(conn, q['desk'])} could not deliver: it has not the {'shares' if client_buys else 'cash'}. Its price is withdrawn; take another."}
+        return {"failed": f"{_desk_name(conn, q['desk'])} could not deliver: it has not the {'holdings' if client_buys else 'cash'}. Its price is withdrawn; take another."}
     if client_buys and ledger.balance(conn, buyer) < cost:
-        raise FloorError(f"The deal costs {_money(cost)}. You have not that much cash.")
-    if not client_buys and ledger.balance(conn, seller, company["share_asset"]) < request["quantity"]:
-        raise FloorError("You do not hold that many free shares (shares held for orders on the exchange are not free).")
-    tx = ledger.post(conn, kind="floor_trade", memo=f"{request['quantity']:,} {company['name']} shares at {_money(price)} on the Floor",
-                     reference=f"floor:{request['id']}",
-                     legs=[Leg(seller, -request["quantity"], company["share_asset"]), Leg(buyer, request["quantity"], company["share_asset"]),
-                           Leg(buyer, -cost), Leg(seller, cost)])
+        raise FloorError(f"The deal costs {_money(cost)}. {'The empire has' if request['for_empire'] else 'You have'} not that much cash.")
+    if not client_buys and any(ledger.balance(conn, seller, leg["asset"]) < leg["quantity"] for leg in legs):
+        raise FloorError("You do not hold that many free (holdings waiting in orders on the exchange are not free).")
+    if request["for_empire"]:
+        _empire_checks(conn, request, legs, client_buys, now)
+    cover = _cover(conn, request, q["id"], client_buys)
+    exchange_price = request["exchange_offer"] if client_buys else request["exchange_bid"]
+    what = ", ".join(f"{leg['quantity']:,} {leg['ticker'] or leg['code']}" for leg in legs)
+    tx = ledger.post(conn, kind="floor_trade", memo=f"{what} on the Floor", reference=f"floor:{request['id']}",
+                     legs=[x for leg in legs for x in (Leg(seller, -leg["quantity"], leg["asset"]), Leg(buyer, leg["quantity"], leg["asset"]))]
+                     + [Leg(buyer, -cost), Leg(seller, cost)])
     after = corporate._after_trade(conn)
-    for account, shares in ((seller, -request["quantity"]), (buyer, request["quantity"])):
-        conn.execute("INSERT INTO holding_events (account_id, company_id, kind, shares, amount, after_trade_id) VALUES (%s, %s, 'floor', %s, %s, %s)",
-                     (account, company["id"], shares, cost, after))
-    trade = _one(conn, "INSERT INTO floor_trades (request_id, quote_id, company_id, buyer_account, seller_account, price, quantity, desk, at)"
-                       " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                 (request["id"], q["id"], company["id"], buyer, seller, price, request["quantity"], q["desk"], now))
+    day, _ = exchange.session_of(now)
+    for leg in legs:
+        value = leg["price"] * leg["quantity"]
+        if leg["company_id"]:
+            for account, shares in ((seller, -leg["quantity"]), (buyer, leg["quantity"])):
+                conn.execute("INSERT INTO holding_events (account_id, company_id, kind, shares, amount, after_trade_id) VALUES (%s, %s, 'floor', %s, %s, %s)",
+                             (account, leg["company_id"], shares, value, after))
+        else:
+            for account, side, other in ((buyer, "buy", seller), (seller, "sell", buyer)):
+                conn.execute("INSERT INTO bond_trades (bond_id, account_id, side, units, price, counterparty, session_date, ledger_transaction, traded_at)"
+                             " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", (leg["bond_id"], account, side, leg["quantity"], leg["price"], other, day, tx, now))
+        conn.execute("INSERT INTO floor_trades (request_id, quote_id, company_id, bond_id, buyer_account, seller_account, price, quantity, desk, at,"
+                     " cover, exchange_price, client_bought, block) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                     (request["id"], q["id"], leg["company_id"], leg["bond_id"], buyer, seller, leg["price"], leg["quantity"], q["desk"], now,
+                      cover if request["kind"] != "basket" else None, exchange_price if request["kind"] != "basket" else None, client_buys, request["block"]))
     conn.execute("UPDATE floor_quotes SET status = CASE WHEN id = %s THEN 'taken' ELSE 'lost' END WHERE request_id = %s AND status = 'live'",
                  (q["id"], request["id"]))
+    conn.execute("UPDATE floor_counters SET status = 'expired', answered_at = %s WHERE request_id = %s AND status = 'open'", (now, request["id"]))
     conn.execute("UPDATE floor_requests SET status = 'done', done_at = %s WHERE id = %s", (now, request["id"]))
-    for d in _rows(conn, "SELECT desk_player FROM floor_request_desks WHERE request_id = %s AND desk_player IS NOT NULL", (request["id"],)):
-        _ping_player(conn, d["desk_player"])
-    return {"trade_id": trade["id"], "price": price, "quantity": request["quantity"], "cost": cost, "ticker": company["ticker"],
-            "bought": client_buys, "desk": _desk_name(conn, q["desk"]), "ledger": tx}
+    _ping_desks(conn, request["id"])
+    if request["client_player"]:
+        _ping_player(conn, request["client_player"])
+    return {"price": price, "margin_bps": margin, "quantity": request["quantity"], "cost": cost, "what": what,
+            "bought": client_buys, "desk": _desk_name(conn, q["desk"]), "cover": cover, "ledger": tx}
+
+
+def _live_quote(conn: Connection, request_id: int, quote_id: int, now: datetime) -> dict:
+    q = _one(conn, "SELECT * FROM floor_quotes WHERE id = %s AND request_id = %s FOR UPDATE", (quote_id, request_id))
+    if q is None or q["status"] != "live" or q["shown_at"] > now:
+        raise FloorError("That price is not on offer.")
+    if now >= q["valid_until"]:
+        raise FloorError("Too late: that price has expired.")
+    return q
+
+
+def _my_request(conn: Connection, player_id, request_id: int) -> dict:
+    request = _load_request(conn, request_id, lock=True)
+    if request is None or str(request["client_player"]) != str(player_id):
+        raise FloorError("There is no such request of yours.")
+    if request["status"] != "open":
+        raise FloorError("That request is closed.")
+    return request
 
 
 def take(conn: Connection, player_id, request_id: int, quote_id: int, side: str, now: datetime) -> dict:
-    """The client takes a bank's price: buys at its selling price, or sells at its buying price."""
-    from simulation import ledger
+    """The client takes a bank's price: buys at its selling price, or sells at its buying price. A firm price is done at
+    once; an indicative one goes back to the bank to confirm."""
     if side not in ("buy", "sell"):
         raise FloorError("Take the price to buy or to sell.")
-    account = ledger.player_account_id(conn, player_id)
     with conn.transaction():
-        request = _one(conn, "SELECT * FROM floor_requests WHERE id = %s AND client_account = %s FOR UPDATE", (request_id, account))
-        if request is None:
-            raise FloorError("There is no such request of yours.")
-        if request["status"] != "open":
-            raise FloorError("That request is closed.")
+        request = _my_request(conn, player_id, request_id)
         if request["side"] != "two_way" and request["side"] != side:
             raise FloorError(f"You asked to {request['side']}.")
-        q = _one(conn, "SELECT * FROM floor_quotes WHERE id = %s AND request_id = %s FOR UPDATE", (quote_id, request_id))
-        if q is None or q["status"] != "live" or q["shown_at"] > now:
-            raise FloorError("That price is not on offer.")
-        if now >= q["valid_until"]:
-            raise FloorError("Too late: that price has expired.")
+        q = _live_quote(conn, request_id, quote_id, now)
+        if not q["firm"]:
+            return _ask_bank(conn, request, q, "confirm", side, q["offer"] if side == "buy" else q["bid"], q["margin_bps"], now)
         done = _settle(conn, request, q, side == "buy", now)
     if "failed" in done:
         raise FloorError(done["failed"])
     return done
 
 
-def pass_on(conn: Connection, player_id, request_id: int, now: datetime) -> dict:
-    from simulation import ledger
-    account = ledger.player_account_id(conn, player_id)
+def counter(conn: Connection, player_id, request_id: int, quote_id: int, side: str, now: datetime, *, price: int | None = None,
+            margin_bps: int | None = None) -> dict:
+    """The client haggles: "can you do 226?". The price must be better for the client than the bank's; the bank accepts
+    (the deal is done at it) or declines while its price holds."""
+    if side not in ("buy", "sell"):
+        raise FloorError("Counter to buy or to sell.")
     with conn.transaction():
-        n = conn.execute("UPDATE floor_requests SET status = 'passed', done_at = %s WHERE id = %s AND client_account = %s AND status = 'open'",
-                         (now, request_id, account)).rowcount
-        if not n:
+        request = _my_request(conn, player_id, request_id)
+        if request["side"] != "two_way" and request["side"] != side:
+            raise FloorError(f"You asked to {request['side']}.")
+        q = _live_quote(conn, request_id, quote_id, now)
+        if _one(conn, "SELECT 1 AS x FROM floor_counters WHERE quote_id = %s AND status = 'open'", (quote_id,)):
+            raise FloorError("You are already waiting for that bank's answer.")
+        if request["kind"] == "basket":
+            if not isinstance(margin_bps, int) or isinstance(margin_bps, bool) or not -500 <= margin_bps < q["margin_bps"]:
+                raise FloorError("Counter a basket with a smaller margin than the bank's.")
+            price = None
+        else:
+            theirs = _price_of(q, side == "buy")
+            if theirs is None:
+                raise FloorError("That bank gave no price on that side.")
+            if not _whole(price) or (side == "buy" and price >= theirs) or (side == "sell" and price <= theirs):
+                raise FloorError(f"A counter must be better for you than the bank's {_money(theirs)}.")
+            margin_bps = None
+        return _ask_bank(conn, request, q, "counter", side, price, margin_bps, now)
+
+
+def _ask_bank(conn: Connection, request: dict, q: dict, kind: str, side: str, price: int | None, margin: int | None, now: datetime) -> dict:
+    row = _one(conn, "INSERT INTO floor_counters (request_id, quote_id, kind, side, price, margin_bps, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+                     " RETURNING id", (request["id"], q["id"], kind, side, price, margin, now))
+    if q["desk"].startswith("computer:"):
+        return _computer_answers(conn, request, q, row["id"], side, price, margin, now)
+    _ping_player(conn, _desk_player(q["desk"]))
+    return {"waiting": True, "counter_id": row["id"]}
+
+
+def _computer_answers(conn: Connection, request: dict, q: dict, counter_id: int, side: str, price: int | None, margin: int | None,
+                      now: datetime) -> dict:
+    """A computer bank accepts a counter (or confirms its indicative price) if it still keeps enough of its spread against
+    the market now; otherwise it declines."""
+    code = q["desk"].split(":", 1)[1]
+    client_buys = side == "buy"
+    if request["kind"] == "basket":
+        full = _computer_half(conn, request, code, 1) + data.FLOOR_BASKET_EXTRA_BPS
+        ok = margin * BPS >= full * data.FLOOR_COMPUTER_KEEPS_BPS
+    else:
+        mid = _mid(_share(conn, request["ticker"], now)) if request["kind"] == "share" else _bond(conn, request["code"], now)["fair"]
+        half = _computer_half(conn, request, code, mid * request["quantity"])
+        edge = (price - mid) if client_buys else (mid - price)
+        ok = edge * BPS * BPS >= mid * half * data.FLOOR_COMPUTER_KEEPS_BPS
+    if not ok:
+        conn.execute("UPDATE floor_counters SET status = 'declined', answered_at = %s WHERE id = %s", (now, counter_id))
+        return {"declined": True, "desk": _desk_name(conn, q["desk"])}
+    done = _settle(conn, request, q, client_buys, now, price=price, margin=margin)
+    if "failed" in done:
+        raise FloorError(done["failed"])
+    conn.execute("UPDATE floor_counters SET status = 'accepted', answered_at = %s WHERE id = %s", (now, counter_id))
+    return done
+
+
+def answer(conn: Connection, player_id, counter_id: int, accept: bool, now: datetime) -> dict:
+    """A banker answers a counter, or confirms (or backs away from) an indicative price a client took. Backing away is
+    counted, and shown to every client."""
+    with conn.transaction():
+        c = _one(conn, "SELECT * FROM floor_counters WHERE id = %s FOR UPDATE", (counter_id,))
+        q = _one(conn, "SELECT * FROM floor_quotes WHERE id = %s FOR UPDATE", (c["quote_id"],)) if c else None
+        if c is None or q["desk"] != f"player:{player_id}":
+            raise FloorError("There is no such question for your desk.")
+        if c["status"] != "open":
+            raise FloorError("That has been answered already, or it has run out.")
+        request = _load_request(conn, c["request_id"], lock=True)
+        if request["status"] != "open" or q["status"] != "live" or now >= q["valid_until"] + timedelta(seconds=data.FLOOR_CONFIRM_SECONDS):
+            conn.execute("UPDATE floor_counters SET status = 'expired', answered_at = %s WHERE id = %s", (now, counter_id))
+            if c["kind"] == "confirm":
+                conn.execute("UPDATE floor_desks SET backed_away = backed_away + 1 WHERE player_id = %s", (player_id,))
+            raise FloorError("Too late: your price ran out before you answered.")
+        if not accept:
+            conn.execute("UPDATE floor_counters SET status = 'declined', answered_at = %s WHERE id = %s", (now, counter_id))
+            if c["kind"] == "confirm":
+                conn.execute("UPDATE floor_desks SET backed_away = backed_away + 1 WHERE player_id = %s", (player_id,))
+            if request["client_player"]:
+                _ping_player(conn, request["client_player"])
+            return {"declined": True}
+        done = _settle(conn, request, q, c["side"] == "buy", now, price=c["price"], margin=c["margin_bps"])
+        if "failed" in done:
+            conn.execute("UPDATE floor_counters SET status = 'declined', answered_at = %s WHERE id = %s", (now, counter_id))
+            return {"failed": done["failed"]}
+        conn.execute("UPDATE floor_counters SET status = 'accepted', answered_at = %s WHERE id = %s", (now, counter_id))
+        return done
+
+
+def pass_on(conn: Connection, player_id, request_id: int, now: datetime) -> dict:
+    with conn.transaction():
+        request = _load_request(conn, request_id, lock=True)
+        if request is None or str(request["client_player"]) != str(player_id) or request["status"] != "open":
             raise FloorError("There is no such open request of yours.")
+        conn.execute("UPDATE floor_requests SET status = 'passed', done_at = %s WHERE id = %s", (now, request_id))
         conn.execute("UPDATE floor_quotes SET status = 'lost' WHERE request_id = %s AND status = 'live'", (request_id,))
-        for d in _rows(conn, "SELECT desk_player FROM floor_request_desks WHERE request_id = %s AND desk_player IS NOT NULL", (request_id,)):
-            _ping_player(conn, d["desk_player"])
+        conn.execute("UPDATE floor_counters SET status = 'expired', answered_at = %s WHERE request_id = %s AND status = 'open'", (now, request_id))
+        _ping_desks(conn, request_id)
     return {"passed": request_id}
 
 
 def _ends(conn: Connection, request: dict) -> datetime:
     """A request is over when the banks' countdown and every price it drew have run out."""
     last = _one(conn, "SELECT max(valid_until) AS t FROM floor_quotes WHERE request_id = %s AND status = 'live'", (request["id"],))["t"]
-    return max(request["quotes_until"], last) if last else request["quotes_until"]
+    end = max(request["quotes_until"], last) if last else request["quotes_until"]
+    return end + timedelta(seconds=data.FLOOR_CONFIRM_SECONDS)
+
+
+# ---------------------------------------------------------------------------
+# Chat, and deal tickets
+# ---------------------------------------------------------------------------
+
+def _may_chat(conn: Connection, a, b) -> bool:
+    """A client may write to any bank's desk; a banker to any client who has asked their desk for a price."""
+    if _one(conn, "SELECT 1 AS x FROM floor_desks d JOIN players p ON p.id = d.player_id WHERE d.player_id = %s AND p.build = 'investment_banker'", (b,)):
+        return True
+    return bool(_one(conn, "SELECT 1 AS x FROM floor_requests r JOIN floor_request_desks k ON k.request_id = r.id"
+                           " WHERE k.desk_player = %s AND r.client_player = %s LIMIT 1", (a, b)))
+
+
+def say(conn: Connection, player_id, to_name: str, body: str, now: datetime) -> dict:
+    """A line in the Floor chat. Kept for good."""
+    body = " ".join((body or "").split())
+    if not 1 <= len(body) <= 300:
+        raise FloorError("A message is 1 to 300 characters.")
+    other = _one(conn, "SELECT id FROM players WHERE display_name_key = lower(%s)", (to_name,))
+    if other is None or str(other["id"]) == str(player_id):
+        raise FloorError("There is nobody of that name to write to.")
+    if not (_may_chat(conn, player_id, other["id"]) or _may_chat(conn, other["id"], player_id)):
+        raise FloorError("On the Floor you write to a bank's desk, or to a client who asked your desk for a price.")
+    conn.execute("INSERT INTO floor_chat (from_player, to_player, body, at) VALUES (%s, %s, %s, %s)", (player_id, other["id"], body, now))
+    _ping_player(conn, other["id"])
+    return {"to": to_name}
+
+
+def propose_ticket(conn: Connection, player_id, to_name: str, ticker: str, side: str, quantity: int, price: int, now: datetime) -> dict:
+    """An agreed chat line made into a deal ticket: the other side has a minute to confirm it."""
+    if side not in ("buy", "sell") or not _whole(quantity) or not _whole(price):
+        raise FloorError("A ticket says buy or sell, how many and at what price.")
+    _market_open(now)
+    with conn.transaction():
+        other = _one(conn, "SELECT id FROM players WHERE display_name_key = lower(%s)", (to_name,))
+        if other is None or str(other["id"]) == str(player_id):
+            raise FloorError("There is nobody of that name.")
+        if not _one(conn, "SELECT 1 AS x FROM floor_chat WHERE (from_player = %s AND to_player = %s) OR (from_player = %s AND to_player = %s) LIMIT 1",
+                    (player_id, other["id"], other["id"], player_id)):
+            raise FloorError("A ticket comes from a conversation: agree it in the chat first.")
+        share = _share(conn, ticker, now)
+        if not share["lowest_today"] <= price <= share["highest_today"]:
+            raise FloorError(f"Today this share can trade only between {_money(share['lowest_today'])} and {_money(share['highest_today'])}.")
+        if quantity * BPS > share["shares_in_issue"] * data.FLOOR_MOST_SHARES_BPS:
+            raise FloorError(f"A ticket is at most {data.FLOOR_MOST_SHARES_BPS / 100:g}% of the company's shares.")
+        row = _one(conn, "INSERT INTO floor_tickets (from_player, to_player, company_id, side, quantity, price, created_at, valid_until)"
+                         " VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                   (player_id, other["id"], share["id"], side, quantity, price, now, now + timedelta(seconds=data.FLOOR_TICKET_SECONDS)))
+        _ping_player(conn, other["id"])
+    return {"ticket_id": row["id"]}
+
+
+def answer_ticket(conn: Connection, player_id, ticket_id: int, accept: bool, now: datetime) -> dict:
+    """The other side confirms the ticket (the deal is done, between the two players' own accounts) or declines it. The
+    proposer may withdraw it."""
+    from simulation import corporate, courts, ledger, newsroom
+    from simulation.ledger import Leg
+    with conn.transaction():
+        t = _one(conn, "SELECT t.*, c.ticker, c.share_asset, c.name FROM floor_tickets t JOIN companies c ON c.id = t.company_id"
+                       " WHERE t.id = %s FOR UPDATE OF t", (ticket_id,))
+        if t is None or str(player_id) not in (str(t["to_player"]), str(t["from_player"])):
+            raise FloorError("There is no such ticket.")
+        if t["status"] != "open":
+            raise FloorError("That ticket is closed.")
+        if now >= t["valid_until"]:
+            conn.execute("UPDATE floor_tickets SET status = 'expired', done_at = %s WHERE id = %s", (now, ticket_id))
+            raise FloorError("Too late: the ticket ran out.")
+        if str(player_id) == str(t["from_player"]):
+            if accept:
+                raise FloorError("The other side confirms a ticket.")
+            conn.execute("UPDATE floor_tickets SET status = 'withdrawn', done_at = %s WHERE id = %s", (now, ticket_id))
+            _ping_player(conn, t["to_player"])
+            return {"withdrawn": ticket_id}
+        if not accept:
+            conn.execute("UPDATE floor_tickets SET status = 'declined', done_at = %s WHERE id = %s", (now, ticket_id))
+            _ping_player(conn, t["from_player"])
+            return {"declined": ticket_id}
+        _market_open(now)
+        proposer, other = ledger.player_account_id(conn, t["from_player"]), ledger.player_account_id(conn, t["to_player"])
+        buyer, seller = (proposer, other) if t["side"] == "buy" else (other, proposer)
+        cost = t["price"] * t["quantity"]
+        for account in (buyer, seller):
+            newsroom.check_trade(conn, account, t["company_id"], now)
+            courts.check_trade(conn, account, now)
+        if ledger.balance(conn, buyer) < cost:
+            raise FloorError(f"The buyer has not {_money(cost)} in cash.")
+        if ledger.balance(conn, seller, t["share_asset"]) < t["quantity"]:
+            raise FloorError("The seller does not hold that many free shares.")
+        ledger.post(conn, kind="floor_trade", memo=f"{t['quantity']:,} {t['name']} shares at {_money(t['price'])}: a ticket on the Floor",
+                    reference=f"floor-ticket:{ticket_id}",
+                    legs=[Leg(seller, -t["quantity"], t["share_asset"]), Leg(buyer, t["quantity"], t["share_asset"]), Leg(buyer, -cost), Leg(seller, cost)])
+        after = corporate._after_trade(conn)
+        for account, shares in ((seller, -t["quantity"]), (buyer, t["quantity"])):
+            conn.execute("INSERT INTO holding_events (account_id, company_id, kind, shares, amount, after_trade_id) VALUES (%s, %s, 'floor', %s, %s, %s)",
+                         (account, t["company_id"], shares, cost, after))
+        conn.execute("INSERT INTO floor_trades (ticket_id, quote_id, company_id, buyer_account, seller_account, price, quantity, desk, at)"
+                     " VALUES (%s, NULL, %s, %s, %s, %s, %s, %s, %s)",
+                     (ticket_id, t["company_id"], buyer, seller, t["price"], t["quantity"], f"player:{t['from_player']}", now))
+        conn.execute("UPDATE floor_tickets SET status = 'done', done_at = %s WHERE id = %s", (now, ticket_id))
+        _ping_player(conn, t["from_player"])
+    return {"done": ticket_id, "ticker": t["ticker"], "quantity": t["quantity"], "price": t["price"]}
+
+
+def chat_view(conn: Connection, player_id, now: datetime) -> dict:
+    """The player's Floor conversations, newest first, and the tickets open between them."""
+    lines = _rows(conn, "SELECT f.id, f.body, f.at, f.from_player = %s AS yours, p.display_name AS other FROM floor_chat f"
+                        " JOIN players p ON p.id = CASE WHEN f.from_player = %s THEN f.to_player ELSE f.from_player END"
+                        " WHERE f.from_player = %s OR f.to_player = %s ORDER BY f.id DESC LIMIT 80", (player_id, player_id, player_id, player_id))
+    talks: dict = {}
+    for line in reversed(lines):
+        talks.setdefault(line["other"], []).append({"id": line["id"], "body": line["body"], "at": line["at"], "yours": line["yours"]})
+    tickets = _rows(conn, "SELECT t.id, t.side, t.quantity, t.price, t.created_at, t.valid_until, t.status, c.ticker, t.from_player = %s AS yours,"
+                          " p.display_name AS other FROM floor_tickets t JOIN companies c ON c.id = t.company_id"
+                          " JOIN players p ON p.id = CASE WHEN t.from_player = %s THEN t.to_player ELSE t.from_player END"
+                          " WHERE (t.from_player = %s OR t.to_player = %s) ORDER BY t.id DESC LIMIT 12", (player_id, player_id, player_id, player_id))
+    for t in tickets:
+        if t["status"] == "open" and now >= t["valid_until"]:
+            t["status"] = "expired"
+    return {"talks": [{"with": name, "lines": ls} for name, ls in sorted(talks.items(), key=lambda kv: -kv[1][-1]["id"])],
+            "tickets": tickets}
 
 
 # ---------------------------------------------------------------------------
@@ -450,26 +1019,25 @@ def _ends(conn: Connection, request: dict) -> datetime:
 # ---------------------------------------------------------------------------
 
 def _computer_decides(conn: Connection, request: dict, now: datetime) -> None:
-    """At its countdown's end a computer client takes the best price that was live then, if it beats the exchange after
-    the exchange's fee; otherwise it passes."""
-    share = _one(conn, "SELECT ticker FROM companies WHERE id = %s", (request["company_id"],))
-    market = _share(conn, share["ticker"], now)
+    """At its countdown's end a computer client takes the best firm price that was live then, if it beats the exchange
+    after the exchange's fee; otherwise it passes."""
+    from simulation import ledger
+    market = _share(conn, request["ticker"], now)
     at = request["quotes_until"]
-    live = _rows(conn, "SELECT * FROM floor_quotes WHERE request_id = %s AND status = 'live' AND shown_at <= %s AND valid_until > %s",
+    live = _rows(conn, "SELECT * FROM floor_quotes WHERE request_id = %s AND status = 'live' AND firm AND shown_at <= %s AND valid_until > %s",
                  (request["id"], at, at))
     fee = data.EXCHANGE_FEE_BPS + data.STAMP_DUTY_BPS
     client_buys = request["side"] == "buy"
     if client_buys:
         best = min((q for q in live if q["offer"]), key=lambda q: (q["offer"], q["shown_at"]), default=None)
-        beat = market["offers"][0]["price"] * (10_000 + fee) // 10_000 if market["offers"] else None
+        beat = market["offers"][0]["price"] * (BPS + fee) // BPS if market["offers"] else None
         good = best is not None and (beat is None or best["offer"] <= beat)
     else:
         best = max((q for q in live if q["bid"]), key=lambda q: (q["bid"], -q["shown_at"].timestamp()), default=None)
-        beat = market["bids"][0]["price"] * (10_000 - fee) // 10_000 if market["bids"] else None
+        beat = market["bids"][0]["price"] * (BPS - fee) // BPS if market["bids"] else None
         good = best is not None and (beat is None or best["bid"] >= beat)
     with conn.transaction():
         if good:
-            from simulation import ledger
             try:
                 with conn.transaction():            # a deal that cannot be done leaves nothing behind
                     done = _settle(conn, request, best, client_buys, now)
@@ -479,8 +1047,7 @@ def _computer_decides(conn: Connection, request: dict, now: datetime) -> None:
                 return
         conn.execute("UPDATE floor_requests SET status = 'passed', done_at = %s WHERE id = %s AND status = 'open'", (now, request["id"]))
         conn.execute("UPDATE floor_quotes SET status = 'lost' WHERE request_id = %s AND status = 'live'", (request["id"],))
-        for d in _rows(conn, "SELECT desk_player FROM floor_request_desks WHERE request_id = %s AND desk_player IS NOT NULL", (request["id"],)):
-            _ping_player(conn, d["desk_player"])
+        _ping_desks(conn, request["id"])
 
 
 def _computer_calls(conn: Connection, now: datetime) -> int:
@@ -513,23 +1080,32 @@ def _computer_calls(conn: Connection, now: datetime) -> int:
         side = "buy" if _unit(seed, "floor-side", slot, d["player_id"]) < 0.5 else "sell"
         rivals = sorted(COMPUTER, key=lambda c: _unit(seed, "floor-rival", slot, d["player_id"], c))[:2]
         with conn.transaction():
-            _open_request(conn, account=account, player_id=None, client_name=name, share=share, side=side, quantity=int(quantity),
-                          seconds=seconds, desks=[f"player:{d['player_id']}"] + [f"computer:{c}" for c in rivals], now=now)
+            _open_request(conn, account=account, player_id=None, client_name=name, kind="share", company_id=share["id"], side=side,
+                          quantity=int(quantity), seconds=seconds, desks=[f"player:{d['player_id']}"] + [f"computer:{c}" for c in rivals], now=now,
+                          exchange_bid=share["bids"][0]["price"] if share["bids"] else None,
+                          exchange_offer=share["offers"][0]["price"] if share["offers"] else None)
         made += 1
     return made
 
 
 def tick(conn: Connection, now: datetime) -> None:
-    """Every few seconds of the server's loop: computer clients decide and call; requests whose time is up are closed."""
+    """Every few seconds of the server's loop: computer clients decide and call; requests whose time is up are closed; a
+    banker who never answered a client taking their indicative price has backed away from it."""
     if not _one(conn, "SELECT to_regclass('floor_requests') IS NOT NULL AS ok")["ok"]:
         return
-    for r in _rows(conn, "SELECT * FROM floor_requests WHERE status = 'open' AND client_player IS NULL AND quotes_until <= %s ORDER BY id", (now,)):
-        _computer_decides(conn, r, now)
+    for r in _rows(conn, "SELECT id FROM floor_requests WHERE status = 'open' AND client_player IS NULL AND quotes_until <= %s ORDER BY id", (now,)):
+        _computer_decides(conn, _load_request(conn, r["id"]), now)
     for r in _rows(conn, "SELECT * FROM floor_requests WHERE status = 'open' AND client_player IS NOT NULL AND quotes_until <= %s ORDER BY id", (now,)):
         if _ends(conn, r) <= now:
             with conn.transaction():
+                for c in _rows(conn, "SELECT c.id, c.kind, q.desk FROM floor_counters c JOIN floor_quotes q ON q.id = c.quote_id"
+                                     " WHERE c.request_id = %s AND c.status = 'open'", (r["id"],)):
+                    conn.execute("UPDATE floor_counters SET status = 'expired', answered_at = %s WHERE id = %s", (now, c["id"]))
+                    if c["kind"] == "confirm" and _desk_player(c["desk"]):
+                        conn.execute("UPDATE floor_desks SET backed_away = backed_away + 1 WHERE player_id = %s", (_desk_player(c["desk"]),))
                 conn.execute("UPDATE floor_requests SET status = 'expired', done_at = %s WHERE id = %s AND status = 'open'", (now, r["id"]))
                 conn.execute("UPDATE floor_quotes SET status = 'lost' WHERE request_id = %s AND status = 'live'", (r["id"],))
+    conn.execute("UPDATE floor_tickets SET status = 'expired', done_at = %s WHERE status = 'open' AND valid_until <= %s", (now, now))
     if clock.market_state(now).value == "open":
         _computer_calls(conn, now)
 
@@ -538,68 +1114,156 @@ def tick(conn: Connection, now: datetime) -> None:
 # What each side sees
 # ---------------------------------------------------------------------------
 
-def _name_of_client(r: dict) -> str:
-    return r.get("client_display") or r.get("client_name") or "A client"
+def _what(r: dict) -> dict:
+    if r["kind"] == "bond":
+        return {"label": r["code"], "name": r["bond_name"]}
+    if r["kind"] == "basket":
+        return {"label": " + ".join(leg["ticker"] for leg in r["legs"]), "name": "A basket of shares"}
+    return {"label": r["ticker"], "name": r["company_name"]}
+
+
+def client_record(conn: Connection, account, client_name: str | None) -> dict:
+    """What a bank may know of a client: how many deals it has done on the Floor, and how often the share moved its way in
+    the half hour after (a client who is usually right is priced more carefully)."""
+    deals = _rows(conn, "SELECT t.company_id, t.price, t.at, t.client_bought FROM floor_trades t JOIN floor_requests r ON r.id = t.request_id"
+                        " WHERE r.client_account = %s AND r.client_name IS NOT DISTINCT FROM %s AND t.company_id IS NOT NULL"
+                        " ORDER BY t.id DESC LIMIT 30", (account, client_name))
+    right = judged = 0
+    for d in deals:
+        later = _one(conn, "SELECT price FROM market_trades WHERE company_id = %s AND traded_at BETWEEN %s AND %s ORDER BY id DESC LIMIT 1",
+                     (d["company_id"], d["at"], d["at"] + timedelta(minutes=30)))
+        if later and later["price"] != d["price"]:
+            judged += 1
+            right += (later["price"] > d["price"]) == bool(d["client_bought"])
+    return {"deals": len(deals), "judged": judged, "right_bps": right * BPS // judged if judged else None}
+
+
+def scorecard(conn: Connection, account) -> dict:
+    """Best execution: each of the client's deals against the exchange's best price when it asked, and against the
+    second-best price it was given. Positive is money saved."""
+    rows = _rows(conn, "SELECT t.id, t.at, t.price, t.quantity, t.cover, t.exchange_price, t.client_bought, c.ticker, substr(b.asset, 5) AS code"
+                       " FROM floor_trades t JOIN floor_requests r ON r.id = t.request_id LEFT JOIN companies c ON c.id = t.company_id"
+                       " LEFT JOIN bonds b ON b.id = t.bond_id WHERE r.client_account = %s ORDER BY t.id DESC LIMIT 20", (account,))
+    fee = data.EXCHANGE_FEE_BPS + data.STAMP_DUTY_BPS
+    out, saved = [], []
+    for t in rows:
+        sign = 1 if t["client_bought"] else -1
+        vs_exchange = sign * (t["exchange_price"] - t["price"]) * BPS // t["exchange_price"] if t["exchange_price"] else None
+        vs_cover = sign * (t["cover"] - t["price"]) * BPS // t["cover"] if t["cover"] else None
+        if vs_exchange is not None and t["code"] is None:
+            vs_exchange += fee                         # the exchange would also have charged its fee
+        out.append({"id": t["id"], "at": t["at"], "what": t["ticker"] or t["code"], "price": t["price"], "quantity": t["quantity"],
+                    "bought": t["client_bought"], "vs_exchange_bps": vs_exchange, "vs_cover_bps": vs_cover})
+        if vs_exchange is not None:
+            saved.append(vs_exchange)
+    return {"deals": out, "average_vs_exchange_bps": sum(saved) // len(saved) if saved else None}
+
+
+def blocks_reported(conn: Connection, now: datetime) -> list[dict]:
+    """Block deals are reported to the whole market once done: the share, the size and the price, never who."""
+    return _rows(conn, "SELECT t.at, c.ticker, t.quantity, t.price FROM floor_trades t JOIN companies c ON c.id = t.company_id"
+                       " WHERE t.block AND t.at > %s ORDER BY t.at DESC LIMIT 10", (now - timedelta(days=3),))
 
 
 def requests_view(conn: Connection, player_id, now: datetime) -> dict:
     """A client sees their own requests with every price sent to them; a banker sees the requests sent to their desk with
-    only their own price (never another bank's), and the market and their own holdings to price from."""
-    from simulation import ledger
+    only their own price (never another bank's until the deal is done, and then only the price that beat them), the
+    client's record, the market and their own holdings to price from."""
+    from simulation import empires, ledger
     account = ledger.player_account_id(conn, player_id)
-    desk = _one(conn, "SELECT open, failed FROM floor_desks WHERE player_id = %s", (player_id,))
+    seat = empires.seat_of(conn, player_id)
+    empire_account = seat["account_id"] if seat and seat["empire_status"] == "active" and (
+        seat["build"] == "asset_manager" or seat["head_player_id"] == player_id) else None
+    desk = _one(conn, "SELECT open, failed, backed_away FROM floor_desks WHERE player_id = %s", (player_id,))
     mine = []
-    for r in _rows(conn, "SELECT r.*, c.ticker, c.name FROM floor_requests r JOIN companies c ON c.id = r.company_id"
-                         " WHERE r.client_account = %s ORDER BY r.status = 'open' DESC, r.id DESC LIMIT 12", (account,)):
-        quotes = [{"id": q["id"], "desk": _desk_name(conn, q["desk"]), "kind": q["desk"].split(":", 1)[0],
-                   "failed": (_one(conn, "SELECT failed FROM floor_desks WHERE player_id = %s", (q["desk"].split(":", 1)[1],)) or {"failed": 0})["failed"]
-                   if q["desk"].startswith("player:") else 0,
-                   "bid": q["bid"], "offer": q["offer"], "valid_until": q["valid_until"], "status": q["status"]}
-                  for q in _rows(conn, "SELECT * FROM floor_quotes WHERE request_id = %s AND shown_at <= %s AND status <> 'replaced' ORDER BY id",
-                                 (r["id"], now))]
+    for row in _rows(conn, "SELECT id FROM floor_requests WHERE client_player = %s ORDER BY status = 'open' DESC, id DESC LIMIT 12", (player_id,)):
+        r = _load_request(conn, row["id"])
+        counters = {c["quote_id"]: c for c in _rows(conn, "SELECT * FROM floor_counters WHERE request_id = %s ORDER BY id", (r["id"],))}
+        quotes = []
+        for q in _rows(conn, "SELECT * FROM floor_quotes WHERE request_id = %s AND shown_at <= %s AND status <> 'replaced' ORDER BY id", (r["id"], now)):
+            rec = _record(conn, _desk_player(q["desk"])) if _desk_player(q["desk"]) else {"failed": 0, "backed_away": 0}
+            c = counters.get(q["id"])
+            quotes.append({"id": q["id"], "desk": _desk_name(conn, q["desk"]), "kind": q["desk"].split(":", 1)[0], **rec,
+                           "bid": q["bid"], "offer": q["offer"], "margin_bps": q["margin_bps"], "firm": q["firm"],
+                           "bid_yield_bps": yield_at(_bond(conn, r["code"], now), q["bid"]) if r["kind"] == "bond" and q["bid"] else None,
+                           "offer_yield_bps": yield_at(_bond(conn, r["code"], now), q["offer"]) if r["kind"] == "bond" and q["offer"] else None,
+                           "valid_until": q["valid_until"], "status": q["status"],
+                           "asked": {"kind": c["kind"], "price": c["price"], "margin_bps": c["margin_bps"], "status": c["status"]} if c else None})
         asked = [_desk_name(conn, d["desk"]) for d in _rows(conn, "SELECT desk FROM floor_request_desks WHERE request_id = %s ORDER BY desk", (r["id"],))]
-        trade = _one(conn, "SELECT price, quantity, desk FROM floor_trades WHERE request_id = %s", (r["id"],))
-        mine.append({"id": r["id"], "ticker": r["ticker"], "name": r["name"], "side": r["side"], "quantity": r["quantity"],
-                     "created_at": r["created_at"], "quotes_until": r["quotes_until"], "status": r["status"], "asked": asked,
-                     "quotes": quotes, "deal": {"price": trade["price"], "quantity": trade["quantity"], "desk": _desk_name(conn, trade["desk"])} if trade else None})
+        trades = _rows(conn, "SELECT price, quantity, desk, cover FROM floor_trades WHERE request_id = %s ORDER BY id", (r["id"],))
+        mine.append({"id": r["id"], "kind": r["kind"], **_what(r), "ticker": r["ticker"], "side": r["side"], "quantity": r["quantity"],
+                     "legs": [{"ticker": leg["ticker"], "quantity": leg["quantity"], "mid": leg["mid"]} for leg in r["legs"]],
+                     "block": r["block"], "for_empire": r["for_empire"] is not None,
+                     "created_at": r["created_at"], "quotes_until": r["quotes_until"], "status": r["status"], "asked": asked, "quotes": quotes,
+                     "deal": {"price": trades[0]["price"], "quantity": r["quantity"], "desk": _desk_name(conn, trades[0]["desk"]),
+                              "cover": trades[0]["cover"]} if trades else None})
     incoming = []
     if desk is not None:
-        holdings = {}
-        for r in _rows(conn, "SELECT r.*, c.ticker, c.name, c.share_asset, p.display_name AS client_display FROM floor_requests r"
-                             " JOIN floor_request_desks k ON k.request_id = r.id AND k.desk_player = %s"
-                             " JOIN companies c ON c.id = r.company_id LEFT JOIN players p ON p.id = r.client_player"
-                             " ORDER BY r.status = 'open' DESC, r.id DESC LIMIT 15", (player_id,)):
-            own = _one(conn, "SELECT bid, offer, valid_until, status FROM floor_quotes WHERE request_id = %s AND desk = %s AND status <> 'replaced'"
-                             " ORDER BY id DESC LIMIT 1", (r["id"], f"player:{player_id}"))
-            trade = _one(conn, "SELECT desk, price FROM floor_trades WHERE request_id = %s", (r["id"],))
-            if r["ticker"] not in holdings and account:
-                holdings[r["ticker"]] = ledger.balance(conn, account, r["share_asset"])
-            market = exchange.quote(conn, r["ticker"], now, depth=1) if r["status"] == "open" else None
+        held: dict = {}
+        for row in _rows(conn, "SELECT r.id FROM floor_requests r JOIN floor_request_desks k ON k.request_id = r.id AND k.desk_player = %s"
+                               " ORDER BY r.status = 'open' DESC, r.id DESC LIMIT 15", (player_id,)):
+            r = _load_request(conn, row["id"])
+            own = _one(conn, "SELECT id, bid, offer, margin_bps, firm, valid_until, status FROM floor_quotes WHERE request_id = %s AND desk = %s"
+                             " AND status <> 'replaced' ORDER BY id DESC LIMIT 1", (r["id"], f"player:{player_id}"))
+            ask_me = _one(conn, "SELECT id, kind, side, price, margin_bps, status, created_at FROM floor_counters WHERE quote_id = %s AND status = 'open'",
+                          (own["id"],)) if own else None
+            trade = _one(conn, "SELECT desk, price, cover FROM floor_trades WHERE request_id = %s ORDER BY id LIMIT 1", (r["id"],))
+            client = _one(conn, "SELECT display_name FROM players WHERE id = %s", (r["client_player"],)) if r["client_player"] else None
+            if r["kind"] == "share":
+                if r["ticker"] not in held and account:
+                    held[r["ticker"]] = ledger.balance(conn, account, _one(conn, "SELECT share_asset FROM companies WHERE id = %s", (r["company_id"],))["share_asset"])
+                market = exchange.quote(conn, r["ticker"], now, depth=1) if r["status"] == "open" else None
+                info = {"best_bid": market["bids"][0]["price"] if market and market["bids"] else None,
+                        "best_offer": market["offers"][0]["price"] if market and market["offers"] else None,
+                        "last": market["last_price"] if market else None, "reference": market["reference_price"] if market else None,
+                        "low": market["lowest_today"] if market else None, "high": market["highest_today"] if market else None}
+                you_hold = held.get(r["ticker"], 0)
+            elif r["kind"] == "bond":
+                bond = _bond(conn, r["code"], now)
+                info = {"best_bid": bond["bid"], "best_offer": bond["ask"], "last": None, "reference": bond["fair"], "low": None, "high": None,
+                        "fair_yield_bps": yield_at(bond, bond["fair"])}
+                you_hold = ledger.balance(conn, account, bond["asset"]) if account else 0
+            else:
+                info = {"best_bid": None, "best_offer": None, "last": None, "reference": None, "low": None, "high": None}
+                you_hold = 0
             incoming.append({
-                "id": r["id"], "client": _name_of_client(r), "computer_client": r["client_player"] is None,
-                "ticker": r["ticker"], "name": r["name"], "side": r["side"], "quantity": r["quantity"],
+                "id": r["id"], "kind": r["kind"], **_what(r), "ticker": r["ticker"], "side": r["side"], "quantity": r["quantity"],
+                "legs": [{"ticker": leg["ticker"], "quantity": leg["quantity"], "mid": leg["mid"]} for leg in r["legs"]], "block": r["block"],
+                "client": client["display_name"] if client else (r["client_name"] or "A client"), "computer_client": r["client_player"] is None,
+                "for_empire": r["for_empire"] is not None,
+                "record": client_record(conn, r["client_account"], r["client_name"]),
                 "created_at": r["created_at"], "quotes_until": r["quotes_until"], "status": r["status"],
-                "your_quote": own,
+                "your_quote": {k: own[k] for k in ("bid", "offer", "margin_bps", "firm", "valid_until", "status")} if own else None,
+                "asked_you": ask_me,
                 "outcome": None if r["status"] == "open" else ("won" if trade and trade["desk"] == f"player:{player_id}" else
                                                                "traded away" if trade else "passed" if r["status"] == "passed" else "no deal"),
-                "you_hold": holdings.get(r["ticker"], 0),
-                "market": {"best_bid": market["bids"][0]["price"] if market and market["bids"] else None,
-                           "best_offer": market["offers"][0]["price"] if market and market["offers"] else None,
-                           "last": market["last_price"] if market else None,
-                           "reference": market["reference_price"] if market else None,
-                           "low": market["lowest_today"] if market else None, "high": market["highest_today"] if market else None},
+                # Once it is done, the losers see the price that beat them, and the winner the one it beat.
+                "done_at_price": trade["price"] if trade and r["kind"] != "basket" else None,
+                "cover": trade["cover"] if trade and trade["desk"] == f"player:{player_id}" else None,
+                "you_hold": you_hold, "market": info,
             })
-    deals = _rows(conn, "SELECT t.id, t.at, c.ticker, t.price, t.quantity, t.desk, t.buyer_account = %s AS bought, r.client_player, r.client_name,"
-                        " p.display_name AS client_display FROM floor_trades t JOIN companies c ON c.id = t.company_id"
-                        " JOIN floor_requests r ON r.id = t.request_id LEFT JOIN players p ON p.id = r.client_player"
-                        " WHERE t.buyer_account = %s OR t.seller_account = %s ORDER BY t.id DESC LIMIT 15", (account, account, account))
+    deals = _rows(conn, "SELECT t.id, t.at, coalesce(c.ticker, substr(b.asset, 5)) AS what, t.price, t.quantity, t.desk, t.buyer_account IN (%s, %s) AS bought,"
+                        " r.client_player, r.client_name, t.ticket_id, p.display_name AS client_display FROM floor_trades t"
+                        " LEFT JOIN companies c ON c.id = t.company_id LEFT JOIN bonds b ON b.id = t.bond_id"
+                        " LEFT JOIN floor_requests r ON r.id = t.request_id LEFT JOIN players p ON p.id = r.client_player"
+                        " WHERE t.buyer_account IN (%s, %s) OR t.seller_account IN (%s, %s) ORDER BY t.id DESC LIMIT 15",
+                  (account, empire_account, account, empire_account, account, empire_account))
     return {
         "now": now, "market_state": clock.market_state(now).value,
-        "is_banker": _is_banker(conn, player_id), "desk_open": bool(desk and desk["open"]), "desk_failed": desk["failed"] if desk else 0,
-        "desks": desks_for(conn, player_id),
-        "limits": {"window": list(data.FLOOR_WINDOW_SECONDS), "quote": list(data.FLOOR_QUOTE_SECONDS), "most_desks": data.FLOOR_MOST_DESKS},
+        "is_banker": _is_banker(conn, player_id), "desk_open": bool(desk and desk["open"]),
+        "desk_failed": desk["failed"] if desk else 0, "desk_backed_away": desk["backed_away"] if desk else 0,
+        "can_trade_for_empire": empire_account is not None,
+        "your_axes": _rows(conn, "SELECT c.ticker, a.side, a.quantity FROM floor_axes a JOIN companies c ON c.id = a.company_id"
+                                 " WHERE a.player_id = %s AND a.until > %s ORDER BY c.ticker", (player_id, now)),
+        "desks": desks_for(conn, player_id, now),
+        "limits": {"window": list(data.FLOOR_WINDOW_SECONDS), "quote": list(data.FLOOR_QUOTE_SECONDS), "most_desks": data.FLOOR_MOST_DESKS,
+                   "basket_most": data.FLOOR_BASKET_MOST, "block_least": data.FLOOR_BLOCK_LEAST_NAIRA * 100},
         "mine": mine, "incoming": incoming,
-        "deals": [{"id": t["id"], "at": t["at"], "ticker": t["ticker"], "price": t["price"], "quantity": t["quantity"],
-                   "bought": t["bought"], "with": _desk_name(conn, t["desk"]) if str(t["client_player"]) == str(player_id) else _name_of_client(t),
-                   "as": "client" if str(t["client_player"]) == str(player_id) else "bank"} for t in deals],
+        "deals": [{"id": t["id"], "at": t["at"], "ticker": t["what"], "price": t["price"], "quantity": t["quantity"], "bought": t["bought"],
+                   "with": "a ticket from the chat" if t["ticket_id"] else
+                           _desk_name(conn, t["desk"]) if str(t["client_player"]) == str(player_id) else (t["client_display"] or t["client_name"] or "a client"),
+                   "as": "ticket" if t["ticket_id"] else "client" if str(t["client_player"]) == str(player_id) else "bank"} for t in deals],
+        "scorecard": scorecard(conn, account),
+        "blocks": blocks_reported(conn, now),
+        "chat": chat_view(conn, player_id, now),
     }

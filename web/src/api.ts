@@ -1144,25 +1144,42 @@ export type AuctionLot = {
   you_lead: boolean; your_limit: Kobo | null; your_status: string | null;
 };
 export type AuctionHouse = { now: string; auctions: AuctionLot[] };
-/** The Floor, slice 2: price requests between clients and banks. */
-export type FloorQuote = { id: number; desk: string; kind: "computer" | "player"; failed: number; bid: Kobo | null; offer: Kobo | null; valid_until: string; status: string };
+/** The Floor, slices 2 and 3: price requests between clients and banks. */
+export type FloorAsked = { kind: "counter" | "confirm"; price: Kobo | null; margin_bps: number | null; status: string };
+export type FloorQuote = {
+  id: number; desk: string; kind: "computer" | "player"; failed: number; backed_away: number;
+  bid: Kobo | null; offer: Kobo | null; margin_bps: number | null; firm: boolean; bid_yield_bps: number | null; offer_yield_bps: number | null;
+  valid_until: string; status: string; asked: FloorAsked | null;
+};
+export type FloorLeg = { ticker: string; quantity: number; mid: Kobo };
 export type FloorMyRequest = {
-  id: number; ticker: string; name: string; side: "buy" | "sell" | "two_way"; quantity: number; created_at: string; quotes_until: string;
-  status: "open" | "done" | "passed" | "expired"; asked: string[]; quotes: FloorQuote[]; deal: { price: Kobo; quantity: number; desk: string } | null;
+  id: number; kind: "share" | "basket" | "bond"; label: string; name: string; ticker: string | null; side: "buy" | "sell" | "two_way"; quantity: number;
+  legs: FloorLeg[]; block: boolean; for_empire: boolean;
+  created_at: string; quotes_until: string; status: "open" | "done" | "passed" | "expired"; asked: string[]; quotes: FloorQuote[];
+  deal: { price: Kobo; quantity: number; desk: string; cover: Kobo | null } | null;
 };
 export type FloorIncoming = {
-  id: number; client: string; computer_client: boolean; ticker: string; name: string; side: "buy" | "sell" | "two_way"; quantity: number;
+  id: number; kind: "share" | "basket" | "bond"; label: string; name: string; ticker: string | null; side: "buy" | "sell" | "two_way"; quantity: number;
+  legs: FloorLeg[]; block: boolean; for_empire: boolean;
+  client: string; computer_client: boolean; record: { deals: number; judged: number; right_bps: number | null };
   created_at: string; quotes_until: string; status: "open" | "done" | "passed" | "expired";
-  your_quote: { bid: Kobo | null; offer: Kobo | null; valid_until: string; status: string } | null;
-  outcome: string | null; you_hold: number;
-  market: { best_bid: Kobo | null; best_offer: Kobo | null; last: Kobo | null; reference: Kobo | null; low: Kobo | null; high: Kobo | null };
+  your_quote: { bid: Kobo | null; offer: Kobo | null; margin_bps: number | null; firm: boolean; valid_until: string; status: string } | null;
+  asked_you: { id: number; kind: "counter" | "confirm"; side: "buy" | "sell"; price: Kobo | null; margin_bps: number | null; status: string; created_at: string } | null;
+  outcome: string | null; done_at_price: Kobo | null; cover: Kobo | null; you_hold: number;
+  market: { best_bid: Kobo | null; best_offer: Kobo | null; last: Kobo | null; reference: Kobo | null; low: Kobo | null; high: Kobo | null; fair_yield_bps?: number };
 };
+export type FloorTalk = { with: string; lines: { id: number; body: string; at: string; yours: boolean }[] };
+export type FloorTicket = { id: number; side: "buy" | "sell"; quantity: number; price: Kobo; created_at: string; valid_until: string; status: string; ticker: string; yours: boolean; other: string };
 export type FloorRequests = {
-  now: string; market_state: MarketState; is_banker: boolean; desk_open: boolean; desk_failed: number;
-  desks: { key: string; name: string; kind: "computer" | "player"; failed: number }[];
-  limits: { window: [number, number]; quote: [number, number]; most_desks: number };
+  now: string; market_state: MarketState; is_banker: boolean; desk_open: boolean; desk_failed: number; desk_backed_away: number;
+  can_trade_for_empire: boolean; your_axes: { ticker: string; side: "buy" | "sell"; quantity: number }[];
+  desks: { key: string; name: string; kind: "computer" | "player"; failed: number; backed_away: number; axes: { ticker: string; side: "buy" | "sell"; quantity: number }[] }[];
+  limits: { window: [number, number]; quote: [number, number]; most_desks: number; basket_most: number; block_least: Kobo };
   mine: FloorMyRequest[]; incoming: FloorIncoming[];
-  deals: { id: number; at: string; ticker: string; price: Kobo; quantity: number; bought: boolean; with: string; as: "client" | "bank" }[];
+  deals: { id: number; at: string; ticker: string; price: Kobo; quantity: number; bought: boolean; with: string; as: "client" | "bank" | "ticket" }[];
+  scorecard: { deals: { id: number; at: string; what: string; price: Kobo; quantity: number; bought: boolean; vs_exchange_bps: number | null; vs_cover_bps: number | null }[]; average_vs_exchange_bps: number | null };
+  blocks: { at: string; ticker: string; quantity: number; price: Kobo }[];
+  chat: { talks: FloorTalk[]; tickets: FloorTicket[] };
 };
 
 export type CompetitionPage = {
@@ -1534,13 +1551,27 @@ export const api = {
   auctionHouse: () => request<AuctionHouse>("/floor/auctions"),
   floorRequests: () => request<FloorRequests>("/floor/requests"),
   floorDesk: (open: boolean) => request<FloorRequests>("/floor/desk", { method: "POST", body: JSON.stringify({ open }) }),
-  floorAsk: (body: { ticker: string; side: string; quantity: number; seconds: number; desks: string[] }) =>
+  floorAsk: (body: { ticker: string; side: string; quantity: number; seconds: number; desks: string[]; for_empire?: boolean; block?: boolean }) =>
     request<FloorRequests>("/floor/ask", { method: "POST", body: JSON.stringify(body) }),
-  floorQuote: (body: { request_id: number; bid_kobo: number | null; offer_kobo: number | null; valid_seconds: number }) =>
+  floorQuote: (body: { request_id: number; bid_kobo: number | null; offer_kobo: number | null; valid_seconds: number; firm?: boolean;
+                       margin_bps?: number | null; bid_yield_bps?: number | null; offer_yield_bps?: number | null }) =>
     request<FloorRequests>("/floor/quote", { method: "POST", body: JSON.stringify(body) }),
   floorTake: (body: { request_id: number; quote_id: number; side: "buy" | "sell" }) =>
     request<FloorRequests & { result: { price: Kobo; quantity: number; desk: string; bought: boolean } }>("/floor/take", { method: "POST", body: JSON.stringify(body) }),
   floorPass: (request_id: number) => request<FloorRequests>("/floor/pass", { method: "POST", body: JSON.stringify({ request_id }) }),
+  floorAskBasket: (body: { legs: { ticker: string; quantity: number }[]; side: string; seconds: number; desks: string[]; for_empire: boolean }) =>
+    request<FloorRequests>("/floor/ask-basket", { method: "POST", body: JSON.stringify(body) }),
+  floorAskBond: (body: { code: string; side: string; units: number; seconds: number; desks: string[]; for_empire: boolean }) =>
+    request<FloorRequests>("/floor/ask-bond", { method: "POST", body: JSON.stringify(body) }),
+  floorCounter: (body: { request_id: number; quote_id: number; side: "buy" | "sell"; price_kobo?: number; margin_bps?: number }) =>
+    request<FloorRequests>("/floor/counter", { method: "POST", body: JSON.stringify(body) }),
+  floorAnswer: (counter_id: number, accept: boolean) => request<FloorRequests>("/floor/answer", { method: "POST", body: JSON.stringify({ counter_id, accept }) }),
+  floorAxe: (body: { ticker: string; side: "buy" | "sell" | null; quantity: number }) => request<FloorRequests>("/floor/axe", { method: "POST", body: JSON.stringify(body) }),
+  floorChat: (to: string, body: string) => request<FloorRequests>("/floor/chat", { method: "POST", body: JSON.stringify({ to, body }) }),
+  floorTicket: (body: { to: string; ticker: string; side: "buy" | "sell"; quantity: number; price_kobo: number }) =>
+    request<FloorRequests>("/floor/ticket", { method: "POST", body: JSON.stringify(body) }),
+  floorTicketAnswer: (ticket_id: number, accept: boolean) => request<FloorRequests>("/floor/ticket/answer", { method: "POST", body: JSON.stringify({ ticket_id, accept }) }),
+  floorBonds: () => request<{ bonds: { code: string; name: string; fair: Kobo }[] }>("/floor/bonds"),
   competition: () => request<CompetitionPage>("/competition"),
   competitionPitch: (body: { mandate_id: number; fee_bps: number; take_up_bps: number }) =>
     request<CompetitionPage>("/competition/pitch", { method: "POST", body: JSON.stringify(body) }),

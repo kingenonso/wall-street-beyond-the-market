@@ -1874,3 +1874,14 @@ FLOOR_COMPUTER_CLIENTS = (
 )
 FLOOR_CLIENT_CALL_CHANCE = 6           # each check, one chance in this many of a call to each open player desk
 FLOOR_CLIENT_DEAL_NAIRA = (2_000_000, 60_000_000)    # what a computer client's request is worth
+# Slice 3: the deeper game on the Floor.
+FLOOR_FAST_MARKET_BPS = 400            # a share 4% away from its opening price: the computer banks quote only indicatively
+FLOOR_BASKET_EXTRA_BPS = 10            # a computer bank's extra margin for the work of a basket
+FLOOR_BASKET_MOST = 5                  # shares in one basket
+FLOOR_BLOCK_MOST_BPS = 500             # a block may be up to 5% of a company's shares...
+FLOOR_BLOCK_LEAST_NAIRA = 250_000_000  # ...and is worth at least this
+FLOOR_BOND_MOST_UNITS = 1_000_000
+FLOOR_BOND_BAND_BPS = 2000             # a bond's price on the Floor stays within 20% of its fair value
+FLOOR_COMPUTER_KEEPS_BPS = 4000        # a computer bank accepts a counter that leaves it 40% of its half-spread
+FLOOR_CONFIRM_SECONDS = 15             # a bank has this long after its price runs out to answer a client who took it
+FLOOR_TICKET_SECONDS = 60              # a deal ticket from the chat waits this long to be confirmed

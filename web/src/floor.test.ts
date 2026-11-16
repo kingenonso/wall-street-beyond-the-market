@@ -24,3 +24,17 @@ describe("the Floor", () => {
     expect(readCommand("auctions", [])).toMatchObject({ kind: "page", href: "#/auctions" });
   });
 });
+
+import { readTicket } from "./FloorDesk";
+
+describe("a chat line read as a deal ticket", () => {
+  it("reads who does what, how many, of which share and at what price", () => {
+    expect(readTicket("I'll take 3,000 HMB at 46.20")).toEqual({ side: "buy", quantity: 3000, ticker: "HMB", price: 4620 });
+    expect(readTicket("sell 500 idc @ ₦20.5")).toEqual({ side: "sell", quantity: 500, ticker: "IDC", price: 2050 });
+    expect(readTicket("hit 1,200 ABA at 40")).toMatchObject({ side: "sell", quantity: 1200 });
+  });
+  it("leaves an ordinary line alone", () => {
+    expect(readTicket("what do you think of HMB?")).toBeNull();
+    expect(readTicket("take it at 40")).toBeNull();
+  });
+});

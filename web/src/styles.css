@@ -1904,7 +1904,8 @@ span.floor-tag { cursor: default; }
 .floor-ask { display: flex; flex-direction: column; gap: 8px; }
 .floor-ask-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .floor-ask-row input { flex: 1 1 140px; min-width: 0; }
-.floor-inline { display: flex; align-items: center; gap: 6px; }
+.floor-inline { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.floor-inline input[type=checkbox] { width: auto; margin: 0; }
 .floor-inline select { width: auto; }
 .floor-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .floor-seg button { width: auto; border: 0; border-radius: 0; padding: 4px 12px; background: var(--raised); color: var(--text); font-weight: 600; }
@@ -1944,3 +1945,23 @@ span.floor-tag { cursor: default; }
 .floor-pop-foot button { width: auto; }
 @media (max-width: 1100px) { .floor-grid-requests { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 760px) { .floor-pop-region { right: 8px; left: 8px; bottom: 84px; max-width: none; } .floor-quote-form input { width: 100px; } }
+
+/* The Floor, slice 3: haggling, baskets, bonds, axes, chat and tickets. */
+.floor-axe { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--gold-soft); color: var(--gold); }
+.floor-axe-x { width: auto; background: none; border: 0; padding: 0 2px; color: inherit; font-weight: 700; cursor: pointer; }
+.floor-axes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
+.floor-axes .floor-ask-row input { flex: 1 1 100px; }
+.floor-axes select, .floor-axes button { width: auto; }
+.floor-indicative { border-color: var(--warn); color: var(--warn); }
+.floor-take-counter { background: var(--raised); border: 1px solid var(--border-strong); }
+.floor-counter { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.floor-counter input { width: 130px; }
+.floor-counter select, .floor-counter button { width: auto; }
+.floor-legs { display: flex; flex-direction: column; gap: 6px; }
+.floor-legs > button { width: auto; align-self: flex-start; }
+.floor-leg-ticker { flex: 0 0 72px !important; }
+.floor-asked { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--gold); border-radius: 8px; background: var(--gold-soft); margin: 6px 0; }
+.floor-asked button { width: auto; }
+.floor-tickets { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.floor-tickets button { width: auto; margin-left: 6px; }
+.floor-ask select { width: auto; max-width: 100%; }

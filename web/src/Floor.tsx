@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, type AuctionLot, type FloorChart, type FloorPage, type NewsItem, type Player } from "./api";
 import { formatChange, formatCompact, formatNaira } from "./format";
-import { AskPanel, DeskPanel, FloorDeals, useFloorRequests } from "./FloorDesk";
+import { AskPanel, BlocksPanel, ChatPanel, DeskPanel, FloorDeals, ScorePanel, useFloorRequests } from "./FloorDesk";
 import { useLoad } from "./hooks";
 import { Failed, Loading, PageHead, Panel } from "./Shell";
 import { play } from "./sound";
@@ -215,7 +215,7 @@ function ExchangeBox({ ticker, feeBps, chart, onTraded, onLoggedOut }: {
         <div><dt>Deal value</dt><dd className="mono">{shown !== null ? formatNaira(String(shown)) : "—"}</dd></div>
         <div><dt>Fee ({(feeBps / 100).toFixed(1)}%)</dt><dd className="mono">{shown !== null ? formatNaira(String(fee(shown))) : "—"}</dd></div>
       </dl>
-      <p className="muted small">At the best price waiting on the exchange, at once. A big order eats through several prices, so it may cost more than shown. The banks' prices, by request, come next.</p>
+      <p className="muted small">At the best price waiting on the exchange, at once. A big order eats through several prices, so it may cost more than shown. For a bank's price, with no exchange fee, ask the banks above.</p>
       {said && <p className={`small ${said.ok ? "" : "change-down"}`} role="status">{said.words}</p>}
     </Panel>
   );
@@ -316,6 +316,8 @@ export function FloorWork({ onLoggedOut }: Props) {
     api.ticker().then((t) => setMarket(t.shares[0]?.ticker ?? null)).catch(() => undefined);
   }, [picked, tickerFallback]);
   const ticker = picked ?? tickerFallback ?? market;
+  // Once the screen has a share, it keeps it until the player chooses another (selling out of a position must not move it).
+  useEffect(() => { if (!picked && ticker) setPicked(ticker); }, [picked, ticker]);
   const [zoom, setZoom] = useState(60);
   const chart = useLoad(() => (ticker ? api.floorChart(ticker, 1) : Promise.resolve(null)), `floor-chart:${ticker}`, onLoggedOut);
   const [clock, setClock] = useState(() => Date.now());
@@ -342,7 +344,7 @@ export function FloorWork({ onLoggedOut }: Props) {
       {ticker && (
         <div className="floor-grid-requests">
           <AskPanel f={requests} ticker={ticker} onTraded={onFloorDeal} onLoggedOut={onLoggedOut} />
-          <DeskPanel f={requests} onLoggedOut={onLoggedOut} />
+          <DeskPanel f={requests} ticker={ticker} onLoggedOut={onLoggedOut} />
         </div>
       )}
       {ticker && (
@@ -351,7 +353,12 @@ export function FloorWork({ onLoggedOut }: Props) {
           <Chart chart={chart.data} zoom={zoom} setZoom={setZoom} now={serverNow} />
         </div>
       )}
+      <div className="floor-grid-requests">
+        <ChatPanel f={requests} onLoggedOut={onLoggedOut} />
+        <BlocksPanel f={requests} />
+      </div>
       <FloorDeals f={requests} />
+      <ScorePanel f={requests} />
     </>
   );
 }

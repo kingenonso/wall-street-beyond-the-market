@@ -22,7 +22,7 @@ from simulation import exchange, floor
 
 MONEY = {"realised", "unrealised", "total", "dividends", "fees", "exposure", "cash", "held_for_orders", "value", "price",
          "average_price", "gain", "reference_price", "last_price", "lowest_today", "highest_today", "best_bid", "best_offer",
-         "start_price", "minimum", "fair", "your_limit", "bid", "offer", "last", "low", "high", "cost", "reference"}
+         "start_price", "minimum", "fair", "your_limit", "bid", "offer", "last", "low", "high", "cost", "reference", "mid", "cover", "done_at_price"}
 
 
 def _wire(value, key: str | None = None):
@@ -77,6 +77,30 @@ class AskRequest(Request):
     quantity: int = Field(ge=1, le=10_000_000_000, strict=True)
     seconds: int = Field(ge=1, le=600, strict=True)
     desks: list[str] = Field(min_length=1, max_length=10)
+    for_empire: bool = Field(default=False, strict=True)
+    block: bool = Field(default=False, strict=True)
+
+
+class BasketLeg(Request):
+    ticker: str = Field(pattern="^[A-Z]{3}$")
+    quantity: int = Field(ge=1, le=10_000_000_000, strict=True)
+
+
+class BasketRequest(Request):
+    legs: list[BasketLeg] = Field(min_length=1, max_length=10)
+    side: str = Field(pattern="^(buy|sell)$")
+    seconds: int = Field(ge=1, le=600, strict=True)
+    desks: list[str] = Field(min_length=1, max_length=10)
+    for_empire: bool = Field(default=False, strict=True)
+
+
+class BondAskRequest(Request):
+    code: str = Field(min_length=2, max_length=40, pattern="^[A-Za-z0-9-]+$")
+    side: str = Field(pattern="^(buy|sell|two_way)$")
+    units: int = Field(ge=1, le=10_000_000_000, strict=True)
+    seconds: int = Field(ge=1, le=600, strict=True)
+    desks: list[str] = Field(min_length=1, max_length=10)
+    for_empire: bool = Field(default=False, strict=True)
 
 
 class QuoteRequest(Request):
@@ -84,6 +108,47 @@ class QuoteRequest(Request):
     bid_kobo: int | None = KOBO
     offer_kobo: int | None = KOBO
     valid_seconds: int = Field(ge=1, le=600, strict=True)
+    firm: bool = Field(default=True, strict=True)
+    margin_bps: int | None = Field(default=None, ge=-500, le=500, strict=True)
+    bid_yield_bps: int | None = Field(default=None, ge=-5000, le=30000, strict=True)
+    offer_yield_bps: int | None = Field(default=None, ge=-5000, le=30000, strict=True)
+
+
+class CounterRequest(Request):
+    request_id: int = ID
+    quote_id: int = ID
+    side: str = Field(pattern="^(buy|sell)$")
+    price_kobo: int | None = KOBO
+    margin_bps: int | None = Field(default=None, ge=-500, le=500, strict=True)
+
+
+class AnswerRequest(Request):
+    counter_id: int = ID
+    accept: bool = Field(strict=True)
+
+
+class AxeRequest(Request):
+    ticker: str = Field(pattern="^[A-Z]{3}$")
+    side: str | None = Field(default=None, pattern="^(buy|sell)$")
+    quantity: int = Field(default=0, ge=0, le=10_000_000_000, strict=True)
+
+
+class ChatRequest(Request):
+    to: str = Field(min_length=1, max_length=40)
+    body: str = Field(min_length=1, max_length=300)
+
+
+class TicketRequest(Request):
+    to: str = Field(min_length=1, max_length=40)
+    ticker: str = Field(pattern="^[A-Z]{3}$")
+    side: str = Field(pattern="^(buy|sell)$")
+    quantity: int = Field(ge=1, le=10_000_000_000, strict=True)
+    price_kobo: int = Field(ge=1, le=100_000_000_000_000, strict=True)
+
+
+class TicketAnswer(Request):
+    ticket_id: int = ID
+    accept: bool = Field(strict=True)
 
 
 class TakeRequest(Request):
@@ -121,13 +186,65 @@ def open_or_close_the_desk(body: DeskRequest, player: dict = Depends(current_pla
 
 @app.post("/api/floor/ask")
 def ask_for_prices(body: AskRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _act(conn, player, lambda now: floor.ask(conn, player["id"], body.ticker, body.side, body.quantity, body.seconds, body.desks, now),
-                "floor-ask", 12)
+    return _act(conn, player, lambda now: floor.ask(conn, player["id"], body.ticker, body.side, body.quantity, body.seconds, body.desks, now,
+                                                     for_empire=body.for_empire, block=body.block), "floor-ask", 12)
+
+
+@app.post("/api/floor/ask-basket")
+def ask_for_a_basket(body: BasketRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: floor.ask_basket(conn, player["id"], [(leg.ticker, leg.quantity) for leg in body.legs], body.side,
+                                                            body.seconds, body.desks, now, for_empire=body.for_empire), "floor-ask", 12)
+
+
+@app.post("/api/floor/ask-bond")
+def ask_for_a_bond(body: BondAskRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: floor.ask_bond(conn, player["id"], body.code, body.side, body.units, body.seconds, body.desks, now,
+                                                          for_empire=body.for_empire), "floor-ask", 12)
 
 
 @app.post("/api/floor/quote")
 def quote_a_price(body: QuoteRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
-    return _act(conn, player, lambda now: floor.quote(conn, player["id"], body.request_id, body.bid_kobo, body.offer_kobo, body.valid_seconds, now))
+    return _act(conn, player, lambda now: floor.quote(conn, player["id"], body.request_id, body.bid_kobo, body.offer_kobo, body.valid_seconds, now,
+                                                       firm=body.firm, margin_bps=body.margin_bps, bid_yield_bps=body.bid_yield_bps,
+                                                       offer_yield_bps=body.offer_yield_bps))
+
+
+@app.post("/api/floor/counter")
+def counter_a_price(body: CounterRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: floor.counter(conn, player["id"], body.request_id, body.quote_id, body.side, now,
+                                                         price=body.price_kobo, margin_bps=body.margin_bps))
+
+
+@app.post("/api/floor/answer")
+def answer_a_counter(body: AnswerRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: floor.answer(conn, player["id"], body.counter_id, body.accept, now))
+
+
+@app.post("/api/floor/axe")
+def advertise_an_axe(body: AxeRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: floor.set_axe(conn, player["id"], body.ticker, body.side, body.quantity, now), "floor-desk", 20)
+
+
+@app.post("/api/floor/chat")
+def write_on_the_floor(body: ChatRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: floor.say(conn, player["id"], body.to, body.body, now), "floor-chat", 30)
+
+
+@app.post("/api/floor/ticket")
+def propose_a_ticket(body: TicketRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: floor.propose_ticket(conn, player["id"], body.to, body.ticker, body.side, body.quantity,
+                                                                body.price_kobo, now), "floor-chat", 30)
+
+
+@app.post("/api/floor/ticket/answer")
+def answer_a_ticket(body: TicketAnswer, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _act(conn, player, lambda now: floor.answer_ticket(conn, player["id"], body.ticket_id, body.accept, now))
+
+
+@app.get("/api/floor/bonds")
+def bonds_for_the_floor(_: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    from simulation import bonds
+    return _wire({"bonds": [{"code": b["code"], "name": b["name"], "fair": b["fair"]} for b in bonds.listing(conn, _exchange_time(conn))]})
 
 
 @app.post("/api/floor/take")
