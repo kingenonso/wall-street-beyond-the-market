@@ -18,7 +18,7 @@ from server import limits
 from server.db import get_connection
 from server.main import _exchange_time, _trading_account, app, current_player
 from server.schemas import Request
-from simulation import exchange, floor
+from simulation import duels, exchange, floor
 
 MONEY = {"realised", "unrealised", "total", "dividends", "fees", "exposure", "cash", "held_for_orders", "value", "price",
          "average_price", "gain", "reference_price", "last_price", "lowest_today", "highest_today", "best_bid", "best_offer",
@@ -255,3 +255,52 @@ def take_a_price(body: TakeRequest, player: dict = Depends(current_player), conn
 @app.post("/api/floor/pass")
 def pass_on_a_request(body: PassRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     return _act(conn, player, lambda now: floor.pass_on(conn, player["id"], body.request_id, now))
+
+
+
+# ---------------------------------------------------------------------------
+# Duels on the Floor (16 November 2026)
+# ---------------------------------------------------------------------------
+
+class ChallengeRequest(Request):
+    empire_id: int = ID
+
+
+class DuelAnswer(Request):
+    duel_id: int = ID
+    accept: bool = Field(strict=True)
+
+
+class DuelWithdraw(Request):
+    duel_id: int = ID
+
+
+def _duel(conn: Connection, player: dict, action) -> dict:
+    limits.allow("floor-duel", str(player["id"]), attempts=20, per_seconds=60)
+    try:
+        done = action(_exchange_time(conn))
+    except duels.DuelError as refused:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
+    page = duels.view(conn, player["id"], _exchange_time(conn))
+    page["result"] = done
+    return _wire(page)
+
+
+@app.get("/api/floor/duels")
+def the_duels(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _wire(duels.view(conn, player["id"], _exchange_time(conn)))
+
+
+@app.post("/api/floor/duels/challenge")
+def challenge_an_empire(body: ChallengeRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _duel(conn, player, lambda now: duels.challenge(conn, player["id"], body.empire_id, now))
+
+
+@app.post("/api/floor/duels/answer")
+def answer_a_challenge(body: DuelAnswer, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _duel(conn, player, lambda now: duels.answer(conn, player["id"], body.duel_id, body.accept, now))
+
+
+@app.post("/api/floor/duels/withdraw")
+def withdraw_a_challenge(body: DuelWithdraw, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    return _duel(conn, player, lambda now: duels.withdraw(conn, player["id"], body.duel_id, now))

@@ -1894,3 +1894,8 @@ FLOOR_FISHING_ASKS = 8                 # a client who asked this many of their l
 FLOOR_FISHING_SPREAD = 2               # ...the computer banks widen their prices this many times for them
 FLOOR_LEAK_BPS = 200                   # what passing on a client's order is taken to be worth, of the order's value
 FLOOR_COLLUSION_BPS = 100              # ...and agreeing prices with another bank, of the request's value
+# Duels on the Floor (owner, 16 November 2026: "Duel on the Floor").
+DUEL_CLOSES_MINUTES = 10               # challenges for the next live event close this long before its bell
+DUEL_WIN_POINTS = 8                    # league points for winning a duel...
+DUEL_DRAW_POINTS = 3                   # ...and each side's for a draw
+DUEL_DECLINES_SHOWN = 3                # declines in a season (not answering counts) shown on an empire's record from this many

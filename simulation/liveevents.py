@@ -564,6 +564,8 @@ def score(conn: Connection, event_id: int, now: datetime) -> dict:
         floor.live_scores(conn, event, now)
         end_price = event["start_price"] * (BPS + move) // BPS
         conn.execute("UPDATE live_events SET status = 'scored', scored_at = %s, end_price = %s WHERE id = %s", (now, end_price, event_id))
+        from simulation import duels               # Duels on the Floor fought in this event are decided
+        duels.score(conn, event, now)
         top = _one(conn, "SELECT e.name, n.points FROM live_event_entries n JOIN empires e ON e.id = n.empire_id WHERE n.event_id = %s"
                          " AND n.points > 0 ORDER BY n.points DESC, n.result_bps DESC NULLS LAST, n.empire_id LIMIT 1", (event_id,))
         state = careers.world_now(conn, now)
@@ -581,6 +583,8 @@ def tick(conn: Connection, now: datetime) -> bool:
     bell rang just now."""
     if not ready(conn):
         return False
+    from simulation import duels               # Duels on the Floor: challenges not answered lapse at the bell
+    duels.tick(conn, now)
     rang = False
     bell = slot_now(now)
     if bell is not None and now < bell + timedelta(minutes=data.LIVE_LATE_OPEN_MINUTES):

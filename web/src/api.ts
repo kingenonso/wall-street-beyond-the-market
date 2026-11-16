@@ -1189,6 +1189,18 @@ export type FloorRequests = {
   chat: { talks: FloorTalk[]; tickets: FloorTicket[] };
 };
 
+/** Duels on the Floor (16 November 2026): two empires against each other in a live event. */
+export type DuelSide = { bps: number; event_bps: number; floor_bps: number };
+export type Duel = {
+  id: number; bell: string; status: "offered" | "accepted" | "declined" | "lapsed" | "withdrawn" | "scored" | "void"; you_challenged: boolean;
+  rival: string; you_bps: number | null; rival_bps: number | null; won: boolean | null; live: { you: DuelSide; rival: DuelSide } | null;
+};
+export type DuelsPage = {
+  ready: boolean; now?: string; next_bell?: string; closes_at?: string; empire?: string | null; is_head?: boolean;
+  points?: { win: number; draw: number }; duels?: Duel[];
+  rivals?: { id: number; name: string; computer: boolean; free: boolean; declines: number }[]; shown_declines?: number;
+};
+
 export type CompetitionPage = {
   ready: boolean; quarter: string; day: number; level: number; protected: boolean; protected_level: number;
   contest_last_day: number; pitch_last_day: number; fee_least_bps: number; fee_most_bps: number;
@@ -1556,6 +1568,10 @@ export const api = {
   floor: () => request<FloorPage>("/floor"),
   floorChart: (ticker: string, minutes: number) => request<FloorChart>(`/floor/chart/${encodeURIComponent(ticker)}?minutes=${minutes}`),
   auctionHouse: () => request<AuctionHouse>("/floor/auctions"),
+  duels: () => request<DuelsPage>("/floor/duels"),
+  duelChallenge: (empire_id: number) => request<DuelsPage>("/floor/duels/challenge", { method: "POST", body: JSON.stringify({ empire_id }) }),
+  duelAnswer: (duel_id: number, accept: boolean) => request<DuelsPage>("/floor/duels/answer", { method: "POST", body: JSON.stringify({ duel_id, accept }) }),
+  duelWithdraw: (duel_id: number) => request<DuelsPage>("/floor/duels/withdraw", { method: "POST", body: JSON.stringify({ duel_id }) }),
   floorRequests: () => request<FloorRequests>("/floor/requests"),
   floorDesk: (open: boolean) => request<FloorRequests>("/floor/desk", { method: "POST", body: JSON.stringify({ open }) }),
   floorAsk: (body: { ticker: string; side: string; quantity: number; seconds: number; desks: string[]; for_empire?: boolean; block?: boolean }) =>
