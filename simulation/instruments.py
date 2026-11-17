@@ -323,12 +323,12 @@ def pay_preferred(conn: Connection, company: dict, most: int, period: int) -> in
     for inst in _rows(conn, "SELECT * FROM instruments WHERE company_id = %s AND kind = 'preferred' AND status = 'open'", (company["id"],)):
         holders = _rows(conn, "SELECT b.account_id, b.balance::bigint AS units FROM ledger_balances b WHERE b.asset = %s AND b.balance > 0"
                               " AND b.account_id <> %s ORDER BY b.account_id", (inst["asset"], company["account_id"]))
-        units = sum(h["units"] for h in holders)
-        due = units * inst["par"] * inst["dividend_bps"] // BPS // 4
+        # Each holder is paid the dividend on their own shares, so no holder loses to rounding for another.
+        legs = [Leg(h["account_id"], h["units"] * inst["par"] * inst["dividend_bps"] // BPS // 4) for h in holders]
+        legs = [leg for leg in legs if leg.amount > 0]
+        due = sum(leg.amount for leg in legs)
         if due <= 0 or due > most - paid:
             continue
-        legs = [Leg(h["account_id"], due * h["units"] // units) for h in holders]
-        legs = [leg for leg in legs if leg.amount > 0]
         total = sum(leg.amount for leg in legs)
         if total:
             ledger.post(conn, kind="preferred_dividend", memo=f"{company['name']}: preferred dividend for {clock.period_label(period)}",
