@@ -8,9 +8,10 @@
 // player's own trading account.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, ApiError, type AuctionLot, type FloorChart, type FloorPage, type NewsItem, type Player } from "./api";
+import { api, ApiError, type AuctionLot, type FloorChart, type FloorPage, type FloorRisk, type NewsItem, type Player } from "./api";
 import { formatChange, formatCompact, formatNaira } from "./format";
 import { AskPanel, BlocksPanel, ChatPanel, DeskPanel, FloorDeals, MandatePanel, ScorePanel, SwapPanel, useFloorRequests } from "./FloorDesk";
+import { RiskPanel, StormBanner, useFloorRisk } from "./FloorRisk";
 import { useLoad } from "./hooks";
 import { Failed, Loading, PageHead, Panel } from "./Shell";
 import { play } from "./sound";
@@ -374,6 +375,9 @@ export function FloorWork({ onLoggedOut }: Props) {
   useEvery(chart.reload, 15_000);
 
   const requests = useFloorRequests(onLoggedOut);
+  const risk = useFloorRisk(onLoggedOut);
+  const [riskFresh, setRiskFresh] = useState<FloorRisk | null>(null);
+  const riskNow = riskFresh ?? risk.data;
   const tradedRef = useRef<() => void>(() => undefined);
   const onFloorDeal = useMemo(() => () => tradedRef.current(), []);
   if (page.loading && !d) return <Loading what="the trading floor" />;
@@ -384,6 +388,7 @@ export function FloorWork({ onLoggedOut }: Props) {
     <>
       <PageHead title="Trading floor" sub={`Your own account: the market, the news, your positions and every trade, on one screen. The floor hour is every trading day at ${d.hour_at}.`} aside={d.market_state === "open" ? "market open" : d.market_state === "opening_auction" ? "opening auction" : "market closed"} />
       {d.floor_hour && <p className="floor-hour" role="status"><strong>The floor hour</strong> until {new Date(d.floor_hour.ends_at).toLocaleTimeString("en-NG", { timeZone: "Africa/Lagos", hour: "2-digit", minute: "2-digit" })}: the clients call twice as often, and the best banks and clients of the hour are named at the end.</p>}
+      <StormBanner r={riskNow} />
       <Bar d={d} />
       <Tape d={d} />
       <div className="floor-grid-top">
@@ -399,6 +404,7 @@ export function FloorWork({ onLoggedOut }: Props) {
           <DeskPanel f={requests} ticker={ticker} onLoggedOut={onLoggedOut} />
         </div>
       )}
+      <RiskPanel r={riskNow} onSaved={setRiskFresh} />
       {ticker && (
         <div className="floor-grid-bottom">
           <ExchangeBox ticker={ticker} feeBps={d.fee_bps} chart={chart.data} onTraded={traded} onLoggedOut={onLoggedOut} />

@@ -1257,6 +1257,19 @@ export type UnionsPage = {
   rules?: { dispute_at_bps: number; notice_days: number; strike_days: number[]; catch_up_bps: number; demand_bps: number[] };
 };
 
+/** Floor extras (17 November 2026): flash storms and the risk engine. */
+export type FloorLimits = { deal_most: Kobo; name_most: Kobo; day_loss_most: Kobo; set_by: string | null; set_at: string | null };
+export type FloorUsage = {
+  limits: FloorLimits; biggest: { ticker: string; shares: number; worth: Kobo } | null; day_pnl: Kobo; frozen: boolean; frozen_loss: Kobo | null;
+  loss_used_bps: number; name_used_bps: number;
+};
+export type FloorRisk = {
+  ready: boolean; base?: { deal_most: Kobo; name_most: Kobo; day_loss_most: Kobo }; most_factor?: number;
+  storm?: { ticker: string; company: string; reason: string; ends_at: string } | null;
+  storms_today?: { starts_at: string; ticker: string; reason: string }[];
+  mine?: FloorUsage; team?: (FloorUsage & { player_id: string; name: string })[];
+};
+
 /** Prediction markets (16 November 2026). */
 export type PredictionMarket = {
   id: number; kind: "rate_rise" | "profit_beat" | "live_kind" | "live_fall" | "union_wave" | "general_strike"; area: string; question: string; details: string;
@@ -1643,6 +1656,9 @@ export const api = {
   unionMediator: (dispute_id: number) => request<UnionsPage>("/unions/mediator", { method: "POST", body: JSON.stringify({ dispute_id }) }),
   unionAdvise: (dispute_id: number, advice: "agree" | "offer" | "refuse", offer_bps: number | null, note: string) =>
     request<UnionsPage>("/unions/advise", { method: "POST", body: JSON.stringify({ dispute_id, advice, offer_bps, note }) }),
+  floorRisk: () => request<FloorRisk>("/floor/risk"),
+  floorLimits: (banker_id: string, deal_most: number, name_most: number, day_loss_most: number) =>
+    request<FloorRisk>("/floor/limits", { method: "POST", body: JSON.stringify({ banker_id, deal_most, name_most, day_loss_most }) }),
   predictions: () => request<PredictionsPage>("/predictions"),
   predictionTrade: (market_id: number, side: "yes" | "no", shares: number) =>
     request<PredictionsPage>("/predictions/trade", { method: "POST", body: JSON.stringify({ market_id, side, shares }) }),

@@ -1997,3 +1997,14 @@ GENERAL_NOTICE_DAYS = 7             # the Government has seven game days (about 
 GENERAL_AWARD_BPS = 50              # the award asked: half a percent of the last quarter's household income
 GENERAL_STRIKE_HOURS = 36           # the exchange closes for this long (never more than two real days)
 GENERAL_STRIKE_SALES_BPS = 6000     # essential work goes on: a struck day costs six tenths of a day's sales
+
+# Floor extras (owner, 17 November 2026: "build"). Flash storms and the risk engine.
+FLOOR_STORM_CHANCE = 15             # each ten-minute slot of an open market, one chance in this many of a flash storm
+FLOOR_STORM_MINUTES = 10
+FLOOR_STORM_CALL_FACTOR = 4         # the clients call this many times as often as usual...
+FLOOR_STORM_SIZE_FACTOR = 3         # ...for deals this many times as big...
+FLOOR_STORM_SECONDS = 15            # ...with this short a countdown...
+FLOOR_STORM_FOCUS_BPS = 7000        # ...and seven calls in ten in the storm's share
+FLOOR_STORM_PLACES = (3, 2, 1)      # league points for a storm's best three banks and clients
+FLOOR_LIMITS = {"deal_most": 300_000_000, "name_most": 800_000_000, "day_loss_most": 50_000_000}  # the Floor's own, in naira
+FLOOR_LIMITS_MOST_FACTOR = 5        # a Risk Manager may set limits up to five times the Floor's own

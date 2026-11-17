@@ -22,7 +22,7 @@ from simulation import duels, exchange, floor, predictions, prime
 
 MONEY = {"realised", "unrealised", "total", "dividends", "fees", "exposure", "cash", "held_for_orders", "value", "price",
          "average_price", "gain", "reference_price", "last_price", "lowest_today", "highest_today", "best_bid", "best_offer",
-         "start_price", "minimum", "fair", "your_limit", "pnl", "cost_10_yes", "cost_10_no", "worth_now", "paid", "paid_out", "payout", "most_stake", "amount", "benchmark", "average_paid", "commission", "price_now", "margin", "interest", "offer_value", "bid", "offer", "last", "low", "high", "cost", "reference", "mid", "cover", "done_at_price"}
+         "start_price", "minimum", "fair", "your_limit", "pnl", "cost_10_yes", "cost_10_no", "worth_now", "paid", "paid_out", "payout", "most_stake", "amount", "benchmark", "average_paid", "commission", "price_now", "margin", "interest", "offer_value", "bid", "offer", "last", "low", "high", "cost", "reference", "mid", "cover", "done_at_price", "deal_most", "name_most", "day_loss_most", "worth", "day_pnl", "frozen_loss"}
 
 
 def _wire(value, key: str | None = None):
@@ -42,6 +42,29 @@ def _wire(value, key: str | None = None):
 @app.get("/api/floor")
 def the_floor(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     return _wire(floor.screen(conn, _trading_account(conn, player), _exchange_time(conn)))
+
+
+@app.get("/api/floor/risk")
+def the_floor_risk(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """Floor extras (17 November 2026): the flash storm now, a banker's limits, and a Risk Manager's team."""
+    from simulation import floor_extras
+    return _wire(floor_extras.view(conn, player["id"], _exchange_time(conn)))
+
+
+class LimitsRequest(Request):
+    banker_id: UUID
+    deal_most: int = Field(gt=0, le=10**15, strict=True)
+    name_most: int = Field(gt=0, le=10**15, strict=True)
+    day_loss_most: int = Field(gt=0, le=10**15, strict=True)
+
+
+@app.post("/api/floor/limits")
+def set_floor_limits(body: LimitsRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """The Risk Manager (or the head) sets a banker's three limits."""
+    from simulation import floor_extras
+    _act(conn, player, lambda now: floor_extras.set_limits(conn, player["id"], body.banker_id, body.deal_most, body.name_most,
+                                                            body.day_loss_most, now), "floor-limits", 20)
+    return _wire(floor_extras.view(conn, player["id"], _exchange_time(conn)))
 
 
 @app.get("/api/floor/chart/{ticker}")
