@@ -61,3 +61,50 @@ Migration `068_floor_storms_risk.sql`.
 - a day's loss past the limit freezes the desk until the next day;
 - only the empire's Risk Manager or head sets limits, up to five times the Floor's;
 - the routes need a login and good input.
+
+## Slice 2: the bank desk
+
+The owner said "go on" on 17 November 2026. Bankers lend short money on the Floor, as a bank's money desk does.
+
+- **Asking.** A client asks for ₦1m to ₦2bn, for 1, 3, 7 or 14 game days (a game day is about 1 hour 52 minutes), from one
+  to five banks (the computer banks and the open player desks), giving them 15 to 60 seconds. A player may borrow on the
+  Floor at most what they are worth after their debts, and not while a loan of theirs is in default. Three requests may
+  wait at once.
+- **The credit file.** Every bank sees a grade from A to D and the purpose. For a player the grade comes from what they
+  owe against what they are worth: A owes a quarter or less, B as much or less, C up to twice, D more than that, or worth
+  nothing, or a loan in default, or a Floor loan not repaid. The banker also sees the worth, the debts and the Floor
+  history. Each grade has a chance of failing over a year (A 2%, B 8%, C 25%, D 60%); a loan's chance is that times its
+  days over 360. The panel shows it, and the expected yearly loss after the 40% recovered.
+- **Pricing.** A bank answers with a yearly rate, at most 90%. A computer bank asks the Central Bank's rate, plus twice
+  the expected loss, plus 3%, give or take 1%. A player banker may undercut or charge more as they judge the risk, and may
+  change their rate until the countdown ends. A loan is one deal under the desk's one-deal limit, and the banker lends
+  their own cash, so a frozen desk, or one short of the cash, cannot price.
+- **Taking.** A player client takes a rate within 30 seconds of the countdown's end. A computer client takes the cheapest
+  at the end. The lender pays the money over at once.
+- **Repaying.** On the due day the borrower pays back the money and the interest. A player may repay early, paying at
+  least a day's interest. A player who cannot pay all of it owes the rest as a debt in default, collected from their
+  cash, shares and bonds each quarter (the game's existing shortfall rules). A computer client fails by chance, drawn
+  from the world's secret: it pays back 40% of the money, the lender bears the loss, and the Floor's news says so.
+- **The books.** A loan lent counts in the lender's worth until repaid; a loan owed counts in the borrower's debts.
+  Interest earned and losses on loans closed today count in the desk's day's result, so a big failure can freeze a desk.
+- **Computer clients** ask each open player desk for ₦20m to ₦250m about once every 20 minutes, with two computer banks
+  as rivals, for one of five purposes (a big order before its own money comes in, a margin call, redemptions and so on).
+
+**On screen.** A "Bank desk" panel on the Trading floor: "Borrow" (your file, the form, the rates coming in, your loans
+with "Repay now") and, for a banker, "Lend" (requests at your desk with the file and a rate box, and the loan book with
+its record).
+
+**Website.** `GET /api/floor/bank`; `POST /api/floor/bank/ask` (`{amount, days, seconds, desks}`), `/quote` (`{ask_id,
+rate_bps}`), `/take` (`{ask_id, quote_id}`), `/repay` (`{loan_id}`). Migration `069_floor_bank.sql`.
+
+**Tests** (`tests/test_floor_bank.py`):
+- a client borrows, the computer banks price from the grade, a banker undercuts and lends, and it is repaid with interest
+  on the due day;
+- a player who cannot repay owes the rest in default and may not borrow again;
+- a computer client borrows from the cheapest desk and may fail, paying back 40%, which counts towards the day's loss;
+- amounts, terms, rates, the one-deal limit, the banker's cash and the borrower's worth are all checked, and an
+  untaken request expires;
+- a player repays early, paying at least a day's interest;
+- the routes need a login and good input.
+
+**Not in this slice:** borrowing for an empire's account (the player's own account only), and league points for lending.

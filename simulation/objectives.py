@@ -219,6 +219,10 @@ def wealth(conn: Connection, account, now: datetime) -> dict:
         # Stage 9: cash held as a short seller's collateral is still theirs; loans and borrowed shares are owed.
         from simulation import lending
         cash += lending.collateral_held(conn, account)
+        from simulation import (
+            floor_bank,  # money lent on the Floor is still the lender's until it is repaid
+        )
+        cash += floor_bank.lent(conn, account)
         borrowing = lending.loans_owed(conn, account) + lending.short_liability(conn, account)
     if _one(conn, "SELECT to_regclass('derivative_positions') IS NOT NULL AS ok")["ok"]:
         from simulation import derivatives

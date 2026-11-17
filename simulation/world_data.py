@@ -2008,3 +2008,23 @@ FLOOR_STORM_FOCUS_BPS = 7000        # ...and seven calls in ten in the storm's s
 FLOOR_STORM_PLACES = (3, 2, 1)      # league points for a storm's best three banks and clients
 FLOOR_LIMITS = {"deal_most": 300_000_000, "name_most": 800_000_000, "day_loss_most": 50_000_000}  # the Floor's own, in naira
 FLOOR_LIMITS_MOST_FACTOR = 5        # a Risk Manager may set limits up to five times the Floor's own
+# Floor extras, slice 2: the bank desk. Short loans priced on the Floor.
+FLOOR_LOAN_DAYS = (1, 3, 7, 14)          # the terms a client may ask for, in game days
+FLOOR_LOAN_NAIRA = (1_000_000, 2_000_000_000)      # what a player may ask to borrow
+FLOOR_LOAN_CLIENT_NAIRA = (20_000_000, 250_000_000)  # what a computer client asks for
+FLOOR_LOAN_MOST_RATE_BPS = 9000          # no bank may ask more than 90% a year
+# Each credit grade's chance of failing to repay, over a year (a loan's own chance is this times its days over 360).
+FLOOR_LOAN_GRADES = {"A": 200, "B": 800, "C": 2500, "D": 6000}
+FLOOR_LOAN_GRADE_MIX = (("A", 3500), ("B", 3500), ("C", 2000), ("D", 1000))   # how the computer clients' grades fall
+FLOOR_LOAN_RECOVERY_BPS = 4000           # a computer client that fails still pays back 40% of the money lent
+FLOOR_LOAN_BANK_MARGIN_BPS = 300         # a computer bank asks the Central Bank's rate, twice the expected loss, and this
+FLOOR_LOAN_CALL_CHANCE = 20              # each minute, one chance in this many of a computer client asking an open desk for money
+FLOOR_LOAN_TAKE_SECONDS = 30             # a player client has this long after the countdown to take a rate
+FLOOR_LOAN_MOST_OPEN = 3                 # a player's money requests waiting at once
+FLOOR_LOAN_PURPOSES = (
+    "to pay for a big order before its own money comes in",
+    "to bridge a payment until its investors pay in",
+    "to meet a margin call without selling",
+    "to settle a share purchase while a bond sale clears",
+    "to cover redemptions while it sells calmly",
+)

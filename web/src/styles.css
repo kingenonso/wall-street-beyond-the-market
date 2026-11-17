@@ -2050,3 +2050,11 @@ span.floor-tag { cursor: default; }
 .risk-set input { width: 120px; }
 .risk-set button { width: auto; }
 @media (max-width: 560px) { .risk-meter { grid-template-columns: 1fr; } }
+.bank-ask, .bank-desks { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+.bank-ask input { width: 130px; }
+.bank-rate { width: 70px; }
+.bank-quotes, .bank-incoming { border-top: 1px solid var(--border); padding-top: 6px; margin-top: 6px; }
+.bank-loans { width: 100%; margin-top: 8px; }
+.bank-loans td, .bank-loans th { padding: 2px 6px 2px 0; text-align: left; }
+.bank-incoming button, .bank-quotes button { width: auto; }
+@media (max-width: 560px) { .bank-loans { display: block; overflow-x: auto; } }

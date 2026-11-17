@@ -1133,6 +1133,8 @@ def tick(conn: Connection, now: datetime) -> None:
     mandates_tick(conn, now)
     from simulation import floor_extras      # flash storms and the risk engine (17 November 2026)
     floor_extras.storms_tick(conn, now)
+    from simulation import floor_bank        # the bank desk (17 November 2026)
+    floor_bank.tick(conn, now)
     floor_extras.freeze_tick(conn, now)
     from simulation import prime  # the Archegos moment
     prime.tick(conn, now)

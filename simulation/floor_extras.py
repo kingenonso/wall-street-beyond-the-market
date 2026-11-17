@@ -170,7 +170,10 @@ def day_pnl(conn: Connection, banker, now: datetime) -> int:
             marks[t["ticker"]] = share["last_price"] or share["reference_price"]
         mark = marks[t["ticker"]]
         total += (t["price"] - mark) * t["quantity"] if t["client_bought"] else (mark - t["price"]) * t["quantity"]
-    return total
+    from simulation import (
+        floor_bank,  # loans closed today: interest earned, less what failed clients did not repay
+    )
+    return total + floor_bank.day_result(conn, banker, _day_start(now), now)
 
 
 def frozen(conn: Connection, banker, now: datetime) -> dict | None:

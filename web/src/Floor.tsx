@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, type AuctionLot, type FloorChart, type FloorPage, type FloorRisk, type NewsItem, type Player } from "./api";
 import { formatChange, formatCompact, formatNaira } from "./format";
 import { AskPanel, BlocksPanel, ChatPanel, DeskPanel, FloorDeals, MandatePanel, ScorePanel, SwapPanel, useFloorRequests } from "./FloorDesk";
+import { BankPanel } from "./FloorBank";
 import { RiskPanel, StormBanner, useFloorRisk } from "./FloorRisk";
 import { useLoad } from "./hooks";
 import { Failed, Loading, PageHead, Panel } from "./Shell";
@@ -405,6 +406,7 @@ export function FloorWork({ onLoggedOut }: Props) {
         </div>
       )}
       <RiskPanel r={riskNow} onSaved={setRiskFresh} />
+      <BankPanel onLoggedOut={onLoggedOut} />
       {ticker && (
         <div className="floor-grid-bottom">
           <ExchangeBox ticker={ticker} feeBps={d.fee_bps} chart={chart.data} onTraded={traded} onLoggedOut={onLoggedOut} />
