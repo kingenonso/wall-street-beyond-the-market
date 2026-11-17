@@ -1,4 +1,5 @@
-import { api, type CourtCase, type CourtClaim } from "./api";
+import { useState } from "react";
+import { api, type CourtCase, type CourtClaim, type JuryDuty } from "./api";
 import { formatNaira } from "./format";
 import { useLoad } from "./hooks";
 import { Notices, useRun, type Run } from "./Newsroom";
@@ -19,7 +20,9 @@ const KIND_WORDS: Record<string, string> = {
   collusion: "Banks agreeing their prices on the Floor",
   union_bribery: "Paying a union leader",
 };
-const STATUS_WORDS: Record<string, string> = { open: "Open", settled: "Settled", judged: "Judged", withdrawn: "Withdrawn" };
+const STATUS_WORDS: Record<string, string> = { open: "Open", jury: "Before a jury", settled: "Settled", judged: "Judged", withdrawn: "Withdrawn" };
+const PROVED_WORDS: Record<number, string> = { 0: "not proved", 2500: "a quarter proved", 5000: "half proved", 7500: "three quarters proved", 10000: "all proved" };
+const when = (iso: string) => new Date(iso).toLocaleString("en-NG", { timeZone: "Africa/Lagos", weekday: "short", hour: "2-digit", minute: "2-digit" });
 const pct = (bps: number) => `${(bps / 100).toFixed(1).replace(/\.0$/, "")}%`;
 const day = (at: string) => new Date(at).toLocaleDateString("en-NG", { timeZone: "Africa/Lagos", day: "numeric", month: "short", year: "numeric" });
 
@@ -81,19 +84,118 @@ function CaseCard({ c, mine, act }: { c: CourtCase; mine: boolean; act: Run }) {
           {c.ban_quarters ? ` · banned from trading for ${c.ban_quarters} quarters` : ""}
         </div>
         <Evidence c={c} />
+        <JuryLine c={c} />
+        {mine && c.status === "open" && <Answer c={c} act={act} />}
       </div>
-      {mine && c.status === "open" && (
-        <div className="intel-actions">
-          <button className="button-outline" disabled={act.busy}
-                  onClick={() => act.run(async () => ({ result: await api.courtAnswer(c.id, "settle") }), "Settled.")}>
-            Settle for {money(c.settle_price)}
-          </button>
-          <button className="button-quiet" disabled={act.busy}
-                  onClick={() => act.run(async () => ({ result: await api.courtAnswer(c.id, "fight") }), "Judged.")}>
-            Fight it
-          </button>
+    </div>
+  );
+}
+
+/** Where the jury stands on a case, for everybody: how many have voted, then every vote and its reason. */
+function JuryLine({ c }: { c: CourtCase }) {
+  const j = c.jury;
+  return (
+    <>
+      {c.defence && <div className="small"><span className="strong">The defence:</span> "{c.defence}"</div>}
+      {c.claim_note && <div className="small"><span className="strong">The claim:</span> "{c.claim_note}"</div>}
+      {j && j.sitting && <div className="small">A jury of {j.seats} is sitting: {j.voted} ha{j.voted === 1 ? "s" : "ve"} voted. Votes close {when(j.until)} Lagos time.</div>}
+      {j && !j.sitting && (
+        <div className="small">
+          {c.outcome === "acquitted" ? "The jury acquitted" : `The jury found the claim ${PROVED_WORDS[c.proved_bps ?? 10000]}, with a ${c.penalty} penalty`}.
+          <ul className="jury-votes">{j.votes.map((v) => <li key={v.seat}>Juror {v.seat}: {PROVED_WORDS[v.proved_bps]}, {v.penalty}{v.reason ? `. "${v.reason}"` : ""}</li>)}</ul>
         </div>
       )}
+      {!j && c.outcome === "acquitted" && <div className="small">Acquitted.</div>}
+    </>
+  );
+}
+
+/** The defendant's answer: settle, let the judge decide, or ask for a jury with a statement. */
+function Answer({ c, act }: { c: CourtCase; act: Run }) {
+  const [defence, setDefence] = useState("");
+  return (
+    <div className="court-answer">
+      <div className="intel-actions">
+        <button className="button-outline" disabled={act.busy}
+                onClick={() => act.run(async () => ({ result: await api.courtAnswer(c.id, "settle") }), "Settled.")}>
+          Settle for {money(c.settle_price)}
+        </button>
+        <button className="button-quiet" disabled={act.busy}
+                onClick={() => act.run(async () => ({ result: await api.courtAnswer(c.id, "fight") }), "Judged.")}>
+          Let the judge decide
+        </button>
+        <button className="button-quiet" disabled={act.busy}
+                onClick={() => act.run(async () => ({ result: await api.courtAnswer(c.id, "jury", defence) }), "A jury is summoned.")}>
+          Ask for a jury
+        </button>
+      </div>
+      <textarea className="court-statement" maxLength={600} rows={2} value={defence} onChange={(e) => setDefence(e.target.value)}
+                placeholder="Your statement to the jury, if you ask for one (optional, up to 600 characters)" aria-label="Your statement to the jury" />
+      <p className="small muted">The judge finds the whole claim proved, at the standard penalty. A jury of players may find all of it proved, part of it, or
+        none, and may ask for a lenient or a harsh penalty. Acquitted, you owe nothing, and a player who brought it loses the bond to you.</p>
+    </div>
+  );
+}
+
+/** Jury duty: the cases this player sits on, with the vote; and their fair-verdict record. */
+function JuryDutyPanel({ d, act }: { d: JuryDuty; act: Run }) {
+  if (d.sitting.length === 0 && d.record.summoned === 0) return null;
+  return (
+    <Panel title="Jury duty" aside={`${d.record.voted} votes · ${d.record.agreed} matched the verdict · ${money(d.record.fees)} in fees`}>
+      {d.sitting.length === 0 && <p className="muted small">You are not sitting on a jury now.</p>}
+      {d.sitting.map((c) => <Juror key={c.id} c={c} act={act} />)}
+      <p className="small muted">Juries of {d.rules.size} are drawn from players with no tie to either side. Each juror reads the case file and votes once:
+        how much of the claim the record proves, and the penalty. The middle vote decides. Every juror who votes is paid {money(d.rules.fee)} by
+        the Treasury, and a vote that matches the verdict adds a point of reputation. With fewer than {d.rules.quorum} votes in {d.rules.hours} hours,
+        the judge decides.</p>
+    </Panel>
+  );
+}
+
+function Juror({ c, act }: { c: JuryDuty["sitting"][number]; act: Run }) {
+  const [proved, setProved] = useState(10000);
+  const [penalty, setPenalty] = useState("standard");
+  const [reason, setReason] = useState("");
+  return (
+    <div className="fact-row court-case">
+      <div>
+        <div className="strong">{KIND_WORDS[c.kind] ?? c.kind} <span className="muted small">· {c.ticker ?? "the market"}</span> <span className="tag">Your jury</span></div>
+        <div className="small">{c.words}</div>
+        <div className="small muted">{c.claimant} against {c.defendant} · claim {money(c.amount)} · votes close {when(c.jury_until)} Lagos time</div>
+        <Evidence c={c} />
+        {c.defence && <div className="small"><span className="strong">The defence:</span> "{c.defence}"</div>}
+        {c.claim_note && <div className="small"><span className="strong">The claim:</span> "{c.claim_note}"</div>}
+        {c.my_vote ? (
+          <div className="small strong">You voted: {PROVED_WORDS[c.my_vote.proved_bps]}, {c.my_vote.penalty}. The verdict comes when the jury closes.</div>
+        ) : (
+          <div className="court-answer">
+            <label className="small">How much does the record prove?{" "}
+              <select value={proved} onChange={(e) => setProved(Number(e.target.value))}>
+                {[10000, 7500, 5000, 2500, 0].map((v) => <option key={v} value={v}>{PROVED_WORDS[v]}</option>)}
+              </select>
+            </label>{" "}
+            <label className="small">Penalty{" "}
+              <select value={penalty} onChange={(e) => setPenalty(e.target.value)} disabled={proved === 0}>
+                <option value="lenient">lenient (half the fine)</option><option value="standard">standard</option><option value="harsh">harsh (half again)</option>
+              </select>
+            </label>
+            <input className="court-statement" maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)}
+                   placeholder="Your reason, shown with your vote but not your name (optional)" aria-label="Your reason" />
+            <button disabled={act.busy} onClick={() => act.run(async () => ({ result: await api.courtVote(c.id, proved, proved === 0 ? "standard" : penalty, reason) }), "Your vote is in.")}>Cast your vote</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ClaimantNote({ c, act }: { c: CourtCase; act: Run }) {
+  const [note, setNote] = useState(c.claim_note ?? "");
+  return (
+    <div className="court-answer">
+      <textarea className="court-statement" maxLength={600} rows={2} value={note} onChange={(e) => setNote(e.target.value)}
+                placeholder="Your statement to the jury for the claim" aria-label="Your statement to the jury" />
+      <button className="button-outline" disabled={act.busy || !note.trim()} onClick={() => act.run(async () => ({ result: await api.courtNote(c.id, note) }), "Your statement is before the jury.")}>Put it to the jury</button>
     </div>
   );
 }
@@ -124,7 +226,7 @@ function CourtHead({ aside }: { aside?: React.ReactNode }) {
     <div className="work-head">
       <div>
         <h1>The tribunal</h1>
-        <div className="work-sub">The regulator or a player brings a case, the defendant settles or fights it, and the tribunal finds the number from the record. Modelled on Nigeria's Investments and Securities Tribunal</div>
+        <div className="work-sub">The regulator or a player brings a case, the defendant settles, lets the judge decide, or asks for a jury of players. Modelled on Nigeria's Investments and Securities Tribunal</div>
       </div>
       {aside && <span className="muted small">{aside}</span>}
     </div>
@@ -162,11 +264,13 @@ export function CourtWork({ onLoggedOut }: { onLoggedOut: () => void }) {
       {data.mine.banned_until !== null && (
         <p className="error" role="alert">You are banned from trading until quarter {data.mine.banned_until}: the tribunal's order.</p>
       )}
+      {data.jury_duty && <JuryDutyPanel d={data.jury_duty} act={act} />}
       <Panel title="The docket" aside={`${data.docket.length} open`}>
         {data.docket.length === 0 && <p className="muted">No case is open. The regulator reads the record each quarter.</p>}
         {data.docket.map((c) => <CaseCard key={c.id} c={c} mine={defending.some((d) => d.id === c.id)} act={act} />)}
         <p className="muted small">A case is a claim with a number, and the lines of the record that prove it. The tribunal does not decide guilt: it
-          proves the number and makes it be paid. A defendant who does not answer is judged at the next close.</p>
+          proves the number and makes it be paid. A defendant may settle, let the judge decide, or ask for a jury of players. One who does not
+          answer is judged at the next close.</p>
       </Panel>
       {data.claims.length > 0 && (
         <Panel title="Claims you could bring" aside="you were on the other side">
@@ -178,8 +282,18 @@ export function CourtWork({ onLoggedOut }: { onLoggedOut: () => void }) {
       <Panel title="Your cases" aside={`${data.mine.defending.length} defending · ${data.mine.brought.length} brought`}>
         {data.mine.defending.length === 0 && data.mine.brought.length === 0 && <p className="muted">None. Keep it that way.</p>}
         {data.mine.defending.map((c) => <CaseCard key={`d${c.id}`} c={c} mine act={act} />)}
-        {data.mine.brought.map((c) => <CaseCard key={`b${c.id}`} c={c} mine={false} act={act} />)}
+        {data.mine.brought.map((c) => (
+          <div key={`b${c.id}`}>
+            <CaseCard c={c} mine={false} act={act} />
+            {c.status === "jury" && <ClaimantNote c={c} act={act} />}
+          </div>
+        ))}
       </Panel>
+      {(data.verdicts ?? []).length > 0 && (
+        <Panel title="Recent jury verdicts" aside="every vote in the open, no names">
+          {data.verdicts!.map((c) => <CaseCard key={`v${c.id}`} c={c} mine={false} act={act} />)}
+        </Panel>
+      )}
       <Panel title="The regulator" aside={`budget ${formatNaira(data.regulator.budget)}`}>
         <div className="small">
           It has brought {data.regulator.brought} case{data.regulator.brought === 1 ? "" : "s"}: {data.regulator.won} judged,

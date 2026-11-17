@@ -29,6 +29,11 @@ export function urgent(board: ObjectiveBoard | null, career: Career | null, play
                  text: "A step in the empire's task, an approval, or a report to file. Your colleagues cannot go on until it is done.",
                  action: "Open the War Room", href: "#/empire" });
   }
+  if (player?.jury_waiting) {
+    cards.push({ tag: "Jury", when: "Before the jury closes", title: `You are on ${player.jury_waiting === 1 ? "a jury" : `${player.jury_waiting} juries`}`,
+                 text: "Read the case file and vote: how much of the claim the record proves, and the penalty. Each vote is paid.",
+                 action: "Go to the tribunal", href: "#/court" });
+  }
   for (const u of player?.union_waiting ?? []) {
     cards.push({ tag: "Union", when: u.days_left === 0 ? "Today" : `${u.days_left} game day${u.days_left === 1 ? "" : "s"} left`,
                  title: `${u.company}'s staff want ${(u.demand_bps / 100).toFixed(1).replace(/\.0$/, "")}% more pay`,

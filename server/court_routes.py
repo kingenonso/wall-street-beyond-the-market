@@ -29,7 +29,7 @@ from simulation import world_data as data
 
 # Money in kobo, sent as text so no figure is ever rounded on the way.
 MONEY = {"amount", "bond", "settle_price", "disgorgement", "damages", "fine", "costs", "paid", "owed", "budget",
-         "fund", "cost", "price", "total", "value", "premium", "profit"}
+         "fund", "cost", "price", "total", "value", "premium", "profit", "fee", "fees"}
 
 KINDS = (
     {"kind": "insider", "name": "Dealing on confidential information",
@@ -89,6 +89,8 @@ def _page(conn: Connection, player: dict, now: datetime) -> dict:
         "claims": courts.claims(conn, player["id"], _period(conn, now), now),
         "mine": courts.my_cases(conn, player["id"]),
         "regulator": courts.regulator(conn),
+        "jury_duty": courts.jury_duty(conn, player["id"], now) if courts._one(conn, "SELECT to_regclass('jurors') IS NOT NULL AS ok")["ok"] else None,
+        "verdicts": courts.verdicts(conn),
         "fund": ledger.balance(conn, ledger.account_id(conn, courts.COMPENSATION_FUND)),
         "kinds": list(KINDS),
         "rules": {
@@ -112,7 +114,18 @@ class BringRequest(Request):
 
 
 class AnswerRequest(Request):
-    choice: str = Field(pattern="^(settle|fight)$")
+    choice: str = Field(pattern="^(settle|fight|jury)$")
+    defence: str = Field("", max_length=600)
+
+
+class VoteRequest(Request):
+    proved_bps: int = Field(strict=True)
+    penalty: str = Field(pattern="^(lenient|standard|harsh)$")
+    reason: str = Field("", max_length=300)
+
+
+class NoteRequest(Request):
+    note: str = Field(min_length=1, max_length=600)
 
 
 @app.get("/api/court")
@@ -132,7 +145,23 @@ def court_bring(body: BringRequest, player: dict = Depends(current_player), conn
 def court_answer(body: AnswerRequest, case_id: int = FastPath(ge=1, le=9_000_000_000_000_000_000),
                  player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     _act(conn, player, lambda now: courts.respond(
-        conn, player["id"], case_id, body.choice, _period(conn, now), now))
+        conn, player["id"], case_id, body.choice, _period(conn, now), now, body.defence))
+    return _page(conn, player, _exchange_time(conn))
+
+
+@app.post("/api/court/cases/{case_id}/vote")
+def court_vote(body: VoteRequest, case_id: int = FastPath(ge=1, le=9_000_000_000_000_000_000),
+               player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """Juries (17 November 2026): a juror's vote, once."""
+    _act(conn, player, lambda now: courts.vote(conn, player["id"], case_id, body.proved_bps, body.penalty, body.reason, now))
+    return _page(conn, player, _exchange_time(conn))
+
+
+@app.post("/api/court/cases/{case_id}/note")
+def court_note(body: NoteRequest, case_id: int = FastPath(ge=1, le=9_000_000_000_000_000_000),
+               player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """Juries (17 November 2026): the player who brought a case speaks to the jury."""
+    _act(conn, player, lambda now: courts.claimant_note(conn, player["id"], case_id, body.note))
     return _page(conn, player, _exchange_time(conn))
 
 

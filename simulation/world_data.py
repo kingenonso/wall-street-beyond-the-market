@@ -1997,3 +1997,12 @@ GENERAL_NOTICE_DAYS = 7             # the Government has seven game days (about 
 GENERAL_AWARD_BPS = 50              # the award asked: half a percent of the last quarter's household income
 GENERAL_STRIKE_HOURS = 36           # the exchange closes for this long (never more than two real days)
 GENERAL_STRIKE_SALES_BPS = 6000     # essential work goes on: a struck day costs six tenths of a day's sales
+
+# The tribunal's juries (owner, 17 November 2026). A defendant who fights may ask for a jury of players.
+JURY_SIZE = 5                       # jurors summoned
+JURY_QUORUM = 3                     # votes needed by the deadline, or the judge decides
+JURY_HOURS = 24                     # real hours the jurors have to vote
+JURY_FEE_NAIRA = 250_000            # paid by the Treasury to each juror who votes
+JURY_FAIR_REPUTATION = 1            # a vote that matches the verdict adds a point of reputation
+JURY_PENALTY_BPS = {"lenient": 5_000, "standard": 10_000, "harsh": 15_000}   # how the fine is scaled
+JURY_MIN_LEVEL = 3                  # a juror has reached this level in their career

@@ -118,6 +118,13 @@ def _close_due_quarters_once() -> None:
                     predictions.tick(conn, now)
                 except Exception:
                     log.exception("The prediction markets failed; they will be tried again.")
+            # Juries (17 November 2026): a jury whose time is up gives its verdict.
+            if conn.execute("SELECT to_regclass('jurors') IS NOT NULL").fetchone()[0]:
+                from simulation import courts
+                try:
+                    courts.juries_due(conn, now)
+                except Exception:
+                    log.exception("The juries' verdicts failed; they will be tried again.")
             # Unions (16 November 2026): pay deadlines answered and strikes ended as their game day comes.
             if conn.execute("SELECT to_regclass('union_disputes') IS NOT NULL").fetchone()[0]:
                 from simulation import unions
@@ -291,6 +298,7 @@ def _player_response(conn: Connection, row: dict) -> PlayerResponse:
         banks_uneasy=_banks_uneasy(conn, row["id"]),
         talent_waiting=_talent_waiting(conn, row["id"]),
         union_waiting=_union_waiting(conn, row["id"]),
+        jury_waiting=_jury_waiting(conn, row["id"]),
         theme=row.get("theme", "dark"), sound_on=row.get("sound_on", True),
         sound_volume=row.get("sound_volume", 30), tour_done=row.get("tour_done", False),
         work_in_hand=conn.execute("SELECT count(*) AS n FROM objectives WHERE player_id = %s AND state = 'active'", (row["id"],)).fetchone()["n"]
@@ -326,6 +334,14 @@ def _banks_uneasy(conn: Connection, player_id) -> int:
         WHERE b.balance > 0 AND (a.player_id = %s OR a.id IN (SELECT account_id FROM empires WHERE head_player_id = %s AND status = 'active'))
           AND (SELECT c.state FROM bank_confidence c WHERE c.company_id = d.company_id ORDER BY c.period DESC, c.day DESC LIMIT 1)
               IN ('worried', 'run', 'panic', 'closed')""", (player_id, player_id)).fetchone()["n"]
+
+
+def _jury_waiting(conn: Connection, player_id) -> int:
+    """Juries (17 November 2026): cases this player sits on as a juror and has not yet voted on."""
+    if not conn.execute("SELECT to_regclass('jurors') IS NOT NULL AS ok").fetchone()["ok"]:
+        return 0
+    return conn.execute("SELECT count(*) AS n FROM jurors j JOIN court_cases k ON k.id = j.case_id WHERE j.player_id = %s"
+                        " AND j.voted_at IS NULL AND k.status = 'jury'", (player_id,)).fetchone()["n"]
 
 
 def _union_waiting(conn: Connection, player_id) -> list[dict]:

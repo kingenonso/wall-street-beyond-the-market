@@ -33,6 +33,7 @@ export type Player = {
   banks_uneasy?: number;
   /** Proven Talent: invitations from firms waiting for an answer. */
   talent_waiting?: number;
+  jury_waiting?: number;
   union_waiting?: { ticker: string; company: string; demand_bps: number; days_left: number }[];
   /** The redesign: the player's own look and sound, and whether the first-time tour has been seen. */
   theme: "dark" | "light";
@@ -1464,8 +1465,12 @@ export const api = {
   court: () => request<CourtPage>("/court"),
   courtBring: (body: { kind: string; defendant_id: string; company_id?: string }) =>
     request<CourtPage>("/court/cases", { method: "POST", body: JSON.stringify(body) }),
-  courtAnswer: (id: number, choice: "settle" | "fight") =>
-    request<CourtPage>(`/court/cases/${id}/answer`, { method: "POST", body: JSON.stringify({ choice }) }),
+  courtAnswer: (id: number, choice: "settle" | "fight" | "jury", defence = "") =>
+    request<CourtPage>(`/court/cases/${id}/answer`, { method: "POST", body: JSON.stringify({ choice, defence }) }),
+  courtVote: (id: number, proved_bps: number, penalty: string, reason: string) =>
+    request<CourtPage>(`/court/cases/${id}/vote`, { method: "POST", body: JSON.stringify({ proved_bps, penalty, reason }) }),
+  courtNote: (id: number, note: string) =>
+    request<CourtPage>(`/court/cases/${id}/note`, { method: "POST", body: JSON.stringify({ note }) }),
   talent: () => request<TalentPage>("/talent"),
   talentPost: (path: string, body: unknown = {}) => request<TalentPage & { dealt?: { price: Kobo; fee: Kobo; cash: Kobo } }>(path, { method: "POST", body: JSON.stringify(body) }),
   sharedRecord: (slug: string) => request<TalentView>(`/talent/shared/${encodeURIComponent(slug)}`),
@@ -1953,13 +1958,23 @@ export type WorldEconomies = {
 // Stage 11: the courts. Money is sent as text (kobo), so no figure is rounded on the way.
 export type CourtLine = Record<string, string | number | null>;
 export type CourtCase = {
-  id: number; kind: string; status: "open" | "settled" | "judged" | "withdrawn";
+  id: number; kind: string; status: "open" | "jury" | "settled" | "judged" | "withdrawn";
   defendant: string; claimant: string; ticker: string | null;
   amount: Kobo; bond: Kobo; words: string;
   evidence: { key?: string; total?: Kobo; lines: CourtLine[] };
   opened_period: number; opened_at: string; outcome: string | null;
   disgorgement: Kobo; damages: Kobo; fine: Kobo; costs: Kobo; paid: Kobo; owed: Kobo;
   ban_quarters: number; settle_price: Kobo;
+  decided_by?: "judge" | "jury" | null; proved_bps?: number | null; penalty?: "lenient" | "standard" | "harsh" | null;
+  defence?: string | null; claim_note?: string | null; jury_until?: string | null;
+  jury?: { sitting: true; seats: number; voted: number; until: string }
+    | { sitting: false; seats: number; votes: { seat: number; proved_bps: number; penalty: string; reason: string | null }[] } | null;
+};
+/** Juries (17 November 2026). */
+export type JuryDuty = {
+  sitting: (CourtCase & { jury_until: string; my_vote: { proved_bps: number; penalty: string } | null })[];
+  record: { summoned: number; voted: number; agreed: number; fees: Kobo };
+  rules: { size: number; quorum: number; hours: number; fee: Kobo; penalty_bps: Record<string, number> };
 };
 export type CourtClaim = {
   kind: string; defendant_id: string; defendant: string; company_id: string | null; ticker: string | null;
@@ -1975,6 +1990,7 @@ export type CourtPage = {
   };
   regulator: { budget: Kobo; cost: Kobo; brought: number; won: number; settled: number; fines: Kobo };
   fund: Kobo;
+  jury_duty?: JuryDuty | null; verdicts?: CourtCase[];
   kinds: { kind: string; name: string; who: string }[];
   rules: {
     bond_bps: number; bond_floor: Kobo; settle_bps: number; costs_bps: number; min_claim: Kobo; case_cost: Kobo;

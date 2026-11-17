@@ -202,6 +202,8 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/competition/pitch"),
         ("POST", "/api/court/cases"),
         ("POST", "/api/court/cases/{case_id}/answer"),
+        ("POST", "/api/court/cases/{case_id}/note"),
+        ("POST", "/api/court/cases/{case_id}/vote"),
         ("POST", "/api/deals/files/{file_id}/bid"),
         ("POST", "/api/deals/files/{file_id}/nda"),
         ("POST", "/api/deals/files/{file_id}/partners"),
