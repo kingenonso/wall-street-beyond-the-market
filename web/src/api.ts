@@ -1281,6 +1281,25 @@ export type FloorBank = {
                file?: { worth: Kobo; debts: Kobo; in_default: boolean; repaid: number; failed: number } }[];
   book?: FloorLoan[]; record?: { loans: number; lent: Kobo; earned: Kobo; lost: Kobo; failed: number };
 };
+export type WealthClient = {
+  id: number; name: string; kind: string; goal: string; amount: Kobo; most_shares_bps: number; least_cash_bps: number; most_drop_bps: number;
+  goal_bps: number; banned: string[]; index_bps: number;
+};
+export type WealthManaged = WealthClient & {
+  fee_bps: number; perf_bps: number; started_at: string; satisfaction_bps: number; worth: Kobo; cash: Kobo; shares_value: Kobo;
+  shares_bps: number; cash_bps: number; quarter_bps: number; fall_bps: number;
+  lines: { ticker: string; sector: string; shares: number; value: Kobo }[];
+  orders: { id: number; ticker: string; side: string; quantity: number; remaining: number; limit_price: Kobo }[];
+  breaches: { kind: string; words: string; at: string }[];
+  reviews: { period: number; return_bps: number; benchmark_bps: number; breaches: number; fee: Kobo; perf_fee: Kobo; satisfaction_bps: number;
+             verdict: string; words: string }[];
+};
+export type FloorWealth = {
+  ready: boolean; manager?: boolean; most_fee_bps?: number; most_perf_bps?: number; most_clients?: number;
+  seeking?: (WealthClient & { pitches_until: string; my_pitch: { fee_bps: number; perf_bps: number } | null; rivals: number })[];
+  record?: { reviews: number; satisfaction_bps: number | null; left: number; kept: number; score: number };
+  clients?: WealthManaged[]; gone?: { name: string; left_at: string; left_why: string }[];
+};
 export type FloorRisk = {
   ready: boolean; base?: { deal_most: Kobo; name_most: Kobo; day_loss_most: Kobo }; most_factor?: number;
   storm?: { ticker: string; company: string; reason: string; ends_at: string } | null;
@@ -1676,6 +1695,14 @@ export const api = {
     request<UnionsPage>("/unions/advise", { method: "POST", body: JSON.stringify({ dispute_id, advice, offer_bps, note }) }),
   floorRisk: () => request<FloorRisk>("/floor/risk"),
   floorBank: () => request<FloorBank>("/floor/bank"),
+  floorWealth: () => request<FloorWealth>("/floor/wealth"),
+  floorWealthPitch: (client_id: number, fee_bps: number, perf_bps: number) =>
+    request<FloorWealth>("/floor/wealth/pitch", { method: "POST", body: JSON.stringify({ client_id, fee_bps, perf_bps }) }),
+  floorWealthTrade: (client_id: number, ticker: string, side: "buy" | "sell", quantity: number, limit_price: number) =>
+    request<FloorWealth>("/floor/wealth/trade", { method: "POST", body: JSON.stringify({ client_id, ticker, side, quantity, limit_price }) }),
+  floorWealthCancel: (client_id: number, order_id: number) =>
+    request<FloorWealth>("/floor/wealth/cancel", { method: "POST", body: JSON.stringify({ client_id, order_id }) }),
+  floorWealthHandBack: (client_id: number) => request<FloorWealth>("/floor/wealth/hand-back", { method: "POST", body: JSON.stringify({ client_id }) }),
   floorBankAsk: (amount: number, days: number, seconds: number, desks: string[]) =>
     request<FloorBank>("/floor/bank/ask", { method: "POST", body: JSON.stringify({ amount, days, seconds, desks }) }),
   floorBankQuote: (ask_id: number, rate_bps: number) =>

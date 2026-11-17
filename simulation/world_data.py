@@ -2028,3 +2028,31 @@ FLOOR_LOAN_PURPOSES = (
     "to settle a share purchase while a bond sale clears",
     "to cover redemptions while it sells calmly",
 )
+# Floor extras, slice 3: the wealth desk. Rich computer clients looking for an asset manager.
+# (kind, goal, most in shares, least in cash, the biggest fall it accepts, its yearly goal, industries it will not hold,
+#  how much of a share index its fair benchmark holds), all in hundredths of a percent.
+WEALTH_CLIENT_KINDS = (
+    ("retired couple", "steady income, and their savings kept safe", 3000, 1500, 800, 1200, (), 3000),
+    ("family office", "growth over many years", 9000, 300, 2500, 2500, (), 8000),
+    ("church foundation", "steady growth, kept clear of drink, gambling and film", 6000, 500, 1500, 1800,
+     ("consumer", "hospitality", "entertainment"), 6000),
+    ("doctors' pension scheme", "a balance of growth and safety", 6000, 800, 1500, 1800, (), 6000),
+    ("young tech founder", "fast growth, and happy to take risk", 10000, 0, 4000, 3500, ("oil_gas", "mining"), 10000),
+)
+WEALTH_CLIENT_NAMES = ("Okafor", "Adeyemi", "Bello", "Eze", "Nwosu", "Abubakar", "Danjuma", "Ogunleye", "Ibe", "Lawal",
+                       "Mensah", "Obi", "Uche", "Yusuf", "Akande", "Etim")
+WEALTH_CLIENT_NAIRA = (200_000_000, 2_000_000_000)   # what a client brings
+WEALTH_ARRIVAL_CHANCE = 4                 # each half hour, one chance in this many of a new client, while fewer than...
+WEALTH_SEEKING_MOST = 3                   # ...this many are looking at once
+WEALTH_PITCH_GAME_DAYS = 2                # how long a client takes pitches
+WEALTH_MOST_CLIENTS = 3                   # clients one asset manager may look after
+WEALTH_MOST_FEE_BPS = 200                 # a yearly fee of at most 2%...
+WEALTH_MOST_PERF_BPS = 2000               # ...and at most 20% of the gain above the client's goal
+WEALTH_START_SATISFACTION_BPS = 6000
+WEALTH_LEAVE_BELOW_BPS = 3000             # at a review a client this unhappy leaves...
+WEALTH_WARN_BELOW_BPS = 4500              # ...this unhappy, it warns...
+WEALTH_ADD_ABOVE_BPS = 7500               # ...and this happy, after a quarter beating its benchmark, it adds money
+WEALTH_ADD_BPS = 1000                     # it adds a tenth more
+WEALTH_BREACH_COST_BPS = 1000             # each breach of its limits costs this much of its satisfaction...
+WEALTH_BREACHES_TO_LEAVE = 3              # ...and this many in one quarter and it leaves at once
+WEALTH_DROP_COST_BPS = 2000               # a fall past what it accepts costs this much

@@ -23,9 +23,9 @@ from simulation import (
     bonds,
     careers,
     clock,
-    companies,
     commodities,
     commoditydesk,
+    companies,
     consumers,
     conveyancing,
     corporate,
@@ -326,6 +326,10 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     # owed is paid down.
     from simulation import courts
     courts.at_close(conn, period, now)
+    from simulation import (
+        floor_wealth,  # wealth clients review their managers and pay their fees (17 November 2026)
+    )
+    floor_wealth.at_close(conn, period, now)
     news.for_events(conn, events.generate(conn, period + 1, fortune_seed))
     unions.at_close(conn, period, fortune_seed, now)      # staff weigh up their quarter; the angry lodge demands
     # Private companies after the close: wear, morale, secrets, rivals' prices, failures, sales and start-ups.

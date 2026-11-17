@@ -108,3 +108,60 @@ rate_bps}`), `/take` (`{ask_id, quote_id}`), `/repay` (`{loan_id}`). Migration `
 - the routes need a login and good input.
 
 **Not in this slice:** borrowing for an empire's account (the player's own account only), and league points for lending.
+
+## Slice 3: the wealth desk
+
+The owner said "Ok go ahead" on 17 November 2026. Asset managers look after rich computer clients' money on the Floor
+and are judged on how well they serve them.
+
+- **Clients arrive.** While the market is open and an asset manager is playing, a client arrives about once every two
+  hours (each half hour, one chance in four; at most three looking at once). It brings ₦200m to ₦2bn and is one of five kinds:
+
+  | Kind | Wants | Most in shares | Least cash | Biggest fall | Goal a year | Will not hold |
+  |---|---|---|---|---|---|---|
+  | retired couple | steady income, savings safe | 30% | 15% | 8% | 12% | |
+  | family office | growth over many years | 90% | 3% | 25% | 25% | |
+  | church foundation | steady growth, clean | 60% | 5% | 15% | 18% | consumer goods and drinks, hotels and leisure, film |
+  | doctors' pension scheme | a balance | 60% | 8% | 15% | 18% | |
+  | young tech founder | fast growth, risk | 100% | 0% | 40% | 35% | oil and gas, mining |
+
+- **Pitching.** For two game days asset managers pitch a yearly fee (at most 2%) and a share of the gain above the
+  client's goal (at most 20%). The client works out what each pitch would cost it in a year (the fee, plus the share of an
+  expected 4% beyond its goal) against each manager's record (how happy their clients were at reviews, less a point for
+  every client lost), with a little chance, and picks the best. With no pitch it goes elsewhere. A manager looks after at
+  most three clients. The money moves from the households into the client's own account.
+- **Managing.** The manager trades the client's account on the exchange at prices they name. A share in an industry the
+  client will not hold is refused. The client's order may not meet the manager's own or their empire's. A manager who
+  dealt in a share for themselves just before the client did is noted by the Money Watch (never shown).
+- **Breaches.** Every ten minutes of an open market the limits are looked at: too much in shares, too little cash, or a
+  fall from its high past what it accepts. Each is recorded once a day (a fall once a quarter) and costs satisfaction
+  (10 points, a fall 20, out of 100; a client starts at 60). Three in one quarter and the client leaves at once.
+- **The quarter's review.** At each close the client judges the quarter against a fair benchmark: the share index for
+  the part it would hold in shares, and a quarter of the Central Bank's rate for the rest. It pays the fees from its cash
+  (a quarter of the yearly fee on what it is worth, and the share of any gain above a quarter of its goal), and its
+  satisfaction moves by three times how far it beat or missed the benchmark (at most up 20 or down 30). Below 30 it
+  leaves; below 45 it warns; at 75 or more after beating the benchmark it adds a tenth more money; otherwise it stays.
+- **Leaving.** A client that leaves takes everything back: open orders are cancelled and its cash, shares and bonds go
+  back to the households. The Floor's news says so. A manager may hand a client back; that counts as a client lost.
+
+**On screen.** A "Wealth desk" panel on the Trading floor: the manager's record, each client looked after (worth, the
+quarter, satisfaction, meters against its limits, holdings, a box to deal for it, orders waiting, limits broken, reviews,
+and "Hand the client back"), and the clients looking for a manager, each with its limits and a pitch form.
+
+**Website.** `GET /api/floor/wealth`; `POST /api/floor/wealth/pitch` (`{client_id, fee_bps, perf_bps}`), `/trade`
+(`{client_id, ticker, side, quantity, limit_price}`), `/cancel` (`{client_id, order_id}`), `/hand-back` (`{client_id}`).
+Migration `070_floor_wealth.sql`.
+
+**Tests** (`tests/test_floor_wealth.py`):
+- a client arrives, takes pitches and picks on cost, a record of clients lost outweighs a small saving in fees, and with
+  no pitch it goes elsewhere;
+- pitches are an asset manager's, within the fee limits and three clients;
+- the manager trades the client's own account, never in a banned industry;
+- breaches are recorded once a day, and three in a quarter and the client leaves with everything;
+- at the close the client pays its fees, is reviewed once, and an unhappy one leaves;
+- a very happy client adds money, and a manager may hand a client back;
+- the routes need a login and good input.
+
+**Not in this slice:** a manager misusing a client's money is noted by the Money Watch but is not yet a court case (the
+courts' list of wrongs is also being changed on the juries branch, so that waits for the merge). Fees go to the
+manager's own account, not their empire's.

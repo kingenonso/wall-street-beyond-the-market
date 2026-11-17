@@ -13,6 +13,7 @@ import { formatChange, formatCompact, formatNaira } from "./format";
 import { AskPanel, BlocksPanel, ChatPanel, DeskPanel, FloorDeals, MandatePanel, ScorePanel, SwapPanel, useFloorRequests } from "./FloorDesk";
 import { BankPanel } from "./FloorBank";
 import { RiskPanel, StormBanner, useFloorRisk } from "./FloorRisk";
+import { WealthPanel } from "./FloorWealth";
 import { useLoad } from "./hooks";
 import { Failed, Loading, PageHead, Panel } from "./Shell";
 import { play } from "./sound";
@@ -407,6 +408,7 @@ export function FloorWork({ onLoggedOut }: Props) {
       )}
       <RiskPanel r={riskNow} onSaved={setRiskFresh} />
       <BankPanel onLoggedOut={onLoggedOut} />
+      <WealthPanel onLoggedOut={onLoggedOut} />
       {ticker && (
         <div className="floor-grid-bottom">
           <ExchangeBox ticker={ticker} feeBps={d.fee_bps} chart={chart.data} onTraded={traded} onLoggedOut={onLoggedOut} />

@@ -2055,6 +2055,11 @@ span.floor-tag { cursor: default; }
 .bank-rate { width: 70px; }
 .bank-quotes, .bank-incoming { border-top: 1px solid var(--border); padding-top: 6px; margin-top: 6px; }
 .bank-loans { width: 100%; margin-top: 8px; }
+.wealth-client { border-top: 1px solid var(--border); padding-top: 6px; margin-top: 6px; }
+.wealth-pitch { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
+.wealth-pitch input { width: 90px; }
+.wealth-pitch .wealth-ticker { width: 60px; }
+.wealth-client button { width: auto; }
 .bank-loans td, .bank-loans th { padding: 2px 6px 2px 0; text-align: left; }
 .bank-incoming button, .bank-quotes button { width: auto; }
 @media (max-width: 560px) { .bank-loans { display: block; overflow-x: auto; } }
