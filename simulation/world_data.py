@@ -1829,7 +1829,8 @@ COURT_BOND_BPS = 1_000                      # a player bringing a case posts a t
 COURT_BOND_FLOOR_NAIRA = 1_000_000          # ...but never less than ₦1 million
 COURT_SETTLE_BPS = 6_000                    # settling costs six tenths of the claim, paid at once
 COURT_FINE_BPS = {"insider": 10_000, "manipulation": 1_000, "undisclosed_stake": 5_000, "naked_short": 5_000, "insurance_fraud": 10_000,
-                  "front_running": 10_000, "order_leak": 10_000, "collusion": 5_000}       # the Floor's wrongs (16 November 2026)
+                  "front_running": 10_000, "order_leak": 10_000, "collusion": 5_000,       # the Floor's wrongs (16 November 2026)
+                  "union_bribery": 10_000}                                                   # paying a union leader (17 November 2026)
 COURT_COSTS_BPS = 500                       # the loser pays a twentieth of the claim as the winner's costs
 COURT_BAN_QUARTERS = {"manipulation": 4, "naked_short": 4, "insurance_fraud": 4, "collusion": 2}   # a judgment that bans trading, and for how long
 COURT_ENFORCE_BPS = {"insider": 2_500, "manipulation": 2_000, "undisclosed_stake": 3_000, "naked_short": 2_500, "insurance_fraud": 2_500}
@@ -1974,3 +1975,13 @@ UNION_MEDIATOR_WORKS_BPS = 7000     # how often a mediator talks the union round
 UNION_MEDIATOR_EASES_BPS = 1500     # when it works, the union takes an offer this much further below its demand
 UNION_PRIVATE_PAY_WEIGHT = 3        # each point a private company pays below the going rate adds this much anger
 UNION_TWO_YEARS_QUARTERS = 36       # tenths of a quarter: a deal fading by a quarter each quarter costs about 3.6 quarters over two years
+# Part 3: union crimes (owner, 17 November 2026). Paying a union leader is a crime between players only: a bribe to make
+# trouble must target a company another player-run empire controls; a bribe to settle, one's own.
+UNION_BRIBE_PRICE_BPS = 50          # what a leader asks: half a percent of the company's last quarter's sales
+UNION_BRIBE_PRICE_NAIRA = 5_000_000 # and never less than this
+UNION_BRIBE_REFUSE_BPS = 2000       # one leader in five refuses, and tells at once
+UNION_TELL_BASE_BPS = 500           # a leader who took it tells later: 5% for an empire's first bribe
+UNION_TELL_PER_REPEAT_BPS = 1500    # and 15 points more for every bribe the empire paid before
+UNION_TELL_MOST_BPS = 9000
+UNION_BRIBE_REPUTATION = 6          # an exposed bribe costs the empire this much standing
+UNION_BRIBE_LATEST_DAY = 70         # a bribe to make trouble must leave time for a demand and its deadline

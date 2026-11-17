@@ -16,7 +16,7 @@ from server.main import _exchange_time, app, current_player
 from server.schemas import Request
 from simulation import unions
 
-MONEY = {"wages_quarter", "sales_quarter", "strike_short", "strike_middle", "strike_long", "rise_two_years", "fair_two_years",
+MONEY = {"price", "paid", "wages_quarter", "sales_quarter", "strike_short", "strike_middle", "strike_long", "rise_two_years", "fair_two_years",
          "value", "profit_quarter", "stake_cost", "mediator_fee", "mediator_quote", "fee"}
 
 
@@ -85,3 +85,21 @@ def hire_a_mediator(body: UnionAsk, player: dict = Depends(current_player), conn
 def advise_the_head(body: UnionAdvice, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     return _act(player, conn, body.dispute_id, lambda: unions.advise(conn, player["id"], body.dispute_id, body.advice, body.offer_bps,
                                                                      body.note, _exchange_time(conn)))
+
+
+class UnionBribe(Request):
+    ticker: str = Field(pattern=r"^[A-Za-z]{2,6}$")
+    kind: str = Field(pattern="^(strike|calm)$")
+
+
+@app.post("/api/unions/quiet-word")
+def pay_a_union_leader(body: UnionBribe, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """Part 3 (17 November 2026): the head pays a union leader in secret. A crime, between players only."""
+    limits.allow("unions", str(player["id"]), attempts=30, per_seconds=60)
+    try:
+        done = unions.bribe(conn, player["id"], body.ticker, body.kind, _exchange_time(conn))
+    except unions.UnionError as refused:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
+    page = unions.view(conn, _exchange_time(conn), body.ticker, player["id"])
+    page["result"] = done
+    return _wire(page)

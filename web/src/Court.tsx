@@ -17,6 +17,7 @@ const KIND_WORDS: Record<string, string> = {
   front_running: "Trading ahead of a client on the Floor",
   order_leak: "Passing on a client's order on the Floor",
   collusion: "Banks agreeing their prices on the Floor",
+  union_bribery: "Paying a union leader",
 };
 const STATUS_WORDS: Record<string, string> = { open: "Open", settled: "Settled", judged: "Judged", withdrawn: "Withdrawn" };
 const pct = (bps: number) => `${(bps / 100).toFixed(1).replace(/\.0$/, "")}%`;

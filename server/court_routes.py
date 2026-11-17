@@ -49,6 +49,9 @@ KINDS = (
      "who": "The regulator, or the client who was wronged."},
     {"kind": "collusion", "name": "Banks agreeing their prices on the Floor",
      "who": "The regulator only."},
+    # Unions (17 November 2026): paying a union leader in secret, once it has come out.
+    {"kind": "union_bribery", "name": "Paying a union leader",
+     "who": "The regulator, or the head of the empire whose company was hit."},
 )
 
 
@@ -103,7 +106,7 @@ def _page(conn: Connection, player: dict, now: datetime) -> dict:
 
 
 class BringRequest(Request):
-    kind: str = Field(pattern="^(insider|manipulation|undisclosed_stake|naked_short|front_running|order_leak)$")
+    kind: str = Field(pattern="^(insider|manipulation|undisclosed_stake|naked_short|front_running|order_leak|union_bribery)$")
     defendant_id: UUID
     company_id: UUID | None = None
 

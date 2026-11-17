@@ -1,6 +1,6 @@
 """News wordings for unions and strikes (16 November 2026): a demand, a deal, a strike and its end."""
 
-KINDS = ("union_demand", "union_deal", "union_strike", "union_strike_over")
+KINDS = ("union_demand", "union_deal", "union_strike", "union_strike_over", "union_bribe_exposed")
 
 WORDINGS = {
     "union_demand": {
@@ -120,6 +120,34 @@ WORDINGS = {
              "{company} and the {union} have settled at {settled} after {days} days."),
             ("Settlement at {company}",
              "Work resumes at {company} in {city} after a {days}-day strike. Agreed rise: {settled}."),
+        ],
+    },
+    "union_bribe_exposed": {
+        "herald": [
+            ("{empire} paid union boss, {company} staff told",
+             "{leader} of the {union} {exposed_by}. The money came from {empire}, {purpose} at {company} in {city}. Workers say "
+             "they feel used, and the tribunal can now hear the matter."),
+            ("Scandal: {empire} money behind {company} row",
+             "It has emerged that {empire} paid the {union}'s leader, {leader}, {purpose}. {leader} {exposed_by}."),
+            ("Union leader {leader} and the {empire} payment",
+             "The {union} is in uproar after its leader {exposed_by}. The payment, from {empire}, was {purpose} at {company}."),
+        ],
+        "ogene": [
+            ("{empire} bribed union, {leader} confirms",
+             "Money {purpose} at {company}. {leader} {exposed_by}."),
+            ("Union scandal at {company}",
+             "{empire} paid {leader}, {purpose}."),
+            ("Bribe row: {empire} and the {union}",
+             "{leader} {exposed_by}. Staff at {company} are furious."),
+        ],
+        "ledger": [
+            ("{empire} payment to union leader comes to light",
+             "{empire} paid the leader of the {union}, {leader}, {purpose} at {company} ({ticker}). {leader} {exposed_by}. "
+             "Paying a union official is an offence, and the matter may go to the tribunal."),
+            ("Governance alarm at {empire} over union payment",
+             "A payment from {empire} to {leader} of the {union}, booked as a consultancy fee, was {purpose} at {company}."),
+            ("{ticker}: union leader paid by {empire}",
+             "The {union}'s leader {exposed_by}. The money came from {empire}, {purpose}. Expect legal action."),
         ],
     },
 }

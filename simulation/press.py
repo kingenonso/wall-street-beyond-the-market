@@ -141,6 +141,9 @@ def _wrongdoing(conn: Connection, empire_id) -> list[str]:
                                             (empire_id,))]
     out += [f"pact:{p['id']}" for p in _rows(conn, "SELECT id FROM empire_pacts WHERE status = 'signed' AND exposed_at IS NULL AND NOT legal"
                                                    " AND %s IN (from_empire, to_empire) ORDER BY id", (empire_id,))]
+    from simulation import unions  # a union leader paid in secret (17 November 2026)
+    if unions.ready_bribes(conn):
+        out += [f"bribe:{i}" for i in unions.hidden_bribes(conn, empire_id)]
     return out
 
 
@@ -157,6 +160,9 @@ def _still_hidden(conn: Connection, basis: str) -> bool:
                          (int(key),)))
     if kind == "book":
         return bool(_one(conn, "SELECT 1 AS x FROM empire_books WHERE id = %s AND NOT found", (int(key),)))
+    if kind == "bribe":
+        from simulation import unions
+        return unions.still_hidden(conn, int(key))
     return bool(_one(conn, "SELECT 1 AS x FROM empire_pacts WHERE id = %s AND exposed_at IS NULL AND status = 'signed'", (int(key),)))
 
 
@@ -230,6 +236,9 @@ DOCS = {
     "grant": ("A grant paid out to a named person rather than to the cause.",
               "The person who received it is close to those behind the charity.",
               "The same thing has happened more than once."),
+    "bribe": ("A 'consultancy fee' for labour relations, paid to nobody with a consultancy.",
+              "The money went to an address a union leader uses.",
+              "The union's line changed within a day of the payment."),
     "pact": ("A meeting between people from {a} and {b}, kept off both diaries.",
              "{a} and {b} moved together in a way neither explained to its members.",
              "A draft of terms between {a} and {b}."),
@@ -346,6 +355,13 @@ def publish_expose(conn: Connection, player_id, file_id: int, now: datetime) -> 
             headline = f"Investigation: the charity {c['name']} paid its own"
             line = (f"An investigation by {author['display_name']} has found that the charity {c['name']} paid grants to people close to "
                     "those behind it, rather than to its cause. The documents, and a second source, confirm it.")
+        elif kind == "bribe":
+            from simulation import unions
+            found = unions.expose_by_journalist(conn, int(key), now)
+            headline = f"Investigation: {empire['name']} paid the {found['union']}'s leader"
+            line = (f"An investigation by {author['display_name']} has found that {empire['name']} paid the leader of the {found['union']} in "
+                    f"secret, booked as a consultancy fee, " + ("to make trouble at " if found["kind"] == "strike" else "to settle cheaply at ")
+                    + f"{found['company']}. The documents, and a second source, confirm it.")
         elif kind == "book":
             headline = f"Investigation: money taken inside {empire['name']}"
             line = (f"An investigation by {author['display_name']} has found that money was taken from {empire['name']} by one of its own and "
@@ -381,6 +397,8 @@ def publish_expose(conn: Connection, player_id, file_id: int, now: datetime) -> 
             if c["founder_player"]:
                 conn.execute("UPDATE players SET reputation = greatest(reputation - %s, 0) WHERE id = %s",
                              (data.CHARITY_EXPOSED_REPUTATION, c["founder_player"]))
+        elif kind == "bribe":
+            open_crisis(conn, empire["id"], "report", f"bribe:{key}", f"An investigation found that {empire['name']} paid a union leader.", "true", now)
         elif kind == "book":
             book = _one(conn, "SELECT * FROM empire_books WHERE id = %s FOR UPDATE", (int(key),))
             audit = _one(conn, "INSERT INTO empire_audits (empire_id, kind, hired_by, period, from_period, to_period, examined, findings, reported, at)"

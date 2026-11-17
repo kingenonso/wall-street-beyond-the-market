@@ -46,7 +46,8 @@ from simulation.money import BPS, apply_bps, naira
 REGULATOR = "regulator"
 COMPENSATION_FUND = "compensation_fund"
 KINDS = ("insider", "manipulation", "undisclosed_stake", "naked_short", "insurance_fraud",
-         "front_running", "order_leak", "collusion")       # the Floor's wrongs (16 November 2026)
+         "front_running", "order_leak", "collusion",       # the Floor's wrongs (16 November 2026)
+         "union_bribery")                                    # paying a union leader (17 November 2026)
 
 CASE_SQL = (
     "SELECT k.*, d.display_name AS defendant_name, c.display_name AS claimant_name, co.ticker"
@@ -411,6 +412,9 @@ def _wrongs(conn: Connection, period: int, now: datetime) -> list[dict]:
     from simulation import floor               # the Floor's wrongs (16 November 2026)
     for wrong in floor.wrongs(conn, since, now):
         add(wrong)
+    from simulation import unions              # paying a union leader (17 November 2026)
+    for wrong in unions.wrongs(conn, since, now):
+        add(wrong)
     return [w for w in wrongs if w["amount"] >= naira(data.COURT_MIN_CLAIM_NAIRA)]
 
 
@@ -425,9 +429,9 @@ def _evidence_of(wrong: dict) -> dict:
 def open_case(conn: Connection, *, kind: str, defendant_id, claimant_id, company_id, amount: int, evidence: dict,
               words: str, period: int, now: datetime, bond: int = 0) -> int:
     if kind not in KINDS:
-        raise CourtError("The tribunal hears eight kinds of case: dealing on confidential information, manipulation, an undisclosed "
-                         "stake, a naked short, insurance fraud, and on the Floor trading ahead of a client, passing on a client's "
-                         "order, and banks agreeing their prices.")
+        raise CourtError("The tribunal hears nine kinds of case: dealing on confidential information, manipulation, an undisclosed "
+                         "stake, a naked short, insurance fraud, on the Floor trading ahead of a client, passing on a client's "
+                         "order and banks agreeing their prices, and paying a union leader.")
     if amount < naira(data.COURT_MIN_CLAIM_NAIRA):
         raise CourtError(f"A claim of {_naira(amount)} is not worth the tribunal's time.")
     # The row is read by name: the website's connection hands back dictionaries, a test's hands back tuples, and the
@@ -462,6 +466,10 @@ def _standing(conn: Connection, player_id, wrong: dict) -> str | None:
     account = ledger.player_account_id(conn, player_id)
     if account is None:
         return "You have no account to bring a case from."
+    if wrong["kind"] == "union_bribery":
+        if wrong.get("victim_player") and str(wrong["victim_player"]) == str(player_id):
+            return None
+        return "Only the regulator, or the head of the empire whose company was hit, can bring that case."
     if wrong["kind"] in ("front_running", "order_leak"):
         return None if str(wrong.get("victim_account")) == str(account) else "Only the client who was wronged can bring that case."
     if wrong["kind"] == "insider":
@@ -502,9 +510,9 @@ def bring(conn: Connection, player_id, *, kind: str, defendant_id, company_id=No
     """A player brings a case. The court finds the evidence and the number itself: a player cannot name a number the
     record does not support. The bond is a tenth of the claim, and is lost if the claim fails."""
     if kind not in KINDS:
-        raise CourtError("The tribunal hears eight kinds of case: dealing on confidential information, manipulation, an undisclosed "
-                         "stake, a naked short, insurance fraud, and on the Floor trading ahead of a client, passing on a client's "
-                         "order, and banks agreeing their prices.")
+        raise CourtError("The tribunal hears nine kinds of case: dealing on confidential information, manipulation, an undisclosed "
+                         "stake, a naked short, insurance fraud, on the Floor trading ahead of a client, passing on a client's "
+                         "order and banks agreeing their prices, and paying a union leader.")
     if str(player_id) == str(defendant_id):
         raise CourtError("You cannot bring a case against yourself.")
     ensure(conn)

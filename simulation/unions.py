@@ -159,6 +159,8 @@ def at_close(conn: Connection, period: int, seed: str, now: datetime) -> list[di
     if not ready(conn):
         return []
     ensure(conn)
+    if _one(conn, "SELECT to_regclass('union_bribes') IS NOT NULL AS ok")["ok"]:
+        tell_at_close(conn, period, seed, now)            # part 3: leaders paid this quarter may tell
     conn.execute("UPDATE companies SET union_pay_bps = union_pay_bps - (union_pay_bps * %s / 10000) WHERE union_pay_bps > 0",
                  (data.UNION_PAY_CATCH_UP_BPS,))
     squeeze = _squeeze(conn, period)
@@ -216,6 +218,10 @@ def need_bps(dispute: dict, union: dict, seed: str) -> int:
     """The least the leader takes: a calm one half the demand, the most militant the full rise. A mediator who talks the
     union round (most of the time, not always) brings that down."""
     need = dispute["demand_bps"] * (5000 + union["militancy_bps"] // 2) // BPS
+    if dispute.get("hardline"):
+        return dispute["demand_bps"]                      # a rival paid the leader: only the full demand will do
+    if dispute.get("softened"):
+        need = dispute["demand_bps"] // 2                 # the owner paid the leader: half will do
     if dispute.get("mediator_fee") and mediator_works(dispute, seed):
         need -= dispute["demand_bps"] * data.UNION_MEDIATOR_EASES_BPS // BPS
     return max(need, 0)
@@ -420,7 +426,14 @@ def view(conn: Connection, now: datetime, ticker: str | None = None, player_id=N
                 d = next(x for x in shown if x["id"] == r["id"])
                 if ours and d["status"] == "open" and d["period"] == period and d["empire_id"] == boss["id"]:
                     r["table"] = table(conn, d, player_id)
-            company = {"empire": boss["name"] if boss else None, "ours": ours,
+            quiet = None
+            head = player_id and _one(conn, "SELECT id FROM empires WHERE head_player_id = %s AND kind = 'player' AND status = 'active'",
+                                      (player_id,))
+            can_settle = any(r["status"] == "open" for r in mine if r["quarter"] == clock.period_label(period))
+            if head and boss and ready_bribes(conn) and (boss["id"] != head["id"] or can_settle):
+                quiet = {"kind": "calm" if boss["id"] == head["id"] else "strike", "price": bribe_price(conn, c["id"]),
+                         "tell_bps": tell_chance(conn, head["id"]), "refuse_bps": data.UNION_BRIBE_REFUSE_BPS}
+            company = {"empire": boss["name"] if boss else None, "ours": ours, "quiet_word": quiet,
                        "ticker": c["ticker"], "union": c["name"], "leader": c["leader"], "militancy_bps": c["militancy_bps"],
                        "above_bps": c["union_pay_bps"], "decides": bool(c["listed"]),
                        "now": [r for r in mine if r["status"] == "open" or r["status_words"] == "on strike now"],
@@ -438,6 +451,11 @@ def view(conn: Connection, now: datetime, ticker: str | None = None, player_id=N
         "open": [r for r in rows if r["status"] == "open" or r["status_words"] == "on strike now"],
         "past": [r for r in rows if not (r["status"] == "open" or r["status_words"] == "on strike now")][:40],
         "deals": [{"ticker": d["ticker"], "company": d["name"], "above_bps": d["union_pay_bps"]} for d in deals],
+        "exposed": [{"empire": r["empire"], "company": r["company"], "ticker": r["ticker"], "union": r["union_name"], "kind": r["kind"],
+                     "how": r["exposed_how"], "quarter": clock.period_label(r["period"])} for r in (_rows(
+            conn, "SELECT b.kind, b.exposed_how, b.period, e.name AS empire, c.name AS company, c.ticker, u.name AS union_name"
+                  " FROM union_bribes b JOIN empires e ON e.id = b.empire_id JOIN companies c ON c.id = b.company_id JOIN unions u ON u.id = b.union_id"
+                  " WHERE b.exposed_how IS NOT NULL ORDER BY b.exposed_at DESC LIMIT 20") if ready_bribes(conn) else [])],
         "rules": {"dispute_at_bps": data.UNION_DISPUTE_AT_BPS, "notice_days": data.UNION_NOTICE_DAYS,
                   "strike_days": list(data.UNION_STRIKE_DAYS), "catch_up_bps": data.UNION_PAY_CATCH_UP_BPS,
                   "demand_bps": [data.UNION_DEMAND_MIN_BPS, data.UNION_DEMAND_MAX_BPS]},
@@ -623,3 +641,175 @@ def waiting(conn: Connection, player_id, now: datetime) -> list[dict]:
                                  " WHERE e.head_player_id = %s AND e.kind = 'player' AND d.status = 'open' AND d.period = %s"
                                  " AND d.opened_day <= %s AND d.deadline_day >= %s ORDER BY d.deadline_day",
                            (player_id, world["period"], world["day"], world["day"]))]
+
+
+# ---------------------------------------------------------------------------
+# Part 3: union crimes (owner, 17 November 2026)
+# ---------------------------------------------------------------------------
+
+def bribe_price(conn: Connection, company_id) -> int:
+    last = _one(conn, "SELECT revenue FROM company_results WHERE company_id = %s ORDER BY period DESC LIMIT 1", (company_id,))
+    return max(apply_bps((last or {}).get("revenue", 0) or 0, data.UNION_BRIBE_PRICE_BPS), data.UNION_BRIBE_PRICE_NAIRA * 100)
+
+
+def tell_chance(conn: Connection, empire_id) -> int:
+    """The chance a leader who took this empire's money tells: low the first time, higher with every bribe before."""
+    before = _one(conn, "SELECT count(*) AS n FROM union_bribes WHERE empire_id = %s AND NOT refused", (empire_id,))["n"]
+    return min(data.UNION_TELL_BASE_BPS + data.UNION_TELL_PER_REPEAT_BPS * before, data.UNION_TELL_MOST_BPS)
+
+
+def _head_of(conn: Connection, player_id) -> dict:
+    empire = _one(conn, "SELECT * FROM empires WHERE head_player_id = %s AND kind = 'player' AND status = 'active'", (player_id,))
+    if empire is None:
+        raise UnionError("Only the head of an empire run by players can do that.")
+    return empire
+
+
+def bribe(conn: Connection, player_id, ticker: str, kind: str, now: datetime) -> dict:
+    """The head pays a union leader in secret: 'strike' to make trouble at a rival empire's company, 'calm' to settle at
+    one of their own. A crime, and only between players: never against a company the computer runs."""
+    from simulation import ledger
+    from simulation.ledger import Leg
+    if kind not in ("strike", "calm"):
+        raise UnionError("Pay a leader to make trouble or to settle.")
+    with conn.transaction():
+        period, day, seed = _today(conn, now)
+        empire = _head_of(conn, player_id)
+        company = _one(conn, "SELECT id, ticker, name, sector, headquarters, listed FROM companies WHERE ticker = %s AND status = 'trading'",
+                       ((ticker or "").upper(),))
+        if company is None or not decides_strikes(company):
+            raise UnionError("There is no union there to pay.")
+        boss = controlling_empire(conn, company["id"])
+        if kind == "strike" and (boss is None or boss["id"] == empire["id"]):
+            raise UnionError("You can only make trouble at a company another empire run by players controls.")
+        if kind == "calm" and (boss is None or boss["id"] != empire["id"]):
+            raise UnionError("You can only buy calm at a company your empire controls.")
+        if _one(conn, "SELECT 1 AS x FROM union_bribes WHERE empire_id = %s AND company_id = %s AND period = %s AND NOT refused",
+                (empire["id"], company["id"], period)):
+            raise UnionError("You have already paid this leader this quarter.")
+        dispute = _one(conn, "SELECT * FROM union_disputes WHERE company_id = %s AND period = %s FOR UPDATE", (company["id"], period))
+        if kind == "calm" and (dispute is None or dispute["status"] != "open" or dispute["opened_day"] > day):
+            raise UnionError("There is no open demand there to settle.")
+        if kind == "strike" and dispute and dispute["status"] != "open":
+            raise UnionError("This quarter's dispute there is already over.")
+        if kind == "strike" and dispute is None and day > data.UNION_BRIBE_LATEST_DAY:
+            raise UnionError("Too late in the quarter to stir up a demand. Try after the close.")
+        union = _one(conn, "SELECT * FROM unions WHERE sector = %s", (company["sector"],))
+        price = bribe_price(conn, company["id"])
+        chance = tell_chance(conn, empire["id"])
+        row = _one(conn, "INSERT INTO union_bribes (empire_id, payer_id, union_id, company_id, victim_empire_id, kind, amount, period,"
+                         " tell_bps, at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+                   (empire["id"], player_id, union["id"], company["id"], boss["id"] if kind == "strike" else None, kind, price, period, chance, now))
+        if _unit(seed, "bribe-refused", row["id"]) * BPS < data.UNION_BRIBE_REFUSE_BPS:
+            conn.execute("UPDATE union_bribes SET refused = true WHERE id = %s", (row["id"],))
+            _expose(conn, {**row, "refused": True}, "refused", now)
+            return {"taken": False, "words": f"{union['leader']} refused the money, and has told the papers."}
+        if ledger.balance(conn, empire["account_id"]) < price:
+            raise UnionError("The empire's account cannot pay what the leader asks.")
+        ledger.post(conn, kind="consultancy", memo=f"Consultancy fee: labour relations, {company['name']}", reference=f"union-bribe:{row['id']}",
+                    idempotency_key=f"union-bribe:{row['id']}",
+                    legs=[Leg(empire["account_id"], -price), Leg(ledger.account_id(conn, ledger.INVESTORS_PUBLIC), price)])
+        if kind == "calm":
+            conn.execute("UPDATE union_disputes SET softened = true WHERE id = %s", (dispute["id"],))
+            words = f"{union['leader']} took it. The union will settle for half of what it asked."
+        elif dispute:
+            conn.execute("UPDATE union_disputes SET hardline = true WHERE id = %s", (dispute["id"],))
+            words = f"{union['leader']} took it. At {company['name']} only the full {_pct(dispute['demand_bps'])} will do now."
+        else:
+            demand = max(data.UNION_DEMAND_MAX_BPS * 2 // 3 // 50 * 50, data.UNION_DEMAND_MIN_BPS)
+            dispute = _one(conn, "INSERT INTO union_disputes (union_id, company_id, period, opened_day, deadline_day, anger_bps, reasons,"
+                                 " demand_bps, empire_id, hardline, told) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, true, false) RETURNING *",
+                           (union["id"], company["id"], period, day + 1, day + 1 + data.UNION_NOTICE_DAYS, data.UNION_DISPUTE_AT_BPS,
+                            Jsonb(["Its staff say their pay has fallen behind."]), demand, boss["id"]))
+            news.publish(conn, period=period, day=day + 1, kind="union_demand", story=f"union:{company['ticker']}:{period}",
+                         facts={"union": union["name"], "leader": union["leader"], "company": company["name"], "ticker": company["ticker"],
+                                "city": company["headquarters"], "demand": _pct(demand), "days": news.number_word(data.UNION_NOTICE_DAYS),
+                                "grievance": "Its staff say their pay has fallen behind."},
+                         tickers=[company["ticker"]], sectors=[company["sector"]], locations=[company["headquarters"]])
+            words = f"{union['leader']} took it. A demand of {_pct(demand)} goes to {company['name']} tomorrow, and only the full rise will do."
+        conn.execute("UPDATE union_bribes SET dispute_id = %s WHERE id = %s", (dispute["id"], row["id"]))
+        return {"taken": True, "paid": price, "words": words}
+
+
+def _expose(conn: Connection, b: dict, how: str, now: datetime) -> None:
+    """A bribe comes out: the news, the empire's standing, and a record the tribunal can hear."""
+    from simulation import standing
+    conn.execute("UPDATE union_bribes SET exposed_how = %s, exposed_at = %s WHERE id = %s AND exposed_how IS NULL", (how, now, b["id"]))
+    empire = _one(conn, "SELECT id, name FROM empires WHERE id = %s", (b["empire_id"],))
+    company = _one(conn, "SELECT ticker, name, sector, headquarters FROM companies WHERE id = %s", (b["company_id"],))
+    union = _one(conn, "SELECT name, leader FROM unions WHERE id = %s", (b["union_id"],))
+    from simulation import careers
+    world = careers.world_now(conn, now)
+    what = {"strike": "to make trouble for its owners", "calm": "to settle cheaply"}[b["kind"]]
+    news.publish(conn, period=world["period"], day=world["day"], kind="union_bribe_exposed", story=f"union-bribe:{b['id']}",
+                 facts={"empire": empire["name"], "company": company["name"], "ticker": company["ticker"], "city": company["headquarters"],
+                        "union": union["name"], "leader": union["leader"], "purpose": what,
+                        "exposed_by": {"refused": "refused the money and went public", "leader": "has admitted taking money",
+                                "journalist": "was paid, an investigation has found"}[how]},
+                 tickers=[company["ticker"]], sectors=[company["sector"]], locations=[company["headquarters"]], boost=12)
+    standing.change(conn, empire["id"], -data.UNION_BRIBE_REPUTATION, f"It paid the {union['name']}'s leader", world["period"], now)
+    conn.execute("INSERT INTO empire_events (empire_id, words, at) VALUES (%s, %s, %s)",
+                 (empire["id"], f"It has come out that the empire paid the {union['name']}'s leader at {company['name']}.", now))
+
+
+def tell_at_close(conn: Connection, period: int, seed: str, now: datetime) -> int:
+    """At the quarter's close the leaders paid in it decide whether to tell: the chance fixed when each was paid."""
+    told = 0
+    for b in _rows(conn, "SELECT * FROM union_bribes WHERE period = %s AND NOT refused AND exposed_how IS NULL", (period,)):
+        if _unit(seed, "bribe-told", b["id"]) * BPS < b["tell_bps"]:
+            _expose(conn, b, "leader", now)
+            told += 1
+    return told
+
+
+def hidden_bribes(conn: Connection, empire_id) -> list[int]:
+    """For a journalist's file: bribes this empire paid that have not come out."""
+    return [r["id"] for r in _rows(conn, "SELECT id FROM union_bribes WHERE empire_id = %s AND NOT refused AND exposed_how IS NULL ORDER BY id",
+                                  (empire_id,))]
+
+
+def still_hidden(conn: Connection, bribe_id: int) -> bool:
+    return bool(_one(conn, "SELECT 1 AS x FROM union_bribes WHERE id = %s AND exposed_how IS NULL", (bribe_id,)))
+
+
+def expose_by_journalist(conn: Connection, bribe_id: int, now: datetime) -> dict:
+    b = _one(conn, "SELECT * FROM union_bribes WHERE id = %s FOR UPDATE", (bribe_id,))
+    _expose(conn, b, "journalist", now)
+    union = _one(conn, "SELECT name FROM unions WHERE id = %s", (b["union_id"],))
+    company = _one(conn, "SELECT name FROM companies WHERE id = %s", (b["company_id"],))
+    return {"union": union["name"], "company": company["name"], "kind": b["kind"]}
+
+
+def harm(conn: Connection, b: dict) -> int:
+    """What a bribe cost its victim, for the tribunal: the lost profit of a strike it hardened, or else what was paid."""
+    if b["kind"] == "strike" and b["dispute_id"]:
+        d = _one(conn, "SELECT strike_days, company_id FROM union_disputes WHERE id = %s", (b["dispute_id"],))
+        if d and d["strike_days"]:
+            last = _one(conn, "SELECT revenue FROM company_results WHERE company_id = %s ORDER BY period DESC LIMIT 1", (d["company_id"],))
+            lost = apply_bps((last or {}).get("revenue", 0) * d["strike_days"] // clock.GAME_DAYS_PER_QUARTER, data.UNION_MARGIN_BPS)
+            return max(lost, b["amount"])
+    return b["amount"]
+
+
+def wrongs(conn: Connection, since: datetime, now: datetime) -> list[dict]:
+    """Bribes that have come out, as wrongs the tribunal can hear. The empire that was hit may bring a bribe to make trouble;
+    the regulator may bring either kind."""
+    if not _one(conn, "SELECT to_regclass('union_bribes') IS NOT NULL AS ok")["ok"]:
+        return []
+    out = []
+    for b in _rows(conn, "SELECT b.*, c.ticker, u.name AS union_name, e.head_player_id AS victim_head FROM union_bribes b"
+                         " JOIN companies c ON c.id = b.company_id JOIN unions u ON u.id = b.union_id"
+                         " LEFT JOIN empires e ON e.id = b.victim_empire_id"
+                         " WHERE NOT b.refused AND b.exposed_how IS NOT NULL AND b.at >= %s ORDER BY b.id", (since,)):
+        amount = harm(conn, b)
+        out.append({"kind": "union_bribery", "key": f"union_bribery:{b['id']}", "defendant_id": b["payer_id"], "company_id": b["company_id"],
+                    "ticker": b["ticker"], "amount": amount, "victim_player": b["victim_head"],
+                    "lines": [{"what": f"Paid {b['amount'] // 100:,} naira as a 'consultancy fee' to the leader of the {b['union_name']}"},
+                              {"what": "to make trouble at a rival's company" if b["kind"] == "strike" else "to settle a pay demand cheaply"}],
+                    "words": f"Paid the {b['union_name']}'s leader in secret, " + ("to make trouble at a rival empire's company."
+                                                                                   if b["kind"] == "strike" else "to settle a pay demand cheaply.")})
+    return out
+
+
+def ready_bribes(conn: Connection) -> bool:
+    return _one(conn, "SELECT to_regclass('union_bribes') IS NOT NULL AS ok")["ok"]

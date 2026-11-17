@@ -2035,3 +2035,5 @@ span.floor-tag { cursor: default; }
 .union-offer { display: inline-flex; gap: 4px; align-items: center; }
 .union-offer input { width: 64px; }
 .union-note { flex: 1 1 200px; min-width: 0; }
+.union-quiet { margin-top: 8px; border-top: 1px dashed var(--border-strong); padding-top: 6px; }
+.union-quiet summary { cursor: pointer; }

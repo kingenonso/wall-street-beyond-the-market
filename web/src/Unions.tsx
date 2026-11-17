@@ -86,6 +86,11 @@ export function LabourPanel({ onLoggedOut }: { onLoggedOut: () => void }) {
             </table>
           </Panel>
         )}
+        {(d.exposed ?? []).length > 0 && (
+          <Panel title="Union leaders who were paid" aside="once it came out">
+            <ul className="small">{d.exposed!.map((x, i) => <li key={i}>{x.quarter}: {x.empire} paid the {x.union}'s leader {x.kind === "strike" ? "to make trouble at" : "to settle cheaply at"} {x.company} ({x.how === "refused" ? "the leader refused and went public" : x.how === "leader" ? "the leader told" : "a journalist found it"})</li>)}</ul>
+          </Panel>
+        )}
         <Panel title="Earlier disputes" aside="the last year">
           {past.length === 0 ? <p className="muted small">None yet.</p> : past.map((x) => <Dispute key={x.id} d={x} />)}
         </Panel>
@@ -175,6 +180,27 @@ function answerWords(p: UnionsPage, id: number): string {
   return `The union walked out, for about ${d.strike_days} game days.`;
 }
 
+/** Part 3: a quiet word with the leader. A crime between players; the page says so plainly, with the odds. */
+function QuietWord({ q, ticker, run, busy }: { q: { kind: "strike" | "calm"; price: string; tell_bps: number; refuse_bps: number }; ticker: string;
+  run: (ask: () => Promise<UnionsPage>, words?: (p: UnionsPage) => string) => void; busy: boolean }) {
+  const [sure, setSure] = useState(false);
+  const what = q.kind === "strike" ? "make trouble here: the leader will take nothing less than the full demand, and lodge one if none is open"
+    : "settle: the leader will take half of what the union asked";
+  return (
+    <details className="union-quiet">
+      <summary className="small">A quiet word with the leader</summary>
+      <p className="small">Pay the leader {formatCompact(q.price)} in secret, booked as a consultancy fee, to {what}.</p>
+      <p className="small change-down">This is a crime. {pct(q.refuse_bps)} of leaders refuse and go public at once. One who takes it may tell later:
+        for your empire the chance is now {pct(q.tell_bps)}, and it rises with every bribe. A journalist can dig it out. Once it is out,
+        the tribunal can hear it{q.kind === "strike" ? ", and the empire you hit can bring the case" : ""}.</p>
+      <label className="small"><input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} /> I understand the risk</label>{" "}
+      <button className="button-outline small" disabled={busy || !sure}
+              onClick={() => run(() => api.unionQuietWord(ticker, q.kind), (p) => (p as UnionsPage & { result?: { words?: string } }).result?.words ?? "Done.")}>
+        Pay the leader</button>
+    </details>
+  );
+}
+
 /** A company's page: its union, any dispute now, and its pay deal; for the controlling empire, the table. */
 export function CompanyUnionPanel({ ticker, onLoggedOut }: { ticker: string; onLoggedOut: () => void }) {
   const page = useLoad(() => api.unions(ticker), `unions:${ticker}`, onLoggedOut);
@@ -206,6 +232,7 @@ export function CompanyUnionPanel({ ticker, onLoggedOut }: { ticker: string; onL
           {x.table && <Table d={x} t={x.table} run={run} busy={busy} />}
         </div>
       )) : <p className="muted small">No demand open and nobody on strike.</p>}
+      {c.quiet_word && <QuietWord q={c.quiet_word} ticker={c.ticker} run={run} busy={busy} />}
       {c.past.length > 0 && <p className="small muted">Earlier: {c.past.map((x) => `${x.quarter} ${x.status_words}${x.settled_bps !== null ? ` at ${pct(x.settled_bps)}` : ""}${x.answer && x.answer !== "board" ? ` (${ANSWER_WORDS[x.answer]})` : ""}`).join(" · ")}</p>}
     </Panel>
   );

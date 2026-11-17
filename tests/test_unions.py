@@ -220,3 +220,77 @@ def test_only_the_head_of_the_controlling_empire_can_answer_through_the_website(
         assert client.post(path, json=body).status_code in (404, 409)
     assert client.post("/api/unions/answer", json={"dispute_id": 1, "choice": "surrender"}).status_code == 422
     assert client.post("/api/unions/answer", json={"dispute_id": 1, "choice": "offer", "offer_bps": -5}).status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Part 3: union crimes (owner, 17 November 2026)
+# ---------------------------------------------------------------------------
+
+def _rival(db):
+    """A second empire run by players, with its own private company."""
+    from simulation import empires
+    from simulation.money import naira
+    from tests.test_builds import pro
+    from tests.test_deals_more import own
+    from tests.test_objectives import give_cash
+    head, _ = pro(db, "asset_manager", "rival chief", level=20, cash_naira=60_000_000)
+    empire = empires.found(db, head, "Creek Road Partners", naira(40_000_000), 0, NOW9)
+    for build in ("investment_banker", "asset_manager", "risk_manager"):
+        player, _ = pro(db, build, f"rival {build}", level=4, cash_naira=100_000)
+        empires.apply(db, player, empire["id"], NOW9)
+        asked = _q(db, "SELECT id FROM empire_applications WHERE player_id = %s AND status = 'waiting'", (player,))[0]["id"]
+        empires.decide_application(db, head, asked, True, NOW9)
+    empire = empires.open_empire(db, head, NOW9)
+    give_cash(db, empire["account_id"], 2_000_000_000)
+    return empires._empire(db, empire["id"]), head, own(db, empire, "ENI")
+
+
+def test_a_rival_can_pay_a_leader_to_make_trouble_and_it_may_come_out(db, monkeypatch):
+    from simulation import ledger
+    _empire, team, company, d = _table_dispute(db, demand=1000)
+    rival, rival_head, _theirs = _rival(db)
+    # Only between players: a company the computer runs, or one's own, cannot be a target.
+    listed = _company(db)
+    with pytest.raises(unions.UnionError, match="another empire"):
+        unions.bribe(db, rival_head, listed["ticker"], "strike", NOW9)
+    with pytest.raises(unions.UnionError, match="Only the head"):
+        unions.bribe(db, team["risk_manager"], company["ticker"], "strike", NOW9)
+    monkeypatch.setattr(data, "UNION_BRIBE_REFUSE_BPS", 0)          # this leader takes it
+    before = ledger.balance(db, rival["account_id"])
+    first_chance = unions.tell_chance(db, rival["id"])
+    done = unions.bribe(db, rival_head, company["ticker"], "strike", NOW9)
+    assert done["taken"] and ledger.balance(db, rival["account_id"]) == before - done["paid"]
+    assert first_chance == data.UNION_TELL_BASE_BPS and unions.tell_chance(db, rival["id"]) == first_chance + data.UNION_TELL_PER_REPEAT_BPS
+    with pytest.raises(unions.UnionError, match="already paid"):
+        unions.bribe(db, rival_head, company["ticker"], "strike", NOW9)
+    # The leader turns hard: an offer of 90% that a fair leader would take is refused, and the staff walk out.
+    struck = unions.answer(db, team["head"], d["id"], "offer", 900, NOW9)
+    assert struck["status"] == "struck"
+    # Nothing is on the court's record while it is hidden; a journalist's file can find it.
+    from simulation import courts, press
+    assert not [w for w in courts._wrongs(db, 9, NOW9) if w["kind"] == "union_bribery"]
+    assert any(b.startswith("bribe:") for b in press._wrongdoing(db, rival["id"]))
+    # The leader tells: the news, the rival's standing, and a case the hit empire's head may bring.
+    bribe = _q(db, "SELECT * FROM union_bribes WHERE empire_id = %s", (rival["id"],))[0]
+    unions._expose(db, bribe, "leader", NOW9)
+    assert _q(db, "SELECT 1 AS x FROM news_items WHERE kind = 'union_bribe_exposed' LIMIT 1")
+    wrong = [w for w in courts._wrongs(db, 9, NOW9) if w["kind"] == "union_bribery"]
+    assert wrong and str(wrong[0]["defendant_id"]) == str(rival_head) and wrong[0]["amount"] >= bribe["amount"]
+    assert courts._standing(db, team["head"], wrong[0]) is None
+    assert courts._standing(db, team["risk_manager"], wrong[0]) is not None
+    assert not press._wrongdoing(db, rival["id"])
+    sound(db)
+
+
+def test_an_owner_can_pay_a_leader_to_settle_and_a_refusing_leader_goes_public(db, monkeypatch):
+    empire, team, company, d = _table_dispute(db, demand=1000)
+    monkeypatch.setattr(data, "UNION_BRIBE_REFUSE_BPS", 10_000)     # this leader refuses, and tells at once
+    told = unions.bribe(db, team["head"], company["ticker"], "calm", NOW9)
+    assert not told["taken"]
+    assert _q(db, "SELECT exposed_how FROM union_bribes WHERE empire_id = %s", (empire["id"],))[0]["exposed_how"] == "refused"
+    assert unions.tell_chance(db, empire["id"]) == data.UNION_TELL_BASE_BPS       # a refused bribe was never paid
+    monkeypatch.setattr(data, "UNION_BRIBE_REFUSE_BPS", 0)
+    assert unions.bribe(db, team["head"], company["ticker"], "calm", NOW9)["taken"]
+    # Half the demand will do now.
+    assert unions.answer(db, team["head"], d["id"], "offer", 500, NOW9)["status"] == "agreed"
+    sound(db)

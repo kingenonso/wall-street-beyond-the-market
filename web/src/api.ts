@@ -1238,9 +1238,10 @@ export type UnionTable = {
 };
 export type UnionsPage = {
   ready: boolean; quarter?: string; day?: number; squeeze_bps?: number;
-  company?: { empire: string | null; ours: boolean; ticker: string; union: string; leader: string; militancy_bps: number; above_bps: number; decides: boolean; now: UnionDispute[]; past: UnionDispute[] } | null;
+  company?: { empire: string | null; ours: boolean; quiet_word: { kind: "strike" | "calm"; price: Kobo; tell_bps: number; refuse_bps: number } | null; ticker: string; union: string; leader: string; militancy_bps: number; above_bps: number; decides: boolean; now: UnionDispute[]; past: UnionDispute[] } | null;
   unions?: { name: string; leader: string; industry: string; militancy_bps: number; disputes: number; strikes: number; strike_days: number }[];
   open?: UnionDispute[]; past?: UnionDispute[]; deals?: { ticker: string; company: string; above_bps: number }[];
+  exposed?: { empire: string; company: string; ticker: string; union: string; kind: "strike" | "calm"; how: "refused" | "leader" | "journalist"; quarter: string }[];
   rules?: { dispute_at_bps: number; notice_days: number; strike_days: number[]; catch_up_bps: number; demand_bps: number[] };
 };
 
@@ -1623,6 +1624,8 @@ export const api = {
   unions: (ticker?: string) => request<UnionsPage>(ticker ? `/unions?ticker=${encodeURIComponent(ticker)}` : "/unions"),
   unionAnswer: (dispute_id: number, choice: "agree" | "offer" | "refuse", offer_bps?: number) =>
     request<UnionsPage>("/unions/answer", { method: "POST", body: JSON.stringify({ dispute_id, choice, offer_bps: offer_bps ?? null }) }),
+  unionQuietWord: (ticker: string, kind: "strike" | "calm") =>
+    request<UnionsPage>("/unions/quiet-word", { method: "POST", body: JSON.stringify({ ticker, kind }) }),
   unionMoreTime: (dispute_id: number) => request<UnionsPage>("/unions/more-time", { method: "POST", body: JSON.stringify({ dispute_id }) }),
   unionMediator: (dispute_id: number) => request<UnionsPage>("/unions/mediator", { method: "POST", body: JSON.stringify({ dispute_id }) }),
   unionAdvise: (dispute_id: number, advice: "agree" | "offer" | "refuse", offer_bps: number | null, note: string) =>
