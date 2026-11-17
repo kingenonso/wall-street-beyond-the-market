@@ -1,6 +1,7 @@
 import { ArmPanel } from "./World";
 import { WhatCouldHappenPanel } from "./WhatIf";
 import { BankPanel } from "./Crisis";
+import { CompanyUnionPanel } from "./Unions";
 import { useState } from "react";
 import { api, type Company, type FiledReport, type Kobo, type TradingDay } from "./api";
 import { AreaChart } from "./Charts";
@@ -438,6 +439,7 @@ export function CompanyRail({ ticker, onLoggedOut, onTraded }: { ticker: string;
       </Panel>
       <WhatCouldHappenPanel what="share" ticker={ticker} title={`What could ₦1,000,000 of ${ticker} do?`} onLoggedOut={onLoggedOut} />
       <CompanyNews ticker={ticker} onLoggedOut={onLoggedOut} />
+      <CompanyUnionPanel ticker={ticker} onLoggedOut={onLoggedOut} />
     </>
   );
 }

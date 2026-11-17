@@ -9,7 +9,7 @@ import { useLoad } from "./hooks";
 import { useLivePushes } from "./pushes";
 import { Failed, Loading, PageHead, Panel } from "./Shell";
 
-type Props = { player: Player; onLoggedOut: () => void };
+type Props = { player: Player; onLoggedOut: () => void; inLive?: boolean };
 const signed = (bps: number | null | undefined) => (bps === null || bps === undefined ? "—" : `${bps > 0 ? "+" : bps < 0 ? "−" : ""}${(Math.abs(bps) / 100).toFixed(2)}%`);
 const tone = (bps: number | null | undefined) => (!bps ? "" : bps > 0 ? "change-up" : "change-down");
 const when = (iso: string) => new Date(iso).toLocaleString("en-NG", { timeZone: "Africa/Lagos", weekday: "long", hour: "2-digit", minute: "2-digit" });
@@ -30,7 +30,7 @@ function LiveScore({ d }: { d: Duel }) {
   );
 }
 
-export function DuelsWork({ onLoggedOut }: Props) {
+export function DuelsWork({ onLoggedOut, inLive }: Props) {
   const page = useLoad(api.duels, "floor-duels", onLoggedOut);
   const [fresh, setFresh] = useState<DuelsPage | null>(null);
   const d = fresh ?? page.data;
@@ -61,8 +61,9 @@ export function DuelsWork({ onLoggedOut }: Props) {
   const past = duels.filter((x) => !["offered", "accepted"].includes(x.status));
   return (
     <>
-      <PageHead title="Duels" sub="Two empires against each other in a live event: the event's result for each, plus what its bankers earn on the Floor"
-                aside={`next bell ${when(d.next_bell!)}`} />
+      {inLive ? <h2 className="season-head" id="duels">Duels: empire against empire <span className="small muted">next bell {when(d.next_bell!)}</span></h2>
+        : <PageHead title="Duels" sub="Two empires against each other in a live event: the event's result for each, plus what its bankers earn on the Floor"
+                    aside={`next bell ${when(d.next_bell!)}`} />}
       {said && <p className={`small ${said.ok ? "" : "change-down"}`} role={said.ok ? "status" : "alert"}>{said.words}</p>}
       {!d.empire && <Panel title="Duels"><p className="small">Join an empire run by players to duel. Its head challenges.</p></Panel>}
       {current.length > 0 && (

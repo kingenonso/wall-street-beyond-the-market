@@ -15,6 +15,8 @@ import { formatNaira, formatPercent } from "./format";
 import { useLoad } from "./hooks";
 import { useLivePushes } from "./pushes";
 import { CompetitionWork } from "./Competition";
+import { DuelsWork } from "./Duels";
+import { PredictionsWork } from "./Predictions";
 import { Band, BandCell, Failed, Loading, PageHead, Panel } from "./Shell";
 
 type Props = { player: Player; onLoggedOut: () => void };
@@ -313,6 +315,8 @@ export function LiveWork({ player, onLoggedOut }: Props) {
       <Panel title="Past events" aside="newest first">
         {(d.past ?? []).length === 0 ? <p className="muted small">No live event has been held yet.</p> : (d.past ?? []).map((e) => <Past key={e.id} event={e} />)}
       </Panel>
+      <DuelsWork player={player} onLoggedOut={onLoggedOut} inLive />
+      <PredictionsWork player={player} onLoggedOut={onLoggedOut} inLive />
       <CompetitionWork player={player} onLoggedOut={onLoggedOut} inLive />
     </>
   );

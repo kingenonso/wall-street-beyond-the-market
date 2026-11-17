@@ -334,7 +334,7 @@ export function sectionsFor(player: Player): Section[] {
     // the one section the owner allowed beyond the rule that the sidebar stays short. Live events and Competition moved
     // here from Work.
     { path: "floor", label: "The Floor", tabs: [{ path: "floor", label: "Trading floor" }, { path: "live", label: "Live events" },
-                                                { path: "duels", label: "Duels" }, { path: "predictions", label: "Predictions" },
+                                                
                                                 { path: "auctions", label: "Auction House" }] },
     // One section for the empire: its overview, desks, requests, deals, companies and War Room are tabs inside it.
     { path: "empire", label: player.empire ? "Empire" : "Empires", ...(player.empire && !player.empire.forming ? { count: player.empire.waiting, countWords: "waiting" } : {}) },
@@ -348,7 +348,7 @@ export function sectionsFor(player: Player): Section[] {
     // The tribunal (Stage 11, renamed 14 November 2026) is a tab under News: its list of cases is public reading.
     { path: "news", label: "News", tabs: [{ path: "news", label: "News" }, { path: "intel", label: "Intelligence" }, { path: "court", label: "Tribunal" }] },
     { path: "economy", label: "Economy", tabs: [{ path: "economy", label: "The economy" }, { path: "government", label: "Government" },
-                                                { path: "unions", label: "Unions" }, { path: "charities", label: "Charities" }] },
+                                                { path: "charities", label: "Charities" }] },
   ];
 }
 

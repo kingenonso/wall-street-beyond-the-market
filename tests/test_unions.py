@@ -63,6 +63,11 @@ def test_anger_has_causes_and_an_angry_workforce_lodges_a_demand_kept_out_of_sig
     assert d["id"] not in {r["id"] for r in early["open"] + early["past"]}
     later = NOW9 + timedelta(hours=int((d["opened_day"] + 1) * 7 * 24 / 90))
     assert d["id"] in {r["id"] for r in unions.view(db, later)["open"]}
+    # A company's own page shows its union and its dispute (owner, 17 November 2026: no Unions tab).
+    ticker = _q(db, "SELECT ticker FROM companies WHERE id = %s", (d["company_id"],))[0]["ticker"]
+    mine = unions.view(db, later, ticker)["company"]
+    assert mine["ticker"] == ticker and mine["union"] and d["id"] in {r["id"] for r in mine["now"]}
+    assert d["id"] not in {r["id"] for r in unions.view(db, NOW9, ticker)["company"]["now"]}
     assert _q(db, "SELECT 1 AS x FROM news_items WHERE kind = 'union_demand' AND period = 9 AND day = %s LIMIT 1", (d["opened_day"],))
     sound(db)
 
@@ -111,5 +116,7 @@ def test_a_deal_makes_the_people_dearer_and_fades_as_the_going_rate_catches_up(d
     assert _company(db)["union_pay_bps"] == 750
 
 
-def test_the_unions_page_needs_a_login(client):
+def test_the_unions_page_needs_a_login_and_a_proper_ticker(client, player):
+    assert client.get("/api/unions", params={"ticker": "x'; DROP TABLE unions;--"}).status_code == 422
+    client.cookies.clear()
     assert client.get("/api/unions").status_code == 401

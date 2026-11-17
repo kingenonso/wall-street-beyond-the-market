@@ -301,7 +301,7 @@ def apply_pay(companies: list[dict]) -> None:
 STATUS_WORDS = {"open": "demand lodged", "agreed": "agreed", "struck": "on strike", "ended": "strike over, settled"}
 
 
-def view(conn: Connection, now: datetime) -> dict:
+def view(conn: Connection, now: datetime, ticker: str | None = None) -> dict:
     """The unions, the disputes the public knows of, and the deals in force. Nothing before its day is shown."""
     if not ready(conn):
         return {"ready": False}
@@ -330,12 +330,23 @@ def view(conn: Connection, now: datetime) -> dict:
                 "days_left": max(d["deadline_day"] - day, 0) if d["status"] == "open" and now_here else None}
 
     rows = [row(d) for d in shown]
+    company = None
+    if ticker:
+        # One company's union, for its own page (owner, 17 November 2026: no Unions tab; it lives where people look).
+        c = _one(conn, "SELECT c.ticker, c.sector, c.listed, c.union_pay_bps, u.name, u.leader, u.militancy_bps FROM companies c"
+                       " LEFT JOIN unions u ON u.sector = c.sector WHERE c.ticker = %s", (ticker.upper(),))
+        if c and c["name"]:
+            mine = [r for r in rows if r["ticker"] == c["ticker"]]
+            company = {"ticker": c["ticker"], "union": c["name"], "leader": c["leader"], "militancy_bps": c["militancy_bps"],
+                       "above_bps": c["union_pay_bps"], "decides": bool(c["listed"]),
+                       "now": [r for r in mine if r["status"] == "open" or r["status_words"] == "on strike now"],
+                       "past": [r for r in mine if not (r["status"] == "open" or r["status_words"] == "on strike now")][:4]}
     deals = _rows(conn, "SELECT ticker, name, union_pay_bps FROM companies WHERE union_pay_bps > 0 ORDER BY union_pay_bps DESC, ticker")
     counts = {r["union_id"]: r for r in _rows(
         conn, "SELECT union_id, count(*) FILTER (WHERE strike_days IS NOT NULL) AS strikes, count(*) AS disputes,"
               " coalesce(sum(strike_days), 0) AS days FROM union_disputes GROUP BY union_id")}
     return {
-        "ready": True, "quarter": clock.period_label(period), "day": day, "squeeze_bps": _squeeze(conn, period - 1),
+        "ready": True, "quarter": clock.period_label(period), "day": day, "squeeze_bps": _squeeze(conn, period - 1), "company": company,
         "unions": [{"name": u["name"], "leader": u["leader"], "industry": sectors.get(u["sector"], u["sector"]),
                     "militancy_bps": u["militancy_bps"],
                     "disputes": (counts.get(u["id"]) or {}).get("disputes", 0), "strikes": (counts.get(u["id"]) or {}).get("strikes", 0),

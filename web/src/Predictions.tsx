@@ -10,7 +10,7 @@ import { useLoad } from "./hooks";
 import { Failed, Loading, PageHead, Panel } from "./Shell";
 import { play } from "./sound";
 
-type Props = { player: Player; onLoggedOut: () => void };
+type Props = { player: Player; onLoggedOut: () => void; inLive?: boolean };
 const pct = (bps: number) => `${Math.round(bps / 100)}%`;
 const when = (iso: string) => new Date(iso).toLocaleString("en-NG", { timeZone: "Africa/Lagos", weekday: "short", hour: "2-digit", minute: "2-digit" });
 
@@ -67,7 +67,7 @@ function Card({ m, run, busy }: { m: PredictionMarket; run: (ask: () => Promise<
   );
 }
 
-export function PredictionsWork({ onLoggedOut }: Props) {
+export function PredictionsWork({ onLoggedOut, inLive }: Props) {
   const page = useLoad(api.predictions, "predictions", onLoggedOut);
   const [fresh, setFresh] = useState<PredictionsPage | null>(null);
   const d = fresh ?? page.data;
@@ -94,7 +94,8 @@ export function PredictionsWork({ onLoggedOut }: Props) {
   const open = markets.filter((m) => m.status === "open"), rest = markets.filter((m) => m.status !== "open");
   return (
     <>
-      <PageHead title="Predictions" sub="Bet Yes or No on what the game will decide. A winning share pays ₦100; the price of Yes is the crowd's chance." aside={`${open.length} open`} />
+      {inLive ? <h2 className="season-head" id="predictions">Prediction markets: bet on what the game decides <span className="small muted">{open.length} open</span></h2>
+        : <PageHead title="Predictions" sub="Bet Yes or No on what the game will decide. A winning share pays ₦100; the price of Yes is the crowd's chance." aside={`${open.length} open`} />}
       {said && <p className={`small ${said.ok ? "" : "change-down"}`} role={said.ok ? "status" : "alert"}>{said.words}</p>}
       <Panel title="How it works" aside="the price is a probability">
         <p className="small">If Yes costs ₦70, the crowd thinks it is 70% likely. If you think it is likelier, buy Yes: you pay ₦70 and get ₦100 if it happens. Every purchase moves the price; you can sell back before the close at the price then. Every answer comes from the game's own books, so nobody can rig it. One player may have at most {d.most_stake ? formatNaira(d.most_stake) : "—"} in one question.</p>

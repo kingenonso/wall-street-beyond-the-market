@@ -2025,3 +2025,4 @@ span.floor-tag { cursor: default; }
 .union-status { margin-left: auto; }
 .union-strike { border-left: 3px solid var(--down); padding-left: 10px; }
 .union-why { margin: 2px 0 0; padding-left: 18px; }
+.labour-more > summary { cursor: pointer; font-weight: 600; margin: 8px 0; }

@@ -1,6 +1,7 @@
 import { WorldEconomiesPanel } from "./World";
 import { api, type AbroadSummary, type ConsumersSummary, type Economy, type MoneyWatch, type PropertySummary } from "./api";
 import { WatchPanel } from "./Crisis";
+import { LabourPanel } from "./Unions";
 import { changeBps, formatCompact, formatPercent } from "./format";
 import { useLoad } from "./hooks";
 import { Change, Failed, Loading, Panel } from "./Shell";
@@ -483,6 +484,7 @@ export function EconomyWork({ onLoggedOut }: { onLoggedOut: () => void }) {
       <ReservesPanel onLoggedOut={onLoggedOut} />
       <WorldEconomiesPanel onLoggedOut={onLoggedOut} />
       <WatchPanel onLoggedOut={onLoggedOut} />
+      <LabourPanel onLoggedOut={onLoggedOut} />
     </>
   );
 }

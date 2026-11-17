@@ -1226,6 +1226,7 @@ export type UnionDispute = {
 };
 export type UnionsPage = {
   ready: boolean; quarter?: string; day?: number; squeeze_bps?: number;
+  company?: { ticker: string; union: string; leader: string; militancy_bps: number; above_bps: number; decides: boolean; now: UnionDispute[]; past: UnionDispute[] } | null;
   unions?: { name: string; leader: string; industry: string; militancy_bps: number; disputes: number; strikes: number; strike_days: number }[];
   open?: UnionDispute[]; past?: UnionDispute[]; deals?: { ticker: string; company: string; above_bps: number }[];
   rules?: { dispute_at_bps: number; notice_days: number; strike_days: number[]; catch_up_bps: number; demand_bps: number[] };
@@ -1607,7 +1608,7 @@ export const api = {
   floor: () => request<FloorPage>("/floor"),
   floorChart: (ticker: string, minutes: number) => request<FloorChart>(`/floor/chart/${encodeURIComponent(ticker)}?minutes=${minutes}`),
   auctionHouse: () => request<AuctionHouse>("/floor/auctions"),
-  unions: () => request<UnionsPage>("/unions"),
+  unions: (ticker?: string) => request<UnionsPage>(ticker ? `/unions?ticker=${encodeURIComponent(ticker)}` : "/unions"),
   predictions: () => request<PredictionsPage>("/predictions"),
   predictionTrade: (market_id: number, side: "yes" | "no", shares: number) =>
     request<PredictionsPage>("/predictions/trade", { method: "POST", body: JSON.stringify({ market_id, side, shares }) }),

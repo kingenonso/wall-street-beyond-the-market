@@ -5,10 +5,7 @@ import { AccountantRail, AccountantWork, AssetManagerRail, AssetManagerWork, Bui
 import { CareerRail, CareerWork } from "./Career";
 import { LiveWork } from "./Live";
 import { AuctionHouseWork, FloorWork } from "./Floor";
-import { DuelsWork } from "./Duels";
-import { PredictionsWork } from "./Predictions";
 import { GovernmentRail, GovernmentWork } from "./Government";
-import { UnionsWork } from "./Unions";
 import { CompaniesRail, CompaniesWork } from "./Companies";
 import { CompanyRail, CompanyWork } from "./Company";
 import { DeskRail, DeskWork } from "./Desk";
@@ -127,10 +124,6 @@ export function App() {
     current = "government";
     work = <GovernmentWork player={player} onLoggedOut={loggedOut} />;
     rail = <GovernmentRail />;
-  } else if (section === "unions") {
-    current = "unions";
-    work = <UnionsWork player={player} onLoggedOut={loggedOut} />;
-    rail = <EconomyRail onLoggedOut={loggedOut} />;
   } else if (section === "charities") {
     current = "charities";
     work = <CharitiesWork player={player} onLoggedOut={loggedOut} />;
@@ -157,7 +150,7 @@ export function App() {
     current = "property";
     work = <PropertyWork key={item ?? ""} player={player} onLoggedOut={loggedOut} onChanged={refreshPlayer} />;
     rail = <PropertyRail onLoggedOut={loggedOut} />;
-  } else if (section === "economy") {
+  } else if (section === "economy" || section === "unions") {   // unions live on the Economy page (owner, 17 November 2026)
     current = "economy";
     work = <EconomyWork onLoggedOut={loggedOut} />;
     rail = <EconomyRail onLoggedOut={loggedOut} />;
@@ -221,21 +214,14 @@ export function App() {
     work = <FloorWork player={player} onLoggedOut={loggedOut} />;
     rail = <></>;
     wide = true;
-  } else if (section === "duels") {
-    current = "duels";
-    work = <DuelsWork player={player} onLoggedOut={loggedOut} />;
-    rail = <CareerRail player={player} onLoggedOut={loggedOut} />;
-  } else if (section === "predictions") {
-    current = "predictions";
-    work = <PredictionsWork player={player} onLoggedOut={loggedOut} />;
-    rail = <CareerRail player={player} onLoggedOut={loggedOut} />;
   } else if (section === "auctions") {
     current = "auctions";
     work = <AuctionHouseWork player={player} onLoggedOut={loggedOut} />;
     rail = <></>;
     wide = true;
-  } else if (section === "live" || section === "competition") {
-    // Competition is the bottom half of the Live events page (owner, 16 November 2026); old links still land there.
+  } else if (section === "live" || section === "competition" || section === "duels" || section === "predictions") {
+    // Duels, predictions and the season (Competition) are sections of the Live events page (owner, 16 and 17 November
+    // 2026); old links still land there.
     current = "live";
     work = <LiveWork player={player} onLoggedOut={loggedOut} />;
     rail = <CareerRail player={player} onLoggedOut={loggedOut} />;
