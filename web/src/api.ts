@@ -1218,6 +1218,19 @@ export type DuelsPage = {
   rivals?: { id: number; name: string; computer: boolean; free: boolean; declines: number }[]; shown_declines?: number;
 };
 
+/** Unions and strikes (16 November 2026). */
+export type UnionDispute = {
+  id: number; union: string; company: string; ticker: string; city: string; quarter: string; opened_day: number; deadline_day: number;
+  demand_bps: number; reasons: string[]; offer_bps: number | null; settled_bps: number | null; strike_days: number | null; ends_day: number | null;
+  status: "open" | "agreed" | "struck" | "ended"; status_words: string; days_left: number | null;
+};
+export type UnionsPage = {
+  ready: boolean; quarter?: string; day?: number; squeeze_bps?: number;
+  unions?: { name: string; leader: string; industry: string; militancy_bps: number; disputes: number; strikes: number; strike_days: number }[];
+  open?: UnionDispute[]; past?: UnionDispute[]; deals?: { ticker: string; company: string; above_bps: number }[];
+  rules?: { dispute_at_bps: number; notice_days: number; strike_days: number[]; catch_up_bps: number; demand_bps: number[] };
+};
+
 /** Prediction markets (16 November 2026). */
 export type PredictionMarket = {
   id: number; kind: "rate_rise" | "profit_beat" | "live_kind" | "live_fall"; area: string; question: string; details: string;
@@ -1594,6 +1607,7 @@ export const api = {
   floor: () => request<FloorPage>("/floor"),
   floorChart: (ticker: string, minutes: number) => request<FloorChart>(`/floor/chart/${encodeURIComponent(ticker)}?minutes=${minutes}`),
   auctionHouse: () => request<AuctionHouse>("/floor/auctions"),
+  unions: () => request<UnionsPage>("/unions"),
   predictions: () => request<PredictionsPage>("/predictions"),
   predictionTrade: (market_id: number, side: "yes" | "no", shares: number) =>
     request<PredictionsPage>("/predictions/trade", { method: "POST", body: JSON.stringify({ market_id, side, shares }) }),

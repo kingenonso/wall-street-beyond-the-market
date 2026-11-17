@@ -1926,3 +1926,42 @@ PREDICT_MOST_STAKE_NAIRA = 5_000_000   # what one player may have in one questio
 PREDICT_MOST_SHARES = 50_000           # shares bought or sold at once
 PREDICT_PROFIT_COMPANIES = 6           # each quarter, the largest companies get a "beat last quarter's profit?" question
 PREDICT_LIVE_FALL_BPS = 300            # "will the featured share fall more than 3%?"
+
+# Unions and strikes (owner, 16 November 2026: "build"; the leaders are computer-run). One union for each industry
+# outside banking and insurance: its name, its leader, and how ready the leader is to strike (0 to 10000).
+UNIONS = {
+    "consumer": ("Food and Drink Workers' Union", "Comrade Bisi Adeyemo", 5000),
+    "oil_gas": ("Oil Field Workers' Association", "Comrade Tonye Briggs", 7500),
+    "telecoms": ("Telecoms Staff Union", "Comrade Ngozi Eze", 4500),
+    "cement": ("Building Materials Workers' Union", "Comrade Musa Lawal", 5500),
+    "agriculture": ("Farm Workers' Union", "Comrade Aisha Bello", 4000),
+    "real_estate": ("Construction Workers' Union", "Comrade Emeka Obi", 6000),
+    "manufacturing": ("Factory Workers' Union", "Comrade Yusuf Garba", 6500),
+    "media": ("Media Workers' Guild", "Comrade Funmi Alade", 3500),
+    "power": ("Power Workers' Union", "Comrade Ibrahim Danladi", 7000),
+    "transport": ("Road Transport Workers' Union", "Comrade Sunday Okon", 6500),
+    "aviation": ("Air Transport Staff Union", "Comrade Kemi Balogun", 6000),
+    "hospitality": ("Hotel and Leisure Workers' Union", "Comrade Chidi Nwosu", 4000),
+    "shipping": ("Dock Workers' Union", "Comrade Ebi Tamuno", 7000),
+    "pharma": ("Medicine Makers' Union", "Comrade Halima Sani", 3500),
+    "retail": ("Shop Workers' Union", "Comrade Tunde Bakare", 4500),
+    "technology": ("Tech Workers' Union", "Comrade Zainab Musa", 3000),
+    "entertainment": ("Film and Stage Workers' Guild", "Comrade Dayo Ogun", 4000),
+    "mining": ("Mine Workers' Union", "Comrade Garba Shehu", 8000),
+    "fertiliser": ("Chemical Workers' Union", "Comrade Uche Okafor", 5000),
+}
+UNION_DISPUTE_AT_BPS = 3000         # how angry the staff must be before the union lodges a demand
+UNION_SQUEEZE_WEIGHT = 3            # each point that prices outran pay over the year adds this many points of anger
+UNION_PROFIT_RISE_BPS = 2000        # profit up this much on a year ago, with pay flat, angers the staff
+UNION_PROFIT_ANGER_BPS = 1500
+UNION_JOB_CUT_BPS = 300             # staff cut by more than this in a quarter
+UNION_JOB_CUT_WEIGHT = 3
+UNION_DIVIDEND_ANGER_BPS = 500      # paying shareholders more while pay falls behind
+UNION_RECENT_STRIKE_CALM_BPS = 3000 # staff who struck in the last two quarters are tired of it
+UNION_DEMAND_MIN_BPS = 300          # the pay rise a demand asks: from 3%
+UNION_DEMAND_MAX_BPS = 1500         # to 15%
+UNION_NOTICE_DAYS = 7               # game days between the demand and its deadline (about thirteen real hours)
+UNION_STRIKE_DAYS = (4, 21)         # how long a strike lasts, in game days
+UNION_PAY_LIMIT_BPS = 4000          # a company never pays more than 40% above the going rate
+UNION_PAY_CATCH_UP_BPS = 2500       # each quarter the going rate closes a quarter of the gap
+UNION_MARGIN_BPS = 3000             # the board reckons a strike costs it this share of the sales lost

@@ -153,6 +153,9 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     competition.award(conn, period, now)
     corporate.settle(conn, period, now)
     competition.settle(conn, period, now)
+    # Unions (16 November 2026): every pay deadline and strike in the quarter is settled before its events are read.
+    from simulation import unions
+    unions.before_close(conn, period, fortune_seed, now)
     happening = events.load(conn, period)
     moods, severe = events.location_moods(happening)
     lending_factor = moneywatch.lending_factor_bps(conn, period)
@@ -163,6 +166,7 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     banking.reprice_loans(conn, period, policy_rate)
     # Private companies: their owners' dials, their managers, assets, routes and staff shape their quarter.
     private.before_close(conn, all_companies, period, before["wage_index_bps"])
+    unions.apply_pay(all_companies)                       # a pay deal makes a company's people dearer
     lasting_pull = economy.set_market_pulls(conn, world, all_companies, period, fortune_seed, happening)
     # Rent on buildings owned outside the property companies is part of what the city's spending goes to (Stage 8).
     property_market.add_rent_to_market(conn, world, fortune_seed)
@@ -323,6 +327,7 @@ def _close_period(conn: Connection, period: int, tax_bps: int, fortune_seed: str
     from simulation import courts
     courts.at_close(conn, period, now)
     news.for_events(conn, events.generate(conn, period + 1, fortune_seed))
+    unions.at_close(conn, period, fortune_seed, now)      # staff weigh up their quarter; the angry lodge demands
     # Private companies after the close: wear, morale, secrets, rivals' prices, failures, sales and start-ups.
     private.after_close(conn, period, results, measured["wage_index_bps"], fortune_seed, now)
 

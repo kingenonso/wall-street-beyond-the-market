@@ -2017,3 +2017,11 @@ span.floor-tag { cursor: default; }
 
 /* The season (Competition) under the live events. */
 .season-head { margin: 28px 0 10px; padding-top: 16px; border-top: 1px solid var(--border-strong); display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+
+/* Unions and strikes. */
+.union-row { border-top: 1px solid var(--border); padding: 8px 0; }
+.union-row:first-child { border-top: none; }
+.union-row-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.union-status { margin-left: auto; }
+.union-strike { border-left: 3px solid var(--down); padding-left: 10px; }
+.union-why { margin: 2px 0 0; padding-left: 18px; }

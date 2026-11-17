@@ -18,7 +18,7 @@ from simulation.news_kinds import BY_NAME, KINDS, OUTLETS
 from simulation.news_wordings import PER_OUTLET, check
 from tests.conftest import after_quarters
 
-MODULES = ("places", "happenings", "economy", "results", "capital", "deals", "dealmaking", "abroad", "property", "property2", "media", "banks", "funds", "etfs", "fx", "world", "industries", "live")
+MODULES = ("places", "happenings", "economy", "results", "capital", "deals", "dealmaking", "abroad", "property", "property2", "media", "banks", "funds", "etfs", "fx", "world", "industries", "live", "unions")
 
 
 def _dicts(db, sql, params=()):
@@ -34,10 +34,10 @@ def test_every_kind_of_news_has_three_wordings_in_each_papers_voice_and_each_fil
         module = importlib.import_module(f"simulation.news_wordings.{name}")
         assert check(module.WORDINGS, module.KINDS) == [], name
         covered += module.KINDS
-    assert sorted(covered) == sorted(kind.name for kind in KINDS) and len(covered) == len(set(covered)) == 156
+    assert sorted(covered) == sorted(kind.name for kind in KINDS) and len(covered) == len(set(covered)) == 160
     assert set(news.WORDINGS) == set(BY_NAME)
     total = sum(len(options) for kind in news.WORDINGS.values() for options in kind.values())
-    assert total == 156 * 3 * PER_OUTLET == 1404
+    assert total == 160 * 3 * PER_OUTLET == 1440
     # Every kind of event the world can produce has news to go with it.
     assert {kind.name for kind in events.KINDS} <= set(BY_NAME)
 
@@ -64,7 +64,10 @@ def test_wordings_invent_nothing_and_name_no_real_thing():
 
 @pytest.mark.world("eight")
 def test_every_event_is_reported_on_its_day_and_nothing_is_reported_that_did_not_happen(db):
-    happened = {(e["period"], e["day"], e["kind"]) for e in _dicts(db, "SELECT period, day, kind FROM events")}
+    # A strike a union calls is told as the union's news (unions and strikes, 16 November 2026), on the day it begins.
+    happened = {(e["period"], e["day"], e["kind"]) for e in _dicts(db, "SELECT period, day, kind FROM events WHERE NOT facts ? 'union'")}
+    for e in _dicts(db, "SELECT period, day FROM events WHERE facts ? 'union'"):
+        assert _dicts(db, "SELECT 1 AS x FROM news_items WHERE kind = 'union_strike' AND period = %s AND day = %s", (e["period"], e["day"]))
     event_kinds = {kind.name for kind in events.KINDS}
     reported = {(n["period"], n["day"], n["kind"]) for n in _dicts(db, "SELECT period, day, kind FROM news_items") if n["kind"] in event_kinds}
     assert reported == happened and len(happened) >= 12

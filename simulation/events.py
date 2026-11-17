@@ -158,6 +158,8 @@ def generate(conn: Connection, period: int, seed: str) -> list[dict]:
                     continue
                 if kind.spares_financial and company["sector"] in FINANCIAL:
                     continue
+                if kind.name == "company_strike" and company["sector"] in data.UNIONS:
+                    continue                              # its union decides its strikes now (unions and strikes, part 1)
                 if _unit(seed, period, kind.name, company["ticker"], "happens") * BPS < kind.chance_bps:
                     happen(kind, company["ticker"], company_id=company["id"], location=company["headquarters"],
                            facts={"company": company["name"], "ticker": company["ticker"], "location": company["headquarters"]})

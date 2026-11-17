@@ -118,6 +118,13 @@ def _close_due_quarters_once() -> None:
                     predictions.tick(conn, now)
                 except Exception:
                     log.exception("The prediction markets failed; they will be tried again.")
+            # Unions (16 November 2026): pay deadlines answered and strikes ended as their game day comes.
+            if conn.execute("SELECT to_regclass('union_disputes') IS NOT NULL").fetchone()[0]:
+                from simulation import unions
+                try:
+                    unions.tick(conn, now)
+                except Exception:
+                    log.exception("The unions' deadlines failed; they will be tried again.")
             # The computer-run investors look at the market and renew their orders.
             investors.act(conn, now, force=rang)
             # After 22:00 the Closing Bell goes out, once for each trading day.
@@ -1999,3 +2006,4 @@ from server import competition_routes  # noqa: E402,F401
 from server import government_routes  # noqa: E402,F401
 from server import live_routes  # noqa: E402,F401
 from server import floor_routes  # noqa: E402,F401
+from server import union_routes  # noqa: E402,F401

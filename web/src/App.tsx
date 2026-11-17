@@ -8,6 +8,7 @@ import { AuctionHouseWork, FloorWork } from "./Floor";
 import { DuelsWork } from "./Duels";
 import { PredictionsWork } from "./Predictions";
 import { GovernmentRail, GovernmentWork } from "./Government";
+import { UnionsWork } from "./Unions";
 import { CompaniesRail, CompaniesWork } from "./Companies";
 import { CompanyRail, CompanyWork } from "./Company";
 import { DeskRail, DeskWork } from "./Desk";
@@ -126,6 +127,10 @@ export function App() {
     current = "government";
     work = <GovernmentWork player={player} onLoggedOut={loggedOut} />;
     rail = <GovernmentRail />;
+  } else if (section === "unions") {
+    current = "unions";
+    work = <UnionsWork player={player} onLoggedOut={loggedOut} />;
+    rail = <EconomyRail onLoggedOut={loggedOut} />;
   } else if (section === "charities") {
     current = "charities";
     work = <CharitiesWork player={player} onLoggedOut={loggedOut} />;

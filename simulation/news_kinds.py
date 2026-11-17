@@ -285,6 +285,16 @@ KINDS: tuple[NewsKind, ...] = (
                                      "detail_line": "The price of energy has jumped 18% across the country."}),
     NewsKind("live_event_result", 58, {"show": "Fuel Crisis", "winner": "Harbour Lights Capital", "points": "16",
                                        "company": "Delta Creek Gas", "move": "+4.2%"}),
+    # Unions and strikes (16 November 2026): a demand, a deal, a strike and its end.
+    NewsKind("union_demand", 62, {"union": "Factory Workers' Union", "leader": "Comrade Yusuf Garba", "company": "Kainji Textiles",
+                                  "ticker": "KTX", "city": "Kano", "demand": "8%", "days": "seven",
+                                  "grievance": "Prices rose 6% more than pay over the year."}),
+    NewsKind("union_deal", 55, {"union": "Factory Workers' Union", "leader": "Comrade Yusuf Garba", "company": "Kainji Textiles",
+                                "ticker": "KTX", "city": "Kano", "demand": "8%", "offer": "6%", "settled": "6%"}),
+    NewsKind("union_strike", 74, {"union": "Factory Workers' Union", "leader": "Comrade Yusuf Garba", "company": "Kainji Textiles",
+                                  "ticker": "KTX", "city": "Kano", "demand": "8%", "offer": "2%", "days": "eleven"}),
+    NewsKind("union_strike_over", 58, {"union": "Factory Workers' Union", "leader": "Comrade Yusuf Garba", "company": "Kainji Textiles",
+                                       "ticker": "KTX", "city": "Kano", "settled": "5%", "days": "eleven"}),
     NewsKind("roundup_results", 35, {"quarter": "Year 2 Q3", "count": "six",
                                      "list": "Ikoyi Bank (profit up 4%), Kainji Textiles (profit down 6%) and Zuma Rock Hotels (profit up 3%)"}),
     NewsKind("roundup_jobs", 32, {"quarter": "Year 2 Q3", "count": "four",
@@ -294,6 +304,10 @@ BY_NAME = {kind.name: kind for kind in KINDS}
 
 # What each fact means, for whoever writes wordings.
 FIELD_NOTES = {
+    "union": "a union's full name, e.g. 'Factory Workers' Union'", "leader": "the union leader's name with 'Comrade' in front",
+    "demand": "the pay rise the union asks, as a percentage", "offer": "the pay rise the company's board offered, as a percentage",
+    "days": "a number of game days in words, e.g. 'seven'",
+    "settled": "the pay rise finally agreed, as a percentage", "grievance": "one complete sentence: the staff's main complaint",
     "location": "a city: Lagos, Abuja, Port Harcourt, Aba or Kano",
     "severity": "one adjective for how hard it hits: light, moderate, serious or severe (bad news); modest, strong or very strong (good news)",
     "companies": "a noun phrase naming the companies touched, e.g. 'Bonny Tide Shipping, Ibom Solar Power and 3 other companies based there'; it may also read 'businesses in the area'",
