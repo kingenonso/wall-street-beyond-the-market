@@ -990,7 +990,7 @@ def answer_general(conn: Connection, player_id, concede: bool, now: datetime) ->
     """The Government Leader answers the federation: concede (the Treasury pays the award to households) or refuse."""
     from simulation import government
     with conn.transaction():
-        period, day, seed = _today(conn, now)
+        period, day, _seed = _today(conn, now)
         boss = government.leader(conn, government.year_of(period))
         if boss is None or str(boss["leader_id"]) != str(player_id):
             raise UnionError("Only the Government Leader answers the federation.")
