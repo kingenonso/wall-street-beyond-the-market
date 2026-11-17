@@ -229,7 +229,7 @@ def test_a_start_up_is_founded_with_the_founders_own_money_and_trades_at_once(db
     assert ledger.audit(db) == []
 
 
-def test_pay_that_falls_behind_prices_brings_slow_work_and_then_a_walkout(db):
+def test_pay_that_falls_behind_prices_brings_slow_work_and_the_union_not_chance_calls_a_walkout(db):
     empire, team = firm_of(db)
     company = own(db, empire, "ENI")
     calm = next(c for c in quarters.companies.load_companies(db) if c["id"] == company["id"])
@@ -239,7 +239,7 @@ def test_pay_that_falls_behind_prices_brings_slow_work_and_then_a_walkout(db):
     loaded = next(c for c in quarters.companies.load_companies(db) if c["id"] == company["id"])
     with db.transaction():
         private.before_close(db, [loaded], 9, BPS)
-    assert loaded["walkout"] and loaded["pull_bps"] < calm["pull_bps"] * 8 // 10          # customers go elsewhere
+    assert not loaded.get("walkout") and loaded["pull_bps"] < calm["pull_bps"] * 8 // 10   # very slow work: customers go elsewhere
     db.execute("UPDATE private_profiles SET morale_bps = 8000 WHERE company_id = %s", (company["id"],))
     slow = next(c for c in quarters.companies.load_companies(db) if c["id"] == company["id"])
     labour = slow["labour_bps"]

@@ -59,7 +59,7 @@ MANAGER_PAY_BPS = {1: 30, 2: 45, 3: 60, 4: 90, 5: 140}    # a managing director'
 MANAGER_COST_BPS = {1: 150, 2: 75, 3: 0, 4: -75, 5: -150}  # ...and what each does to the cost of making what it sells
 MANAGER_PULL_BPS = {1: -300, 2: -150, 3: 0, 4: 150, 5: 300}
 MORALE_SLOW_BPS = 8500            # below this, the staff work slowly and customers notice
-MORALE_WALKOUT_BPS = 6500         # below this, the staff walk out for part of the quarter
+MORALE_WALKOUT_BPS = 6500         # no longer used: since unions part 2 the union calls a walkout (kept for old records)
 MARKETING_PULL_LIMIT_BPS = 1500   # marketing can add at most this much to a company's pull
 MARKETING_FADE_BPS = 2000         # what marketing won fades by a fifth each quarter
 TECH_SAVING_LIMIT_BPS = 1500      # technology can take at most this many points of sales off its costs
@@ -443,10 +443,8 @@ def before_close(conn: Connection, companies: list[dict], period: int, wage_inde
         company["extra_opex"] = max((boss["pay"] if boss else original) - original, -original // 2)
         # Pull: plans and marketing that last, the manager, the staff, what its secrets bring, its routes.
         pull = BPS + p["pull_adj_bps"] + MANAGER_PULL_BPS[quality]
-        if p["morale_bps"] < MORALE_WALKOUT_BPS:
-            pull = apply_bps(pull, 7000)
-            company["walkout"] = True
-        elif p["morale_bps"] < MORALE_SLOW_BPS:
+        # Low morale means slow work. A walkout is no longer automatic: the staff's union calls it (unions, part 2).
+        if p["morale_bps"] < MORALE_SLOW_BPS:
             pull = apply_bps(pull, BPS - (MORALE_SLOW_BPS - p["morale_bps"]))
             company["labour_bps"] += (MORALE_SLOW_BPS - p["morale_bps"]) // 4
         for secret in p["secrets"]:
@@ -539,9 +537,6 @@ def after_close(conn: Connection, period: int, results: list[tuple[dict, dict]],
         conn.execute("UPDATE private_profiles SET morale_bps = %s, pay_index_bps = %s,"
                      " pull_adj_bps = pull_adj_bps - (pull_adj_bps * %s / 10000) WHERE company_id = %s",
                      (morale, pay, MARKETING_FADE_BPS if p["pull_adj_bps"] > 0 else 0, company["id"]))
-        if company.get("walkout"):
-            _news(conn, period + 1, 2, "walkout", f"walkout:{company['ticker']}:{period}",
-                  {"company": company["name"], "city": company["headquarters"]})
         _secrets_come_true(conn, company, p, period, now)
     _rivals_answer_prices(conn, period)
     from simulation import (

@@ -804,7 +804,7 @@ def view(conn: Connection, seat: dict, empire: dict, state: dict, now: datetime)
         from simulation import firm_deals
         boss = private.manager(conn, c["id"])
         item = {
-            "id": str(c["id"]), "name": c["name"], "sector": c["sector_name"], "is_airline": c["sector"] == "aviation", "city": c["headquarters"],
+            "id": str(c["id"]), "ticker": c["ticker"], "name": c["name"], "sector": c["sector_name"], "is_airline": c["sector"] == "aviation", "city": c["headquarters"],
             "bought": clock.period_label(c["bought_period"]), "cost": c["cost"], "value": private.value_of(conn, c["id"]),
             "price_bps": c["price_bps"], "results": results, "dials": {k: dials[k] for k in ("price_bps", "staff_bps", "pay_rise_bps", "marketing",
                                                                                               "technology", "maintenance_bps", "payout_bps", "borrow",

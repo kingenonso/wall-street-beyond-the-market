@@ -124,6 +124,7 @@ class PlayerResponse(BaseModel):
     margin_calls: int = 0              # Stage 9: margin calls (and recalled shares) waiting on the player
     press_questions: int = 0           # Stage 10: journalists' questions waiting on the player, as the head of an empire (or its journalist)
     talent_waiting: int = 0            # Proven Talent: invitations from firms waiting for an answer
+    union_waiting: list[dict] = []     # unions part 2: pay demands this player, as an empire's head, must answer
     banks_uneasy: int = 0              # the crises stage: banks holding the player's (or their empire's) savings whose savers are leaving
     crises_due: int = 0                # Stage 10, Part 2: matters that came out about the empire, waiting for its statement
     corrections_due: int = 0           # Stage 10: the player's stories that must be corrected

@@ -1965,3 +1965,12 @@ UNION_STRIKE_DAYS = (4, 21)         # how long a strike lasts, in game days
 UNION_PAY_LIMIT_BPS = 4000          # a company never pays more than 40% above the going rate
 UNION_PAY_CATCH_UP_BPS = 2500       # each quarter the going rate closes a quarter of the gap
 UNION_MARGIN_BPS = 3000             # the board reckons a strike costs it this share of the sales lost
+# Part 2: the empire at the table (owner, 17 November 2026).
+UNION_MORE_TIME_DAYS = 3            # the extra game days a head may ask for, once a dispute
+UNION_LAST_DEADLINE_DAY = 85        # no deadline runs past this day of the quarter
+UNION_MEDIATOR_FEE_BPS = 10         # an outside mediator's fee: a tenth of a percent of the company's last quarter's sales
+UNION_MEDIATOR_FEE_NAIRA = (500_000, 20_000_000)   # never below or above these
+UNION_MEDIATOR_WORKS_BPS = 7000     # how often a mediator talks the union round
+UNION_MEDIATOR_EASES_BPS = 1500     # when it works, the union takes an offer this much further below its demand
+UNION_PRIVATE_PAY_WEIGHT = 3        # each point a private company pays below the going rate adds this much anger
+UNION_TWO_YEARS_QUARTERS = 36       # tenths of a quarter: a deal fading by a quarter each quarter costs about 3.6 quarters over two years

@@ -120,3 +120,103 @@ def test_the_unions_page_needs_a_login_and_a_proper_ticker(client, player):
     assert client.get("/api/unions", params={"ticker": "x'; DROP TABLE unions;--"}).status_code == 422
     client.cookies.clear()
     assert client.get("/api/unions").status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Part 2: the empire at the table (owner, 17 November 2026)
+# ---------------------------------------------------------------------------
+
+def _table_dispute(db, demand=1000, deadline=40):
+    """A player-run empire owns a private company, and its union has a demand open (made public on day 2)."""
+    from tests.test_deals_more import own
+    from tests.test_firm import firm_of
+    empire, team = firm_of(db)
+    team = {k: v[0] if isinstance(v, tuple) else v for k, v in team.items()}     # player ids
+    company = own(db, empire, "ENI")
+    union = _q(db, "SELECT * FROM unions WHERE sector = %s", (company["sector"],))
+    if not union:
+        unions.ensure(db)
+        union = _q(db, "SELECT * FROM unions WHERE sector = %s", (company["sector"],))
+    d = _q(db, "INSERT INTO union_disputes (union_id, company_id, period, opened_day, deadline_day, anger_bps, demand_bps, empire_id)"
+               " VALUES (%s, %s, 9, 2, %s, 6000, %s, %s) RETURNING *", (union[0]["id"], company["id"], deadline, demand, empire["id"]))[0]
+    return empire, team, company, d
+
+
+def test_the_head_answers_members_advise_and_others_cannot_sit_at_the_table(db):
+    from simulation import ledger
+    empire, team, company, d = _table_dispute(db)
+    assert unions.controlling_empire(db, company["id"])["id"] == empire["id"]
+    assert [w["ticker"] for w in unions.waiting(db, team["head"], NOW9)] == [company["ticker"]]
+    # A member who is not the head may advise, but not answer.
+    with pytest.raises(unions.UnionError, match="Only the empire's head"):
+        unions.answer(db, team["risk_manager"], d["id"], "agree", None, NOW9)
+    unions.advise(db, team["risk_manager"], d["id"], "offer", 600, "A strike costs more than 6%.", NOW9)
+    page = unions.view(db, NOW9, company["ticker"], team["head"])
+    table = page["company"]["now"][0]["table"]
+    assert table["is_head"] and table["advice"][0]["advice"] == "offer" and table["advice"][0]["build"] == "Risk Manager"
+    assert table["risk"]["strike_long"] > table["risk"]["strike_short"] > 0 and table["risk"]["rise_two_years"] > 0
+    # A player outside the empire sees the dispute but not the table, and cannot act.
+    from tests.test_builds import pro
+    outsider = pro(db, "asset_manager", "Outsider")[0]
+    assert "table" not in unions.view(db, NOW9, company["ticker"], outsider)["company"]["now"][0]
+    with pytest.raises(unions.UnionError, match="controls this company"):
+        unions.advise(db, outsider, d["id"], "agree", None, "", NOW9)
+    # More time is asked once; a mediator is paid from the empire's account, through the books.
+    first = unions.more_time(db, team["head"], d["id"], NOW9)
+    with pytest.raises(unions.UnionError, match="already asked"):
+        unions.more_time(db, team["head"], d["id"], NOW9)
+    after = _q(db, "SELECT deadline_day FROM union_disputes WHERE id = %s", (d["id"],))[0]["deadline_day"]
+    assert after == (40 + data.UNION_MORE_TIME_DAYS if first["granted"] else 40)
+    before = ledger.balance(db, empire["account_id"])
+    fee = unions.hire_mediator(db, team["head"], d["id"], NOW9)["fee"]
+    assert ledger.balance(db, empire["account_id"]) == before - fee and fee >= data.UNION_MEDIATOR_FEE_NAIRA[0] * 100
+    # The head agrees: no strike, and at a private company the empire's own pay rises by the deal.
+    pay = _q(db, "SELECT pay_index_bps FROM private_profiles WHERE company_id = %s", (company["id"],))[0]["pay_index_bps"]
+    done = unions.answer(db, team["head"], d["id"], "agree", None, NOW9)
+    assert done["status"] == "agreed"
+    assert _q(db, "SELECT pay_index_bps FROM private_profiles WHERE company_id = %s", (company["id"],))[0]["pay_index_bps"] == pay + pay * 1000 // 10_000
+    with pytest.raises(unions.UnionError, match="already been answered"):
+        unions.answer(db, team["head"], d["id"], "refuse", None, NOW9)
+    assert _q(db, "SELECT 1 AS x FROM empire_events WHERE empire_id = %s AND words LIKE 'Deal at%%'", (empire["id"],))
+    assert unions.waiting(db, team["head"], NOW9) == []
+    sound(db)
+
+
+def test_a_refusal_or_silence_brings_a_strike(db):
+    empire, team, company, d = _table_dispute(db)
+    struck = unions.answer(db, team["head"], d["id"], "refuse", None, NOW9)
+    assert struck["status"] == "struck"
+    row = _q(db, "SELECT * FROM union_disputes WHERE id = %s", (d["id"],))[0]
+    assert row["answer"] == "refuse" and row["decided_day"] < row["deadline_day"]          # the strike begins the day of the answer
+    # Silence: nobody answers by the deadline, and at the quarter's close the staff take it as a no.
+    from tests.test_deals_more import own
+    second = own(db, empire, "ENI")                       # the founders' next company of the same industry
+    assert second["id"] != company["id"]
+    union = _q(db, "SELECT id FROM unions WHERE sector = %s", (second["sector"],))[0]
+    quiet = _q(db, "INSERT INTO union_disputes (union_id, company_id, period, opened_day, deadline_day, anger_bps, demand_bps, empire_id)"
+                   " VALUES (%s, %s, 9, 2, 40, 6000, 800, %s) RETURNING *", (union["id"], second["id"], empire["id"]))[0]
+    unions.before_close(db, 9, SEED, NOW9)
+    row = _q(db, "SELECT * FROM union_disputes WHERE id = %s", (quiet["id"],))[0]
+    assert row["answer"] == "none" and row["strike_days"] and row["status"] == "ended"
+    sound(db)
+
+
+def test_a_private_companys_staff_count_its_pay_and_morale_and_no_walkout_comes_by_chance(db):
+    from tests.test_deals_more import own
+    from tests.test_firm import firm_of
+    empire, _team = firm_of(db)
+    company = own(db, empire, "ENI")
+    union = _q(db, "SELECT militancy_bps FROM unions WHERE sector = %s", (company["sector"],))[0]
+    base, _ = unions.anger(db, {**company, "union_pay_bps": 0}, 8, 0, union["militancy_bps"])
+    wage = _q(db, "SELECT wage_index_bps FROM economy_results WHERE period = 8")[0]["wage_index_bps"]
+    db.execute("UPDATE private_profiles SET pay_index_bps = %s, morale_bps = 7000 WHERE company_id = %s", (wage * 90 // 100, company["id"]))
+    low, why = unions.anger(db, {**company, "union_pay_bps": 0}, 8, 0, union["militancy_bps"])
+    assert low > base and any("below the going rate" in w for w in why) and any("morale is low" in w for w in why)
+
+
+def test_only_the_head_of_the_controlling_empire_can_answer_through_the_website(client, player):
+    for path, body in (("/api/unions/answer", {"dispute_id": 1, "choice": "agree"}), ("/api/unions/more-time", {"dispute_id": 1}),
+                       ("/api/unions/mediator", {"dispute_id": 1}), ("/api/unions/advise", {"dispute_id": 1, "advice": "refuse"})):
+        assert client.post(path, json=body).status_code in (404, 409)
+    assert client.post("/api/unions/answer", json={"dispute_id": 1, "choice": "surrender"}).status_code == 422
+    assert client.post("/api/unions/answer", json={"dispute_id": 1, "choice": "offer", "offer_bps": -5}).status_code == 422

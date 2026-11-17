@@ -290,6 +290,7 @@ def _player_response(conn: Connection, row: dict) -> PlayerResponse:
         **dict(zip(("press_questions", "corrections_due", "crises_due"), _press(conn, row["id"]))),
         banks_uneasy=_banks_uneasy(conn, row["id"]),
         talent_waiting=_talent_waiting(conn, row["id"]),
+        union_waiting=_union_waiting(conn, row["id"]),
         theme=row.get("theme", "dark"), sound_on=row.get("sound_on", True),
         sound_volume=row.get("sound_volume", 30), tour_done=row.get("tour_done", False),
         work_in_hand=conn.execute("SELECT count(*) AS n FROM objectives WHERE player_id = %s AND state = 'active'", (row["id"],)).fetchone()["n"]
@@ -325,6 +326,14 @@ def _banks_uneasy(conn: Connection, player_id) -> int:
         WHERE b.balance > 0 AND (a.player_id = %s OR a.id IN (SELECT account_id FROM empires WHERE head_player_id = %s AND status = 'active'))
           AND (SELECT c.state FROM bank_confidence c WHERE c.company_id = d.company_id ORDER BY c.period DESC, c.day DESC LIMIT 1)
               IN ('worried', 'run', 'panic', 'closed')""", (player_id, player_id)).fetchone()["n"]
+
+
+def _union_waiting(conn: Connection, player_id) -> list[dict]:
+    """Unions part 2: the pay demands waiting for this player's answer, as the head of the empire that controls the company."""
+    if not conn.execute("SELECT to_regclass('union_advice') IS NOT NULL AS ok").fetchone()["ok"]:
+        return []
+    from simulation import unions
+    return unions.waiting(conn, player_id, _exchange_time(conn))
 
 
 def _talent_waiting(conn: Connection, player_id) -> int:

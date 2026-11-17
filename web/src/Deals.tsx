@@ -5,6 +5,7 @@
 // the 100-day plan, the bank's promises, and the ways out.
 // The server marks every check and decides every sale; the website only asks.
 
+import { CompanyUnionPanel } from "./Unions";
 import { useState, type FormEvent } from "react";
 import { asKobo } from "./Empire";
 import { SendOut } from "./Dealmaking";
@@ -326,6 +327,7 @@ function Owned({ c, o, act }: { c: Any; o: Any; act: Act }) {
             <td><Money kobo={r.borrowings} compact /></td><td className="mono">{Number(r.staff).toLocaleString("en-NG")}</td></tr>))}</tbody>
       </table>
       {last && <p className="small muted">Its accounts here are the truth: the empire owns the books now.</p>}
+      {c.ticker && <CompanyUnionPanel ticker={c.ticker} onLoggedOut={() => window.location.reload()} />}
       {c.runs && <Dials c={c} act={act} />}
       <Assets c={c} act={act} />
       {c.is_airline && <Routes c={c} act={act} />}

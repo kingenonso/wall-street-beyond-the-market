@@ -33,6 +33,7 @@ export type Player = {
   banks_uneasy?: number;
   /** Proven Talent: invitations from firms waiting for an answer. */
   talent_waiting?: number;
+  union_waiting?: { ticker: string; company: string; demand_bps: number; days_left: number }[];
   /** The redesign: the player's own look and sound, and whether the first-time tour has been seen. */
   theme: "dark" | "light";
   sound_on: boolean;
@@ -1223,10 +1224,21 @@ export type UnionDispute = {
   id: number; union: string; company: string; ticker: string; city: string; quarter: string; opened_day: number; deadline_day: number;
   demand_bps: number; reasons: string[]; offer_bps: number | null; settled_bps: number | null; strike_days: number | null; ends_day: number | null;
   status: "open" | "agreed" | "struck" | "ended"; status_words: string; days_left: number | null;
+  answer: "agree" | "offer" | "refuse" | "none" | "board" | null; more_time: "granted" | "refused" | null; mediator: boolean; mediator_worked: boolean | null;
+  table?: UnionTable;
+};
+/** Unions part 2: what an empire sees at the table. */
+export type UnionTable = {
+  is_head: boolean; wages_quarter: Kobo; sales_quarter: Kobo;
+  risk: { strike_short: Kobo; strike_middle: Kobo; strike_long: Kobo; rise_two_years: Kobo; fair_bps: number; fair_two_years: Kobo; days: number[] };
+  banker: { value: Kobo; strike_share_bps: number | null; profit_quarter: Kobo };
+  asset: { pay_vs_going_bps: number; morale_bps: number | null; stake_cost: Kobo | null; union_disputes: number; union_strikes: number; temper_bps: number };
+  more_time: "granted" | "refused" | null; can_more_time: boolean; mediator_fee: Kobo | null; mediator_quote: Kobo;
+  advice: { name: string; build: string; advice: "agree" | "offer" | "refuse"; offer_bps: number | null; note: string | null; mine: boolean }[];
 };
 export type UnionsPage = {
   ready: boolean; quarter?: string; day?: number; squeeze_bps?: number;
-  company?: { ticker: string; union: string; leader: string; militancy_bps: number; above_bps: number; decides: boolean; now: UnionDispute[]; past: UnionDispute[] } | null;
+  company?: { empire: string | null; ours: boolean; ticker: string; union: string; leader: string; militancy_bps: number; above_bps: number; decides: boolean; now: UnionDispute[]; past: UnionDispute[] } | null;
   unions?: { name: string; leader: string; industry: string; militancy_bps: number; disputes: number; strikes: number; strike_days: number }[];
   open?: UnionDispute[]; past?: UnionDispute[]; deals?: { ticker: string; company: string; above_bps: number }[];
   rules?: { dispute_at_bps: number; notice_days: number; strike_days: number[]; catch_up_bps: number; demand_bps: number[] };
@@ -1609,6 +1621,12 @@ export const api = {
   floorChart: (ticker: string, minutes: number) => request<FloorChart>(`/floor/chart/${encodeURIComponent(ticker)}?minutes=${minutes}`),
   auctionHouse: () => request<AuctionHouse>("/floor/auctions"),
   unions: (ticker?: string) => request<UnionsPage>(ticker ? `/unions?ticker=${encodeURIComponent(ticker)}` : "/unions"),
+  unionAnswer: (dispute_id: number, choice: "agree" | "offer" | "refuse", offer_bps?: number) =>
+    request<UnionsPage>("/unions/answer", { method: "POST", body: JSON.stringify({ dispute_id, choice, offer_bps: offer_bps ?? null }) }),
+  unionMoreTime: (dispute_id: number) => request<UnionsPage>("/unions/more-time", { method: "POST", body: JSON.stringify({ dispute_id }) }),
+  unionMediator: (dispute_id: number) => request<UnionsPage>("/unions/mediator", { method: "POST", body: JSON.stringify({ dispute_id }) }),
+  unionAdvise: (dispute_id: number, advice: "agree" | "offer" | "refuse", offer_bps: number | null, note: string) =>
+    request<UnionsPage>("/unions/advise", { method: "POST", body: JSON.stringify({ dispute_id, advice, offer_bps, note }) }),
   predictions: () => request<PredictionsPage>("/predictions"),
   predictionTrade: (market_id: number, side: "yes" | "no", shares: number) =>
     request<PredictionsPage>("/predictions/trade", { method: "POST", body: JSON.stringify({ market_id, side, shares }) }),

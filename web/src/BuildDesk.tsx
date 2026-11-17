@@ -29,6 +29,12 @@ export function urgent(board: ObjectiveBoard | null, career: Career | null, play
                  text: "A step in the empire's task, an approval, or a report to file. Your colleagues cannot go on until it is done.",
                  action: "Open the War Room", href: "#/empire" });
   }
+  for (const u of player?.union_waiting ?? []) {
+    cards.push({ tag: "Union", when: u.days_left === 0 ? "Today" : `${u.days_left} game day${u.days_left === 1 ? "" : "s"} left`,
+                 title: `${u.company}'s staff want ${(u.demand_bps / 100).toFixed(1).replace(/\.0$/, "")}% more pay`,
+                 text: "As the empire's head you answer: agree, offer less, or refuse. If nobody answers by the deadline, the staff walk out.",
+                 action: "Go to the table", href: `#/companies/${u.ticker}` });
+  }
   if (career.career?.review) {
     cards.push({ tag: "Performance review", when: `${career.career.review.passes} passed of ${career.career.review.finished}`,
                  title: "Your work is under review", text: `${career.career.review.why} ${career.career.review.how_to_recover}`,
