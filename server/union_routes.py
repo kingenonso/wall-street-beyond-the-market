@@ -16,7 +16,7 @@ from server.main import _exchange_time, app, current_player
 from server.schemas import Request
 from simulation import unions
 
-MONEY = {"price", "paid", "wages_quarter", "sales_quarter", "strike_short", "strike_middle", "strike_long", "rise_two_years", "fair_two_years",
+MONEY = {"award", "price", "paid", "wages_quarter", "sales_quarter", "strike_short", "strike_middle", "strike_long", "rise_two_years", "fair_two_years",
          "value", "profit_quarter", "stake_cost", "mediator_fee", "mediator_quote", "fee"}
 
 
@@ -102,4 +102,21 @@ def pay_a_union_leader(body: UnionBribe, player: dict = Depends(current_player),
         raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
     page = unions.view(conn, _exchange_time(conn), body.ticker, player["id"])
     page["result"] = done
+    return _wire(page)
+
+
+class GeneralAnswer(Request):
+    concede: bool = Field(strict=True)
+
+
+@app.post("/api/unions/general-strike")
+def answer_the_federation(body: GeneralAnswer, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """Part 4 (17 November 2026): the Government Leader answers the federation's notice of a general strike."""
+    limits.allow("unions", str(player["id"]), attempts=30, per_seconds=60)
+    try:
+        done = unions.answer_general(conn, player["id"], body.concede, _exchange_time(conn))
+    except unions.UnionError as refused:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
+    page = unions.view(conn, _exchange_time(conn), None, player["id"])
+    page["result"] = {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in done.items()}
     return _wire(page)

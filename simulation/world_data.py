@@ -1985,3 +1985,15 @@ UNION_TELL_PER_REPEAT_BPS = 1500    # and 15 points more for every bribe the emp
 UNION_TELL_MOST_BPS = 9000
 UNION_BRIBE_REPUTATION = 6          # an exposed bribe costs the empire this much standing
 UNION_BRIBE_LATEST_DAY = 70         # a bribe to make trouble must leave time for a demand and its deadline
+# Part 4: strike waves and the general strike (owner, 17 November 2026).
+UNION_WAVE_MIN_COMPANIES = 3        # a wave needs at least this many angry companies in the industry
+UNION_WAVE_SHARE_BPS = 5000         # and at least half of the industry's companies angry at once
+UNION_WAVE_NOTICE_DAYS = 10         # an industry-wide demand gives the employers ten game days
+GENERAL_FEDERATION = ("National Labour Federation", "Comrade Adaeze Okoro")
+GENERAL_SQUEEZE_BPS = 700           # prices must have outrun pay by 7% over the year
+GENERAL_WAVES_AT = 3                # and at least three industries out at once
+GENERAL_EVERY_QUARTERS = 8          # never more often than once in two years
+GENERAL_NOTICE_DAYS = 7             # the Government has seven game days (about thirteen real hours) to answer
+GENERAL_AWARD_BPS = 50              # the award asked: half a percent of the last quarter's household income
+GENERAL_STRIKE_HOURS = 36           # the exchange closes for this long (never more than two real days)
+GENERAL_STRIKE_SALES_BPS = 6000     # essential work goes on: a struck day costs six tenths of a day's sales

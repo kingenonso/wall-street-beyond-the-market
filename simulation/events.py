@@ -150,6 +150,8 @@ def generate(conn: Connection, period: int, seed: str) -> list[dict]:
                     continue
                 if kind.spares_financial and sector["code"] in FINANCIAL:
                     continue
+                if kind.name == "sector_strike" and sector["code"] in data.UNIONS:
+                    continue                              # its union calls industry-wide strikes now (unions and strikes, part 4)
                 if _unit(seed, period, kind.name, sector["code"], "happens") * BPS < kind.chance_bps:
                     happen(kind, sector["code"], sector=sector["code"], facts={"sector": sector["name"]})
         elif kind.scope == "company":

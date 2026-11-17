@@ -115,7 +115,7 @@ def act(conn: Connection, now: datetime, *, force: bool = False) -> int:
     with conn.transaction():
         status = _rows(conn, "SELECT * FROM market_status FOR UPDATE")[0]
         world = _rows(conn, "SELECT world_start, weeks_ahead, last_closed_period, fortune_seed FROM world_state")
-        if not world or exchange.paused_until(conn, now) is not None:
+        if not world or exchange.paused_until(conn, now) is not None or exchange.strike_until(conn, now) is not None:
             return 0
         world = world[0]
         if not force:

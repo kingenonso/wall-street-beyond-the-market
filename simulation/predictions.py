@@ -27,7 +27,8 @@ from simulation import world_data as data
 from simulation.ledger import Leg
 
 BPS = 10_000
-KIND_WORDS = {"rate_rise": "Interest rates", "profit_beat": "Company results", "live_kind": "Live events", "live_fall": "Live events"}
+KIND_WORDS = {"rate_rise": "Interest rates", "profit_beat": "Company results", "live_kind": "Live events", "live_fall": "Live events",
+              "union_wave": "Strikes", "general_strike": "Strikes"}
 
 
 class PredictionError(Exception):
@@ -82,8 +83,9 @@ def _house(conn: Connection):
 
 
 def _decides(conn: Connection, player_id, m: dict, now: datetime) -> bool:
-    """The one who decides an answer may not bet on it: the Government Leader, who can set the rate by decree."""
-    if m["kind"] != "rate_rise" or not _one(conn, "SELECT to_regclass('government_terms') IS NOT NULL AS ok")["ok"]:
+    """The one who decides an answer may not bet on it: the Government Leader, who can set the rate by decree and answers the
+    federation's notice of a general strike."""
+    if m["kind"] not in ("rate_rise", "general_strike") or not _one(conn, "SELECT to_regclass('government_terms') IS NOT NULL AS ok")["ok"]:
         return False
     from simulation import government
     leader = government.leader(conn, government.year_of(careers.world_now(conn, now)["period"]))
@@ -162,6 +164,20 @@ def _create(conn: Connection, now: datetime) -> None:
         _make(conn, f"profit:{period}:{c['id']}", "profit_beat", f"Will {c['name']} make more profit this quarter than last?",
               f"Last quarter it made ₦{c['net_profit'] / 100:,.0f}. YES if this quarter's profit is higher.", now, far,
               period=period, company_id=c["id"], baseline=c["net_profit"])
+    from simulation import unions                       # strikes (unions, part 4, 17 November 2026)
+    if unions.waves_ready(conn):
+        for w in _rows(conn, "SELECT w.*, u.name AS union_name, s.name AS industry FROM union_waves w JOIN unions u ON u.id = w.union_id"
+                             " JOIN sectors s ON s.code = u.sector WHERE w.period = %s AND w.status = 'open' AND w.opened_day <= %s",
+                       (period, world["day"])):
+            _make(conn, f"wave:{w['id']}", "union_wave", f"Will the {w['union_name']} strike across {w['industry'].lower()}?",
+                  f"It asks {w['demand_bps'] / 100:g}% of {w['companies']} employers at once, who answer together on day {w['deadline_day']}."
+                  " YES if they walk out.", now, unions.moment_of(conn, period, w["deadline_day"]), period=period, baseline=w["id"])
+        g = _one(conn, "SELECT * FROM general_strikes WHERE period = %s AND status = 'notice' AND notice_day <= %s", (period, world["day"]))
+        if g:
+            _make(conn, f"general:{g['id']}", "general_strike", "Will the general strike go ahead?",
+                  f"The {data.GENERAL_FEDERATION[0]} wants a cost-of-living award of ₦{g['award'] / 100:,.0f} by day {g['deadline_day']}."
+                  " YES if the Government refuses and the country stops.", now, unions.moment_of(conn, period, g["deadline_day"]),
+                  period=period, baseline=g["id"])
     if liveevents.ready(conn):
         bell = liveevents.next_slot(now)
         when = clock.to_lagos(bell).strftime("%A at %H:%M")
@@ -185,6 +201,12 @@ def _answer(conn: Connection, m: dict, now: datetime) -> bool | str | None:
     if m["kind"] == "profit_beat":
         row = _one(conn, "SELECT net_profit FROM company_results WHERE company_id = %s AND period = %s", (m["company_id"], m["period"]))
         return None if row is None else row["net_profit"] > m["baseline"]
+    if m["kind"] == "union_wave":
+        w = _one(conn, "SELECT status FROM union_waves WHERE id = %s", (m["baseline"],))
+        return None if w is None or w["status"] == "open" else w["status"] in ("struck", "ended")
+    if m["kind"] == "general_strike":
+        g = _one(conn, "SELECT status FROM general_strikes WHERE id = %s", (m["baseline"],))
+        return None if g is None or g["status"] == "notice" else g["status"] in ("striking", "over")
     if m["kind"] == "live_kind":
         event = _one(conn, "SELECT kind FROM live_events WHERE starts_at = %s", (m["bell"],))
         if event:

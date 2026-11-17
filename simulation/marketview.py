@@ -84,8 +84,8 @@ def index_level(shares: list[dict], base: int | None = None) -> int:
 
 
 def overview(conn: Connection, now: datetime, *, with_history: bool = True) -> dict:
-    """The whole market at a glance."""
-    day, state = exchange.session_of(now)
+    """The whole market at a glance. A general strike shows the market closed (unions, part 4)."""
+    day, state = exchange._state(conn, now)
     shares = _shares(conn, day)
     before = sum(s["reference"] * s["shares"] for s in shares)
     value = sum(s["market_value"] for s in shares)

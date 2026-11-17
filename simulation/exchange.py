@@ -218,9 +218,23 @@ def _instrument(conn: Connection, ticker: str) -> dict:
     return row
 
 
+def strike_until(conn: Connection, now: datetime) -> datetime | None:
+    """A general strike shuts the exchange (unions, part 4): orders are taken and wait in the queue for the opening
+    auction that follows it; nothing is matched meanwhile."""
+    from simulation import unions
+    return unions.closed_by_strike(conn, now)
+
+
+def _state(conn: Connection, now: datetime):
+    day, state = session_of(now)
+    if state is clock.MarketState.OPEN and strike_until(conn, now) is not None:
+        state = clock.MarketState.CLOSED
+    return day, state
+
+
 def _bring_up_to_date(conn: Connection, share: dict, now: datetime, accounts: dict) -> None:
     """Start a new trading day if one has begun, and run the opening auction once the market is open."""
-    day, state = session_of(now)
+    day, state = _state(conn, now)
     if share["session_date"] < day:
         # Yesterday's last price is what today's limits are measured from.
         reference = share["last_price"] or share["reference_price"]
@@ -385,7 +399,11 @@ def place_order(conn: Connection, *, account: UUID | str, ticker: str, side: str
             from simulation import courts  # Stage 11: a trading ban is a court order
             courts.check_trade(conn, account, now)
         _bring_up_to_date(conn, share, now, accounts)
-        _, state = session_of(now)
+        _, state = _state(conn, now)
+        shut = strike_until(conn, now)
+        if shut is not None and kind == "market":
+            raise ExchangeError(f"The exchange is shut by the general strike until {clock.to_lagos(shut):%A %H:%M} Lagos time. "
+                                "Choose your price: the order waits in the queue for the auction when it reopens.")
         low, high = price_limits(share["reference_price"])
         until = paused_until(conn, now)
         if until is not None:

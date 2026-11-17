@@ -166,6 +166,8 @@ def at_close(conn: Connection, period: int, seed: str, now: datetime) -> list[di
     squeeze = _squeeze(conn, period)
     unions = {u["sector"]: u for u in _rows(conn, "SELECT * FROM unions")}
     lodged = []
+    # Every company's staff weigh up the quarter first, so that an industry where most are angry at once acts as one.
+    by_sector: dict[str, list] = {}
     for company in _rows(conn, "SELECT id, ticker, name, sector, headquarters, listed, union_pay_bps FROM companies c"
                                " WHERE status = 'trading' AND (listed OR EXISTS (SELECT 1 FROM private_profiles p WHERE p.company_id = c.id))"
                                " ORDER BY ticker"):
@@ -173,27 +175,40 @@ def at_close(conn: Connection, period: int, seed: str, now: datetime) -> list[di
         if union is None or not decides_strikes(company):
             continue
         points, why = anger(conn, company, period, squeeze, union["militancy_bps"])
-        if points < data.UNION_DISPUTE_AT_BPS:
-            continue
-        demand = min(max(points // 5 // 50 * 50, data.UNION_DEMAND_MIN_BPS), data.UNION_DEMAND_MAX_BPS)
-        opened = 2 + int(_unit(seed, period + 1, company["ticker"], "opened") * 60)
-        deadline = opened + data.UNION_NOTICE_DAYS
-        boss = controlling_empire(conn, company["id"])
-        row = _one(conn, "INSERT INTO union_disputes (union_id, company_id, period, opened_day, deadline_day, anger_bps, reasons, demand_bps,"
-                         " empire_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (company_id, period) DO NOTHING RETURNING id",
-                   (union["id"], company["id"], period + 1, opened, deadline, points, Jsonb(why), demand, boss and boss["id"]))
-        if row is None:
-            continue
-        lodged.append({"company": company["ticker"], "demand_bps": demand, "anger_bps": points, "day": opened,
-                       "news": {"union": union["name"], "leader": union["leader"], "company": company["name"], "ticker": company["ticker"],
-                                "city": company["headquarters"], "demand": _pct(demand), "days": news.number_word(data.UNION_NOTICE_DAYS),
-                                "grievance": why[0] if why else "Its staff say their pay has fallen behind."},
-                       "sector": company["sector"]})
+        by_sector.setdefault(company["sector"], []).append((company, points, why))
+    waves = waves_ready(conn)
+    for sector, staffs in by_sector.items():
+        union = unions[sector]
+        angry = [(c, p, w) for c, p, w in staffs if p >= data.UNION_DISPUTE_AT_BPS]
+        wave = None
+        if waves and len(angry) >= data.UNION_WAVE_MIN_COMPANIES and len(angry) * BPS >= len(staffs) * data.UNION_WAVE_SHARE_BPS:
+            wave = _lodge_wave(conn, union, staffs, angry, period, seed)
+        for company, points, why in angry:
+            boss = controlling_empire(conn, company["id"])
+            if wave and boss is None:
+                continue                                  # the wave speaks for it
+            demand = wave["demand_bps"] if wave else min(max(points // 5 // 50 * 50, data.UNION_DEMAND_MIN_BPS), data.UNION_DEMAND_MAX_BPS)
+            opened = wave["opened_day"] if wave else 2 + int(_unit(seed, period + 1, company["ticker"], "opened") * 60)
+            deadline = wave["deadline_day"] if wave else opened + data.UNION_NOTICE_DAYS
+            row = _one(conn, "INSERT INTO union_disputes (union_id, company_id, period, opened_day, deadline_day, anger_bps, reasons,"
+                             " demand_bps, empire_id, wave_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+                             " ON CONFLICT (company_id, period) DO NOTHING RETURNING id",
+                       (union["id"], company["id"], period + 1, opened, deadline, points, Jsonb(why), demand, boss and boss["id"],
+                        wave and wave["id"]))
+            if row is None or wave:
+                continue
+            lodged.append({"company": company["ticker"], "demand_bps": demand, "anger_bps": points, "day": opened,
+                           "news": {"union": union["name"], "leader": union["leader"], "company": company["name"], "ticker": company["ticker"],
+                                    "city": company["headquarters"], "demand": _pct(demand), "days": news.number_word(data.UNION_NOTICE_DAYS),
+                                    "grievance": why[0] if why else "Its staff say their pay has fallen behind."},
+                           "sector": company["sector"]})
     # In date order, so a paper never tells two demands running in the same words.
     for x in sorted(lodged, key=lambda x: (x["day"], x["company"])):
         f = x.pop("news")
         news.publish(conn, period=period + 1, day=x["day"], kind="union_demand", story=f"union:{f['ticker']}:{period + 1}", facts=f,
                      tickers=[f["ticker"]], sectors=[x.pop("sector")], locations=[f["city"]], boost=min(x["anger_bps"] // 1000, 15))
+    if waves:
+        _maybe_general_strike(conn, period, squeeze, seed, now)
     return lodged
 
 
@@ -344,6 +359,9 @@ def _work_through(conn: Connection, period: int, day: int, seed: str, now: datet
                                " ORDER BY ends_day, id FOR UPDATE SKIP LOCKED", (period, day)):
         end_strike(conn, dispute, now)
         done += 1
+    if waves_ready(conn):                                 # part 4: industry-wide demands and the general strike
+        done += _work_waves(conn, period, day, seed, now)
+        done += _work_general(conn, period, day, now)
     return done
 
 
@@ -433,7 +451,11 @@ def view(conn: Connection, now: datetime, ticker: str | None = None, player_id=N
             if head and boss and ready_bribes(conn) and (boss["id"] != head["id"] or can_settle):
                 quiet = {"kind": "calm" if boss["id"] == head["id"] else "strike", "price": bribe_price(conn, c["id"]),
                          "tell_bps": tell_chance(conn, head["id"]), "refuse_bps": data.UNION_BRIBE_REFUSE_BPS}
+            member_wave = waves_ready(conn) and _one(
+                conn, "SELECT w.id FROM union_wave_members m JOIN union_waves w ON w.id = m.wave_id WHERE m.company_id = %s"
+                      " AND w.period = %s AND w.opened_day <= %s", (c["id"], period, day))
             company = {"empire": boss["name"] if boss else None, "ours": ours, "quiet_word": quiet,
+                       "wave_id": member_wave["id"] if member_wave else None,
                        "ticker": c["ticker"], "union": c["name"], "leader": c["leader"], "militancy_bps": c["militancy_bps"],
                        "above_bps": c["union_pay_bps"], "decides": bool(c["listed"]),
                        "now": [r for r in mine if r["status"] == "open" or r["status_words"] == "on strike now"],
@@ -451,6 +473,17 @@ def view(conn: Connection, now: datetime, ticker: str | None = None, player_id=N
         "open": [r for r in rows if r["status"] == "open" or r["status_words"] == "on strike now"],
         "past": [r for r in rows if not (r["status"] == "open" or r["status_words"] == "on strike now")][:40],
         "deals": [{"ticker": d["ticker"], "company": d["name"], "above_bps": d["union_pay_bps"]} for d in deals],
+        "waves": [{"id": w["id"], "union": w["union_name"], "industry": w["industry"], "quarter": clock.period_label(w["period"]),
+                   "opened_day": w["opened_day"], "deadline_day": w["deadline_day"], "demand_bps": w["demand_bps"], "companies": w["companies"],
+                   "reasons": w["reasons"], "status": w["status"], "offer_bps": w["offer_bps"] if w["status"] != "open" else None,
+                   "settled_bps": w["settled_bps"], "strike_days": w["strike_days"] if w["status"] != "open" else None,
+                   "ends_day": w["ends_day"] if w["status"] != "open" else None,
+                   "days_left": max(w["deadline_day"] - day, 0) if w["status"] == "open" and w["period"] == period else None,
+                   "striking": w["status"] == "struck" and w["period"] == period}
+                  for w in (_rows(conn, "SELECT w.*, u.name AS union_name, lower(s.name) AS industry FROM union_waves w JOIN unions u ON u.id = w.union_id"
+                                        " JOIN sectors s ON s.code = u.sector WHERE w.period >= %s AND (w.period < %s OR w.opened_day <= %s)"
+                                        " ORDER BY w.period DESC, w.opened_day DESC", (period - 4, period, day)) if waves_ready(conn) else [])],
+        "general": general_view(conn, player_id, now),
         "exposed": [{"empire": r["empire"], "company": r["company"], "ticker": r["ticker"], "union": r["union_name"], "kind": r["kind"],
                      "how": r["exposed_how"], "quarter": clock.period_label(r["period"])} for r in (_rows(
             conn, "SELECT b.kind, b.exposed_how, b.period, e.name AS empire, c.name AS company, c.ticker, u.name AS union_name"
@@ -813,3 +846,255 @@ def wrongs(conn: Connection, since: datetime, now: datetime) -> list[dict]:
 
 def ready_bribes(conn: Connection) -> bool:
     return _one(conn, "SELECT to_regclass('union_bribes') IS NOT NULL AS ok")["ok"]
+
+
+# ---------------------------------------------------------------------------
+# Part 4: strike waves and the general strike (owner, 17 November 2026)
+# ---------------------------------------------------------------------------
+
+def waves_ready(conn: Connection) -> bool:
+    return _one(conn, "SELECT to_regclass('general_strikes') IS NOT NULL AS ok")["ok"]
+
+
+def moment_of(conn: Connection, period: int, day: int) -> datetime:
+    """The real time a game day of a quarter begins."""
+    from datetime import timedelta
+    world = _one(conn, "SELECT world_start, weeks_ahead FROM world_state")
+    start = clock.effective_start(world["world_start"], world["weeks_ahead"])
+    return start + timedelta(weeks=period - 1) + timedelta(weeks=1) * (day - 1) / clock.GAME_DAYS_PER_QUARTER
+
+
+def _members(conn: Connection, sector: str) -> list[dict]:
+    """The employers in an industry the computer runs: every trading company there no player-run empire controls."""
+    return [c for c in _rows(conn, "SELECT id, ticker, name, sector, headquarters, listed FROM companies c WHERE sector = %s AND status = 'trading'"
+                                   " AND (listed OR EXISTS (SELECT 1 FROM private_profiles p WHERE p.company_id = c.id)) ORDER BY ticker", (sector,))
+            if controlling_empire(conn, c["id"]) is None]
+
+
+def _lodge_wave(conn: Connection, union: dict, staffs: list, angry: list, period: int, seed: str) -> dict | None:
+    """Most of an industry's staff are angry at once: one industry-wide demand, answered by the employers together."""
+    members = _members(conn, union["sector"])
+    if not members:
+        return None
+    demands = sorted(min(max(p // 5 // 50 * 50, data.UNION_DEMAND_MIN_BPS), data.UNION_DEMAND_MAX_BPS) for _c, p, _w in angry)
+    demand = demands[len(demands) // 2]
+    opened = 2 + int(_unit(seed, period + 1, union["sector"], "wave") * 50)
+    points = sum(p for _c, p, _w in angry) // len(angry)
+    why = [f"Staff are angry at {len(angry)} of the industry's {len(staffs)} employers."] + sorted({w[0] for _c, _p, w in angry if w})[:2]
+    wave = _one(conn, "INSERT INTO union_waves (union_id, period, opened_day, deadline_day, companies, anger_bps, reasons, demand_bps)"
+                      " VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (union_id, period) DO NOTHING RETURNING *",
+                (union["id"], period + 1, opened, opened + data.UNION_WAVE_NOTICE_DAYS, len(members), points, Jsonb(why), demand))
+    if wave is None:
+        return None
+    for c in members:
+        conn.execute("INSERT INTO union_wave_members (wave_id, company_id) VALUES (%s, %s)", (wave["id"], c["id"]))
+    sector = _one(conn, "SELECT name FROM sectors WHERE code = %s", (union["sector"],))["name"]
+    news.publish(conn, period=period + 1, day=opened, kind="union_wave_demand", story=f"wave:{union['sector']}:{period + 1}",
+                 facts={"union": union["name"], "leader": union["leader"], "industry": sector.lower(), "demand": _pct(demand),
+                        "companies": news.number_word(len(members)), "days": news.number_word(data.UNION_WAVE_NOTICE_DAYS)},
+                 sectors=[union["sector"]], boost=10)
+    return wave
+
+
+def decide_wave(conn: Connection, wave: dict, seed: str, now: datetime) -> dict:
+    """The deadline: the employers the computer runs answer together, each by the board's rule, and the industry's offer is
+    the middle one. The union takes it, or the whole industry walks out."""
+    union = _one(conn, "SELECT * FROM unions WHERE id = %s", (wave["union_id"],))
+    members = _rows(conn, "SELECT c.id, c.ticker, c.name, c.sector, c.headquarters, c.listed FROM union_wave_members m"
+                          " JOIN companies c ON c.id = m.company_id WHERE m.wave_id = %s ORDER BY c.ticker", (wave["id"],))
+    offers = sorted(_board_offer(conn, wave, c) for c in members) or [0]
+    offer = offers[len(offers) // 2]
+    sector = _one(conn, "SELECT name FROM sectors WHERE code = %s", (union["sector"],))["name"].lower()
+    facts = {"union": union["name"], "leader": union["leader"], "industry": sector, "demand": _pct(wave["demand_bps"]), "offer": _pct(offer),
+             "companies": news.number_word(len(members))}
+    story = f"wave:{union['sector']}:{wave['period']}"
+    if offer >= wave["demand_bps"] or _union_takes(wave, union, offer, seed):
+        for c in members:
+            _pay_rise(conn, c, offer)
+        conn.execute("UPDATE union_waves SET status = 'agreed', offer_bps = %s, settled_bps = %s, decided_at = %s WHERE id = %s",
+                     (offer, offer, now, wave["id"]))
+        news.publish(conn, period=wave["period"], day=wave["deadline_day"], kind="union_wave_deal", story=story,
+                     facts={**facts, "settled": _pct(offer)}, sectors=[union["sector"]])
+        return {"status": "agreed", "settled_bps": offer}
+    days = _strike_days(seed, wave, union, union["sector"])
+    lost = -min(days * BPS // clock.GAME_DAYS_PER_QUARTER, 5000)
+    for c in members:
+        event = _one(conn, "INSERT INTO events (period, day, kind, location, sector, company_id, sales_bps, facts)"
+                           " VALUES (%s, %s, 'company_strike', %s, %s, %s, %s, %s) RETURNING id",
+                     (wave["period"], wave["deadline_day"], c["headquarters"], c["sector"], c["id"], lost,
+                      Jsonb({"company": c["name"], "ticker": c["ticker"], "location": c["headquarters"], "union": union["name"],
+                             "days": days, "wave": wave["id"]})))
+        conn.execute("UPDATE union_wave_members SET event_id = %s WHERE wave_id = %s AND company_id = %s", (event["id"], wave["id"], c["id"]))
+    conn.execute("UPDATE union_waves SET status = 'struck', offer_bps = %s, strike_days = %s, ends_day = %s, decided_at = %s WHERE id = %s",
+                 (offer, days, min(wave["deadline_day"] + days, clock.GAME_DAYS_PER_QUARTER), now, wave["id"]))
+    news.publish(conn, period=wave["period"], day=wave["deadline_day"], kind="union_wave_strike", story=story,
+                 facts={**facts, "days": news.number_word(days)}, sectors=[union["sector"]], boost=min(days + 5, 20))
+    return {"status": "struck", "strike_days": days}
+
+
+def end_wave(conn: Connection, wave: dict) -> dict:
+    union = _one(conn, "SELECT * FROM unions WHERE id = %s", (wave["union_id"],))
+    settled = (wave["demand_bps"] + (wave["offer_bps"] or 0)) // 2 // 25 * 25
+    for c in _rows(conn, "SELECT c.id, c.listed FROM union_wave_members m JOIN companies c ON c.id = m.company_id WHERE m.wave_id = %s",
+                   (wave["id"],)):
+        _pay_rise(conn, c, settled)
+    conn.execute("UPDATE union_waves SET status = 'ended', settled_bps = %s WHERE id = %s", (settled, wave["id"]))
+    sector = _one(conn, "SELECT name FROM sectors WHERE code = %s", (union["sector"],))["name"].lower()
+    news.publish(conn, period=wave["period"], day=wave["ends_day"], kind="union_wave_over", story=f"wave:{union['sector']}:{wave['period']}",
+                 facts={"union": union["name"], "leader": union["leader"], "industry": sector, "settled": _pct(settled),
+                        "days": news.number_word(wave["strike_days"])}, sectors=[union["sector"]])
+    return {"status": "ended", "settled_bps": settled}
+
+
+def _work_waves(conn: Connection, period: int, day: int, seed: str, now: datetime) -> int:
+    done = 0
+    for wave in _rows(conn, "SELECT * FROM union_waves WHERE period = %s AND status = 'open' AND deadline_day <= %s ORDER BY deadline_day, id"
+                            " FOR UPDATE SKIP LOCKED", (period, day)):
+        decide_wave(conn, wave, seed, now)
+        done += 1
+    for wave in _rows(conn, "SELECT * FROM union_waves WHERE period = %s AND status = 'struck' AND ends_day <= %s ORDER BY ends_day, id"
+                            " FOR UPDATE SKIP LOCKED", (period, day)):
+        end_wave(conn, wave)
+        done += 1
+    return done
+
+
+# --- The general strike -------------------------------------------------------
+
+def _household_income(conn: Connection, period: int) -> int:
+    row = _one(conn, "SELECT coalesce(sum(income), 0)::bigint AS n FROM household_results WHERE period = %s", (period,))
+    return row["n"] if row else 0
+
+
+def _maybe_general_strike(conn: Connection, period: int, squeeze: int, seed: str, now: datetime) -> dict | None:
+    """Rarely: prices have outrun pay hard and several industries are out at once. The federation gives notice."""
+    waves = _one(conn, "SELECT count(*) AS n FROM union_waves WHERE period = %s", (period + 1,))["n"]
+    if squeeze < data.GENERAL_SQUEEZE_BPS or waves < data.GENERAL_WAVES_AT:
+        return None
+    if _one(conn, "SELECT 1 AS x FROM general_strikes WHERE period > %s", (period + 1 - data.GENERAL_EVERY_QUARTERS,)):
+        return None
+    award = max(apply_bps(_household_income(conn, period), data.GENERAL_AWARD_BPS), 100)
+    notice = 2 + int(_unit(seed, period + 1, "general") * 6)
+    row = _one(conn, "INSERT INTO general_strikes (period, notice_day, deadline_day, squeeze_bps, waves, award) VALUES (%s, %s, %s, %s, %s, %s)"
+                     " ON CONFLICT (period) DO NOTHING RETURNING *",
+               (period + 1, notice, notice + data.GENERAL_NOTICE_DAYS, squeeze, waves, award))
+    if row:
+        name, leader = data.GENERAL_FEDERATION
+        news.publish(conn, period=period + 1, day=notice, kind="general_strike_notice", story=f"general:{period + 1}",
+                     facts={"federation": name, "leader": leader, "squeeze": _pct(squeeze), "award": news.money_words(award),
+                            "days": news.number_word(data.GENERAL_NOTICE_DAYS), "industries": news.number_word(waves)}, boost=20)
+    return row
+
+
+def answer_general(conn: Connection, player_id, concede: bool, now: datetime) -> dict:
+    """The Government Leader answers the federation: concede (the Treasury pays the award to households) or refuse."""
+    from simulation import government
+    with conn.transaction():
+        period, day, seed = _today(conn, now)
+        boss = government.leader(conn, government.year_of(period))
+        if boss is None or str(boss["leader_id"]) != str(player_id):
+            raise UnionError("Only the Government Leader answers the federation.")
+        g = _one(conn, "SELECT * FROM general_strikes WHERE period = %s FOR UPDATE", (period,))
+        if g is None or g["notice_day"] > day:
+            raise UnionError("There is no notice of a general strike to answer.")
+        if g["status"] != "notice":
+            raise UnionError("The notice has already been answered.")
+        if day > g["deadline_day"]:
+            raise UnionError("The deadline has passed.")
+        return _settle_general(conn, g, "concede" if concede else "refuse", player_id, day, now)
+
+
+def _settle_general(conn: Connection, g: dict, answer: str, by, day: int, now: datetime) -> dict:
+    from simulation import ledger
+    from simulation.ledger import Leg
+    name, leader = data.GENERAL_FEDERATION
+    treasury = ledger.account_id(conn, ledger.TREASURY)
+    if answer in ("concede", "stand_in_concede"):
+        award = min(g["award"], max(ledger.balance(conn, treasury), 0))
+        shares = _rows(conn, "SELECT location, income FROM household_results WHERE period = %s AND income > 0 ORDER BY location", (g["period"] - 1,))
+        total = sum(s["income"] for s in shares) or 1
+        legs, paid = [], 0
+        for i, s in enumerate(shares):
+            part = award - paid if i == len(shares) - 1 else award * s["income"] // total
+            if part > 0:
+                legs.append(Leg(ledger.account_id(conn, f"households:{s['location'].lower()}"), part))
+                paid += part
+        if paid > 0:
+            ledger.post(conn, kind="cost_of_living_award", memo=f"Cost-of-living award to households, agreed with the {name}",
+                        reference=f"general-strike:{g['id']}", idempotency_key=f"general-award:{g['id']}", legs=[Leg(treasury, -paid), *legs])
+        conn.execute("UPDATE general_strikes SET status = 'conceded', answer = %s, answered_by = %s, decided_at = %s WHERE id = %s",
+                     (answer, by, now, g["id"]))
+        news.publish(conn, period=g["period"], day=day, kind="general_strike_called_off", story=f"general:{g['period']}",
+                     facts={"federation": name, "leader": leader, "award": news.money_words(paid or g["award"])}, boost=15)
+        return {"status": "conceded", "award": paid}
+    from datetime import timedelta
+    hours = min(data.GENERAL_STRIKE_HOURS, 48)
+    until = now + timedelta(hours=hours)
+    days = max(hours * clock.GAME_DAYS_PER_QUARTER // (7 * 24), 1)
+    lost = -min(apply_bps(days * BPS // clock.GAME_DAYS_PER_QUARTER, data.GENERAL_STRIKE_SALES_BPS), 5000)
+    for u in _rows(conn, "SELECT u.sector, u.name FROM unions u ORDER BY u.sector"):
+        conn.execute("INSERT INTO events (period, day, kind, location, sector, company_id, sales_bps, facts)"
+                     " VALUES (%s, %s, 'sector_strike', NULL, %s, NULL, %s, %s)",
+                     (g["period"], day, u["sector"], lost, Jsonb({"sector": u["sector"], "union": name, "general": g["id"], "days": days})))
+    conn.execute("UPDATE market_status SET strike_until = %s", (until,))
+    conn.execute("UPDATE general_strikes SET status = 'striking', answer = %s, answered_by = %s, decided_at = %s, strike_from = %s,"
+                 " strike_until = %s, strike_days = %s WHERE id = %s", (answer, by, now, now, until, days, g["id"]))
+    news.publish(conn, period=g["period"], day=day, kind="general_strike", story=f"general:{g['period']}",
+                 facts={"federation": name, "leader": leader, "hours": news.number_word(hours), "days": news.number_word(days)}, boost=25)
+    return {"status": "striking", "until": until}
+
+
+def _work_general(conn: Connection, period: int, day: int, now: datetime) -> int:
+    g = _one(conn, "SELECT * FROM general_strikes WHERE period = %s FOR UPDATE SKIP LOCKED", (period,))
+    if g is None:
+        g = _one(conn, "SELECT * FROM general_strikes WHERE status = 'striking' AND strike_until <= %s FOR UPDATE SKIP LOCKED", (now,))
+    if g is None:
+        return 0
+    if g["status"] == "notice" and day >= g["deadline_day"]:
+        from simulation import government
+        boss = government.leader(conn, government.year_of(period))
+        if boss:
+            answer = "refuse"                                   # the Leader said nothing: the federation takes that as a no
+        else:
+            term = government.term(conn, government.year_of(period), now)
+            from simulation import ledger
+            can_pay = ledger.balance(conn, ledger.account_id(conn, ledger.TREASURY)) >= g["award"]
+            answer = "stand_in_concede" if term["stand_in"] != "hawk" and can_pay else "stand_in_refuse"
+        _settle_general(conn, g, answer, None, g["deadline_day"], now)
+        return 1
+    if g["status"] == "striking" and g["strike_until"] <= now:
+        conn.execute("UPDATE general_strikes SET status = 'over' WHERE id = %s", (g["id"],))
+        name, leader = data.GENERAL_FEDERATION
+        from simulation import careers
+        world = careers.world_now(conn, now)
+        news.publish(conn, period=world["period"], day=world["day"], kind="general_strike_over", story=f"general:{g['period']}",
+                     facts={"federation": name, "leader": leader, "days": news.number_word(g["strike_days"])})
+        return 1
+    return 0
+
+
+def closed_by_strike(conn: Connection, now: datetime) -> datetime | None:
+    """While a general strike is on, the exchange is shut: orders wait in the queue for the next opening auction."""
+    if not _one(conn, "SELECT to_regclass('general_strikes') IS NOT NULL AS ok")["ok"]:
+        return None
+    row = _one(conn, "SELECT strike_until FROM market_status")
+    return row["strike_until"] if row and row["strike_until"] and row["strike_until"] > now else None
+
+
+def general_view(conn: Connection, player_id, now: datetime) -> dict | None:
+    """The general strike now, if there is one the public knows of; with what the Government Leader may do."""
+    if not waves_ready(conn):
+        return None
+    from simulation import careers, government
+    world = careers.world_now(conn, now)
+    g = _one(conn, "SELECT * FROM general_strikes WHERE (period = %s AND notice_day <= %s) OR (status = 'striking') ORDER BY id DESC LIMIT 1",
+              (world["period"], world["day"]))
+    if g is None:
+        return None
+    boss = government.leader(conn, government.year_of(world["period"]))
+    name, leader = data.GENERAL_FEDERATION
+    return {"id": g["id"], "federation": name, "leader": leader, "status": g["status"], "award": g["award"], "squeeze_bps": g["squeeze_bps"],
+            "waves": g["waves"], "deadline_day": g["deadline_day"], "days_left": max(g["deadline_day"] - world["day"], 0),
+            "strike_until": g["strike_until"].isoformat() if g["strike_until"] else None, "answer": g["answer"],
+            "is_leader": bool(boss and player_id and str(boss["leader_id"]) == str(player_id)) and g["status"] == "notice",
+            "hours": data.GENERAL_STRIKE_HOURS}

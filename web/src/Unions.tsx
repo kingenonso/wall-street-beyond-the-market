@@ -3,7 +3,7 @@
 // only from its day. Every figure comes from the server.
 
 import { useEffect, useState } from "react";
-import { api, ApiError, type UnionDispute, type UnionsPage, type UnionTable } from "./api";
+import { api, ApiError, type GeneralStrike, type UnionDispute, type UnionsPage, type UnionTable, type UnionWave } from "./api";
 import { formatCompact } from "./format";
 import { useLoad } from "./hooks";
 import { Band, BandCell, Panel } from "./Shell";
@@ -34,6 +34,57 @@ function Dispute({ d }: { d: UnionDispute }) {
   );
 }
 
+function Wave({ w }: { w: UnionWave }) {
+  return (
+    <div className={`union-row ${w.striking ? "union-strike" : ""}`}>
+      <div className="union-row-head">
+        <strong>All of {w.industry}</strong> <span className="small muted">{w.companies} employers</span>
+        <span className={`union-status small ${w.striking ? "change-down strong" : ""}`}>
+          {w.striking ? "on strike now" : w.status === "open" ? "demand lodged" : w.status === "agreed" ? "agreed" : w.status === "ended" ? "strike over, settled" : "on strike"}</span>
+      </div>
+      <p className="small">The {w.union} asks {pct(w.demand_bps)} of every employer the computer runs
+        {w.status === "open" && w.days_left !== null && <> · they answer together within {w.days_left} game days (day {w.deadline_day})</>}
+        {w.offer_bps !== null && <> · they offered {pct(w.offer_bps)}</>}
+        {w.strike_days !== null && <> · strike of {w.strike_days} game days</>}
+        {w.settled_bps !== null && <> · settled at {pct(w.settled_bps)}</>}
+        <span className="muted"> · {w.quarter}</span></p>
+      {w.reasons.length > 0 && <ul className="small muted union-why">{w.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>}
+    </div>
+  );
+}
+
+/** The general strike: on the Economy page's Labour section and on the Government page. The Leader answers here. */
+export function GeneralStrikePanel({ g, onAnswered }: { g: GeneralStrike; onAnswered?: (p: UnionsPage) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<{ ok: boolean; words: string } | null>(null);
+  async function answer(concede: boolean) {
+    setBusy(true); setSaid(null);
+    try { const p = await api.generalStrike(concede); onAnswered?.(p); setSaid({ ok: true, words: concede ? "You conceded: the Treasury pays the award." : "You refused: the general strike begins." }); }
+    catch (problem) { setSaid({ ok: false, words: problem instanceof ApiError ? problem.message : "Could not reach the server." }); }
+    finally { setBusy(false); }
+  }
+  const until = g.strike_until ? new Date(g.strike_until).toLocaleString("en-NG", { timeZone: "Africa/Lagos", weekday: "short", hour: "2-digit", minute: "2-digit" }) : null;
+  return (
+    <Panel title="The general strike" aside={g.federation}>
+      {g.status === "notice" && <p className="small strong change-down">{g.leader} of the {g.federation} has given notice: unless the Government pays households a
+        cost-of-living award of {formatCompact(g.award)}, the country stops. Prices have outrun pay by {pct(g.squeeze_bps)} in a year, and {g.waves} industries are
+        in dispute. The Government must answer within {g.days_left} game days (day {g.deadline_day}).</p>}
+      {g.status === "striking" && <p className="small strong change-down">The general strike is on. The exchange is shut{until ? ` until ${until} Lagos time` : ""}: orders
+        wait in the queue for the reopening auction. Every industry with a union is losing days of sales.</p>}
+      {g.status === "conceded" && <p className="small">The Government paid households the award, and the {g.federation} called the strike off.</p>}
+      {g.status === "over" && <p className="small">The general strike is over. The exchange has reopened.</p>}
+      {g.is_leader && (
+        <div className="union-answer">
+          <button disabled={busy} onClick={() => answer(true)}>Concede: pay {formatCompact(g.award)} from the Treasury</button>
+          <button className="button-outline" disabled={busy} onClick={() => answer(false)}>Refuse</button>
+          <p className="small muted">Conceding costs the Treasury; refusing shuts the exchange for up to {g.hours} hours and costs every industry with a union days of sales. Silence by the deadline is a refusal.</p>
+        </div>
+      )}
+      {said && <p className={`small ${said.ok ? "" : "change-down"}`} role={said.ok ? "status" : "alert"}>{said.words}</p>}
+    </Panel>
+  );
+}
+
 /** Economy page: the Labour section. */
 export function LabourPanel({ onLoggedOut }: { onLoggedOut: () => void }) {
   const page = useLoad(api.unions, "unions", onLoggedOut);
@@ -55,6 +106,12 @@ export function LabourPanel({ onLoggedOut }: { onLoggedOut: () => void }) {
         <BandCell label="On strike now" value={striking} note="sales lost every day" />
         <BandCell label="Pay deals in force" value={deals.length} note="above the going rate" />
       </Band>
+      {d.general && <GeneralStrikePanel g={d.general} onAnswered={() => reload()} />}
+      {(d.waves ?? []).some((w) => w.status === "open" || w.striking) && (
+        <Panel title="Industry-wide demands" aside="when most of an industry is angry at once">
+          {(d.waves ?? []).filter((w) => w.status === "open" || w.striking).map((w) => <Wave key={w.id} w={w} />)}
+        </Panel>
+      )}
       <Panel title="Disputes now" aside="shown from the day each is made public">
         {open.length === 0 ? <p className="muted small">No union has a demand open, and nobody is on strike.</p> : open.map((x) => <Dispute key={x.id} d={x} />)}
       </Panel>
@@ -66,6 +123,8 @@ export function LabourPanel({ onLoggedOut }: { onLoggedOut: () => void }) {
             <li><strong>The demand.</strong> An angry enough workforce asks for a rise of {pct(rules.demand_bps[0])} to {pct(rules.demand_bps[1])}. It is made public on a day in the coming quarter, and the board has {rules.notice_days} game days to answer.</li>
             <li><strong>The answer.</strong> The board weighs a year of the higher wage bill against what a strike would cost it, and agrees, offers less, or refuses. A calm leader takes half the demand; the most militant only the full rise.</li>
             <li><strong>The strike.</strong> {rules.strike_days[0]} to {rules.strike_days[1]} game days of lost sales, shown in the quarter's results. It ends in a deal halfway between the demand and the offer.</li>
+            <li><strong>Industry-wide demands.</strong> When at least three companies and half an industry are angry at once, the union lodges one demand on every employer the computer runs, answered together; a refusal stops the whole industry. Companies a player's empire controls still answer for themselves.</li>
+            <li><strong>The general strike.</strong> Rarely, when prices have outrun pay by 7% in a year and three industries are in dispute at once, the federation asks the Government for a cost-of-living award. Refused, the exchange shuts for up to two real days and every industry loses days of sales.</li>
             <li><strong>The deal.</strong> The company pays above the going rate; the going rate closes {pct(rules.catch_up_bps)} of the gap each quarter.</li>
           </ul>
         </Panel>
@@ -89,6 +148,11 @@ export function LabourPanel({ onLoggedOut }: { onLoggedOut: () => void }) {
         {(d.exposed ?? []).length > 0 && (
           <Panel title="Union leaders who were paid" aside="once it came out">
             <ul className="small">{d.exposed!.map((x, i) => <li key={i}>{x.quarter}: {x.empire} paid the {x.union}'s leader {x.kind === "strike" ? "to make trouble at" : "to settle cheaply at"} {x.company} ({x.how === "refused" ? "the leader refused and went public" : x.how === "leader" ? "the leader told" : "a journalist found it"})</li>)}</ul>
+          </Panel>
+        )}
+        {(d.waves ?? []).some((w) => !(w.status === "open" || w.striking)) && (
+          <Panel title="Earlier industry-wide demands" aside="the last year">
+            {(d.waves ?? []).filter((w) => !(w.status === "open" || w.striking)).map((w) => <Wave key={w.id} w={w} />)}
           </Panel>
         )}
         <Panel title="Earlier disputes" aside="the last year">
@@ -226,12 +290,13 @@ export function CompanyUnionPanel({ ticker, onLoggedOut }: { ticker: string; onL
         {c.above_bps > 0 ? ` A pay deal has it paying ${pct(c.above_bps)} above the going rate.` : ""}
         {c.empire ? ` ${c.empire} controls it, so its head answers the union.` : " Its board answers the union."}</p>
       {said && <p className={`small ${said.ok ? "" : "change-down"}`} role={said.ok ? "status" : "alert"}>{said.words}</p>}
+      {c.wave_id && (fresh ?? page.data)?.waves?.filter((w) => w.id === c.wave_id).map((w) => <Wave key={w.id} w={w} />)}
       {c.now.length > 0 ? c.now.map((x) => (
         <div key={x.id}>
           <Dispute d={x} />
           {x.table && <Table d={x} t={x.table} run={run} busy={busy} />}
         </div>
-      )) : <p className="muted small">No demand open and nobody on strike.</p>}
+      )) : !c.wave_id && <p className="muted small">No demand open and nobody on strike.</p>}
       {c.quiet_word && <QuietWord q={c.quiet_word} ticker={c.ticker} run={run} busy={busy} />}
       {c.past.length > 0 && <p className="small muted">Earlier: {c.past.map((x) => `${x.quarter} ${x.status_words}${x.settled_bps !== null ? ` at ${pct(x.settled_bps)}` : ""}${x.answer && x.answer !== "board" ? ` (${ANSWER_WORDS[x.answer]})` : ""}`).join(" · ")}</p>}
     </Panel>

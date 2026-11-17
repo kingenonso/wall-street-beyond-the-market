@@ -62,7 +62,7 @@ function Card({ m, run, busy }: { m: PredictionMarket; run: (ask: () => Promise<
           {y && y.no > 0 && <button className="button-outline small" disabled={!ok || busy || n > y.no} onClick={() => run(() => api.predictionTrade(m.id, "no", -n), `Sold ${n.toLocaleString("en-NG")} No back.`)}>Sell No back</button>}
         </div>
       )}
-      {open && m.barred && <p className="small change-down">You decide this one (you can set the rate by decree), so you may not bet on it.</p>}
+      {open && m.barred && <p className="small change-down">You decide this one as Government Leader, so you may not bet on it.</p>}
     </div>
   );
 }

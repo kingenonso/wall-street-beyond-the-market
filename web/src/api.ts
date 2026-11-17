@@ -1227,6 +1227,16 @@ export type UnionDispute = {
   answer: "agree" | "offer" | "refuse" | "none" | "board" | null; more_time: "granted" | "refused" | null; mediator: boolean; mediator_worked: boolean | null;
   table?: UnionTable;
 };
+/** Unions part 4: an industry-wide demand, and the general strike. */
+export type UnionWave = {
+  id: number; union: string; industry: string; quarter: string; opened_day: number; deadline_day: number; demand_bps: number; companies: number;
+  reasons: string[]; status: "open" | "agreed" | "struck" | "ended"; offer_bps: number | null; settled_bps: number | null; strike_days: number | null;
+  ends_day: number | null; days_left: number | null; striking: boolean;
+};
+export type GeneralStrike = {
+  id: number; federation: string; leader: string; status: "notice" | "conceded" | "striking" | "over"; award: Kobo; squeeze_bps: number; waves: number;
+  deadline_day: number; days_left: number; strike_until: string | null; answer: string | null; is_leader: boolean; hours: number;
+};
 /** Unions part 2: what an empire sees at the table. */
 export type UnionTable = {
   is_head: boolean; wages_quarter: Kobo; sales_quarter: Kobo;
@@ -1238,16 +1248,18 @@ export type UnionTable = {
 };
 export type UnionsPage = {
   ready: boolean; quarter?: string; day?: number; squeeze_bps?: number;
-  company?: { empire: string | null; ours: boolean; quiet_word: { kind: "strike" | "calm"; price: Kobo; tell_bps: number; refuse_bps: number } | null; ticker: string; union: string; leader: string; militancy_bps: number; above_bps: number; decides: boolean; now: UnionDispute[]; past: UnionDispute[] } | null;
+  company?: { empire: string | null; ours: boolean; wave_id: number | null; quiet_word: { kind: "strike" | "calm"; price: Kobo; tell_bps: number; refuse_bps: number } | null; ticker: string; union: string; leader: string; militancy_bps: number; above_bps: number; decides: boolean; now: UnionDispute[]; past: UnionDispute[] } | null;
   unions?: { name: string; leader: string; industry: string; militancy_bps: number; disputes: number; strikes: number; strike_days: number }[];
   open?: UnionDispute[]; past?: UnionDispute[]; deals?: { ticker: string; company: string; above_bps: number }[];
+  waves?: UnionWave[];
+  general?: GeneralStrike | null;
   exposed?: { empire: string; company: string; ticker: string; union: string; kind: "strike" | "calm"; how: "refused" | "leader" | "journalist"; quarter: string }[];
   rules?: { dispute_at_bps: number; notice_days: number; strike_days: number[]; catch_up_bps: number; demand_bps: number[] };
 };
 
 /** Prediction markets (16 November 2026). */
 export type PredictionMarket = {
-  id: number; kind: "rate_rise" | "profit_beat" | "live_kind" | "live_fall"; area: string; question: string; details: string;
+  id: number; kind: "rate_rise" | "profit_beat" | "live_kind" | "live_fall" | "union_wave" | "general_strike"; area: string; question: string; details: string;
   status: "open" | "closed" | "resolved" | "void"; closes_at: string | null; outcome: boolean | null; chance_bps: number; history: number[];
   volume: number; cost_10_yes: Kobo | null; cost_10_no: Kobo | null; barred: boolean;
   yours: { yes: number; no: number; paid: Kobo; paid_out: Kobo; worth_now: Kobo | null } | null;
@@ -1626,6 +1638,7 @@ export const api = {
     request<UnionsPage>("/unions/answer", { method: "POST", body: JSON.stringify({ dispute_id, choice, offer_bps: offer_bps ?? null }) }),
   unionQuietWord: (ticker: string, kind: "strike" | "calm") =>
     request<UnionsPage>("/unions/quiet-word", { method: "POST", body: JSON.stringify({ ticker, kind }) }),
+  generalStrike: (concede: boolean) => request<UnionsPage>("/unions/general-strike", { method: "POST", body: JSON.stringify({ concede }) }),
   unionMoreTime: (dispute_id: number) => request<UnionsPage>("/unions/more-time", { method: "POST", body: JSON.stringify({ dispute_id }) }),
   unionMediator: (dispute_id: number) => request<UnionsPage>("/unions/mediator", { method: "POST", body: JSON.stringify({ dispute_id }) }),
   unionAdvise: (dispute_id: number, advice: "agree" | "offer" | "refuse", offer_bps: number | null, note: string) =>

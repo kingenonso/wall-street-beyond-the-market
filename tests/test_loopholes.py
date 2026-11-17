@@ -455,6 +455,7 @@ def test_the_website_has_no_way_to_move_money_or_change_records(client, player):
         ("POST", "/api/talent/share"),
         ("POST", "/api/unions/advise"),
         ("POST", "/api/unions/answer"),
+        ("POST", "/api/unions/general-strike"),
         ("POST", "/api/unions/mediator"),
         ("POST", "/api/unions/more-time"),
         ("POST", "/api/unions/quiet-word"),

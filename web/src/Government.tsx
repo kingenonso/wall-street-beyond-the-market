@@ -8,6 +8,7 @@ import { api, ApiError, type GovernmentPage, type Player } from "./api";
 import { formatNaira, formatPercent } from "./format";
 import { useLoad } from "./hooks";
 import { Band, BandCell, Failed, Loading, PageHead, Panel } from "./Shell";
+import { GeneralStrikePanel } from "./Unions";
 
 type Props = { player: Player; onLoggedOut: () => void };
 
@@ -135,6 +136,12 @@ function Powers({ d, act }: { d: GovernmentPage; act: ReturnType<typeof useAct> 
   );
 }
 
+function GovernmentStrike({ onLoggedOut }: { onLoggedOut: () => void }) {
+  const page = useLoad(() => api.unions(), "unions", onLoggedOut);
+  const g = page.data?.general;
+  return g ? <GeneralStrikePanel g={g} onAnswered={() => page.reload()} /> : null;
+}
+
 export function GovernmentWork({ onLoggedOut }: Props) {
   const page = useLoad(api.government, "government", onLoggedOut);
   const act = useAct(page.reload, onLoggedOut);
@@ -149,6 +156,7 @@ export function GovernmentWork({ onLoggedOut }: Props) {
   return (
     <>
       <PageHead title="Government" sub="An elected leader sets the year's taxes; the Assembly passes the budget or throws it out" aside={`${d.quarter} · day ${d.day}`} />
+      <GovernmentStrike onLoggedOut={onLoggedOut} />
       <Band label="Who governs" columns={4}>
         <BandCell label={`Game year ${d.year}`} value={d.leader ? d.leader.name : "The stand-in"} note={d.leader ? `elected with ${d.leader.votes} votes` : d.stand_in.words} />
         {d.rates.slice(0, 3).map((r) => <BandCell key={r.kind} label={r.name} value={pct(r.bps)} note={`${pct(r.least_bps)} to ${pct(r.most_bps)} allowed`} />)}

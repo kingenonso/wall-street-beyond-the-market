@@ -53,6 +53,7 @@ def test_anger_has_causes_and_an_angry_workforce_lodges_a_demand_kept_out_of_sig
     assert paid < hot and any("above the going rate" in w for w in why_paid)
 
     monkeypatch.setattr(unions, "_squeeze", lambda conn, period: 1500)
+    monkeypatch.setattr(data, "UNION_WAVE_MIN_COMPANIES", 10_000)   # company by company here; waves have their own test
     db.execute("DELETE FROM union_disputes")
     lodged = unions.at_close(db, 8, SEED, NOW9)
     assert lodged and all(data.UNION_DEMAND_MIN_BPS <= x["demand_bps"] <= data.UNION_DEMAND_MAX_BPS for x in lodged)
@@ -294,3 +295,97 @@ def test_an_owner_can_pay_a_leader_to_settle_and_a_refusing_leader_goes_public(d
     # Half the demand will do now.
     assert unions.answer(db, team["head"], d["id"], "offer", 500, NOW9)["status"] == "agreed"
     sound(db)
+
+
+# ---------------------------------------------------------------------------
+# Part 4: strike waves and the general strike (owner, 17 November 2026)
+# ---------------------------------------------------------------------------
+
+def test_an_angry_industry_acts_as_one_and_a_refused_wave_stops_it(db, monkeypatch):
+    for period in range(20, 40):                                    # chance never draws an industry strike where a union decides
+        assert not [e for e in events.generate(db, period, SEED + "-waves") if e["kind"] == "sector_strike" and e["sector"] in data.UNIONS]
+    db.execute("DELETE FROM union_disputes WHERE period = 9")
+    monkeypatch.setattr(unions, "_squeeze", lambda conn, period: 1500)   # prices far ahead of pay: nearly everybody is angry
+    unions.at_close(db, 8, SEED, NOW9)
+    waves = _q(db, "SELECT * FROM union_waves WHERE period = 9")
+    assert waves, "an industry where most staff are angry lodges one demand"
+    wave = waves[0]
+    members = _q(db, "SELECT company_id FROM union_wave_members WHERE wave_id = %s", (wave["id"],))
+    assert len(members) == wave["companies"]
+    # The wave speaks for its members: none of them has a demand of its own.
+    assert not _q(db, "SELECT 1 AS x FROM union_disputes WHERE period = 9 AND company_id = ANY(%s)", ([m["company_id"] for m in members],))
+    # Far fewer demands than companies: the flood is gone.
+    singles = _q(db, "SELECT count(*) AS n FROM union_disputes WHERE period = 9")[0]["n"]
+    companies = _q(db, "SELECT count(*) AS n FROM companies WHERE listed AND status = 'trading'")[0]["n"]
+    assert singles < companies // 2
+    monkeypatch.setattr(unions, "_board_offer", lambda conn, dispute, c: 0)
+    struck = unions.decide_wave(db, wave, SEED, NOW9)
+    assert struck["status"] == "struck"
+    hit = _q(db, "SELECT count(*) AS n FROM events WHERE period = 9 AND kind = 'company_strike' AND (facts->>'wave')::int = %s", (wave["id"],))[0]["n"]
+    assert hit == len(members)
+    unions.before_close(db, 9, SEED, NOW9)
+    assert _q(db, "SELECT status FROM union_waves WHERE id = %s", (wave["id"],))[0]["status"] == "ended"
+    assert {"union_wave_demand", "union_wave_strike", "union_wave_over"} <= {r["kind"] for r in _q(db, "SELECT kind FROM news_items WHERE period = 9")}
+    sound(db)
+
+
+def _notice(db, monkeypatch):
+    db.execute("DELETE FROM general_strikes")
+    monkeypatch.setattr(unions, "_squeeze", lambda conn, period: 1500)
+    unions.at_close(db, 8, SEED, NOW9)
+    g = _q(db, "SELECT * FROM general_strikes WHERE period = 9")
+    assert g, "prices far ahead of pay and several industries out: the federation gives notice"
+    db.execute("UPDATE general_strikes SET notice_day = 2, deadline_day = 9 WHERE id = %s", (g[0]["id"],))
+    return _q(db, "SELECT * FROM general_strikes WHERE id = %s", (g[0]["id"],))[0]
+
+
+def test_a_general_strike_conceded_costs_the_treasury_and_the_books_balance(db, monkeypatch):
+    from simulation import government, ledger
+    from tests.test_builds import pro
+    g = _notice(db, monkeypatch)
+    with pytest.raises(unions.UnionError, match="Government Leader"):
+        unions.answer_general(db, pro(db, "asset_manager", "Not The Leader")[0], True, NOW9)
+    monkeypatch.setattr(government, "leader", lambda conn, year: None)
+    monkeypatch.setattr(government, "term", lambda conn, year, now: {"stand_in": "dove"})
+    treasury = ledger.account_id(db, ledger.TREASURY)
+    before = ledger.balance(db, treasury)
+    assert unions._work_general(db, 9, 9, NOW9) == 1
+    done = _q(db, "SELECT * FROM general_strikes WHERE id = %s", (g["id"],))[0]
+    assert done["status"] == "conceded" and done["answer"] == "stand_in_concede"
+    assert ledger.balance(db, treasury) == before - min(g["award"], before)
+    assert unions.closed_by_strike(db, NOW9) is None
+    sound(db)
+
+
+def test_a_general_strike_refused_shuts_the_exchange_but_orders_wait_in_the_queue(db, monkeypatch):
+    from simulation import clock, exchange, government, ledger, predictions
+    g = _notice(db, monkeypatch)
+    predictions.tick(db, NOW9 + timedelta(hours=6))
+    question = _q(db, "SELECT * FROM prediction_markets WHERE kind = 'general_strike'")
+    assert question, "a question is opened on the strike"
+    monkeypatch.setattr(government, "leader", lambda conn, year: None)
+    monkeypatch.setattr(government, "term", lambda conn, year, now: {"stand_in": "hawk"})
+    assert unions._work_general(db, 9, 9, NOW9) == 1
+    assert _q(db, "SELECT status FROM general_strikes WHERE id = %s", (g["id"],))[0]["status"] == "striking"
+    until = unions.closed_by_strike(db, NOW9)
+    assert until is not None and until - NOW9 <= timedelta(hours=48)
+    assert _q(db, "SELECT count(*) AS n FROM events WHERE kind = 'sector_strike' AND (facts->>'general')::int = %s", (g["id"],))[0]["n"] \
+        == _q(db, "SELECT count(*) AS n FROM unions")[0]["n"]
+    # A time the exchange would normally be open, during the strike.
+    when = next(NOW9 + timedelta(minutes=30 * i) for i in range(96) if clock.market_state(NOW9 + timedelta(minutes=30 * i)) is clock.MarketState.OPEN)
+    db.execute("UPDATE market_status SET strike_until = %s", (when + timedelta(hours=1),))
+    from tests.test_builds import pro
+    from tests.test_objectives import give_cash
+    _player, account = pro(db, "asset_manager", "Queue Tester")
+    give_cash(db, account, 10_000_000)
+    ticker = _company(db)["ticker"]
+    with pytest.raises(exchange.ExchangeError, match="general strike"):
+        exchange.place_order(db, account=account, ticker=ticker, side="buy", kind="market", quantity=1, limit_price=None, now=when)
+    price = _q(db, "SELECT reference_price FROM market_instruments m JOIN companies c ON c.id = m.company_id WHERE c.ticker = %s", (ticker,))[0]
+    placed = exchange.place_order(db, account=account, ticker=ticker, side="buy", kind="limit", quantity=1,
+                                  limit_price=price["reference_price"], now=when)
+    assert placed["order"]["status"] == "open" and not placed["trades"]        # it waits for the reopening auction
+    # The question pays: the strike went ahead.
+    predictions.tick(db, when)
+    assert _q(db, "SELECT outcome FROM prediction_markets WHERE kind = 'general_strike'")[0]["outcome"] is True
+    assert ledger.audit(db) == []
