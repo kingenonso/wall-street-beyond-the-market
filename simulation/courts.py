@@ -47,7 +47,8 @@ REGULATOR = "regulator"
 COMPENSATION_FUND = "compensation_fund"
 KINDS = ("insider", "manipulation", "undisclosed_stake", "naked_short", "insurance_fraud",
          "front_running", "order_leak", "collusion",       # the Floor's wrongs (16 November 2026)
-         "union_bribery")                                    # paying a union leader (17 November 2026)
+         "union_bribery",                                    # paying a union leader (17 November 2026)
+         "jury_tampering")                                   # offering a juror money, or taking it (17 November 2026)
 
 CASE_SQL = (
     "SELECT k.*, d.display_name AS defendant_name, c.display_name AS claimant_name, co.ticker"
@@ -131,6 +132,7 @@ def _case(row: dict) -> dict:
         "settle_price": apply_bps(row["amount"], data.COURT_SETTLE_BPS) if row["status"] == "open" else 0,
         "decided_by": row.get("decided_by"), "proved_bps": row.get("proved_bps"), "penalty": row.get("penalty"),
         "defence": row.get("defence"), "claim_note": row.get("claim_note"), "jury_until": row.get("jury_until"),
+        "appeal_until": row.get("appeal_until"), "appealed_by": row.get("appealed_by"),
     }
 
 
@@ -142,7 +144,7 @@ def case(conn: Connection, case_id: int) -> dict | None:
 def docket(conn: Connection) -> list[dict]:
     """Every case the court has open, or before a jury. Public: a docket is read by anybody."""
     return [{**_case(row), "jury": _jury_of(conn, row)}
-            for row in _rows(conn, CASE_SQL + " WHERE k.status IN ('open', 'jury') ORDER BY k.id DESC")]
+            for row in _rows(conn, CASE_SQL + " WHERE k.status IN ('open', 'jury', 'verdict', 'appeal') ORDER BY k.id DESC")]
 
 
 def verdicts(conn: Connection, limit: int = 10) -> list[dict]:
@@ -154,12 +156,16 @@ def verdicts(conn: Connection, limit: int = 10) -> list[dict]:
 
 
 def my_cases(conn: Connection, player_id) -> dict:
-    """The cases a player is defending, the ones they brought, and their legal record."""
+    """The cases a player is defending, the ones they brought, and their legal record. A side sees who sits on its jury."""
+    juries = _one(conn, "SELECT to_regclass('jurors') IS NOT NULL AS ok")["ok"]
+
+    def full(row: dict) -> dict:
+        return {**_case(row), "jury": _jury_of(conn, row) if juries else None, "panel": panel_for(conn, row, player_id) if juries else None}
     return {
-        "defending": [_case(row) for row in _rows(conn, CASE_SQL + " WHERE k.defendant_id = %s ORDER BY k.id DESC",
-                                                  (player_id,))],
-        "brought": [_case(row) for row in _rows(conn, CASE_SQL + " WHERE k.claimant_id = %s ORDER BY k.id DESC",
-                                                (player_id,))],
+        "defending": [full(row) for row in _rows(conn, CASE_SQL + " WHERE k.defendant_id = %s ORDER BY k.id DESC",
+                                                 (player_id,))],
+        "brought": [full(row) for row in _rows(conn, CASE_SQL + " WHERE k.claimant_id = %s ORDER BY k.id DESC",
+                                               (player_id,))],
         "record": legal_record(conn, player_id),
         "banned_until": banned_until(conn, player_id),
     }
@@ -426,6 +432,8 @@ def _wrongs(conn: Connection, period: int, now: datetime) -> list[dict]:
     from simulation import unions              # paying a union leader (17 November 2026)
     for wrong in unions.wrongs(conn, since, now):
         add(wrong)
+    for wrong in tampering_wrongs(conn, since):  # tampering with a jury (17 November 2026)
+        add(wrong)
     return [w for w in wrongs if w["amount"] >= naira(data.COURT_MIN_CLAIM_NAIRA)]
 
 
@@ -440,9 +448,9 @@ def _evidence_of(wrong: dict) -> dict:
 def open_case(conn: Connection, *, kind: str, defendant_id, claimant_id, company_id, amount: int, evidence: dict,
               words: str, period: int, now: datetime, bond: int = 0) -> int:
     if kind not in KINDS:
-        raise CourtError("The tribunal hears nine kinds of case: dealing on confidential information, manipulation, an undisclosed "
+        raise CourtError("The tribunal hears ten kinds of case: dealing on confidential information, manipulation, an undisclosed "
                          "stake, a naked short, insurance fraud, on the Floor trading ahead of a client, passing on a client's "
-                         "order and banks agreeing their prices, and paying a union leader.")
+                         "order and banks agreeing their prices, paying a union leader, and tampering with a jury.")
     if amount < naira(data.COURT_MIN_CLAIM_NAIRA):
         raise CourtError(f"A claim of {_naira(amount)} is not worth the tribunal's time.")
     # The row is read by name: the website's connection hands back dictionaries, a test's hands back tuples, and the
@@ -477,6 +485,10 @@ def _standing(conn: Connection, player_id, wrong: dict) -> str | None:
     account = ledger.player_account_id(conn, player_id)
     if account is None:
         return "You have no account to bring a case from."
+    if wrong["kind"] == "jury_tampering":
+        if wrong.get("victim_player") and str(wrong["victim_player"]) == str(player_id):
+            return None
+        return "Only the regulator, or the other side of the case that was tampered with, can bring that case."
     if wrong["kind"] == "union_bribery":
         if wrong.get("victim_player") and str(wrong["victim_player"]) == str(player_id):
             return None
@@ -521,9 +533,9 @@ def bring(conn: Connection, player_id, *, kind: str, defendant_id, company_id=No
     """A player brings a case. The court finds the evidence and the number itself: a player cannot name a number the
     record does not support. The bond is a tenth of the claim, and is lost if the claim fails."""
     if kind not in KINDS:
-        raise CourtError("The tribunal hears nine kinds of case: dealing on confidential information, manipulation, an undisclosed "
+        raise CourtError("The tribunal hears ten kinds of case: dealing on confidential information, manipulation, an undisclosed "
                          "stake, a naked short, insurance fraud, on the Floor trading ahead of a client, passing on a client's "
-                         "order and banks agreeing their prices, and paying a union leader.")
+                         "order and banks agreeing their prices, paying a union leader, and tampering with a jury.")
     if str(player_id) == str(defendant_id):
         raise CourtError("You cannot bring a case against yourself.")
     ensure(conn)
@@ -616,7 +628,7 @@ def judge(conn: Connection, case_id: int, period: int, now: datetime, *, proved_
     row = _one(conn, CASE_SQL + " WHERE k.id = %s", (case_id,))
     if row is None:
         raise CourtError("There is no such case.")
-    if row["status"] not in ("open", "jury"):
+    if row["status"] not in ("open", "jury", "verdict", "appeal"):
         raise CourtError("That case has already been decided.")
     if proved_bps <= 0:
         return _acquit(conn, row, period, now, by)
@@ -680,7 +692,7 @@ def _eligible(conn: Connection, row: dict) -> list:
         " WHERE c.experience >= %s AND p.id <> ALL(%s::uuid[])"
         " AND NOT EXISTS (SELECT 1 FROM empire_seats s JOIN empire_seats t ON t.empire_id = s.empire_id"
         "                 WHERE s.player_id = p.id AND t.player_id = ANY(%s::uuid[]))"
-        " AND NOT EXISTS (SELECT 1 FROM court_cases k WHERE k.defendant_id = p.id AND k.status IN ('open', 'jury'))"
+        " AND NOT EXISTS (SELECT 1 FROM court_cases k WHERE k.defendant_id = p.id AND k.status IN ('open', 'jury', 'verdict', 'appeal'))"
         " AND NOT EXISTS (SELECT 1 FROM court_bans b WHERE b.player_id = p.id AND b.until_period >= %s)"
         " ORDER BY p.id",
         (careers.experience_for(data.JURY_MIN_LEVEL), sides, sides, row["opened_period"]))]
@@ -692,15 +704,45 @@ def summon_jury(conn: Connection, row: dict, period: int, now: datetime, defence
     defence = " ".join((defence or "").split())
     if len(defence) > 600:
         raise CourtError("A statement to the jury is at most 600 characters.")
-    pool = _eligible(conn, row)
-    if len(pool) < data.JURY_QUORUM:
+    if len(_pool(conn, row)) < data.JURY_QUORUM:
         return judge(conn, row["id"], period, now)
-    pool.sort(key=lambda p: _roll(conn, "jury", row["id"], p))
     until = now + timedelta(hours=data.JURY_HOURS)
     conn.execute("UPDATE court_cases SET status = 'jury', jury_until = %s, defence = %s WHERE id = %s", (until, defence or None, row["id"]))
-    for seat, player in enumerate(pool[:data.JURY_SIZE], start=1):
-        conn.execute("INSERT INTO jurors (case_id, player_id, seat, summoned_at) VALUES (%s, %s, %s, %s)", (row["id"], player, seat, now))
+    _draw(conn, row, 1, data.JURY_SIZE, now)
     return case(conn, row["id"])
+
+
+def _pool(conn: Connection, row: dict) -> list:
+    """Who may still be drawn for a case: the eligible, less everybody drawn for it before (in either round), in an order
+    fixed by a draw nobody can know in advance."""
+    drawn = {r["player_id"] for r in _rows(conn, "SELECT player_id FROM jurors WHERE case_id = %s", (row["id"],))} \
+        if _one(conn, "SELECT to_regclass('jurors') IS NOT NULL AS ok")["ok"] else set()
+    pool = [p for p in _eligible(conn, row) if p not in drawn]
+    pool.sort(key=lambda p: _roll(conn, "jury", row["id"], p))
+    return pool
+
+
+def _draw(conn: Connection, row: dict, round_: int, count: int, now: datetime) -> int:
+    seat = _one(conn, "SELECT coalesce(max(seat), 0) AS n FROM jurors WHERE case_id = %s", (row["id"],))["n"]
+    drawn = 0
+    for player in _pool(conn, row)[:count]:
+        seat += 1
+        conn.execute("INSERT INTO jurors (case_id, player_id, seat, summoned_at, round) VALUES (%s, %s, %s, %s, %s)",
+                     (row["id"], player, seat, now, round_))
+        drawn += 1
+    return drawn
+
+
+def _round(row: dict) -> int:
+    return 2 if row.get("appealed_by") else 1
+
+
+def _side(row: dict, player_id) -> str | None:
+    if str(row["defendant_id"]) == str(player_id):
+        return "defendant"
+    if row["claimant_id"] is not None and str(row["claimant_id"]) == str(player_id):
+        return "claimant"
+    return None
 
 
 def claimant_note(conn: Connection, player_id, case_id: int, note: str) -> dict:
@@ -726,17 +768,18 @@ def vote(conn: Connection, player_id, case_id: int, proved_bps: int, penalty: st
     reason = " ".join((reason or "").split())
     if len(reason) > 300:
         raise CourtError("A reason is at most 300 characters.")
-    seat = _one(conn, "SELECT j.*, k.status, k.jury_until FROM jurors j JOIN court_cases k ON k.id = j.case_id"
+    seat = _one(conn, "SELECT j.*, k.status, k.jury_until, k.appealed_by FROM jurors j JOIN court_cases k ON k.id = j.case_id"
                       " WHERE j.case_id = %s AND j.player_id = %s FOR UPDATE OF j", (case_id, player_id))
-    if seat is None:
+    if seat is None or seat["struck_by"] is not None or seat["round"] != _round(seat):
         raise CourtError("You are not on that jury.")
-    if seat["status"] != "jury" or seat["jury_until"] <= now:
+    if seat["status"] not in ("jury", "appeal") or seat["jury_until"] <= now:
         raise CourtError("That jury has finished sitting.")
     if seat["voted_at"] is not None:
         raise CourtError("You have already voted, and a vote cannot be changed.")
     conn.execute("UPDATE jurors SET proved_bps = %s, penalty = %s, reason = %s, voted_at = %s WHERE case_id = %s AND player_id = %s",
                  (proved_bps, penalty, reason or None, now, case_id, player_id))
-    left = _one(conn, "SELECT count(*) FILTER (WHERE voted_at IS NULL) AS n FROM jurors WHERE case_id = %s", (case_id,))["n"]
+    left = _one(conn, "SELECT count(*) FILTER (WHERE voted_at IS NULL) AS n FROM jurors WHERE case_id = %s AND round = %s"
+                      " AND struck_by IS NULL", (case_id, seat["round"]))["n"]
     if left == 0:
         verdict(conn, case_id, now)
     return case(conn, case_id)
@@ -749,21 +792,35 @@ def _middle(values: list[int]) -> int:
 
 def verdict(conn: Connection, case_id: int, now: datetime) -> dict:
     """The jury's verdict: the middle vote on how much is proved and on the penalty. Every juror who voted is paid the
-    fee by the Treasury; a vote that matches the verdict earns a point of reputation. Too few votes: the judge decides."""
+    fee by the Treasury; a vote that matches the verdict earns a point of reputation. Too few votes: the judge decides.
+    A first jury's verdict waits a day for an appeal (part 2); an appeal jury's verdict is final."""
     period = careers.world_now(conn, now)["period"]
-    votes = _rows(conn, "SELECT * FROM jurors WHERE case_id = %s AND voted_at IS NOT NULL ORDER BY seat", (case_id,))
+    row = _one(conn, CASE_SQL + " WHERE k.id = %s", (case_id,))
+    round_ = _round(row)
+    votes = _rows(conn, "SELECT * FROM jurors WHERE case_id = %s AND round = %s AND struck_by IS NULL AND voted_at IS NOT NULL"
+                        " ORDER BY seat", (case_id, round_))
+    _tell_offers(conn, row, round_, now)
     if len(votes) < data.JURY_QUORUM:
-        done = judge(conn, case_id, period, now)
+        if round_ == 2:                                   # an appeal jury that does not sit: the first verdict stands
+            done = judge(conn, case_id, period, now, proved_bps=row["first_proved_bps"], penalty=row["first_penalty"], by="jury")
+        else:
+            done = judge(conn, case_id, period, now)
     else:
         proved = _middle([v["proved_bps"] for v in votes])
         penalty = PENALTIES[_middle([PENALTIES.index(v["penalty"]) for v in votes])]
-        done = judge(conn, case_id, period, now, proved_bps=proved, penalty=penalty, by="jury")
         for v in votes:
             agreed = v["proved_bps"] == proved and (proved == 0 or v["penalty"] == penalty)
             conn.execute("UPDATE jurors SET agreed = %s WHERE case_id = %s AND player_id = %s", (agreed, case_id, v["player_id"]))
             if agreed:
                 conn.execute("UPDATE players SET reputation = least(reputation + %s, 100) WHERE id = %s",
                              (data.JURY_FAIR_REPUTATION, v["player_id"]))
+        if round_ == 1:
+            conn.execute("UPDATE court_cases SET status = 'verdict', proved_bps = %s, penalty = %s, appeal_until = %s WHERE id = %s",
+                         (proved, penalty, now + timedelta(hours=data.JURY_APPEAL_HOURS), case_id))
+            done = case(conn, case_id)
+        else:
+            done = judge(conn, case_id, period, now, proved_bps=proved, penalty=penalty, by="jury")
+            _refund_appeal(conn, row, proved, penalty, period)
     fee = naira(data.JURY_FEE_NAIRA)
     for v in votes:
         account = ledger.player_account_id(conn, v["player_id"])
@@ -774,45 +831,250 @@ def verdict(conn: Connection, case_id: int, now: datetime) -> dict:
     return done
 
 
+def _better_for(side: str, first: tuple[int, str], second: tuple[int, str]) -> bool:
+    """Did the appeal win the appellant anything? The defendant wants less proved or a lighter penalty; the claimant more."""
+    (p1, k1), (p2, k2) = first, second
+    if side == "defendant":
+        return p2 < p1 or (p2 == p1 and p2 > 0 and PENALTIES.index(k2) < PENALTIES.index(k1))
+    return p2 > p1 or (p2 == p1 and p2 > 0 and PENALTIES.index(k2) > PENALTIES.index(k1))
+
+
+def _refund_appeal(conn: Connection, row: dict, proved: int, penalty: str, period: int) -> None:
+    if not row["appeal_fee"]:
+        return
+    if not _better_for(row["appealed_by"], (row["first_proved_bps"], row["first_penalty"]), (proved, penalty)):
+        return
+    who = row["defendant_id"] if row["appealed_by"] == "defendant" else row["claimant_id"]
+    account = ledger.player_account_id(conn, who)
+    if account is not None:
+        ledger.transfer(conn, payer=ledger.account_id(conn, ledger.TREASURY), receiver=account, amount=row["appeal_fee"],
+                        kind="court_appeal_refund", memo=f"The appeal fee on case {row['id']}, returned: the appeal won", period=period)
+
+
+def appeal(conn: Connection, player_id, case_id: int, now: datetime) -> dict:
+    """The side that lost a jury's verdict pays a fee to have a fresh jury hear the case, within a day. The second verdict
+    is final, and the fee comes back if it wins the appellant anything."""
+    row = _one(conn, CASE_SQL + " WHERE k.id = %s FOR UPDATE OF k", (case_id,))
+    if row is None or row["status"] != "verdict":
+        raise CourtError("There is no jury's verdict on that case waiting for an appeal.")
+    if row["appeal_until"] <= now:
+        raise CourtError("The time to appeal has passed.")
+    side = _side(row, player_id)
+    if side == "defendant" and row["proved_bps"] == 0:
+        raise CourtError("You were acquitted: there is nothing to appeal.")
+    if side == "claimant" and row["proved_bps"] == BPS and row["penalty"] == "harsh":
+        raise CourtError("The jury found everything you claimed, at the harshest penalty: there is nothing to appeal.")
+    if side is None:
+        raise CourtError("Only the two sides can appeal, and the regulator does not.")
+    fee = max(apply_bps(row["amount"], data.JURY_APPEAL_FEE_BPS), naira(data.JURY_APPEAL_FEE_NAIRA))
+    account = ledger.player_account_id(conn, player_id)
+    if account is None or ledger.balance(conn, account) < fee:
+        raise CourtError(f"An appeal costs {_naira(fee)}, which you do not have.")
+    if len(_pool(conn, row)) < data.JURY_QUORUM:
+        raise CourtError("Too few players may sit on a fresh jury, so the verdict stands.")
+    period = careers.world_now(conn, now)["period"]
+    ledger.transfer(conn, payer=account, receiver=ledger.account_id(conn, ledger.TREASURY), amount=fee, kind="court_appeal",
+                    memo=f"The appeal fee on case {case_id}", period=period)
+    conn.execute("UPDATE court_cases SET status = 'appeal', appealed_by = %s, appeal_fee = %s, first_proved_bps = proved_bps,"
+                 " first_penalty = penalty, jury_until = %s WHERE id = %s", (side, fee, now + timedelta(hours=data.JURY_HOURS), case_id))
+    _draw(conn, row, 2, data.JURY_SIZE, now)
+    return case(conn, case_id)
+
+
+def challenge(conn: Connection, player_id, case_id: int, seat: int, now: datetime) -> dict:
+    """Each side may strike out one juror who has not voted, early in a sitting, and another is drawn in their place."""
+    row = _one(conn, CASE_SQL + " WHERE k.id = %s FOR UPDATE OF k", (case_id,))
+    if row is None or row["status"] not in ("jury", "appeal"):
+        raise CourtError("There is no jury sitting on that case.")
+    side = _side(row, player_id)
+    if side is None:
+        raise CourtError("Only the two sides can challenge a juror.")
+    round_ = _round(row)
+    if now > row["jury_until"] - timedelta(hours=data.JURY_HOURS) + timedelta(hours=data.JURY_CHALLENGE_HOURS):
+        raise CourtError(f"A juror can only be challenged in the first {data.JURY_CHALLENGE_HOURS} hours of a sitting.")
+    if _one(conn, "SELECT 1 AS x FROM jurors WHERE case_id = %s AND round = %s AND struck_by = %s", (case_id, round_, side)):
+        raise CourtError("Each side may challenge one juror in a sitting, and you have.")
+    juror = _one(conn, "SELECT * FROM jurors WHERE case_id = %s AND round = %s AND seat = %s FOR UPDATE", (case_id, round_, seat))
+    if juror is None or juror["struck_by"] is not None:
+        raise CourtError("There is no such juror on this jury.")
+    if juror["voted_at"] is not None:
+        raise CourtError("That juror has already voted.")
+    conn.execute("UPDATE jurors SET struck_by = %s WHERE case_id = %s AND player_id = %s", (side, case_id, juror["player_id"]))
+    conn.execute("UPDATE jury_offers SET status = 'lapsed' WHERE case_id = %s AND juror_id = %s AND status = 'offered'",
+                 (case_id, juror["player_id"]))
+    _draw(conn, row, round_, 1, now)
+    return case(conn, case_id)
+
+
+# --- Tampering ----------------------------------------------------------------
+
+def offer(conn: Connection, player_id, case_id: int, seat: int, amount: int, wants: str, now: datetime) -> dict:
+    """A side offers a juror money for a vote. A crime between players: the juror takes it or reports it. Nothing moves
+    until the juror takes it."""
+    if wants not in ("acquit", "convict"):
+        raise CourtError("Say what you want the juror to vote for.")
+    if amount < naira(data.COURT_MIN_CLAIM_NAIRA):
+        raise CourtError(f"An offer worth less than {_naira(naira(data.COURT_MIN_CLAIM_NAIRA))} would not tempt anybody.")
+    row = _one(conn, CASE_SQL + " WHERE k.id = %s", (case_id,))
+    if row is None or row["status"] not in ("jury", "appeal"):
+        raise CourtError("There is no jury sitting on that case.")
+    if _side(row, player_id) is None:
+        raise CourtError("Only the two sides know who sits on the jury.")
+    round_ = _round(row)
+    juror = _one(conn, "SELECT * FROM jurors WHERE case_id = %s AND round = %s AND seat = %s AND struck_by IS NULL", (case_id, round_, seat))
+    if juror is None or juror["voted_at"] is not None:
+        raise CourtError("That juror is not there to approach, or has already voted.")
+    account = ledger.player_account_id(conn, player_id)
+    if account is None or ledger.balance(conn, account) < amount:
+        raise CourtError("You do not have that much to offer.")
+    before = _one(conn, "SELECT count(*) AS n FROM jury_offers WHERE briber_id = %s AND status IN ('taken', 'reported')", (player_id,))["n"]
+    chance = min(data.JURY_OFFER_TELL_BASE_BPS + data.JURY_OFFER_TELL_PER_REPEAT_BPS * before, 9000)
+    try:
+        conn.execute("INSERT INTO jury_offers (case_id, round, briber_id, juror_id, amount, wants, tell_bps, at)"
+                     " VALUES (%s, %s, %s, %s, %s, %s, %s, %s)", (case_id, round_, player_id, juror["player_id"], amount, wants, chance, now))
+    except Exception as clash:
+        raise CourtError("You have already approached that juror.") from clash
+    return {"offered": amount, "tell_bps": chance}
+
+
+def answer_offer(conn: Connection, player_id, offer_id: int, take: bool, now: datetime) -> dict:
+    """The juror takes the money (it moves at once) or reports the offer (it is exposed, and the juror is commended)."""
+    o = _one(conn, "SELECT o.*, k.status AS case_status FROM jury_offers o JOIN court_cases k ON k.id = o.case_id"
+                   " WHERE o.id = %s AND o.juror_id = %s FOR UPDATE OF o", (offer_id, player_id))
+    if o is None or o["status"] != "offered":
+        raise CourtError("There is no such offer waiting for you.")
+    period = careers.world_now(conn, now)["period"]
+    if not take:
+        conn.execute("UPDATE jury_offers SET status = 'reported', exposed_how = 'reported', exposed_at = %s WHERE id = %s", (now, offer_id))
+        conn.execute("UPDATE players SET reputation = least(reputation + %s, 100) WHERE id = %s", (data.JURY_REPORT_REPUTATION, player_id))
+        _legal(conn, o["briber_id"], "tampering", f"Reported by a juror for offering {_naira(o['amount'])} for a vote on case {o['case_id']}.", now)
+        return {"reported": True}
+    payer = ledger.player_account_id(conn, o["briber_id"])
+    receiver = ledger.player_account_id(conn, player_id)
+    if payer is None or receiver is None or ledger.balance(conn, payer) < o["amount"]:
+        conn.execute("UPDATE jury_offers SET status = 'lapsed' WHERE id = %s", (offer_id,))
+        raise CourtError("The money is no longer there: the offer has lapsed.")
+    ledger.transfer(conn, payer=payer, receiver=receiver, amount=o["amount"], kind="private_payment", memo="A private payment", period=period)
+    conn.execute("UPDATE jury_offers SET status = 'taken' WHERE id = %s", (offer_id,))
+    return {"taken": o["amount"]}
+
+
+def _tell_offers(conn: Connection, row: dict, round_: int, now: datetime) -> None:
+    """At the verdict, a juror who took money may tell: the chance fixed when it was offered."""
+    if not _one(conn, "SELECT to_regclass('jury_offers') IS NOT NULL AS ok")["ok"]:
+        return
+    conn.execute("UPDATE jury_offers SET status = 'lapsed' WHERE case_id = %s AND round = %s AND status = 'offered'", (row["id"], round_))
+    for o in _rows(conn, "SELECT * FROM jury_offers WHERE case_id = %s AND round = %s AND status = 'taken' AND exposed_how IS NULL",
+                   (row["id"], round_)):
+        if _roll(conn, "jury-told", o["id"]) < o["tell_bps"]:
+            conn.execute("UPDATE jury_offers SET exposed_how = 'told', exposed_at = %s WHERE id = %s", (now, o["id"]))
+            for who, what in ((o["briber_id"], "paid a juror"), (o["juror_id"], "took money as a juror")):
+                _legal(conn, who, "tampering", f"It came out that they {what} on case {row['id']}.", now)
+
+
+def tampering_wrongs(conn: Connection, since: datetime) -> list[dict]:
+    """Offers that came out, as wrongs the tribunal can hear: the one who offered, and a juror who took it."""
+    if not _one(conn, "SELECT to_regclass('jury_offers') IS NOT NULL AS ok")["ok"]:
+        return []
+    out = []
+    for o in _rows(conn, "SELECT o.*, k.defendant_id, k.claimant_id FROM jury_offers o JOIN court_cases k ON k.id = o.case_id"
+                         " WHERE o.exposed_how IS NOT NULL AND o.at >= %s ORDER BY o.id", (since,)):
+        other = o["claimant_id"] if str(o["briber_id"]) == str(o["defendant_id"]) else o["defendant_id"]
+        lines = [{"what": f"Offered a juror {_naira(o['amount'])} to vote to {o['wants']} on case {o['case_id']}"},
+                 {"what": "Reported by the juror" if o["exposed_how"] == "reported" else "The juror took it, and it came out"}]
+        out.append({"kind": "jury_tampering", "key": f"jury_tampering:{o['id']}:offer", "defendant_id": o["briber_id"], "company_id": None,
+                    "ticker": None, "amount": o["amount"], "victim_player": other, "lines": lines,
+                    "words": f"Offered a juror money for a vote on case {o['case_id']}."})
+        if o["status"] == "taken":
+            out.append({"kind": "jury_tampering", "key": f"jury_tampering:{o['id']}:took", "defendant_id": o["juror_id"], "company_id": None,
+                        "ticker": None, "amount": o["amount"], "victim_player": other, "lines": lines,
+                        "words": f"Took money as a juror for a vote on case {o['case_id']}."})
+    return out
+
+
 def juries_due(conn: Connection, now: datetime) -> int:
     """Juries whose time is up give their verdict."""
     if not _one(conn, "SELECT to_regclass('jurors') IS NOT NULL AS ok")["ok"]:
         return 0
     done = 0
-    for row in _rows(conn, "SELECT id FROM court_cases WHERE status = 'jury' AND jury_until <= %s ORDER BY id FOR UPDATE SKIP LOCKED", (now,)):
+    for row in _rows(conn, "SELECT id FROM court_cases WHERE status IN ('jury', 'appeal') AND jury_until <= %s ORDER BY id"
+                           " FOR UPDATE SKIP LOCKED", (now,)):
         verdict(conn, row["id"], now)
         done += 1
+    if _one(conn, "SELECT to_regclass('jury_offers') IS NOT NULL AS ok")["ok"]:
+        period = careers.world_now(conn, now)["period"]
+        for row in _rows(conn, "SELECT id, proved_bps, penalty FROM court_cases WHERE status = 'verdict' AND appeal_until <= %s ORDER BY id"
+                               " FOR UPDATE SKIP LOCKED", (now,)):
+            judge(conn, row["id"], period, now, proved_bps=row["proved_bps"], penalty=row["penalty"], by="jury")
+            done += 1
     return done
 
 
 def jury_duty(conn: Connection, player_id, now: datetime) -> dict:
-    """A player's summonses (the case files to read and vote on) and their record as a juror."""
+    """A player's summonses (the case files to read and vote on), any offers made to them, and their record as a juror."""
     sitting = []
     for j in _rows(conn, "SELECT j.*, k.jury_until FROM jurors j JOIN court_cases k ON k.id = j.case_id"
-                         " WHERE j.player_id = %s AND k.status = 'jury' ORDER BY k.jury_until", (player_id,)):
+                         " WHERE j.player_id = %s AND k.status IN ('jury', 'appeal') AND j.struck_by IS NULL"
+                         " AND j.round = CASE WHEN k.appealed_by IS NULL THEN 1 ELSE 2 END ORDER BY k.jury_until", (player_id,)):
         c = case(conn, j["case_id"])
-        sitting.append({**c, "jury_until": j["jury_until"], "my_vote": {"proved_bps": j["proved_bps"], "penalty": j["penalty"]}
-                        if j["voted_at"] else None})
-    record = _one(conn, "SELECT count(*) AS summoned, count(voted_at) AS voted, count(*) FILTER (WHERE agreed) AS agreed,"
-                        " coalesce(sum(fee), 0) AS fees FROM jurors WHERE player_id = %s", (player_id,))
+        offers = _rows(conn, "SELECT o.id, o.amount, o.wants, p.display_name AS who FROM jury_offers o JOIN players p ON p.id = o.briber_id"
+                             " WHERE o.case_id = %s AND o.juror_id = %s AND o.status = 'offered' ORDER BY o.id", (j["case_id"], player_id)) \
+            if _one(conn, "SELECT to_regclass('jury_offers') IS NOT NULL AS ok")["ok"] else []
+        sitting.append({**c, "jury_until": j["jury_until"], "appeal_round": j["round"] == 2, "offers": offers,
+                        "my_vote": {"proved_bps": j["proved_bps"], "penalty": j["penalty"]} if j["voted_at"] else None})
+    record = _one(conn, "SELECT count(*) FILTER (WHERE struck_by IS NULL) AS summoned, count(voted_at) AS voted,"
+                        " count(*) FILTER (WHERE agreed) AS agreed, coalesce(sum(fee), 0) AS fees FROM jurors WHERE player_id = %s", (player_id,))
     return {"sitting": sitting, "record": record,
             "rules": {"size": data.JURY_SIZE, "quorum": data.JURY_QUORUM, "hours": data.JURY_HOURS, "fee": naira(data.JURY_FEE_NAIRA),
-                      "penalty_bps": data.JURY_PENALTY_BPS}}
+                      "penalty_bps": data.JURY_PENALTY_BPS, "challenge_hours": data.JURY_CHALLENGE_HOURS,
+                      "appeal_hours": data.JURY_APPEAL_HOURS, "appeal_fee_bps": data.JURY_APPEAL_FEE_BPS,
+                      "appeal_fee_floor": naira(data.JURY_APPEAL_FEE_NAIRA)}}
 
 
 def _jury_of(conn: Connection, row: dict) -> dict | None:
-    """The jury on a case, for everybody: during the sitting, how many have voted; after, every vote, in the open."""
+    """The jury on a case, for everybody: during a sitting, how many have voted; after, every vote, in the open, without
+    names. An appealed case shows the first jury's votes and the second's."""
     if not _one(conn, "SELECT to_regclass('jurors') IS NOT NULL AS ok")["ok"]:
         return None
-    seats = _rows(conn, "SELECT j.seat, j.proved_bps, j.penalty, j.reason, j.voted_at, j.agreed FROM jurors j WHERE j.case_id = %s"
-                        " ORDER BY j.seat", (row["id"],))
+    seats = _rows(conn, "SELECT j.seat, j.round, j.proved_bps, j.penalty, j.reason, j.voted_at, j.struck_by FROM jurors j"
+                        " WHERE j.case_id = %s ORDER BY j.seat", (row["id"],))
     if not seats:
         return None
-    if row["status"] == "jury":
-        return {"sitting": True, "seats": len(seats), "voted": sum(1 for s in seats if s["voted_at"]), "until": row["jury_until"]}
-    return {"sitting": False, "seats": len(seats),
-            "votes": [{"seat": s["seat"], "proved_bps": s["proved_bps"], "penalty": s["penalty"], "reason": s["reason"]}
-                      for s in seats if s["voted_at"]]}
+    round_ = _round(row)
+    now_seats = [s for s in seats if s["round"] == round_ and s["struck_by"] is None]
+
+    def votes(r: int) -> list[dict]:
+        return [{"seat": s["seat"], "proved_bps": s["proved_bps"], "penalty": s["penalty"], "reason": s["reason"]}
+                for s in seats if s["round"] == r and s["struck_by"] is None and s["voted_at"]]
+    out = {"seats": len(now_seats), "struck": sum(1 for s in seats if s["struck_by"]), "round": round_,
+           "first_votes": votes(1) if round_ == 2 else None, "first": {"proved_bps": row.get("first_proved_bps"), "penalty": row.get("first_penalty")}
+           if round_ == 2 else None, "appeal_until": row.get("appeal_until"), "appealed_by": row.get("appealed_by")}
+    if row["status"] in ("jury", "appeal"):
+        return {**out, "sitting": True, "voted": sum(1 for s in now_seats if s["voted_at"]), "until": row["jury_until"]}
+    return {**out, "sitting": False, "votes": votes(round_)}
+
+
+def panel_for(conn: Connection, row: dict, player_id) -> dict | None:
+    """What the two sides see of a sitting jury: who sits (so they may challenge one), and what they may still do."""
+    side = _side(row, player_id)
+    if side is None or row["status"] not in ("jury", "appeal", "verdict"):
+        return None
+    round_ = _round(row)
+    out: dict = {"side": side}
+    if row["status"] in ("jury", "appeal"):
+        start = row["jury_until"] - timedelta(hours=data.JURY_HOURS)
+        out["jurors"] = [{"seat": j["seat"], "name": j["display_name"], "voted": j["voted_at"] is not None}
+                         for j in _rows(conn, "SELECT j.seat, j.voted_at, p.display_name FROM jurors j JOIN players p ON p.id = j.player_id"
+                                              " WHERE j.case_id = %s AND j.round = %s AND j.struck_by IS NULL ORDER BY j.seat", (row["id"], round_))]
+        out["challenge_until"] = start + timedelta(hours=data.JURY_CHALLENGE_HOURS)
+        out["challenged"] = bool(_one(conn, "SELECT 1 AS x FROM jurors WHERE case_id = %s AND round = %s AND struck_by = %s",
+                                      (row["id"], round_, side)))
+    if row["status"] == "verdict":
+        lost = (side == "defendant" and row["proved_bps"] > 0) or \
+               (side == "claimant" and not (row["proved_bps"] == BPS and row["penalty"] == "harsh"))
+        out["can_appeal"] = lost
+        out["appeal_fee"] = max(apply_bps(row["amount"], data.JURY_APPEAL_FEE_BPS), naira(data.JURY_APPEAL_FEE_NAIRA))
+    return out
 
 
 def _legal(conn: Connection, player_id, kind: str, words: str, now: datetime) -> None:

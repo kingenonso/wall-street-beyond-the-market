@@ -19,8 +19,10 @@ const KIND_WORDS: Record<string, string> = {
   order_leak: "Passing on a client's order on the Floor",
   collusion: "Banks agreeing their prices on the Floor",
   union_bribery: "Paying a union leader",
+  jury_tampering: "Tampering with a jury",
 };
-const STATUS_WORDS: Record<string, string> = { open: "Open", jury: "Before a jury", settled: "Settled", judged: "Judged", withdrawn: "Withdrawn" };
+const STATUS_WORDS: Record<string, string> = { open: "Open", jury: "Before a jury", verdict: "Verdict, open to appeal", appeal: "Before an appeal jury",
+  settled: "Settled", judged: "Judged", withdrawn: "Withdrawn" };
 const PROVED_WORDS: Record<number, string> = { 0: "not proved", 2500: "a quarter proved", 5000: "half proved", 7500: "three quarters proved", 10000: "all proved" };
 const when = (iso: string) => new Date(iso).toLocaleString("en-NG", { timeZone: "Africa/Lagos", weekday: "short", hour: "2-digit", minute: "2-digit" });
 const pct = (bps: number) => `${(bps / 100).toFixed(1).replace(/\.0$/, "")}%`;
@@ -86,6 +88,7 @@ function CaseCard({ c, mine, act }: { c: CourtCase; mine: boolean; act: Run }) {
         <Evidence c={c} />
         <JuryLine c={c} />
         {mine && c.status === "open" && <Answer c={c} act={act} />}
+        {c.panel && <PartyPanel c={c} act={act} />}
       </div>
     </div>
   );
@@ -98,10 +101,17 @@ function JuryLine({ c }: { c: CourtCase }) {
     <>
       {c.defence && <div className="small"><span className="strong">The defence:</span> "{c.defence}"</div>}
       {c.claim_note && <div className="small"><span className="strong">The claim:</span> "{c.claim_note}"</div>}
-      {j && j.sitting && <div className="small">A jury of {j.seats} is sitting: {j.voted} ha{j.voted === 1 ? "s" : "ve"} voted. Votes close {when(j.until)} Lagos time.</div>}
+      {j && j.first && (
+        <div className="small">The first jury found the claim {PROVED_WORDS[j.first.proved_bps]}{j.first.proved_bps ? `, with a ${j.first.penalty} penalty` : ""}; the {j.appealed_by} appealed.
+          {j.first_votes && <ul className="jury-votes">{j.first_votes.map((v) => <li key={v.seat}>Juror {v.seat}: {PROVED_WORDS[v.proved_bps]}, {v.penalty}{v.reason ? `. "${v.reason}"` : ""}</li>)}</ul>}
+        </div>
+      )}
+      {j && j.sitting && <div className="small">{j.round === 2 ? "An appeal jury" : "A jury"} of {j.seats} is sitting: {j.voted} ha{j.voted === 1 ? "s" : "ve"} voted. Votes close {when(j.until)} Lagos time.{j.struck ? ` ${j.struck} juror${j.struck === 1 ? " was" : "s were"} challenged and replaced.` : ""}</div>}
       {j && !j.sitting && (
         <div className="small">
-          {c.outcome === "acquitted" ? "The jury acquitted" : `The jury found the claim ${PROVED_WORDS[c.proved_bps ?? 10000]}, with a ${c.penalty} penalty`}.
+          {c.status === "verdict"
+            ? `The jury found the claim ${PROVED_WORDS[c.proved_bps ?? 10000]}${c.proved_bps ? `, with a ${c.penalty} penalty` : ""}. It takes effect ${when(c.appeal_until!)} Lagos time unless the side that lost appeals.`
+            : c.outcome === "acquitted" ? `The ${j.round === 2 ? "appeal " : ""}jury acquitted.` : `The ${j.round === 2 ? "appeal " : ""}jury found the claim ${PROVED_WORDS[c.proved_bps ?? 10000]}, with a ${c.penalty} penalty.`}
           <ul className="jury-votes">{j.votes.map((v) => <li key={v.seat}>Juror {v.seat}: {PROVED_WORDS[v.proved_bps]}, {v.penalty}{v.reason ? `. "${v.reason}"` : ""}</li>)}</ul>
         </div>
       )}
@@ -147,7 +157,8 @@ function JuryDutyPanel({ d, act }: { d: JuryDuty; act: Run }) {
       <p className="small muted">Juries of {d.rules.size} are drawn from players with no tie to either side. Each juror reads the case file and votes once:
         how much of the claim the record proves, and the penalty. The middle vote decides. Every juror who votes is paid {money(d.rules.fee)} by
         the Treasury, and a vote that matches the verdict adds a point of reputation. With fewer than {d.rules.quorum} votes in {d.rules.hours} hours,
-        the judge decides.</p>
+        the judge decides. Each side may challenge one juror in the first {d.rules.challenge_hours} hours. A jury's verdict waits {d.rules.appeal_hours} hours,
+        and the side that lost may pay for a fresh jury, whose verdict is final.</p>
     </Panel>
   );
 }
@@ -165,6 +176,14 @@ function Juror({ c, act }: { c: JuryDuty["sitting"][number]; act: Run }) {
         <Evidence c={c} />
         {c.defence && <div className="small"><span className="strong">The defence:</span> "{c.defence}"</div>}
         {c.claim_note && <div className="small"><span className="strong">The claim:</span> "{c.claim_note}"</div>}
+        {c.appeal_round && <div className="small tag">An appeal: a fresh look at the case</div>}
+        {c.offers.map((o) => (
+          <div key={o.id} className="small change-down">
+            {o.who} offers you {money(o.amount)} to vote {o.wants === "acquit" ? "to acquit" : "to find it all proved"}. Taking it is a crime; reporting it earns you reputation.{" "}
+            <button className="button-outline small" disabled={act.busy} onClick={() => act.run(async () => ({ result: await api.courtOfferAnswer(o.id, false) }), "Reported. The offer is on the record.")}>Report it</button>{" "}
+            <button className="button-quiet small" disabled={act.busy} onClick={() => act.run(async () => ({ result: await api.courtOfferAnswer(o.id, true) }), "You took the money.")}>Take it</button>
+          </div>
+        ))}
         {c.my_vote ? (
           <div className="small strong">You voted: {PROVED_WORDS[c.my_vote.proved_bps]}, {c.my_vote.penalty}. The verdict comes when the jury closes.</div>
         ) : (
@@ -185,6 +204,61 @@ function Juror({ c, act }: { c: JuryDuty["sitting"][number]; act: Run }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** What a side sees of its jury: who sits, a challenge, an appeal, and the crime of approaching a juror. */
+function PartyPanel({ c, act }: { c: CourtCase; act: Run }) {
+  const p = c.panel!;
+  const [seat, setSeat] = useState(p.jurors?.[0]?.seat ?? 1);
+  const [amount, setAmount] = useState("1000000");
+  const [wants, setWants] = useState<"acquit" | "convict">(p.side === "defendant" ? "acquit" : "convict");
+  const [sure, setSure] = useState(false);
+  const canChallenge = !!p.jurors && !p.challenged && !!p.challenge_until && new Date(p.challenge_until) > new Date();
+  const naira = Number(amount.replace(/[,\s]/g, ""));
+  return (
+    <div className="court-answer jury-panel">
+      {p.jurors && (
+        <div className="small">
+          <span className="strong">Your jury:</span>{" "}
+          {p.jurors.map((j) => (
+            <span key={j.seat} className="jury-seat">
+              {j.seat}. {j.name}{j.voted ? " (voted)" : ""}
+              {canChallenge && !j.voted && (
+                <button className="button-quiet small" disabled={act.busy}
+                        onClick={() => act.run(async () => ({ result: await api.courtChallenge(c.id, j.seat) }), `Juror ${j.seat} is struck out; another is drawn.`)}>challenge</button>
+              )}
+            </span>
+          ))}
+          <div className="muted">{p.challenged ? "You have used your challenge." : canChallenge ? `You may strike out one juror who has not voted, until ${when(p.challenge_until!)}.` : "The time to challenge has passed."}</div>
+        </div>
+      )}
+      {p.jurors && (
+        <details className="union-quiet">
+          <summary className="small">Approach a juror</summary>
+          <p className="small change-down">Offering a juror money for a vote is a crime. The juror may report it at once. One who takes it may tell later,
+            and the chance rises every time you do it. Once it is out, the regulator or the other side can bring a case, with a fine of twice the offer and a
+            trading ban.</p>
+          <select value={seat} onChange={(e) => setSeat(Number(e.target.value))} aria-label="Which juror">
+            {p.jurors.filter((j) => !j.voted).map((j) => <option key={j.seat} value={j.seat}>{j.seat}. {j.name}</option>)}
+          </select>{" "}
+          <input className="mono" inputMode="numeric" aria-label="How much, in naira" value={amount} onChange={(e) => setAmount(e.target.value)} />{" "}
+          <select value={wants} onChange={(e) => setWants(e.target.value as "acquit" | "convict")} aria-label="For what vote">
+            <option value="acquit">to acquit</option><option value="convict">to find it all proved</option>
+          </select>{" "}
+          <label className="small"><input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} /> I understand the risk</label>{" "}
+          <button className="button-outline small" disabled={act.busy || !sure || !(naira > 0)}
+                  onClick={() => act.run(async () => ({ result: await api.courtOffer(c.id, seat, Math.round(naira * 100), wants) }), "The offer is made. The juror will take it or report it.")}>Make the offer</button>
+        </details>
+      )}
+      {p.can_appeal && (
+        <div className="small">
+          <button className="button-outline" disabled={act.busy}
+                  onClick={() => act.run(async () => ({ result: await api.courtAppeal(c.id) }), "Appealed: a fresh jury is summoned.")}>Appeal for {money(p.appeal_fee)}</button>{" "}
+          <span className="muted">A fresh jury, none of the first, hears the case, and its verdict is final. The fee comes back if the appeal wins you anything.</span>
+        </div>
+      )}
     </div>
   );
 }

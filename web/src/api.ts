@@ -1469,6 +1469,13 @@ export const api = {
     request<CourtPage>(`/court/cases/${id}/answer`, { method: "POST", body: JSON.stringify({ choice, defence }) }),
   courtVote: (id: number, proved_bps: number, penalty: string, reason: string) =>
     request<CourtPage>(`/court/cases/${id}/vote`, { method: "POST", body: JSON.stringify({ proved_bps, penalty, reason }) }),
+  courtChallenge: (id: number, seat: number) =>
+    request<CourtPage>(`/court/cases/${id}/challenge`, { method: "POST", body: JSON.stringify({ seat }) }),
+  courtAppeal: (id: number) => request<CourtPage>(`/court/cases/${id}/appeal`, { method: "POST", body: "{}" }),
+  courtOffer: (id: number, seat: number, amount: number, wants: "acquit" | "convict") =>
+    request<CourtPage>(`/court/cases/${id}/offer`, { method: "POST", body: JSON.stringify({ seat, amount, wants }) }),
+  courtOfferAnswer: (offerId: number, take: boolean) =>
+    request<CourtPage>(`/court/offers/${offerId}`, { method: "POST", body: JSON.stringify({ take }) }),
   courtNote: (id: number, note: string) =>
     request<CourtPage>(`/court/cases/${id}/note`, { method: "POST", body: JSON.stringify({ note }) }),
   talent: () => request<TalentPage>("/talent"),
@@ -1958,7 +1965,7 @@ export type WorldEconomies = {
 // Stage 11: the courts. Money is sent as text (kobo), so no figure is rounded on the way.
 export type CourtLine = Record<string, string | number | null>;
 export type CourtCase = {
-  id: number; kind: string; status: "open" | "jury" | "settled" | "judged" | "withdrawn";
+  id: number; kind: string; status: "open" | "jury" | "verdict" | "appeal" | "settled" | "judged" | "withdrawn";
   defendant: string; claimant: string; ticker: string | null;
   amount: Kobo; bond: Kobo; words: string;
   evidence: { key?: string; total?: Kobo; lines: CourtLine[] };
@@ -1967,14 +1974,25 @@ export type CourtCase = {
   ban_quarters: number; settle_price: Kobo;
   decided_by?: "judge" | "jury" | null; proved_bps?: number | null; penalty?: "lenient" | "standard" | "harsh" | null;
   defence?: string | null; claim_note?: string | null; jury_until?: string | null;
-  jury?: { sitting: true; seats: number; voted: number; until: string }
-    | { sitting: false; seats: number; votes: { seat: number; proved_bps: number; penalty: string; reason: string | null }[] } | null;
+  appeal_until?: string | null; appealed_by?: "defendant" | "claimant" | null;
+  jury?: JuryView | null;
+  panel?: {
+    side: "defendant" | "claimant"; jurors?: { seat: number; name: string; voted: boolean }[]; challenge_until?: string; challenged?: boolean;
+    can_appeal?: boolean; appeal_fee?: Kobo;
+  } | null;
 };
+type JuryVote = { seat: number; proved_bps: number; penalty: string; reason: string | null };
+export type JuryView = {
+  seats: number; struck: number; round: number; first_votes: JuryVote[] | null; first: { proved_bps: number; penalty: string } | null;
+  appeal_until: string | null; appealed_by: string | null;
+} & ({ sitting: true; voted: number; until: string } | { sitting: false; votes: JuryVote[] });
 /** Juries (17 November 2026). */
 export type JuryDuty = {
-  sitting: (CourtCase & { jury_until: string; my_vote: { proved_bps: number; penalty: string } | null })[];
+  sitting: (CourtCase & { jury_until: string; appeal_round: boolean; offers: { id: number; amount: Kobo; wants: "acquit" | "convict"; who: string }[];
+    my_vote: { proved_bps: number; penalty: string } | null })[];
   record: { summoned: number; voted: number; agreed: number; fees: Kobo };
-  rules: { size: number; quorum: number; hours: number; fee: Kobo; penalty_bps: Record<string, number> };
+  rules: { size: number; quorum: number; hours: number; fee: Kobo; penalty_bps: Record<string, number>; challenge_hours: number;
+    appeal_hours: number; appeal_fee_bps: number; appeal_fee_floor: Kobo };
 };
 export type CourtClaim = {
   kind: string; defendant_id: string; defendant: string; company_id: string | null; ticker: string | null;

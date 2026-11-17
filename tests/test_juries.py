@@ -51,7 +51,8 @@ def test_a_jury_of_five_with_no_tie_to_either_side_is_summoned(db):
     assert done["status"] == "jury" and done["defence"] == "I bought on my own research."
     seats = _q(db, "SELECT player_id FROM jurors WHERE case_id = %s", (case_id,))
     assert len(seats) == data.JURY_SIZE and defendant not in {s["player_id"] for s in seats}
-    assert done["jury"] == {"sitting": True, "seats": data.JURY_SIZE, "voted": 0, "until": done["jury_until"]}
+    j = done["jury"]
+    assert j["sitting"] and j["seats"] == data.JURY_SIZE and j["voted"] == 0 and j["until"] == done["jury_until"] and j["round"] == 1
     assert case_id in {c["id"] for c in courts.docket(db)}
     duty = courts.jury_duty(db, seats[0]["player_id"], NOW9)
     assert [c["id"] for c in duty["sitting"]] == [case_id] and duty["sitting"][0]["my_vote"] is None
@@ -63,6 +64,9 @@ def test_the_middle_vote_decides_part_proved_and_jurors_are_paid(db):
     treasury = ledger.account_id(db, ledger.TREASURY)
     before = ledger.balance(db, treasury)
     seats = _vote_all(db, case_id, [(10_000, "harsh"), (5000, "standard"), (5000, "lenient"), (2500, "standard"), (5000, "standard")])
+    row = _q(db, "SELECT * FROM court_cases WHERE id = %s", (case_id,))[0]
+    assert row["status"] == "verdict" and row["fine"] == 0                     # it waits a day for an appeal (part 2)
+    assert courts.juries_due(db, NOW9 + timedelta(hours=data.JURY_APPEAL_HOURS + 2)) == 1
     row = _q(db, "SELECT * FROM court_cases WHERE id = %s", (case_id,))[0]
     assert row["status"] == "judged" and row["decided_by"] == "jury" and row["proved_bps"] == 5000 and row["penalty"] == "standard"
     proved = apply_bps(CLAIM, 5000)
@@ -89,6 +93,7 @@ def test_a_jury_may_acquit_and_the_claimant_loses_the_bond_to_the_defendant(db):
         courts.claimant_note(db, defendant, case_id, "Me too.")
     before = ledger.balance(db, account)
     _vote_all(db, case_id, [(0, "standard"), (0, "standard"), (2500, "lenient"), (0, "standard"), (10_000, "harsh")])
+    courts.juries_due(db, NOW9 + timedelta(hours=data.JURY_APPEAL_HOURS + 2))
     row = _q(db, "SELECT * FROM court_cases WHERE id = %s", (case_id,))[0]
     assert row["outcome"] == "acquitted" and row["fine"] == 0 and row["disgorgement"] == 0
     assert ledger.balance(db, account) == before + bond
@@ -133,3 +138,80 @@ def test_with_too_few_who_may_sit_the_judge_decides_at_once(db, monkeypatch):
     monkeypatch.setattr(courts, "_eligible", lambda conn, row: [])
     done = courts.respond(db, defendant, case_id, "jury", 9, NOW9)
     assert done["status"] == "judged" and done["decided_by"] == "judge"
+
+
+
+# ---------------------------------------------------------------------------
+# Part 2: challenges, appeals and tampering (owner, 17 November 2026)
+# ---------------------------------------------------------------------------
+
+def test_each_side_may_challenge_one_juror_early_and_another_is_drawn(db):
+    case_id, defendant, _account, _pool = _case(db, jurors=8)
+    courts.respond(db, defendant, case_id, "jury", 9, NOW9)
+    mine = next(c for c in courts.my_cases(db, defendant)["defending"] if c["id"] == case_id)
+    assert len(mine["panel"]["jurors"]) == data.JURY_SIZE and all(j["name"] for j in mine["panel"]["jurors"])
+    first = mine["panel"]["jurors"][0]["seat"]
+    courts.challenge(db, defendant, case_id, first, NOW9 + timedelta(hours=1))
+    live = _q(db, "SELECT seat FROM jurors WHERE case_id = %s AND struck_by IS NULL", (case_id,))
+    assert len(live) == data.JURY_SIZE and first not in {r["seat"] for r in live}
+    with pytest.raises(courts.CourtError, match="one juror"):
+        courts.challenge(db, defendant, case_id, live[0]["seat"], NOW9 + timedelta(hours=1))
+    # The public sees no names: only how many sit and how many were challenged.
+    public = courts.case(db, case_id)["jury"]
+    assert public["struck"] == 1 and "jurors" not in public
+
+
+def test_an_appeal_brings_a_fresh_jury_whose_verdict_is_final_and_a_winning_appeal_is_refunded(db):
+    case_id, defendant, account, _pool = _case(db, jurors=12)
+    courts.respond(db, defendant, case_id, "jury", 9, NOW9)
+    first = _vote_all(db, case_id, [(10_000, "harsh")] * 5)
+    with pytest.raises(courts.CourtError, match="Only the two sides"):
+        courts.appeal(db, first[0]["player_id"], case_id, NOW9 + timedelta(hours=2))
+    before = ledger.balance(db, account)
+    courts.appeal(db, defendant, case_id, NOW9 + timedelta(hours=2))
+    fee = max(apply_bps(CLAIM, data.JURY_APPEAL_FEE_BPS), naira(data.JURY_APPEAL_FEE_NAIRA))
+    assert ledger.balance(db, account) == before - fee
+    second = _q(db, "SELECT player_id FROM jurors WHERE case_id = %s AND round = 2 ORDER BY seat", (case_id,))
+    assert len(second) == data.JURY_SIZE and not {r["player_id"] for r in second} & {r["player_id"] for r in first}
+    for juror in second:
+        courts.vote(db, juror["player_id"], case_id, 5000, "lenient", "", NOW9 + timedelta(hours=3))
+    row = _q(db, "SELECT * FROM court_cases WHERE id = %s", (case_id,))[0]
+    assert row["status"] == "judged" and row["proved_bps"] == 5000 and row["penalty"] == "lenient" and row["first_proved_bps"] == BPS
+    assert courts.case(db, case_id)["jury"]["first_votes"]                   # the first jury's votes stay in the open
+    assert _q(db, "SELECT 1 AS x FROM ledger_transactions WHERE kind = 'court_appeal_refund' LIMIT 1")
+    sound(db)
+
+
+def test_offering_a_juror_money_is_a_crime_that_the_juror_may_report(db):
+    case_id, defendant, account, _pool = _case(db)
+    courts.respond(db, defendant, case_id, "jury", 9, NOW9)
+    juror = _q(db, "SELECT player_id, seat FROM jurors WHERE case_id = %s ORDER BY seat LIMIT 1", (case_id,))[0]
+    with pytest.raises(courts.CourtError, match="two sides"):
+        courts.offer(db, juror["player_id"], case_id, juror["seat"], naira(1_000_000), "acquit", NOW9)
+    courts.offer(db, defendant, case_id, juror["seat"], naira(2_000_000), "acquit", NOW9)
+    with pytest.raises(courts.CourtError, match="already approached"):
+        courts.offer(db, defendant, case_id, juror["seat"], naira(2_000_000), "acquit", NOW9)
+    offers = courts.jury_duty(db, juror["player_id"], NOW9)["sitting"][0]["offers"]
+    assert offers and offers[0]["amount"] == naira(2_000_000)
+    before = ledger.balance(db, account)
+    courts.answer_offer(db, juror["player_id"], offers[0]["id"], False, NOW9)
+    assert ledger.balance(db, account) == before                              # reported: no money moved
+    wrong = courts.tampering_wrongs(db, NOW9 - timedelta(days=1))
+    assert len(wrong) == 1 and str(wrong[0]["defendant_id"]) == str(defendant) and wrong[0]["amount"] == naira(2_000_000)
+
+
+def test_a_juror_who_takes_money_is_paid_and_both_may_be_found_out(db, monkeypatch):
+    case_id, defendant, account, _pool = _case(db)
+    courts.respond(db, defendant, case_id, "jury", 9, NOW9)
+    juror = _q(db, "SELECT player_id, seat FROM jurors WHERE case_id = %s ORDER BY seat LIMIT 1", (case_id,))[0]
+    courts.offer(db, defendant, case_id, juror["seat"], naira(1_000_000), "acquit", NOW9)
+    offer = courts.jury_duty(db, juror["player_id"], NOW9)["sitting"][0]["offers"][0]
+    before = ledger.balance(db, account)
+    courts.answer_offer(db, juror["player_id"], offer["id"], True, NOW9)
+    assert ledger.balance(db, account) == before - naira(1_000_000)
+    assert not courts.tampering_wrongs(db, NOW9 - timedelta(days=1))          # hidden until somebody tells
+    db.execute("UPDATE jury_offers SET tell_bps = 10000 WHERE id = %s", (offer["id"],))
+    _vote_all(db, case_id, [(0, "standard")] * 5)
+    wrongs = courts.tampering_wrongs(db, NOW9 - timedelta(days=1))
+    assert {str(w["defendant_id"]) for w in wrongs} == {str(defendant), str(juror["player_id"])}
+    sound(db)

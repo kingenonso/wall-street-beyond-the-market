@@ -341,7 +341,8 @@ def _jury_waiting(conn: Connection, player_id) -> int:
     if not conn.execute("SELECT to_regclass('jurors') IS NOT NULL AS ok").fetchone()["ok"]:
         return 0
     return conn.execute("SELECT count(*) AS n FROM jurors j JOIN court_cases k ON k.id = j.case_id WHERE j.player_id = %s"
-                        " AND j.voted_at IS NULL AND k.status = 'jury'", (player_id,)).fetchone()["n"]
+                        " AND j.voted_at IS NULL AND j.struck_by IS NULL AND k.status IN ('jury', 'appeal')"
+                        " AND j.round = CASE WHEN k.appealed_by IS NULL THEN 1 ELSE 2 END", (player_id,)).fetchone()["n"]
 
 
 def _union_waiting(conn: Connection, player_id) -> list[dict]:

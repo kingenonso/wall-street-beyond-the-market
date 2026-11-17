@@ -29,7 +29,7 @@ from simulation import world_data as data
 
 # Money in kobo, sent as text so no figure is ever rounded on the way.
 MONEY = {"amount", "bond", "settle_price", "disgorgement", "damages", "fine", "costs", "paid", "owed", "budget",
-         "fund", "cost", "price", "total", "value", "premium", "profit", "fee", "fees"}
+         "fund", "cost", "price", "total", "value", "premium", "profit", "fee", "fees", "appeal_fee", "offered"}
 
 KINDS = (
     {"kind": "insider", "name": "Dealing on confidential information",
@@ -52,6 +52,9 @@ KINDS = (
     # Unions (17 November 2026): paying a union leader in secret, once it has come out.
     {"kind": "union_bribery", "name": "Paying a union leader",
      "who": "The regulator, or the head of the empire whose company was hit."},
+    # Juries part 2 (17 November 2026): offering a juror money, or taking it, once it has come out.
+    {"kind": "jury_tampering", "name": "Tampering with a jury",
+     "who": "The regulator, or the other side of the case."},
 )
 
 
@@ -108,7 +111,7 @@ def _page(conn: Connection, player: dict, now: datetime) -> dict:
 
 
 class BringRequest(Request):
-    kind: str = Field(pattern="^(insider|manipulation|undisclosed_stake|naked_short|front_running|order_leak|union_bribery)$")
+    kind: str = Field(pattern="^(insider|manipulation|undisclosed_stake|naked_short|front_running|order_leak|union_bribery|jury_tampering)$")
     defendant_id: UUID
     company_id: UUID | None = None
 
@@ -126,6 +129,20 @@ class VoteRequest(Request):
 
 class NoteRequest(Request):
     note: str = Field(min_length=1, max_length=600)
+
+
+class SeatRequest(Request):
+    seat: int = Field(ge=1, le=30, strict=True)
+
+
+class OfferRequest(Request):
+    seat: int = Field(ge=1, le=30, strict=True)
+    amount: int = Field(gt=0, le=10**15, strict=True)
+    wants: str = Field(pattern="^(acquit|convict)$")
+
+
+class OfferAnswer(Request):
+    take: bool = Field(strict=True)
 
 
 @app.get("/api/court")
@@ -154,6 +171,38 @@ def court_vote(body: VoteRequest, case_id: int = FastPath(ge=1, le=9_000_000_000
                player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     """Juries (17 November 2026): a juror's vote, once."""
     _act(conn, player, lambda now: courts.vote(conn, player["id"], case_id, body.proved_bps, body.penalty, body.reason, now))
+    return _page(conn, player, _exchange_time(conn))
+
+
+@app.post("/api/court/cases/{case_id}/challenge")
+def court_challenge(body: SeatRequest, case_id: int = FastPath(ge=1, le=9_000_000_000_000_000_000),
+                    player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """Juries part 2: a side strikes out one juror early in a sitting."""
+    _act(conn, player, lambda now: courts.challenge(conn, player["id"], case_id, body.seat, now))
+    return _page(conn, player, _exchange_time(conn))
+
+
+@app.post("/api/court/cases/{case_id}/appeal")
+def court_appeal(case_id: int = FastPath(ge=1, le=9_000_000_000_000_000_000),
+                 player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """Juries part 2: the side that lost a jury's verdict pays to have a fresh jury hear it."""
+    _act(conn, player, lambda now: courts.appeal(conn, player["id"], case_id, now))
+    return _page(conn, player, _exchange_time(conn))
+
+
+@app.post("/api/court/cases/{case_id}/offer")
+def court_offer(body: OfferRequest, case_id: int = FastPath(ge=1, le=9_000_000_000_000_000_000),
+                player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """Juries part 2: a side offers a juror money. A crime between players."""
+    _act(conn, player, lambda now: courts.offer(conn, player["id"], case_id, body.seat, body.amount, body.wants, now))
+    return _page(conn, player, _exchange_time(conn))
+
+
+@app.post("/api/court/offers/{offer_id}")
+def court_offer_answer(body: OfferAnswer, offer_id: int = FastPath(ge=1, le=2_000_000_000),
+                       player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """Juries part 2: a juror takes an offer, or reports it."""
+    _act(conn, player, lambda now: courts.answer_offer(conn, player["id"], offer_id, body.take, now))
     return _page(conn, player, _exchange_time(conn))
 
 
