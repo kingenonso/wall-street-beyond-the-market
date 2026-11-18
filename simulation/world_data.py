@@ -1830,9 +1830,9 @@ COURT_BOND_FLOOR_NAIRA = 1_000_000          # ...but never less than ₦1 millio
 COURT_SETTLE_BPS = 6_000                    # settling costs six tenths of the claim, paid at once
 COURT_FINE_BPS = {"insider": 10_000, "manipulation": 1_000, "undisclosed_stake": 5_000, "naked_short": 5_000, "insurance_fraud": 10_000,
                   "front_running": 10_000, "order_leak": 10_000, "collusion": 5_000,       # the Floor's wrongs (16 November 2026)
-                  "union_bribery": 10_000}                                                   # paying a union leader (17 November 2026)
+                  "union_bribery": 10_000, "jury_tampering": 20_000}                                                   # paying a union leader (17 November 2026)
 COURT_COSTS_BPS = 500                       # the loser pays a twentieth of the claim as the winner's costs
-COURT_BAN_QUARTERS = {"manipulation": 4, "naked_short": 4, "insurance_fraud": 4, "collusion": 2}   # a judgment that bans trading, and for how long
+COURT_BAN_QUARTERS = {"manipulation": 4, "naked_short": 4, "insurance_fraud": 4, "collusion": 2, "jury_tampering": 4}   # a judgment that bans trading, and for how long
 COURT_ENFORCE_BPS = {"insider": 2_500, "manipulation": 2_000, "undisclosed_stake": 3_000, "naked_short": 2_500, "insurance_fraud": 2_500}
 COURT_FINE_TO_REGULATOR_BPS = 5_000         # half of every fine funds the regulator; the rest goes to the Treasury
 COURT_PAYMENT_BPS = 2_500                   # a judgment is paid down a quarter at a time, as much as the defendant has
@@ -1997,3 +1997,20 @@ GENERAL_NOTICE_DAYS = 7             # the Government has seven game days (about 
 GENERAL_AWARD_BPS = 50              # the award asked: half a percent of the last quarter's household income
 GENERAL_STRIKE_HOURS = 36           # the exchange closes for this long (never more than two real days)
 GENERAL_STRIKE_SALES_BPS = 6000     # essential work goes on: a struck day costs six tenths of a day's sales
+
+# The tribunal's juries (owner, 17 November 2026). A defendant who fights may ask for a jury of players.
+JURY_SIZE = 5                       # jurors summoned
+JURY_QUORUM = 3                     # votes needed by the deadline, or the judge decides
+JURY_HOURS = 24                     # real hours the jurors have to vote
+JURY_FEE_NAIRA = 250_000            # paid by the Treasury to each juror who votes
+JURY_FAIR_REPUTATION = 1            # a vote that matches the verdict adds a point of reputation
+JURY_PENALTY_BPS = {"lenient": 5_000, "standard": 10_000, "harsh": 15_000}   # how the fine is scaled
+JURY_MIN_LEVEL = 3                  # a juror has reached this level in their career
+# Juries, part 2 (owner, 17 November 2026): challenges, appeals and tampering.
+JURY_CHALLENGE_HOURS = 6            # a side may strike out one juror in the first six hours of a sitting
+JURY_APPEAL_HOURS = 24              # a jury's verdict waits a day for an appeal
+JURY_APPEAL_FEE_BPS = 1000          # an appeal costs a tenth of the claim...
+JURY_APPEAL_FEE_NAIRA = 1_000_000   # ...and never less than ₦1 million; refunded if the appeal wins anything
+JURY_OFFER_TELL_BASE_BPS = 1000     # a juror who took money may tell: 10% the first time a player tampers
+JURY_OFFER_TELL_PER_REPEAT_BPS = 2000
+JURY_REPORT_REPUTATION = 2          # a juror who reports an offer earns this much reputation
