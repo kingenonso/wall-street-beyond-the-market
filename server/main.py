@@ -125,6 +125,13 @@ def _close_due_quarters_once() -> None:
                     unions.tick(conn, now)
                 except Exception:
                     log.exception("The unions' deadlines failed; they will be tried again.")
+            # Alerts (18 November 2026): prices, moves, news, storms and wealth clients looked at for every alert set.
+            if conn.execute("SELECT to_regclass('alerts') IS NOT NULL").fetchone()[0]:
+                from simulation import alerts
+                try:
+                    alerts.tick(conn, now)
+                except Exception:
+                    log.exception("The alerts failed to be looked at; they will be tried again.")
             # The computer-run investors look at the market and renew their orders.
             investors.act(conn, now, force=rang)
             # After 22:00 the Closing Bell goes out, once for each trading day.
@@ -291,6 +298,7 @@ def _player_response(conn: Connection, row: dict) -> PlayerResponse:
         banks_uneasy=_banks_uneasy(conn, row["id"]),
         talent_waiting=_talent_waiting(conn, row["id"]),
         union_waiting=_union_waiting(conn, row["id"]),
+        alerts_unseen=_alerts_unseen(conn, row["id"]),
         theme=row.get("theme", "dark"), sound_on=row.get("sound_on", True),
         sound_volume=row.get("sound_volume", 30), tour_done=row.get("tour_done", False),
         work_in_hand=conn.execute("SELECT count(*) AS n FROM objectives WHERE player_id = %s AND state = 'active'", (row["id"],)).fetchone()["n"]
@@ -326,6 +334,11 @@ def _banks_uneasy(conn: Connection, player_id) -> int:
         WHERE b.balance > 0 AND (a.player_id = %s OR a.id IN (SELECT account_id FROM empires WHERE head_player_id = %s AND status = 'active'))
           AND (SELECT c.state FROM bank_confidence c WHERE c.company_id = d.company_id ORDER BY c.period DESC, c.day DESC LIMIT 1)
               IN ('worried', 'run', 'panic', 'closed')""", (player_id, player_id)).fetchone()["n"]
+
+
+def _alerts_unseen(conn: Connection, player_id) -> int:
+    from simulation import alerts
+    return alerts.unseen(conn, player_id)
 
 
 def _union_waiting(conn: Connection, player_id) -> list[dict]:
@@ -2016,3 +2029,4 @@ from server import government_routes  # noqa: E402,F401
 from server import live_routes  # noqa: E402,F401
 from server import floor_routes  # noqa: E402,F401
 from server import union_routes  # noqa: E402,F401
+from server import alert_routes  # noqa: E402,F401

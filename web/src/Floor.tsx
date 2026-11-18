@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, type AuctionLot, type FloorChart, type FloorPage, type FloorRisk, type NewsItem, type Player } from "./api";
 import { formatChange, formatCompact, formatNaira } from "./format";
 import { AskPanel, BlocksPanel, ChatPanel, DeskPanel, FloorDeals, MandatePanel, ScorePanel, SwapPanel, useFloorRequests } from "./FloorDesk";
+import { AlertsPanel } from "./FloorAlerts";
 import { BankPanel } from "./FloorBank";
 import { RiskPanel, StormBanner, useFloorRisk } from "./FloorRisk";
 import { WealthPanel } from "./FloorWealth";
@@ -406,6 +407,7 @@ export function FloorWork({ onLoggedOut }: Props) {
           <DeskPanel f={requests} ticker={ticker} onLoggedOut={onLoggedOut} />
         </div>
       )}
+      <AlertsPanel onLoggedOut={onLoggedOut} />
       <RiskPanel r={riskNow} onSaved={setRiskFresh} />
       <BankPanel onLoggedOut={onLoggedOut} />
       <WealthPanel onLoggedOut={onLoggedOut} />

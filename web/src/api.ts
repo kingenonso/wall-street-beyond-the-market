@@ -34,6 +34,7 @@ export type Player = {
   /** Proven Talent: invitations from firms waiting for an answer. */
   talent_waiting?: number;
   union_waiting?: { ticker: string; company: string; demand_bps: number; days_left: number }[];
+  alerts_unseen?: number;
   /** The redesign: the player's own look and sound, and whether the first-time tour has been seen. */
   theme: "dark" | "light";
   sound_on: boolean;
@@ -1300,6 +1301,12 @@ export type FloorWealth = {
   record?: { reviews: number; satisfaction_bps: number | null; left: number; kept: number; score: number };
   clients?: WealthManaged[]; gone?: { name: string; left_at: string; left_why: string }[];
 };
+export type Alerts = {
+  ready: boolean; most?: number; unseen?: number;
+  alerts?: { id: number; kind: string; ticker: string | null; level: string | null; note: string | null; hits: number; created_at: string; words: string }[];
+  hits?: { id: number; at: string; ticker: string | null; words: string; seen: boolean }[];
+  result?: { id: number; words: string; warning?: string };
+};
 export type FloorRisk = {
   ready: boolean; base?: { deal_most: Kobo; name_most: Kobo; day_loss_most: Kobo }; most_factor?: number;
   storm?: { ticker: string; company: string; reason: string; ends_at: string } | null;
@@ -1695,6 +1702,11 @@ export const api = {
     request<UnionsPage>("/unions/advise", { method: "POST", body: JSON.stringify({ dispute_id, advice, offer_bps, note }) }),
   floorRisk: () => request<FloorRisk>("/floor/risk"),
   floorBank: () => request<FloorBank>("/floor/bank"),
+  alerts: () => request<Alerts>("/alerts"),
+  setAlert: (kind: string, ticker: string | null, level: number | null, note?: string) =>
+    request<Alerts>("/alerts", { method: "POST", body: JSON.stringify({ kind, ticker, level, note: note || null }) }),
+  removeAlert: (alert_id: number) => request<Alerts>("/alerts/remove", { method: "POST", body: JSON.stringify({ alert_id }) }),
+  alertsSeen: () => request<Alerts>("/alerts/seen", { method: "POST" }),
   floorWealth: () => request<FloorWealth>("/floor/wealth"),
   floorWealthPitch: (client_id: number, fee_bps: number, perf_bps: number) =>
     request<FloorWealth>("/floor/wealth/pitch", { method: "POST", body: JSON.stringify({ client_id, fee_bps, perf_bps }) }),

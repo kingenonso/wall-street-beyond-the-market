@@ -39,6 +39,20 @@ describe("the command line", () => {
     expect(readCommand("make me rich", LISTED)).toMatchObject({ kind: "unknown" });
   });
 
+  it("reads alerts: a price, a day's move, the news, storms and new clients", () => {
+    expect(readCommand("alert hmb > 9.50", LISTED)).toMatchObject({ kind: "alert", alert: { kind: "above", ticker: "HMB", level: 950 } });
+    expect(readCommand("ALERT HMB BELOW 8", LISTED)).toMatchObject({ kind: "alert", alert: { kind: "below", ticker: "HMB", level: 800 } });
+    expect(readCommand("ALERT HMB MOVE 5%", LISTED)).toMatchObject({ kind: "alert", alert: { kind: "move", ticker: "HMB", level: 500 } });
+    expect(readCommand("ALERT HMB NEWS", LISTED)).toMatchObject({ kind: "alert", alert: { kind: "news", ticker: "HMB", level: null } });
+    expect(readCommand("ALERT STORM", LISTED)).toMatchObject({ kind: "alert", alert: { kind: "storm", ticker: null } });
+    expect(readCommand("ALERT WEALTH", LISTED)).toMatchObject({ kind: "alert", alert: { kind: "wealth" } });
+    expect(readCommand("ALERT ZZZ > 9", LISTED)).toMatchObject({ kind: "unknown" });
+    expect(readCommand("ALERT HMB > soon", LISTED)).toMatchObject({ kind: "unknown" });
+    expect(readCommand("ALERT HMB MOVE 90", LISTED)).toMatchObject({ kind: "unknown" });
+    expect(readCommand("ALERTS", LISTED)).toMatchObject({ kind: "page", href: "#/floor" });
+    expect(hintsFor("AL", SHARES).map((h) => h.text)).toContain("ALERT STORM");
+  });
+
   it("offers the matching commands while a player types", () => {
     expect(hintsFor("", SHARES).length).toBeGreaterThan(3);
     expect(hintsFor("BU", SHARES).map((h) => h.text)).toContain("BUY HMB 500");

@@ -35,7 +35,7 @@ const ALLOWED = new Set([
   "TOP30", "BANKS", "OILGAS", "OIL", "NAIRA", "FARM", "METALS",
   // The terminal's command line: commands are typed in capitals, and its examples show them that way (HMB is the
   // share the examples name).
-  "GO", "BUY", "SELL", "HELP", "RIPPLE", "HMB",
+  "GO", "BUY", "SELL", "HELP", "RIPPLE", "HMB", "ALERT", "ALERTS", "MOVE", "NEWS", "STORM",
   // The game's own name, set in capitals in the masthead and nowhere else.
   "WALL STREET", "BEYOND THE MARKET",
 ]);
