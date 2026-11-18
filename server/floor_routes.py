@@ -22,7 +22,7 @@ from simulation import duels, exchange, floor, predictions, prime
 
 MONEY = {"realised", "unrealised", "total", "dividends", "fees", "exposure", "cash", "held_for_orders", "value", "price",
          "average_price", "gain", "reference_price", "last_price", "lowest_today", "highest_today", "best_bid", "best_offer",
-         "start_price", "minimum", "fair", "your_limit", "pnl", "cost_10_yes", "cost_10_no", "worth_now", "paid", "paid_out", "payout", "most_stake", "amount", "benchmark", "average_paid", "commission", "price_now", "margin", "interest", "offer_value", "bid", "offer", "last", "low", "high", "cost", "reference", "mid", "cover", "done_at_price"}
+         "start_price", "minimum", "fair", "your_limit", "pnl", "cost_10_yes", "cost_10_no", "worth_now", "paid", "paid_out", "payout", "most_stake", "amount", "benchmark", "average_paid", "commission", "price_now", "margin", "interest", "offer_value", "bid", "offer", "last", "low", "high", "cost", "reference", "mid", "cover", "done_at_price", "deal_most", "name_most", "day_loss_most", "worth", "day_pnl", "frozen_loss", "principal", "owed", "lost", "debts", "lent", "earned", "interest_now", "least", "most", "cash", "shares_value", "start_value", "end_value", "fee", "perf_fee", "limit_price"}
 
 
 def _wire(value, key: str | None = None):
@@ -42,6 +42,166 @@ def _wire(value, key: str | None = None):
 @app.get("/api/floor")
 def the_floor(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
     return _wire(floor.screen(conn, _trading_account(conn, player), _exchange_time(conn)))
+
+
+@app.get("/api/floor/risk")
+def the_floor_risk(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """Floor extras (17 November 2026): the flash storm now, a banker's limits, and a Risk Manager's team."""
+    from simulation import floor_extras
+    return _wire(floor_extras.view(conn, player["id"], _exchange_time(conn)))
+
+
+class LimitsRequest(Request):
+    banker_id: UUID
+    deal_most: int = Field(gt=0, le=10**15, strict=True)
+    name_most: int = Field(gt=0, le=10**15, strict=True)
+    day_loss_most: int = Field(gt=0, le=10**15, strict=True)
+
+
+@app.post("/api/floor/limits")
+def set_floor_limits(body: LimitsRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    """The Risk Manager (or the head) sets a banker's three limits."""
+    from simulation import floor_extras
+    _act(conn, player, lambda now: floor_extras.set_limits(conn, player["id"], body.banker_id, body.deal_most, body.name_most,
+                                                            body.day_loss_most, now), "floor-limits", 20)
+    return _wire(floor_extras.view(conn, player["id"], _exchange_time(conn)))
+
+
+class LoanAskRequest(Request):
+    amount: int = Field(gt=0, le=10**15, strict=True)
+    days: int = Field(ge=1, le=30, strict=True)
+    seconds: int = Field(ge=1, le=600, strict=True)
+    desks: list[str] = Field(min_length=1, max_length=5)
+
+
+class LoanQuoteRequest(Request):
+    ask_id: int = Field(gt=0, strict=True)
+    rate_bps: int = Field(gt=0, le=100_000, strict=True)
+
+
+class LoanTakeRequest(Request):
+    ask_id: int = Field(gt=0, strict=True)
+    quote_id: int = Field(gt=0, strict=True)
+
+
+class LoanRepayRequest(Request):
+    loan_id: int = Field(gt=0, strict=True)
+
+
+def _bank_page(conn: Connection, player: dict, action, bucket: str):
+    """Floor extras, slice 2 (17 November 2026): the bank desk. Every answer is the whole bank desk again."""
+    from simulation import floor_bank
+    limits.allow(bucket, str(player["id"]), attempts=30, per_seconds=60)
+    try:
+        done = action(_exchange_time(conn))
+    except floor.FloorError as refused:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
+    except (DeadlockDetected, UniqueViolation):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Somebody else changed this at the same moment. Please try again.") from None
+    page = floor_bank.view(conn, player["id"], _exchange_time(conn))
+    page["result"] = done
+    return _wire(page)
+
+
+@app.get("/api/floor/bank")
+def the_bank_desk(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    from simulation import floor_bank
+    return _wire(floor_bank.view(conn, player["id"], _exchange_time(conn)))
+
+
+@app.post("/api/floor/bank/ask")
+def ask_for_money(body: LoanAskRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    from simulation import floor_bank
+    return _bank_page(conn, player, lambda now: floor_bank.ask(conn, player["id"], body.amount, body.days, body.seconds, body.desks, now),
+                      "floor-bank-ask")
+
+
+@app.post("/api/floor/bank/quote")
+def price_a_loan(body: LoanQuoteRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    from simulation import floor_bank
+    return _bank_page(conn, player, lambda now: floor_bank.quote(conn, player["id"], body.ask_id, body.rate_bps, now), "floor-bank-quote")
+
+
+@app.post("/api/floor/bank/take")
+def take_a_loan(body: LoanTakeRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    from simulation import floor_bank
+    return _bank_page(conn, player, lambda now: floor_bank.take(conn, player["id"], body.ask_id, body.quote_id, now), "floor-bank-take")
+
+
+@app.post("/api/floor/bank/repay")
+def repay_a_loan(body: LoanRepayRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    from simulation import floor_bank
+    return _bank_page(conn, player, lambda now: floor_bank.repay(conn, player["id"], body.loan_id, now), "floor-bank-repay")
+
+
+class WealthPitchRequest(Request):
+    client_id: int = Field(gt=0, strict=True)
+    fee_bps: int = Field(ge=0, le=10_000, strict=True)
+    perf_bps: int = Field(ge=0, le=10_000, strict=True)
+
+
+class WealthTradeRequest(Request):
+    client_id: int = Field(gt=0, strict=True)
+    ticker: str = Field(pattern="^[A-Za-z]{3}$")
+    side: str = Field(pattern="^(buy|sell)$")
+    quantity: int = Field(gt=0, le=10**12, strict=True)
+    limit_price: int = Field(gt=0, le=10**12, strict=True)
+
+
+class WealthCancelRequest(Request):
+    client_id: int = Field(gt=0, strict=True)
+    order_id: int = Field(gt=0, strict=True)
+
+
+class WealthClientRequest(Request):
+    client_id: int = Field(gt=0, strict=True)
+
+
+def _wealth_page(conn: Connection, player: dict, action, bucket: str):
+    """Floor extras, slice 3 (17 November 2026): the wealth desk. Every answer is the whole wealth desk again."""
+    from simulation import floor_wealth
+    limits.allow(bucket, str(player["id"]), attempts=40, per_seconds=60)
+    try:
+        done = action(_exchange_time(conn))
+    except floor.FloorError as refused:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(refused)) from None
+    except (DeadlockDetected, UniqueViolation):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Somebody else changed this at the same moment. Please try again.") from None
+    page = floor_wealth.view(conn, player["id"], _exchange_time(conn))
+    page["result"] = {k: v for k, v in done.items() if k != "trades"} if isinstance(done, dict) else done
+    return _wire(page)
+
+
+@app.get("/api/floor/wealth")
+def the_wealth_desk(player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    from simulation import floor_wealth
+    return _wire(floor_wealth.view(conn, player["id"], _exchange_time(conn)))
+
+
+@app.post("/api/floor/wealth/pitch")
+def pitch_for_a_client(body: WealthPitchRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    from simulation import floor_wealth
+    return _wealth_page(conn, player, lambda now: floor_wealth.pitch(conn, player["id"], body.client_id, body.fee_bps, body.perf_bps, now),
+                        "floor-wealth-pitch")
+
+
+@app.post("/api/floor/wealth/trade")
+def trade_for_a_client(body: WealthTradeRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    from simulation import floor_wealth
+    return _wealth_page(conn, player, lambda now: floor_wealth.trade(conn, player["id"], body.client_id, body.ticker, body.side, body.quantity,
+                                                                    body.limit_price, now), "floor-wealth-trade")
+
+
+@app.post("/api/floor/wealth/cancel")
+def cancel_for_a_client(body: WealthCancelRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    from simulation import floor_wealth
+    return _wealth_page(conn, player, lambda now: floor_wealth.cancel(conn, player["id"], body.client_id, body.order_id, now), "floor-wealth-trade")
+
+
+@app.post("/api/floor/wealth/hand-back")
+def hand_a_client_back(body: WealthClientRequest, player: dict = Depends(current_player), conn: Connection = Depends(get_connection)):
+    from simulation import floor_wealth
+    return _wealth_page(conn, player, lambda now: floor_wealth.hand_back(conn, player["id"], body.client_id, now), "floor-wealth-pitch")
 
 
 @app.get("/api/floor/chart/{ticker}")

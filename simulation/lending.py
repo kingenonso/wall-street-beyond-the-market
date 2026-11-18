@@ -217,8 +217,11 @@ def collateral_held(conn: Connection, account) -> int:
 
 
 def loans_owed(conn: Connection, account) -> int:
+    from simulation import (
+        floor_bank,  # short loans taken on the Floor (17 November 2026)
+    )
     return _one(conn, "SELECT coalesce(sum(outstanding + arrears), 0)::bigint AS o FROM player_loans WHERE borrower = %s AND status <> 'repaid'",
-                (account,))["o"]
+                (account,))["o"] + floor_bank.owed(conn, account)
 
 
 def debts(conn: Connection, account) -> int:

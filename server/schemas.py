@@ -126,6 +126,7 @@ class PlayerResponse(BaseModel):
     talent_waiting: int = 0            # Proven Talent: invitations from firms waiting for an answer
     jury_waiting: int = 0              # juries: cases this player sits on and has not voted on
     union_waiting: list[dict] = []     # unions part 2: pay demands this player, as an empire's head, must answer
+    alerts_unseen: int = 0             # alerts (18 November 2026): alerts hit that the player has not yet seen
     banks_uneasy: int = 0              # the crises stage: banks holding the player's (or their empire's) savings whose savers are leaving
     crises_due: int = 0                # Stage 10, Part 2: matters that came out about the empire, waiting for its statement
     corrections_due: int = 0           # Stage 10: the player's stories that must be corrected

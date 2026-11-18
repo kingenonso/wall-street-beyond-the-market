@@ -2014,3 +2014,61 @@ JURY_APPEAL_FEE_NAIRA = 1_000_000   # ...and never less than ₦1 million; refun
 JURY_OFFER_TELL_BASE_BPS = 1000     # a juror who took money may tell: 10% the first time a player tampers
 JURY_OFFER_TELL_PER_REPEAT_BPS = 2000
 JURY_REPORT_REPUTATION = 2          # a juror who reports an offer earns this much reputation
+# Floor extras (owner, 17 November 2026: "build"). Flash storms and the risk engine.
+FLOOR_STORM_CHANCE = 15             # each ten-minute slot of an open market, one chance in this many of a flash storm
+FLOOR_STORM_MINUTES = 10
+FLOOR_STORM_CALL_FACTOR = 4         # the clients call this many times as often as usual...
+FLOOR_STORM_SIZE_FACTOR = 3         # ...for deals this many times as big...
+FLOOR_STORM_SECONDS = 15            # ...with this short a countdown...
+FLOOR_STORM_FOCUS_BPS = 7000        # ...and seven calls in ten in the storm's share
+FLOOR_STORM_PLACES = (3, 2, 1)      # league points for a storm's best three banks and clients
+FLOOR_LIMITS = {"deal_most": 300_000_000, "name_most": 800_000_000, "day_loss_most": 50_000_000}  # the Floor's own, in naira
+FLOOR_LIMITS_MOST_FACTOR = 5        # a Risk Manager may set limits up to five times the Floor's own
+# Floor extras, slice 2: the bank desk. Short loans priced on the Floor.
+FLOOR_LOAN_DAYS = (1, 3, 7, 14)          # the terms a client may ask for, in game days
+FLOOR_LOAN_NAIRA = (1_000_000, 2_000_000_000)      # what a player may ask to borrow
+FLOOR_LOAN_CLIENT_NAIRA = (20_000_000, 250_000_000)  # what a computer client asks for
+FLOOR_LOAN_MOST_RATE_BPS = 9000          # no bank may ask more than 90% a year
+# Each credit grade's chance of failing to repay, over a year (a loan's own chance is this times its days over 360).
+FLOOR_LOAN_GRADES = {"A": 200, "B": 800, "C": 2500, "D": 6000}
+FLOOR_LOAN_GRADE_MIX = (("A", 3500), ("B", 3500), ("C", 2000), ("D", 1000))   # how the computer clients' grades fall
+FLOOR_LOAN_RECOVERY_BPS = 4000           # a computer client that fails still pays back 40% of the money lent
+FLOOR_LOAN_BANK_MARGIN_BPS = 300         # a computer bank asks the Central Bank's rate, twice the expected loss, and this
+FLOOR_LOAN_CALL_CHANCE = 20              # each minute, one chance in this many of a computer client asking an open desk for money
+FLOOR_LOAN_TAKE_SECONDS = 30             # a player client has this long after the countdown to take a rate
+FLOOR_LOAN_MOST_OPEN = 3                 # a player's money requests waiting at once
+FLOOR_LOAN_PURPOSES = (
+    "to pay for a big order before its own money comes in",
+    "to bridge a payment until its investors pay in",
+    "to meet a margin call without selling",
+    "to settle a share purchase while a bond sale clears",
+    "to cover redemptions while it sells calmly",
+)
+# Floor extras, slice 3: the wealth desk. Rich computer clients looking for an asset manager.
+# (kind, goal, most in shares, least in cash, the biggest fall it accepts, its yearly goal, industries it will not hold,
+#  how much of a share index its fair benchmark holds), all in hundredths of a percent.
+WEALTH_CLIENT_KINDS = (
+    ("retired couple", "steady income, and their savings kept safe", 3000, 1500, 800, 1200, (), 3000),
+    ("family office", "growth over many years", 9000, 300, 2500, 2500, (), 8000),
+    ("church foundation", "steady growth, kept clear of drink, gambling and film", 6000, 500, 1500, 1800,
+     ("consumer", "hospitality", "entertainment"), 6000),
+    ("doctors' pension scheme", "a balance of growth and safety", 6000, 800, 1500, 1800, (), 6000),
+    ("young tech founder", "fast growth, and happy to take risk", 10000, 0, 4000, 3500, ("oil_gas", "mining"), 10000),
+)
+WEALTH_CLIENT_NAMES = ("Okafor", "Adeyemi", "Bello", "Eze", "Nwosu", "Abubakar", "Danjuma", "Ogunleye", "Ibe", "Lawal",
+                       "Mensah", "Obi", "Uche", "Yusuf", "Akande", "Etim")
+WEALTH_CLIENT_NAIRA = (200_000_000, 2_000_000_000)   # what a client brings
+WEALTH_ARRIVAL_CHANCE = 4                 # each half hour, one chance in this many of a new client, while fewer than...
+WEALTH_SEEKING_MOST = 3                   # ...this many are looking at once
+WEALTH_PITCH_GAME_DAYS = 2                # how long a client takes pitches
+WEALTH_MOST_CLIENTS = 3                   # clients one asset manager may look after
+WEALTH_MOST_FEE_BPS = 200                 # a yearly fee of at most 2%...
+WEALTH_MOST_PERF_BPS = 2000               # ...and at most 20% of the gain above the client's goal
+WEALTH_START_SATISFACTION_BPS = 6000
+WEALTH_LEAVE_BELOW_BPS = 3000             # at a review a client this unhappy leaves...
+WEALTH_WARN_BELOW_BPS = 4500              # ...this unhappy, it warns...
+WEALTH_ADD_ABOVE_BPS = 7500               # ...and this happy, after a quarter beating its benchmark, it adds money
+WEALTH_ADD_BPS = 1000                     # it adds a tenth more
+WEALTH_BREACH_COST_BPS = 1000             # each breach of its limits costs this much of its satisfaction...
+WEALTH_BREACHES_TO_LEAVE = 3              # ...and this many in one quarter and it leaves at once
+WEALTH_DROP_COST_BPS = 2000               # a fall past what it accepts costs this much

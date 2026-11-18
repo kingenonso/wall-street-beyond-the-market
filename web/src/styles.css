@@ -2046,3 +2046,35 @@ span.floor-tag { cursor: default; }
 .jury-panel { flex-direction: column; align-items: flex-start; }
 .jury-panel input.mono { width: 140px; }
 .jury-panel input[type="checkbox"] { width: auto; }
+/* Floor extras: the flash storm and the risk engine. */
+.floor-storm { border: 1px solid var(--down); background: color-mix(in srgb, var(--down) 14%, var(--panel)); border-radius: 10px; padding: 8px 12px; margin: 0 0 10px; }
+.risk-meter { display: grid; grid-template-columns: 140px 1fr auto; gap: 8px; align-items: center; margin: 4px 0; }
+.risk-bar { height: 8px; border-radius: 999px; background: var(--raised); overflow: hidden; }
+.risk-bar span { display: block; height: 100%; background: var(--up); }
+.risk-bar span.risk-near { background: var(--gold); }
+.risk-bar span.risk-over { background: var(--down); }
+.risk-team { border-top: 1px solid var(--border); padding-top: 6px; margin-top: 6px; }
+.risk-set { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.risk-set input { width: 120px; }
+.risk-set button { width: auto; }
+@media (max-width: 560px) { .risk-meter { grid-template-columns: 1fr; } }
+.bank-ask, .bank-desks { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+.bank-ask input { width: 130px; }
+.bank-rate { width: 70px; }
+.bank-quotes, .bank-incoming { border-top: 1px solid var(--border); padding-top: 6px; margin-top: 6px; }
+.bank-loans { width: 100%; margin-top: 8px; }
+.alert-hits { list-style: none; margin: 0 0 6px; padding: 0; }
+.alert-hits li { padding: 2px 0; border-bottom: 1px solid var(--border); }
+.alert-new { font-weight: 600; }
+.alert-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 4px; }
+.alert-form input { width: 80px; }
+.alert-form .alert-note { width: 200px; }
+.alert-form button, .alert-hits + button { width: auto; }
+.wealth-client { border-top: 1px solid var(--border); padding-top: 6px; margin-top: 6px; }
+.wealth-pitch { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
+.wealth-pitch input { width: 90px; }
+.wealth-pitch .wealth-ticker { width: 60px; }
+.wealth-client button { width: auto; }
+.bank-loans td, .bank-loans th { padding: 2px 6px 2px 0; text-align: left; }
+.bank-incoming button, .bank-quotes button { width: auto; }
+@media (max-width: 560px) { .bank-loans { display: block; overflow-x: auto; } }

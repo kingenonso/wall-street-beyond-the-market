@@ -19,6 +19,7 @@ export const PAGES: Record<string, { href: string; name: string }> = {
   DUEL: { href: "#/live", name: "duels: your empire against another in a live event" },
   UNION: { href: "#/economy", name: "unions: pay demands and strikes in every industry" },
   ODDS: { href: "#/live", name: "prediction markets: bet YES or NO on what the game will decide" },
+  ALERTS: { href: "#/floor", name: "your alerts: those set, and those hit" },
   FLOOR: { href: "#/floor", name: "the trading floor: the market, news, positions and every trade on one screen" },
   AUCTION: { href: "#/auctions", name: "the Auction House: every auction running" },
   RANK: { href: "#/rank", name: "the rankings" },
@@ -34,11 +35,14 @@ const PAGE_WORDS: Record<string, string> = {
   COURTS: "COURT", TASKS: "WORK", AUCTIONS: "AUCTION",
 };
 
+export type AlertKind = "above" | "below" | "move" | "news" | "storm" | "wealth";
+
 export type Command =
   | { kind: "nothing" }
   | { kind: "show"; ticker: string }
   | { kind: "trade"; ticker: string; side: "buy" | "sell"; quantity: number; price_kobo: number | null }
   | { kind: "ripple"; ticker: string }
+  | { kind: "alert"; alert: { kind: AlertKind; ticker: string | null; level: number | null }; words: string }
   | { kind: "page"; href: string; name: string }
   | { kind: "help"; word: string; means: string; example?: string }
   | { kind: "help-list" }
@@ -112,6 +116,28 @@ export function readCommand(line: string, tickers: string[]): Command {
     return { kind: "trade", ticker: code, side: head === "BUY" ? "buy" : "sell", quantity, price_kobo: at };
   }
 
+  if (head === "ALERT") {
+    const example = `such as ALERT ${tickers[0] ?? "HMB"} > 9.50, ALERT ${tickers[0] ?? "HMB"} MOVE 5, ALERT ${tickers[0] ?? "HMB"} NEWS or ALERT STORM`;
+    if (rest.length === 0) return { kind: "unknown", message: `Say what to watch, ${example}.` };
+    if (rest.length === 1 && (rest[0] === "STORM" || rest[0] === "WEALTH")) {
+      const kind = rest[0] === "STORM" ? "storm" : "wealth";
+      return { kind: "alert", alert: { kind, ticker: null, level: null }, words: kind === "storm" ? "a flash storm on the Floor" : "a new wealth client" };
+    }
+    const [code, how, value] = rest;
+    if (!known(code)) return TICKER.test(code) ? notListed(code) : { kind: "unknown", message: `Say what to watch, ${example}.` };
+    if (how === "NEWS" && !value) return { kind: "alert", alert: { kind: "news", ticker: code, level: null }, words: `any story naming ${code}` };
+    if (how === "MOVE") {
+      const pct = Number((value ?? "").replace(/%$/, ""));
+      if (!value || !Number.isFinite(pct) || pct < 0.5 || pct > 50) return { kind: "unknown", message: `How big a day's move? Type ALERT ${code} MOVE 5 for 5%.` };
+      return { kind: "alert", alert: { kind: "move", ticker: code, level: Math.round(pct * 100) }, words: `${code} moving ${pct}% or more in a day` };
+    }
+    const side = how === ">" || how === "ABOVE" || how === ">=" ? "above" : how === "<" || how === "BELOW" || how === "<=" ? "below" : null;
+    if (!side) return { kind: "unknown", message: `Say what to watch, ${example}.` };
+    const at = value ? price(value) : null;
+    if (at === null || at === 0) return { kind: "unknown", message: `At what price? Write it in naira, such as ALERT ${code} ${side === "above" ? ">" : "<"} 9.50.` };
+    return { kind: "alert", alert: { kind: side, ticker: code, level: at }, words: `${code} at or ${side} ₦${(at / 100).toFixed(2)}` };
+  }
+
   if (head === "RIPPLE" || head === "WHY") {
     const code = rest[0];
     if (!code) return { kind: "unknown", message: `Type ${head} and a company, such as ${head} ${tickers[0] ?? "HMB"}.` };
@@ -154,6 +180,14 @@ export function hintsFor(line: string, shares: { ticker: string; name: string }[
     const code = words[1] ?? "";
     shares.filter((s) => s.ticker.startsWith(code)).slice(0, 5)
       .forEach((s) => hints.push({ text: `${verb} ${s.ticker} ${words[2] ?? "500"}`, does: `${verb === "BUY" ? "buy" : "sell"} ${s.name}: fills the form in` }));
+  }
+  if ("ALERT".startsWith(head) && head.length >= 2) {
+    const code = words[1] ?? "";
+    shares.filter((s) => s.ticker.startsWith(code)).slice(0, 2).forEach((s) => {
+      hints.push({ text: `ALERT ${s.ticker} > 9.50`, does: `tell you when ${s.name} reaches a price (or < for below)` });
+      hints.push({ text: `ALERT ${s.ticker} MOVE 5`, does: `tell you when ${s.name} moves 5% in a day` });
+    });
+    hints.push({ text: "ALERT STORM", does: "tell you when a flash storm hits the Floor" });
   }
   if ("RIPPLE".startsWith(head) || "WHY".startsWith(head)) {
     const code = words[1] ?? "";

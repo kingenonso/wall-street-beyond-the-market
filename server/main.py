@@ -132,6 +132,13 @@ def _close_due_quarters_once() -> None:
                     unions.tick(conn, now)
                 except Exception:
                     log.exception("The unions' deadlines failed; they will be tried again.")
+            # Alerts (18 November 2026): prices, moves, news, storms and wealth clients looked at for every alert set.
+            if conn.execute("SELECT to_regclass('alerts') IS NOT NULL").fetchone()[0]:
+                from simulation import alerts
+                try:
+                    alerts.tick(conn, now)
+                except Exception:
+                    log.exception("The alerts failed to be looked at; they will be tried again.")
             # The computer-run investors look at the market and renew their orders.
             investors.act(conn, now, force=rang)
             # After 22:00 the Closing Bell goes out, once for each trading day.
@@ -299,6 +306,7 @@ def _player_response(conn: Connection, row: dict) -> PlayerResponse:
         talent_waiting=_talent_waiting(conn, row["id"]),
         union_waiting=_union_waiting(conn, row["id"]),
         jury_waiting=_jury_waiting(conn, row["id"]),
+        alerts_unseen=_alerts_unseen(conn, row["id"]),
         theme=row.get("theme", "dark"), sound_on=row.get("sound_on", True),
         sound_volume=row.get("sound_volume", 30), tour_done=row.get("tour_done", False),
         work_in_hand=conn.execute("SELECT count(*) AS n FROM objectives WHERE player_id = %s AND state = 'active'", (row["id"],)).fetchone()["n"]
@@ -343,6 +351,11 @@ def _jury_waiting(conn: Connection, player_id) -> int:
     return conn.execute("SELECT count(*) AS n FROM jurors j JOIN court_cases k ON k.id = j.case_id WHERE j.player_id = %s"
                         " AND j.voted_at IS NULL AND j.struck_by IS NULL AND k.status IN ('jury', 'appeal')"
                         " AND j.round = CASE WHEN k.appealed_by IS NULL THEN 1 ELSE 2 END", (player_id,)).fetchone()["n"]
+
+
+def _alerts_unseen(conn: Connection, player_id) -> int:
+    from simulation import alerts
+    return alerts.unseen(conn, player_id)
 
 
 def _union_waiting(conn: Connection, player_id) -> list[dict]:
@@ -2033,3 +2046,4 @@ from server import government_routes  # noqa: E402,F401
 from server import live_routes  # noqa: E402,F401
 from server import floor_routes  # noqa: E402,F401
 from server import union_routes  # noqa: E402,F401
+from server import alert_routes  # noqa: E402,F401

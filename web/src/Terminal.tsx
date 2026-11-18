@@ -10,7 +10,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type
 import { hintsFor, readCommand, type Command } from "./command";
 import { TradePanel, type TradePreset } from "./Trade";
 import { LiveStrip } from "./Live";
-import { api, type CityFlow, type CompetitionScore, type DivisionRow, type Industry, type Player, type PriceLevel, type TradingDay } from "./api";
+import { api, ApiError, type CityFlow, type CompetitionScore, type DivisionRow, type Industry, type Player, type PriceLevel, type TradingDay } from "./api";
 import { formatCompact, formatNaira } from "./format";
 import { useLoad } from "./hooks";
 import { Trend } from "./LeftColumn";
@@ -359,6 +359,13 @@ function CommandLine({ onLoggedOut }: { onLoggedOut: () => void }) {
         setAnswer({ tone: "plain", text: `Why ${name(command.ticker)} moved is beside the wall.` });
         bringUp("term-ripple");
         break;
+      case "alert": {
+        const words = command.words;
+        api.setAlert(command.alert.kind, command.alert.ticker, command.alert.level)
+          .then((page) => setAnswer({ tone: "plain", text: `Alert set: ${words}. You will be told the moment it is hit.${page.result?.warning ? ` ${page.result.warning}` : ""} Type ALERTS to see them all.` }))
+          .catch((e) => setAnswer({ tone: "problem", text: e instanceof ApiError ? e.message : "Could not reach the server." }));
+        break;
+      }
       case "page":
         window.location.hash = command.href;
         break;

@@ -35,6 +35,7 @@ export type Player = {
   talent_waiting?: number;
   jury_waiting?: number;
   union_waiting?: { ticker: string; company: string; demand_bps: number; days_left: number }[];
+  alerts_unseen?: number;
   /** The redesign: the player's own look and sound, and whether the first-time tour has been seen. */
   theme: "dark" | "light";
   sound_on: boolean;
@@ -1258,6 +1259,62 @@ export type UnionsPage = {
   rules?: { dispute_at_bps: number; notice_days: number; strike_days: number[]; catch_up_bps: number; demand_bps: number[] };
 };
 
+/** Floor extras (17 November 2026): flash storms and the risk engine. */
+export type FloorLimits = { deal_most: Kobo; name_most: Kobo; day_loss_most: Kobo; set_by: string | null; set_at: string | null };
+export type FloorUsage = {
+  limits: FloorLimits; biggest: { ticker: string; shares: number; worth: Kobo } | null; day_pnl: Kobo; frozen: boolean; frozen_loss: Kobo | null;
+  loss_used_bps: number; name_used_bps: number;
+};
+export type FloorLoan = {
+  id: number; borrower_name: string; lender: string; grade: string; principal: Kobo; rate_bps: number; days: number; starts_at: string;
+  due_at: string; status: "open" | "repaid" | "shortfall" | "defaulted"; interest: Kobo; paid: Kobo; lost: Kobo; closed_at: string | null;
+  interest_now: Kobo;
+};
+export type FloorBank = {
+  ready: boolean; policy_rate_bps?: number; days?: number[]; least?: Kobo; most?: Kobo; most_rate_bps?: number; window?: [number, number];
+  grades?: { grade: string; words: string; yearly_fail_bps: number; expected_loss_bps: number }[]; recovery_bps?: number;
+  desks?: { key: string; name: string; kind: string }[];
+  file?: { grade: string; words: string; worth: Kobo; debts: Kobo; in_default: boolean; repaid: number; failed: number }; owed?: Kobo;
+  asks?: { id: number; amount: Kobo; days: number; quotes_until: string; take_until: string;
+           quotes: { id: number; bank: string; rate_bps: number; interest: Kobo }[] }[];
+  borrowed?: FloorLoan[];
+  incoming?: { id: number; client: string; computer: boolean; purpose: string; grade: string; grade_words: string; amount: Kobo; days: number;
+               quotes_until: string; my_rate_bps: number | null; expected_loss_bps: number; loan_fail_bps: number;
+               file?: { worth: Kobo; debts: Kobo; in_default: boolean; repaid: number; failed: number } }[];
+  book?: FloorLoan[]; record?: { loans: number; lent: Kobo; earned: Kobo; lost: Kobo; failed: number };
+};
+export type WealthClient = {
+  id: number; name: string; kind: string; goal: string; amount: Kobo; most_shares_bps: number; least_cash_bps: number; most_drop_bps: number;
+  goal_bps: number; banned: string[]; index_bps: number;
+};
+export type WealthManaged = WealthClient & {
+  fee_bps: number; perf_bps: number; started_at: string; satisfaction_bps: number; worth: Kobo; cash: Kobo; shares_value: Kobo;
+  shares_bps: number; cash_bps: number; quarter_bps: number; fall_bps: number;
+  lines: { ticker: string; sector: string; shares: number; value: Kobo }[];
+  orders: { id: number; ticker: string; side: string; quantity: number; remaining: number; limit_price: Kobo }[];
+  breaches: { kind: string; words: string; at: string }[];
+  reviews: { period: number; return_bps: number; benchmark_bps: number; breaches: number; fee: Kobo; perf_fee: Kobo; satisfaction_bps: number;
+             verdict: string; words: string }[];
+};
+export type FloorWealth = {
+  ready: boolean; manager?: boolean; most_fee_bps?: number; most_perf_bps?: number; most_clients?: number;
+  seeking?: (WealthClient & { pitches_until: string; my_pitch: { fee_bps: number; perf_bps: number } | null; rivals: number })[];
+  record?: { reviews: number; satisfaction_bps: number | null; left: number; kept: number; score: number };
+  clients?: WealthManaged[]; gone?: { name: string; left_at: string; left_why: string }[];
+};
+export type Alerts = {
+  ready: boolean; most?: number; unseen?: number;
+  alerts?: { id: number; kind: string; ticker: string | null; level: string | null; note: string | null; hits: number; created_at: string; words: string }[];
+  hits?: { id: number; at: string; ticker: string | null; words: string; seen: boolean }[];
+  result?: { id: number; words: string; warning?: string };
+};
+export type FloorRisk = {
+  ready: boolean; base?: { deal_most: Kobo; name_most: Kobo; day_loss_most: Kobo }; most_factor?: number;
+  storm?: { ticker: string; company: string; reason: string; ends_at: string } | null;
+  storms_today?: { starts_at: string; ticker: string; reason: string }[];
+  mine?: FloorUsage; team?: (FloorUsage & { player_id: string; name: string })[];
+};
+
 /** Prediction markets (16 November 2026). */
 export type PredictionMarket = {
   id: number; kind: "rate_rise" | "profit_beat" | "live_kind" | "live_fall" | "union_wave" | "general_strike"; area: string; question: string; details: string;
@@ -1655,6 +1712,30 @@ export const api = {
   unionMediator: (dispute_id: number) => request<UnionsPage>("/unions/mediator", { method: "POST", body: JSON.stringify({ dispute_id }) }),
   unionAdvise: (dispute_id: number, advice: "agree" | "offer" | "refuse", offer_bps: number | null, note: string) =>
     request<UnionsPage>("/unions/advise", { method: "POST", body: JSON.stringify({ dispute_id, advice, offer_bps, note }) }),
+  floorRisk: () => request<FloorRisk>("/floor/risk"),
+  floorBank: () => request<FloorBank>("/floor/bank"),
+  alerts: () => request<Alerts>("/alerts"),
+  setAlert: (kind: string, ticker: string | null, level: number | null, note?: string) =>
+    request<Alerts>("/alerts", { method: "POST", body: JSON.stringify({ kind, ticker, level, note: note || null }) }),
+  removeAlert: (alert_id: number) => request<Alerts>("/alerts/remove", { method: "POST", body: JSON.stringify({ alert_id }) }),
+  alertsSeen: () => request<Alerts>("/alerts/seen", { method: "POST" }),
+  floorWealth: () => request<FloorWealth>("/floor/wealth"),
+  floorWealthPitch: (client_id: number, fee_bps: number, perf_bps: number) =>
+    request<FloorWealth>("/floor/wealth/pitch", { method: "POST", body: JSON.stringify({ client_id, fee_bps, perf_bps }) }),
+  floorWealthTrade: (client_id: number, ticker: string, side: "buy" | "sell", quantity: number, limit_price: number) =>
+    request<FloorWealth>("/floor/wealth/trade", { method: "POST", body: JSON.stringify({ client_id, ticker, side, quantity, limit_price }) }),
+  floorWealthCancel: (client_id: number, order_id: number) =>
+    request<FloorWealth>("/floor/wealth/cancel", { method: "POST", body: JSON.stringify({ client_id, order_id }) }),
+  floorWealthHandBack: (client_id: number) => request<FloorWealth>("/floor/wealth/hand-back", { method: "POST", body: JSON.stringify({ client_id }) }),
+  floorBankAsk: (amount: number, days: number, seconds: number, desks: string[]) =>
+    request<FloorBank>("/floor/bank/ask", { method: "POST", body: JSON.stringify({ amount, days, seconds, desks }) }),
+  floorBankQuote: (ask_id: number, rate_bps: number) =>
+    request<FloorBank>("/floor/bank/quote", { method: "POST", body: JSON.stringify({ ask_id, rate_bps }) }),
+  floorBankTake: (ask_id: number, quote_id: number) =>
+    request<FloorBank>("/floor/bank/take", { method: "POST", body: JSON.stringify({ ask_id, quote_id }) }),
+  floorBankRepay: (loan_id: number) => request<FloorBank>("/floor/bank/repay", { method: "POST", body: JSON.stringify({ loan_id }) }),
+  floorLimits: (banker_id: string, deal_most: number, name_most: number, day_loss_most: number) =>
+    request<FloorRisk>("/floor/limits", { method: "POST", body: JSON.stringify({ banker_id, deal_most, name_most, day_loss_most }) }),
   predictions: () => request<PredictionsPage>("/predictions"),
   predictionTrade: (market_id: number, side: "yes" | "no", shares: number) =>
     request<PredictionsPage>("/predictions/trade", { method: "POST", body: JSON.stringify({ market_id, side, shares }) }),

@@ -288,6 +288,9 @@ def set_desk(conn: Connection, player_id, open_it: bool, now: datetime) -> dict:
     """An investment banker opens their desk to take requests, or closes it."""
     if not _is_banker(conn, player_id):
         raise FloorError("A desk is an investment banker's: choose that build to make prices for clients.")
+    from simulation import floor_extras
+    if open_it and floor_extras.frozen(conn, player_id, now):
+        raise FloorError("Your desk is frozen for the rest of the trading day: today's losses passed your limit.")
     conn.execute("INSERT INTO floor_desks (player_id, open, changed_at) VALUES (%s, %s, %s)"
                  " ON CONFLICT (player_id) DO UPDATE SET open = EXCLUDED.open, changed_at = EXCLUDED.changed_at",
                  (player_id, bool(open_it), now))
@@ -593,6 +596,10 @@ def quote(conn: Connection, player_id, request_id: int, bid: int | None, offer: 
                 for p in (bid, offer):
                     if p is not None and abs(p - bond["fair"]) * BPS > bond["fair"] * data.FLOOR_BOND_BAND_BPS:
                         raise FloorError(f"A bond's price on the Floor stays within {data.FLOOR_BOND_BAND_BPS / 100:g}% of its fair value, {_money(bond['fair'])}.")
+        from simulation import (
+            floor_extras,  # the risk engine (17 November 2026): limits and a frozen desk
+        )
+        floor_extras.check_quote(conn, player_id, request, bid, offer, now)
         conn.execute("UPDATE floor_quotes SET status = 'replaced' WHERE request_id = %s AND desk = %s AND status = 'live'", (request_id, desk))
         row = _one(conn, "INSERT INTO floor_quotes (request_id, desk, bid, offer, margin_bps, firm, created_at, shown_at, valid_until)"
                          " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
@@ -1073,8 +1080,10 @@ def _computer_calls(conn: Connection, now: datetime) -> int:
     account = ledger.account_id(conn, ledger.INVESTORS_INSTITUTIONS)
     busy = _busy(conn, now)
     made = 0
+    from simulation import floor_extras  # a flash storm (17 November 2026)
+    storming = floor_extras.storm_now(conn, now) is not None
     for d in open_desks:
-        chance = data.FLOOR_CLIENT_CALL_CHANCE / (data.FLOOR_HOUR_CALL_FACTOR if busy else 1)
+        chance = data.FLOOR_CLIENT_CALL_CHANCE / (data.FLOOR_HOUR_CALL_FACTOR if busy else 1) / (data.FLOOR_STORM_CALL_FACTOR if storming else 1)
         if _unit(seed, "floor-call", slot, d["player_id"]) * chance >= 1:
             continue
         if _one(conn, "SELECT 1 AS x FROM floor_requests r JOIN floor_request_desks k ON k.request_id = r.id"
@@ -1086,6 +1095,10 @@ def _computer_calls(conn: Connection, now: datetime) -> int:
         price = share["last_price"] or share["reference_price"]
         low, high = data.FLOOR_CLIENT_DEAL_NAIRA
         value = (low + round(_unit(seed, "floor-size", slot, d["player_id"]) * (high - low))) * 100
+        if storming:
+            _factor, ticker, value, seconds = floor_extras.storm_call(conn, now, seed, slot, d["player_id"], ticker, value, seconds)
+            share = _share(conn, ticker, now)
+            price = share["last_price"] or share["reference_price"]
         quantity = max(value // max(price, 1) // 100 * 100, 100)
         side = "buy" if _unit(seed, "floor-side", slot, d["player_id"]) < 0.5 else "sell"
         rivals = sorted(COMPUTER, key=lambda c: _unit(seed, "floor-rival", slot, d["player_id"], c))[:2]
@@ -1120,6 +1133,15 @@ def tick(conn: Connection, now: datetime) -> None:
         notes_tick(conn, now)
         hour_tick(conn, now)
     mandates_tick(conn, now)
+    from simulation import (
+        floor_extras,  # flash storms and the risk engine (17 November 2026)
+    )
+    floor_extras.storms_tick(conn, now)
+    from simulation import floor_bank  # the bank desk (17 November 2026)
+    floor_bank.tick(conn, now)
+    from simulation import floor_wealth  # the wealth desk (17 November 2026)
+    floor_wealth.tick(conn, now)
+    floor_extras.freeze_tick(conn, now)
     from simulation import prime  # the Archegos moment
     prime.tick(conn, now)
     if clock.market_state(now).value == "open":

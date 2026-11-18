@@ -34,6 +34,11 @@ export function urgent(board: ObjectiveBoard | null, career: Career | null, play
                  text: "Read the case file and vote: how much of the claim the record proves, and the penalty. Each vote is paid.",
                  action: "Go to the tribunal", href: "#/court" });
   }
+  if (player?.alerts_unseen) {
+    cards.push({ tag: "Alerts", when: "Just now", title: `${player.alerts_unseen} ${player.alerts_unseen === 1 ? "alert has" : "alerts have"} been hit`,
+                 text: "Something you asked to be told about has happened: a price, a move, a story, a storm or a new client.",
+                 action: "See your alerts", href: "#/floor" });
+  }
   for (const u of player?.union_waiting ?? []) {
     cards.push({ tag: "Union", when: u.days_left === 0 ? "Today" : `${u.days_left} game day${u.days_left === 1 ? "" : "s"} left`,
                  title: `${u.company}'s staff want ${(u.demand_bps / 100).toFixed(1).replace(/\.0$/, "")}% more pay`,
